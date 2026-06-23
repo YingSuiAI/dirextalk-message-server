@@ -1,0 +1,4 @@
+interface:
+  display_name: "Direxio Targeted Verification"
+  short_description: "Pick focused checks for repo changes"
+  default_prompt: "Use $direxio-targeted-verification to choose and run focused formatting, tests, builds, JSON, compose, and lint checks for a Direxio server change."

@@ -1,0 +1,205 @@
+package p2p
+
+import (
+	"context"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type recordingMatrixSessionIssuer struct {
+	deviceID    string
+	profileUser string
+	profileName string
+	profileURL  string
+}
+
+func (i *recordingMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string) (string, error) {
+	i.deviceID = deviceID
+	return "matrix-token-for-" + deviceID, nil
+}
+
+func (i *recordingMatrixSessionIssuer) UpdateMatrixProfile(ctx context.Context, userID, displayName, avatarURL string) error {
+	i.profileUser = userID
+	i.profileName = displayName
+	i.profileURL = avatarURL
+	return nil
+}
+
+type concurrentGuardMatrixSessionIssuer struct {
+	active    int32
+	maxActive int32
+	calls     int32
+}
+
+func (i *concurrentGuardMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string) (string, error) {
+	active := atomic.AddInt32(&i.active, 1)
+	for {
+		maxActive := atomic.LoadInt32(&i.maxActive)
+		if active <= maxActive || atomic.CompareAndSwapInt32(&i.maxActive, maxActive, active) {
+			break
+		}
+	}
+	defer atomic.AddInt32(&i.active, -1)
+	call := atomic.AddInt32(&i.calls, 1)
+	time.Sleep(20 * time.Millisecond)
+	return "matrix-token-" + deviceID + "-" + strconv.FormatInt(int64(call), 10), nil
+}
+
+func (i *concurrentGuardMatrixSessionIssuer) UpdateMatrixProfile(ctx context.Context, userID, displayName, avatarURL string) error {
+	return nil
+}
+
+func bootstrapService(t *testing.T, service *Service) map[string]any {
+	t.Helper()
+	return mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
+}
+
+func requireEightDigitPassword(t *testing.T, password string) {
+	t.Helper()
+	if len(password) != 8 {
+		t.Fatalf("expected 8 digit password, got %q", password)
+	}
+	for _, char := range password {
+		if char < '0' || char > '9' {
+			t.Fatalf("expected 8 digit password, got %q", password)
+		}
+	}
+}
+
+func TestPortalAuthUsesRequestedMatrixDeviceID(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	session := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{
+		"password":  service.password,
+		"device_id": "DEVICE_B",
+	})
+
+	if issuer.deviceID != "DEVICE_B" {
+		t.Fatalf("expected Matrix issuer to receive requested device id, got %q", issuer.deviceID)
+	}
+	if session["device_id"] != "DEVICE_B" || session["access_token"] != "matrix-token-for-DEVICE_B" {
+		t.Fatalf("expected session to use requested device id and token, got %#v", session)
+	}
+	if _, ok := session["admin_access_token"]; ok {
+		t.Fatalf("session must not expose admin_access_token: %#v", session)
+	}
+	if _, ok := session["matrix_access_token"]; ok {
+		t.Fatalf("session must not expose matrix_access_token: %#v", session)
+	}
+}
+
+func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	session := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
+		"device_id": "DIREXIO_CLI",
+	})
+
+	if issuer.deviceID != "DIREXIO_CLI" {
+		t.Fatalf("expected Matrix issuer to receive CLI device id, got %q", issuer.deviceID)
+	}
+	if session["device_id"] != "DIREXIO_CLI" {
+		t.Fatalf("expected session device id to be DIREXIO_CLI, got %#v", session)
+	}
+	if session["access_token"] != "matrix-token-for-DIREXIO_CLI" {
+		t.Fatalf("expected Matrix access token in internal session response, got %#v", session)
+	}
+	if session["user_id"] != "@owner:example.com" {
+		t.Fatalf("expected portal owner user id, got %#v", session)
+	}
+	if _, ok := session["password"]; ok {
+		t.Fatalf("agent Matrix session must not expose portal password: %#v", session)
+	}
+	if _, ok := session["agent_token"]; ok {
+		t.Fatalf("agent Matrix session must not echo agent token: %#v", session)
+	}
+}
+
+func TestPortalAuthSerializesMatrixSessionRefresh(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &concurrentGuardMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	const workers = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make(chan string, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := service.Handle(context.Background(), "portal.auth", map[string]any{
+				"password":  service.password,
+				"device_id": "DEVICE_A",
+			})
+			if err != nil {
+				errs <- err.Error
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("portal.auth failed under concurrent refresh: %s", err)
+	}
+
+	if got := atomic.LoadInt32(&issuer.maxActive); got > 1 {
+		t.Fatalf("expected Matrix session refresh to be serialized, max concurrent calls=%d", got)
+	}
+	if got := atomic.LoadInt32(&issuer.calls); got != workers {
+		t.Fatalf("expected %d session refresh calls, got %d", workers, got)
+	}
+}
+
+func TestPortalAuthWithoutDeviceIDDoesNotReusePreviousMatrixDeviceID(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	first := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{
+		"password":  service.password,
+		"device_id": "DEVICE_A",
+	})
+	second := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{
+		"password": service.password,
+	})
+
+	firstDevice := first["device_id"].(string)
+	secondDevice := second["device_id"].(string)
+	if firstDevice != "DEVICE_A" {
+		t.Fatalf("expected first auth to use requested device id, got %#v", first)
+	}
+	if secondDevice == "" || secondDevice == firstDevice || secondDevice == matrixPortalDeviceID {
+		t.Fatalf("expected missing device_id to mint a fresh Matrix device id, first=%q second=%q", firstDevice, secondDevice)
+	}
+	if issuer.deviceID != secondDevice {
+		t.Fatalf("expected issuer to receive generated device id %q, got %q", secondDevice, issuer.deviceID)
+	}
+}
+
+func TestProfileUpdateSyncsMatrixProfileForUserSearch(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	profile := mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
+		"display_name": "Custom Nick",
+		"avatar_url":   "mxc://example.com/custom",
+	})
+
+	if profile.DisplayName != "Custom Nick" {
+		t.Fatalf("expected product profile to update, got %#v", profile)
+	}
+	if issuer.profileUser != "@owner:example.com" || issuer.profileName != "Custom Nick" || issuer.profileURL != "mxc://example.com/custom" {
+		t.Fatalf("expected Matrix profile sync for user search, got user=%q name=%q avatar=%q", issuer.profileUser, issuer.profileName, issuer.profileURL)
+	}
+}

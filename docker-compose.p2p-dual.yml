@@ -1,0 +1,304 @@
+name: direxio-p2p-dual
+
+# Set P2P_DUAL_PUBLIC_HOST to the host/IP address that all local node containers
+# can reach from inside Docker, for example a LAN IP of the development machine.
+# The environment variable name is kept for compatibility with existing scripts.
+# A/B/C Matrix server names become:
+#   ${P2P_DUAL_PUBLIC_HOST}:18448
+#   ${P2P_DUAL_PUBLIC_HOST}:28448
+#   ${P2P_DUAL_PUBLIC_HOST}:38448
+
+x-message-server-local: &message-server-local
+  image: direxio/message-server:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-postgres-env: &postgres-env
+  POSTGRES_USER: direxio_message_server
+  POSTGRES_PASSWORD: direxio_message_server
+  POSTGRES_DB: direxio_message_server
+
+services:
+  postgres-a:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      <<: *postgres-env
+    ports:
+      - "15433:5432"
+    volumes:
+      - p2p_dual_postgres_a:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - p2p_dual_a
+
+  postgres-b:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      <<: *postgres-env
+    ports:
+      - "15434:5432"
+    volumes:
+      - p2p_dual_postgres_b:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - p2p_dual_b
+
+  postgres-c:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      <<: *postgres-env
+    ports:
+      - "15435:5432"
+    volumes:
+      - p2p_dual_postgres_c:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - p2p_dual_c
+
+  dendrite-a-init:
+    <<: *message-server-local
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /etc/direxio-message-server /var/direxio-message-server
+        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        fi
+        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+          /usr/bin/generate-keys \
+            -tls-cert /etc/direxio-message-server/server.crt \
+            -tls-key /etc/direxio-message-server/server.key \
+            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+        fi
+        /usr/bin/generate-config \
+          -dir /var/direxio-message-server \
+          -db postgres://direxio_message_server:direxio_message_server@postgres-a/direxio_message_server?sslmode=disable \
+          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:18448 \
+          > /etc/direxio-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+    volumes:
+      - p2p_dual_message_server_a_config:/etc/direxio-message-server
+      - p2p_dual_message_server_a_data:/var/direxio-message-server
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+    networks:
+      - p2p_dual_a
+
+  dendrite-b-init:
+    <<: *message-server-local
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /etc/direxio-message-server /var/direxio-message-server
+        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        fi
+        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+          /usr/bin/generate-keys \
+            -tls-cert /etc/direxio-message-server/server.crt \
+            -tls-key /etc/direxio-message-server/server.key \
+            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+        fi
+        /usr/bin/generate-config \
+          -dir /var/direxio-message-server \
+          -db postgres://direxio_message_server:direxio_message_server@postgres-b/direxio_message_server?sslmode=disable \
+          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:28448 \
+          > /etc/direxio-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+    volumes:
+      - p2p_dual_message_server_b_config:/etc/direxio-message-server
+      - p2p_dual_message_server_b_data:/var/direxio-message-server
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+    networks:
+      - p2p_dual_b
+
+  dendrite-c-init:
+    <<: *message-server-local
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /etc/direxio-message-server /var/direxio-message-server
+        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        fi
+        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+          /usr/bin/generate-keys \
+            -tls-cert /etc/direxio-message-server/server.crt \
+            -tls-key /etc/direxio-message-server/server.key \
+            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+        fi
+        /usr/bin/generate-config \
+          -dir /var/direxio-message-server \
+          -db postgres://direxio_message_server:direxio_message_server@postgres-c/direxio_message_server?sslmode=disable \
+          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:38448 \
+          > /etc/direxio-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+    volumes:
+      - p2p_dual_message_server_c_config:/etc/direxio-message-server
+      - p2p_dual_message_server_c_data:/var/direxio-message-server
+    depends_on:
+      postgres-c:
+        condition: service_healthy
+    networks:
+      - p2p_dual_c
+
+  dendrite-a:
+    <<: *message-server-local
+    restart: unless-stopped
+    environment:
+      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
+    command:
+      - --config
+      - /etc/direxio-message-server/message-server.yaml
+      - --http-bind-address
+      - :8008
+      - --https-bind-address
+      - :8448
+      - --tls-cert
+      - /etc/direxio-message-server/server.crt
+      - --tls-key
+      - /etc/direxio-message-server/server.key
+    ports:
+      - "18008:8008"
+      - "18448:8448"
+    volumes:
+      - p2p_dual_message_server_a_config:/etc/direxio-message-server
+      - p2p_dual_message_server_a_data:/var/direxio-message-server
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+      dendrite-a-init:
+        condition: service_completed_successfully
+    networks:
+      - p2p_dual_a
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  dendrite-b:
+    <<: *message-server-local
+    restart: unless-stopped
+    environment:
+      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
+    command:
+      - --config
+      - /etc/direxio-message-server/message-server.yaml
+      - --http-bind-address
+      - :8008
+      - --https-bind-address
+      - :8448
+      - --tls-cert
+      - /etc/direxio-message-server/server.crt
+      - --tls-key
+      - /etc/direxio-message-server/server.key
+    ports:
+      - "28008:8008"
+      - "28448:8448"
+    volumes:
+      - p2p_dual_message_server_b_config:/etc/direxio-message-server
+      - p2p_dual_message_server_b_data:/var/direxio-message-server
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+      dendrite-b-init:
+        condition: service_completed_successfully
+    networks:
+      - p2p_dual_b
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  dendrite-c:
+    <<: *message-server-local
+    restart: unless-stopped
+    environment:
+      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
+    command:
+      - --config
+      - /etc/direxio-message-server/message-server.yaml
+      - --http-bind-address
+      - :8008
+      - --https-bind-address
+      - :8448
+      - --tls-cert
+      - /etc/direxio-message-server/server.crt
+      - --tls-key
+      - /etc/direxio-message-server/server.key
+    ports:
+      - "38008:8008"
+      - "38448:8448"
+    volumes:
+      - p2p_dual_message_server_c_config:/etc/direxio-message-server
+      - p2p_dual_message_server_c_data:/var/direxio-message-server
+    depends_on:
+      postgres-c:
+        condition: service_healthy
+      dendrite-c-init:
+        condition: service_completed_successfully
+    networks:
+      - p2p_dual_c
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  p2p_dual_postgres_a:
+  p2p_dual_postgres_b:
+  p2p_dual_postgres_c:
+  p2p_dual_message_server_a_config:
+  p2p_dual_message_server_a_data:
+  p2p_dual_message_server_b_config:
+  p2p_dual_message_server_b_data:
+  p2p_dual_message_server_c_config:
+  p2p_dual_message_server_c_data:
+
+networks:
+  p2p_dual_a:
+    driver: bridge
+  p2p_dual_b:
+    driver: bridge
+  p2p_dual_c:
+    driver: bridge

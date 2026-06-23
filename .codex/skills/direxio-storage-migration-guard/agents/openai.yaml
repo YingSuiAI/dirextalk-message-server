@@ -1,0 +1,4 @@
+interface:
+  display_name: "Direxio Storage Migration Guard"
+  short_description: "Design durable storage and migrations"
+  default_prompt: "Use $direxio-storage-migration-guard before changing durable state, SQL tables, migrations, indexes, or database selection in the Direxio server."

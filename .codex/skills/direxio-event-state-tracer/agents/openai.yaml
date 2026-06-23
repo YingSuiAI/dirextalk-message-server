@@ -1,0 +1,4 @@
+interface:
+  display_name: "Direxio Event State Tracer"
+  short_description: "Trace Matrix events into product state"
+  default_prompt: "Use $direxio-event-state-tracer to trace room events, membership, policy, redaction, sync, federation, and Direxio read-model state changes."

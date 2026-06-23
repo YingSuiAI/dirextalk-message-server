@@ -1,0 +1,69 @@
+{{ if not .Values.persistence.media.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    helm.sh/resource-policy: keep
+  name: {{ include "dendrite.fullname" . }}-media-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.media.capacity }}
+  {{ $storageClass := .Values.persistence.media.storageClass | default .Values.persistence.storageClass }}
+  {{- if $storageClass }}
+  {{- if (eq "-" $storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ $storageClass }}"
+  {{- end }}
+  {{- end }}
+{{ end }}
+{{ if not .Values.persistence.jetstream.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    helm.sh/resource-policy: keep
+  name: {{ include "dendrite.fullname" . }}-jetstream-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.jetstream.capacity }}
+  {{ $storageClass := .Values.persistence.jetstream.storageClass | default .Values.persistence.storageClass }}
+  {{- if $storageClass }}
+  {{- if (eq "-" $storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ $storageClass }}"
+  {{- end }}
+  {{- end }}
+{{ end }}
+{{ if not .Values.persistence.search.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    helm.sh/resource-policy: keep
+  name: {{ include "dendrite.fullname" . }}-search-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.search.capacity }}
+  {{ $storageClass := .Values.persistence.search.storageClass | default .Values.persistence.storageClass }}
+  {{- if $storageClass }}
+  {{- if (eq "-" $storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ $storageClass }}"
+  {{- end }}
+  {{- end }}
+{{ end }}

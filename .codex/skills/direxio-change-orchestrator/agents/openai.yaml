@@ -1,0 +1,4 @@
+interface:
+  display_name: "Direxio Change Orchestrator"
+  short_description: "Map global change impact before editing"
+  default_prompt: "Use $direxio-change-orchestrator to map the affected code paths, contracts, state, and verification for a Direxio server change."

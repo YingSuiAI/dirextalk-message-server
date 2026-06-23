@@ -1,0 +1,28 @@
+# Blacklisted due to https://github.com/matrix-org/matrix-spec/issues/942
+The only membership state included in a gapped incremental sync is for senders in the timeline
+
+# Flakey
+AS-ghosted users can use rooms themselves
+AS-ghosted users can use rooms via AS
+Events in rooms with AS-hosted room aliases are sent to AS server
+Inviting an AS-hosted user asks the AS server
+Accesing an AS-hosted room alias asks the AS server
+If user leaves room, remote user changes device and rejoins we see update in /sync and /keys/changes
+New federated private chats get full presence information (SYN-115)
+
+# This will fail in HTTP API mode, so blacklisted for now
+If a device list update goes missing, the server resyncs on the next one
+
+# Might be a bug in the test because leaves do appear :-(
+Leaves are present in non-gapped incremental syncs
+
+# We don't have any state to calculate m.room.guest_access when accepting invites
+Guest users can accept invites to private rooms over federation
+
+# Tests Synapse specific behavior
+/state returns M_NOT_FOUND for an outlier
+/state_ids returns M_NOT_FOUND for an outlier
+
+# this is a silly restriction as it basically stops servers from communicating, so we relax it
+# see https://github.com/element-hq/synapse/issues/7543
+Server rejects invalid JSON in a version 6 room

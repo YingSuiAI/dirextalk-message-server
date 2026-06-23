@@ -1,0 +1,598 @@
+package productpolicy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
+	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
+)
+
+const (
+	DirexioRoomTypeDirect  = "io.direxio.room.direct"
+	DirexioRoomTypeGroup   = "io.direxio.room.group"
+	DirexioRoomTypeChannel = "io.direxio.room.channel"
+
+	DirexioRoomProfileEventType  = "io.direxio.room.profile"
+	DirexioMemberPolicyEventType = "io.direxio.member.policy"
+	DirexioJoinRequestEventType  = "io.direxio.join_request"
+)
+
+const (
+	userStateKeyPrefix = "user:"
+)
+
+func UserStateKey(mxid string) string {
+	return userStateKeyPrefix + strings.TrimSpace(mxid)
+}
+
+func UserIDFromStateKey(stateKey string) string {
+	stateKey = strings.TrimSpace(stateKey)
+	if strings.HasPrefix(stateKey, userStateKeyPrefix) {
+		return strings.TrimPrefix(stateKey, userStateKeyPrefix)
+	}
+	return stateKey
+}
+
+type CurrentStateQuerier interface {
+	QueryCurrentState(ctx context.Context, req *api.QueryCurrentStateRequest, res *api.QueryCurrentStateResponse) error
+	QueryMembershipForUser(ctx context.Context, req *api.QueryMembershipForUserRequest, res *api.QueryMembershipForUserResponse) error
+}
+
+type RedactionQuerier interface {
+	CurrentStateQuerier
+	QueryEventsByID(ctx context.Context, req *api.QueryEventsByIDRequest, res *api.QueryEventsByIDResponse) error
+}
+
+type invitePendingQuerier interface {
+	InvitePending(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (bool, error)
+}
+
+type ClientEventRequest struct {
+	RoomID     string
+	SenderMXID string
+	EventType  string
+	StateKey   *string
+	Content    map[string]any
+}
+
+type ClientRedactionRequest struct {
+	RoomID        string
+	SenderMXID    string
+	TargetEventID string
+}
+
+type ClientMembershipRequest struct {
+	RoomID     string
+	SenderMXID string
+	TargetMXID string
+	Membership string
+}
+
+type PolicyError struct {
+	Code    int
+	Message string
+}
+
+func (e *PolicyError) Error() string {
+	return e.Message
+}
+
+func Forbidden(message string) *PolicyError {
+	return &PolicyError{Code: 403, Message: message}
+}
+
+func ValidateClientEvent(ctx context.Context, querier CurrentStateQuerier, req ClientEventRequest) error {
+	if querier == nil {
+		return nil
+	}
+	eventType := strings.TrimSpace(req.EventType)
+	if !isProductPolicyEvent(eventType) {
+		return nil
+	}
+	room, err := resolveRoom(ctx, querier, req.RoomID, req.SenderMXID)
+	if err != nil {
+		return err
+	}
+	if !room.Product {
+		return nil
+	}
+	if room.Dissolved {
+		return Forbidden("direxio room is dissolved")
+	}
+	if !room.SenderJoined {
+		return Forbidden("sender is not joined to the direxio room")
+	}
+	if room.SenderMuted {
+		return Forbidden("sender is muted in the direxio room")
+	}
+	if room.RoomType == DirexioRoomTypeDirect && !room.DirectPeerJoined {
+		return Forbidden("direct room peer is not joined to the direxio room")
+	}
+	if room.RoomType == DirexioRoomTypeChannel && !room.SenderPrivileged() {
+		switch {
+		case isChannelPostEvent(req.Content):
+			return Forbidden("sender cannot create channel posts in this direxio room")
+		case !room.CommentsEnabled && isChannelCommentEvent(eventType, req.Content):
+			return Forbidden("channel comments are disabled")
+		}
+	}
+	return nil
+}
+
+func ValidateClientRedaction(ctx context.Context, querier RedactionQuerier, req ClientRedactionRequest) error {
+	if querier == nil {
+		return nil
+	}
+	room, err := resolveRoom(ctx, querier, req.RoomID, req.SenderMXID)
+	if err != nil {
+		return err
+	}
+	if !room.Product {
+		return nil
+	}
+	if room.Dissolved {
+		return Forbidden("direxio room is dissolved")
+	}
+	if !room.SenderJoined {
+		return Forbidden("sender is not joined to the direxio room")
+	}
+	if room.SenderMuted {
+		return Forbidden("sender is muted in the direxio room")
+	}
+	target, err := queryTargetEvent(ctx, querier, req.RoomID, req.TargetEventID)
+	if err != nil || target == nil {
+		return err
+	}
+	if string(target.SenderID()) == req.SenderMXID || room.SenderPrivileged() {
+		return nil
+	}
+	return Forbidden("sender cannot redact another sender in direxio room")
+}
+
+func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, req ClientMembershipRequest) error {
+	if querier == nil {
+		return nil
+	}
+	room, err := resolveRoom(ctx, querier, req.RoomID, req.SenderMXID)
+	if err != nil {
+		return err
+	}
+	if !room.Product {
+		return nil
+	}
+	membership := strings.ToLower(strings.TrimSpace(req.Membership))
+	if membership == string(spec.Join) && strings.TrimSpace(req.SenderMXID) == strings.TrimSpace(req.TargetMXID) {
+		if room.Dissolved {
+			return Forbidden("direxio room is dissolved")
+		}
+		return validateJoin(room)
+	}
+	if membership == string(spec.Leave) && strings.TrimSpace(req.SenderMXID) == strings.TrimSpace(req.TargetMXID) {
+		return nil
+	}
+	if room.Dissolved {
+		return Forbidden("direxio room is dissolved")
+	}
+	if !room.SenderJoined {
+		return Forbidden("sender is not joined to the direxio room")
+	}
+	switch membership {
+	case string(spec.Invite):
+		if room.DirectPeerInvite(req.SenderMXID, req.TargetMXID) {
+			return nil
+		}
+		if room.RoomType == DirexioRoomTypeDirect {
+			wasMember, err := priorRoomMember(ctx, querier, req.RoomID, req.TargetMXID)
+			if err != nil {
+				return err
+			}
+			if wasMember {
+				return nil
+			}
+		}
+		if room.RoomType == DirexioRoomTypeGroup && strings.EqualFold(room.InvitePolicy, "member") {
+			return nil
+		}
+		if room.SenderPrivileged() {
+			return nil
+		}
+		return Forbidden("sender cannot invite members to this direxio room")
+	case string(spec.Ban):
+		if room.SenderPrivileged() {
+			return nil
+		}
+		return Forbidden("sender cannot ban members in this direxio room")
+	case string(spec.Leave):
+		if room.SenderPrivileged() {
+			return nil
+		}
+		return Forbidden("sender cannot remove another member from this direxio room")
+	default:
+		return nil
+	}
+}
+
+func validateJoin(room roomPolicy) error {
+	if room.SenderJoined {
+		return nil
+	}
+	if strings.EqualFold(room.SenderMembership, string(spec.Invite)) {
+		return nil
+	}
+	switch room.RoomType {
+	case DirexioRoomTypeChannel:
+		if strings.EqualFold(room.JoinPolicy, "open") {
+			return nil
+		}
+		if strings.EqualFold(room.JoinRequestStatus, "approved") {
+			return nil
+		}
+		return Forbidden("channel join requires approved join request")
+	case DirexioRoomTypeGroup:
+		return Forbidden("group join requires invite")
+	case DirexioRoomTypeDirect:
+		return Forbidden("direct room join requires invite")
+	default:
+		return Forbidden("sender is not joined to the direxio room")
+	}
+}
+
+func isProductPolicyEvent(eventType string) bool {
+	switch eventType {
+	case "m.room.message", "m.reaction":
+		return true
+	default:
+		return false
+	}
+}
+
+func isChannelPostEvent(content map[string]any) bool {
+	return strings.EqualFold(channelEventKind(content), "channel_post")
+}
+
+func isChannelCommentEvent(eventType string, content map[string]any) bool {
+	if eventType == "m.reaction" {
+		return true
+	}
+	return strings.EqualFold(channelEventKind(content), "channel_comment")
+}
+
+func channelEventKind(content map[string]any) string {
+	return stringValue(content["p2p_kind"])
+}
+
+func queryTargetEvent(ctx context.Context, querier RedactionQuerier, roomID, eventID string) (*types.HeaderedEvent, error) {
+	var res api.QueryEventsByIDResponse
+	if err := querier.QueryEventsByID(ctx, &api.QueryEventsByIDRequest{
+		RoomID:   roomID,
+		EventIDs: []string{eventID},
+	}, &res); err != nil {
+		return nil, err
+	}
+	if len(res.Events) == 0 {
+		return nil, nil
+	}
+	return res.Events[0], nil
+}
+
+type roomPolicy struct {
+	Product           bool
+	RoomType          string
+	Dissolved         bool
+	CommentsEnabled   bool
+	InvitePolicy      string
+	JoinPolicy        string
+	DirectRequester   string
+	DirectTarget      string
+	SenderRole        string
+	SenderMuted       bool
+	SenderMembership  string
+	SenderJoined      bool
+	DirectPeerJoined  bool
+	JoinRequestStatus string
+}
+
+func (p roomPolicy) SenderPrivileged() bool {
+	switch strings.ToLower(strings.TrimSpace(p.SenderRole)) {
+	case "owner", "admin":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p roomPolicy) DirectPeerInvite(senderMXID, targetMXID string) bool {
+	if p.RoomType != DirexioRoomTypeDirect {
+		return false
+	}
+	requester := strings.TrimSpace(p.DirectRequester)
+	target := strings.TrimSpace(p.DirectTarget)
+	senderMXID = strings.TrimSpace(senderMXID)
+	targetMXID = strings.TrimSpace(targetMXID)
+	return requester != "" && target != "" &&
+		((senderMXID == requester && targetMXID == target) ||
+			(senderMXID == target && targetMXID == requester))
+}
+
+//nolint:gocyclo // Resolves all supported Matrix and Direxio room policy state in one snapshot query.
+func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, senderMXID string) (roomPolicy, error) {
+	var res api.QueryCurrentStateResponse
+	if err := querier.QueryCurrentState(ctx, &api.QueryCurrentStateRequest{
+		RoomID: roomID,
+		StateTuples: []gomatrixserverlib.StateKeyTuple{
+			{EventType: spec.MRoomCreate, StateKey: ""},
+			{EventType: DirexioRoomProfileEventType, StateKey: ""},
+			{EventType: DirexioMemberPolicyEventType, StateKey: senderMXID},
+			{EventType: DirexioMemberPolicyEventType, StateKey: UserStateKey(senderMXID)},
+			{EventType: DirexioJoinRequestEventType, StateKey: senderMXID},
+			{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(senderMXID)},
+			{EventType: spec.MRoomMember, StateKey: senderMXID},
+		},
+	}, &res); err != nil {
+		if roomDoesNotExistError(err) {
+			return roomPolicy{}, nil
+		}
+		return roomPolicy{}, err
+	}
+
+	policy := roomPolicy{
+		CommentsEnabled: true,
+		InvitePolicy:    "member",
+		JoinPolicy:      "invite",
+		SenderRole:      "member",
+	}
+	createContent, err := eventContent(res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}])
+	if err != nil {
+		return roomPolicy{}, err
+	}
+	if roomType := stringValue(createContent["type"]); isDirexioRoomType(roomType) {
+		policy.Product = true
+		policy.RoomType = roomType
+		if stringValue(createContent["creator"]) == senderMXID {
+			policy.SenderRole = "owner"
+		}
+	}
+
+	if event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioRoomProfileEventType, StateKey: ""}]; event != nil {
+		content, contentErr := eventContent(event)
+		if contentErr != nil {
+			return roomPolicy{Product: true}, contentErr
+		}
+		if roomType := stringValue(content["room_type"]); isDirexioRoomType(roomType) {
+			policy.Product = true
+			policy.RoomType = roomType
+		}
+		if policy.Product {
+			applyRoomPolicyContent(&policy, content, true)
+		}
+	}
+
+	if !policy.Product {
+		return policy, nil
+	}
+
+	memberPolicyEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioMemberPolicyEventType, StateKey: UserStateKey(senderMXID)}]
+	if memberPolicyEvent == nil {
+		memberPolicyEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioMemberPolicyEventType, StateKey: senderMXID}]
+	}
+	memberPolicy, err := eventContent(memberPolicyEvent)
+	if err != nil {
+		return roomPolicy{Product: true}, err
+	}
+	if role := stringValue(memberPolicy["role"]); role != "" {
+		policy.SenderRole = role
+	}
+	if boolValue(memberPolicy["muted"]) {
+		policy.SenderMuted = true
+	}
+	joinRequestEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(senderMXID)}]
+	if joinRequestEvent == nil {
+		joinRequestEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioJoinRequestEventType, StateKey: senderMXID}]
+	}
+	joinRequest, err := eventContent(joinRequestEvent)
+	if err != nil {
+		return roomPolicy{Product: true}, err
+	}
+	policy.JoinRequestStatus = strings.ToLower(stringValue(joinRequest["status"]))
+	policy.SenderMembership, policy.SenderJoined, err = senderMembership(ctx, querier, roomID, senderMXID, res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomMember, StateKey: senderMXID}])
+	if err != nil {
+		return roomPolicy{Product: true}, err
+	}
+	if policy.RoomType == DirexioRoomTypeDirect {
+		policy.DirectPeerJoined, err = directPeerJoined(ctx, querier, roomID, senderMXID)
+		if err != nil {
+			return roomPolicy{Product: true}, err
+		}
+	}
+	return policy, nil
+}
+
+func directPeerJoined(ctx context.Context, querier CurrentStateQuerier, roomID, senderMXID string) (bool, error) {
+	var res api.QueryCurrentStateResponse
+	if err := querier.QueryCurrentState(ctx, &api.QueryCurrentStateRequest{
+		RoomID:         roomID,
+		AllowWildcards: true,
+		StateTuples: []gomatrixserverlib.StateKeyTuple{
+			{EventType: spec.MRoomMember, StateKey: "*"},
+		},
+	}, &res); err != nil {
+		return false, err
+	}
+	for tuple, event := range res.StateEvents {
+		if event == nil || tuple.EventType != spec.MRoomMember {
+			continue
+		}
+		userID := tuple.StateKey
+		if userID == "" && event.StateKey() != nil {
+			userID = *event.StateKey()
+		}
+		if userID == "" || userID == senderMXID {
+			continue
+		}
+		content, err := eventContent(event)
+		if err != nil {
+			return false, err
+		}
+		if stringValue(content["membership"]) == string(spec.Join) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func roomDoesNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var noRoom eventutil.ErrRoomNoExists
+	if errors.As(err, &noRoom) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "room ") && (strings.Contains(message, "doesn't exist") || strings.Contains(message, "does not exist"))
+}
+
+func applyRoomPolicyContent(policy *roomPolicy, content map[string]any, requireChannelComments bool) {
+	if _, ok := content["dissolved"]; ok {
+		policy.Dissolved = boolValue(content["dissolved"])
+	}
+	if policy.RoomType == DirexioRoomTypeChannel {
+		if _, ok := content["comments_enabled"]; ok || requireChannelComments {
+			policy.CommentsEnabled = boolValue(content["comments_enabled"])
+		}
+	}
+	if invitePolicy := stringValue(content["invite_policy"]); invitePolicy != "" {
+		policy.InvitePolicy = invitePolicy
+	}
+	if joinPolicy := stringValue(content["join_policy"]); joinPolicy != "" {
+		policy.JoinPolicy = joinPolicy
+	}
+	if policy.RoomType == DirexioRoomTypeDirect {
+		if requester := stringValue(content["requester_mxid"]); requester != "" {
+			policy.DirectRequester = requester
+		}
+		if target := stringValue(content["target_mxid"]); target != "" {
+			policy.DirectTarget = target
+		}
+	}
+}
+
+func senderMembership(ctx context.Context, querier CurrentStateQuerier, roomID, senderMXID string, event *types.HeaderedEvent) (string, bool, error) {
+	content, err := eventContent(event)
+	if err != nil {
+		return "", false, err
+	}
+	stateMembership := stringValue(content["membership"])
+	if stateMembership == spec.Join {
+		return stateMembership, true, nil
+	}
+	userID, err := spec.NewUserID(senderMXID, true)
+	if err != nil {
+		return "", false, err
+	}
+	var res api.QueryMembershipForUserResponse
+	if err = querier.QueryMembershipForUser(ctx, &api.QueryMembershipForUserRequest{
+		RoomID: roomID,
+		UserID: *userID,
+	}, &res); err != nil {
+		return "", false, err
+	}
+	if res.Membership == string(spec.Join) {
+		return res.Membership, true, nil
+	}
+	if res.Membership == "" || stateMembership != "" {
+		invites, ok := querier.(invitePendingQuerier)
+		if !ok {
+			return membershipValue(res.Membership, stateMembership), res.IsInRoom || res.Membership == string(spec.Join), nil
+		}
+		validRoomID, roomErr := spec.NewRoomID(roomID)
+		if roomErr != nil {
+			return "", false, roomErr
+		}
+		pending, pendingErr := invites.InvitePending(ctx, *validRoomID, spec.SenderID(senderMXID))
+		if pendingErr != nil {
+			return "", false, pendingErr
+		}
+		if pending {
+			return string(spec.Invite), false, nil
+		}
+	}
+	return membershipValue(res.Membership, stateMembership), res.IsInRoom || res.Membership == string(spec.Join), nil
+}
+
+func membershipValue(queryMembership, stateMembership string) string {
+	if queryMembership != "" {
+		return queryMembership
+	}
+	return stateMembership
+}
+
+func priorRoomMember(ctx context.Context, querier CurrentStateQuerier, roomID, userMXID string) (bool, error) {
+	userID, err := spec.NewUserID(userMXID, true)
+	if err != nil {
+		return false, err
+	}
+	var res api.QueryMembershipForUserResponse
+	if err = querier.QueryMembershipForUser(ctx, &api.QueryMembershipForUserRequest{
+		RoomID: roomID,
+		UserID: *userID,
+	}, &res); err != nil {
+		return false, err
+	}
+	return res.RoomExists && res.HasBeenInRoom, nil
+}
+
+func eventContent(event *types.HeaderedEvent) (map[string]any, error) {
+	if event == nil {
+		return map[string]any{}, nil
+	}
+	content := map[string]any{}
+	if err := json.Unmarshal(event.Content(), &content); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+func isDirexioRoomType(value string) bool {
+	switch strings.TrimSpace(value) {
+	case DirexioRoomTypeDirect, DirexioRoomTypeGroup, DirexioRoomTypeChannel:
+		return true
+	default:
+		return false
+	}
+}
+
+func stringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
+}
+
+func boolValue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		parsed := strings.ToLower(strings.TrimSpace(v))
+		return parsed == "true" || parsed == "1" || parsed == "yes"
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	default:
+		return false
+	}
+}
