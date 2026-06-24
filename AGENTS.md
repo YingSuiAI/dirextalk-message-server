@@ -57,6 +57,7 @@ Rules:
 - Matrix `m.room.member membership=join` is the final joined fact.
 - Product read models are projections unless a domain rule explicitly makes a table source-of-truth state.
 - Ordinary Matrix timeline messages are not copied into a second P2P ordinary-message store. Ordinary send, history, search, unread, and redaction use Matrix Client-Server APIs.
+- Deleted direct contacts keep the old direct room identity for recovery. The side that deleted the contact may intentionally restore the old room without peer approval when the peer still retains the accepted relationship. A peer re-request after the relationship is deleted must remain `pending_*` in the old room until the deleting side explicitly accepts; it must not silently rejoin or restore chat.
 - The configured agents room is the narrow gateway exception: backend startup must create and persist a real private Matrix room id for `agent_room_id`, join both owner and local `@agent:<server>` to that room, and ordinary messages in that room may emit `agent_room.message` SSE events for local agent gateways. Gateway replies must be sent by `@agent:<server>`, not owner. Do not use legacy pseudo ids such as `!agent:<domain>`.
 - Channel posts/comments/reactions are product projections backed by Matrix events and redactions.
 - Removed legacy product state must not be generated, read, or projected as current behavior.

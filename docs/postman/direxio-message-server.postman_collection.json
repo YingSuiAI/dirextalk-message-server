@@ -1585,7 +1585,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "向保留的联系人重新发起已有直聊房间邀请。\n\nReinvite a retained peer to an existing direct room\n\nAction: `contacts.reactivate`\nEndpoint: `POST /_p2p/query`\nAuth: Public peer-node action. The target node only invites when it still has an accepted contact for the same requester and room_id.",
+                "description": "向保留的联系人重新发起已有直聊房间邀请。\n\nReinvite a retained peer to an existing direct room\n\nAction: `contacts.reactivate`\nEndpoint: `POST /_p2p/query`\nAuth: Public peer-node action. The target node only invites when it still has an accepted contact for the same requester and room_id. If the target node deleted or no longer retains the relationship, callers must keep the old room as a pending contact request and wait for target-side acceptance.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.reactivate\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"requester_mxid\": \"{{peerUserID}}\"\n  }\n}",
