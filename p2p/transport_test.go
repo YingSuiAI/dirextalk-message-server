@@ -12,7 +12,32 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
+
+func TestGroupAndChatChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{"name": "Team"})
+	transport.roomID = "!chat:example.com"
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "chat",
+		"name":         "Chat",
+		"channel_type": "chat",
+	})
+
+	if len(transport.createRooms) != 2 {
+		t.Fatalf("expected group and chat channel rooms to be created, got %#v", transport.createRooms)
+	}
+	for _, req := range transport.createRooms {
+		got, ok := initialHistoryVisibility(req)
+		if !ok || got != string(gomatrixserverlib.HistoryVisibilityJoined) {
+			t.Fatalf("expected joined history visibility for %s room create, got %q ok=%v in %#v", req.RoomType, got, ok, req.InitialState)
+		}
+	}
+}
 
 func TestServiceUsesTransportForRoomsAndRemovesP2PMessageActions(t *testing.T) {
 	transport := &recordingTransport{
@@ -43,6 +68,26 @@ func TestServiceUsesTransportForRoomsAndRemovesP2PMessageActions(t *testing.T) {
 	if len(transport.messages) != 0 {
 		t.Fatalf("removed P2P message actions must not send through transport, got %#v", transport.messages)
 	}
+}
+
+func initialHistoryVisibility(req CreateRoomRequest) (string, bool) {
+	for _, state := range req.InitialState {
+		if state.Type != spec.MRoomHistoryVisibility || state.StateKey != "" {
+			continue
+		}
+		value, _ := state.Content["history_visibility"].(string)
+		return value, true
+	}
+	return "", false
+}
+
+func initialStateOfType(states []RoomStateEvent, eventType string) (RoomStateEvent, bool) {
+	for _, state := range states {
+		if state.Type == eventType {
+			return state, true
+		}
+	}
+	return RoomStateEvent{}, false
 }
 
 func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
@@ -852,10 +897,11 @@ func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
 		t.Fatalf("expected one transport room create, got %#v", transport.createRooms)
 	}
 	state := transport.createRooms[0].InitialState
-	if len(state) != 1 || state[0].Type != DirexioRoomProfileEventType || state[0].Content["room_type"] != DirexioRoomTypeChannel || state[0].Content["channel_type"] != "post" {
+	profileState, ok := initialStateOfType(state, DirexioRoomProfileEventType)
+	if len(state) != 1 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
 		t.Fatalf("expected Direxio channel profile state, got %#v", state)
 	}
-	content := state[0].Content
+	content := profileState.Content
 	for key, want := range map[string]any{
 		"channel_id":       "ch_post",
 		"name":             "Posts",
@@ -921,12 +967,12 @@ func TestGroupCreateUpdateAndDissolvePublishRoomStateThroughTransport(t *testing
 		"avatar_url":    "mxc://example.com/group",
 		"invite_policy": "member",
 	})
-	if len(transport.createRooms) != 1 || len(transport.createRooms[0].InitialState) != 1 {
+	if len(transport.createRooms) != 1 {
 		t.Fatalf("expected group create to publish initial state, got %#v", transport.createRooms)
 	}
-	createState := transport.createRooms[0].InitialState[0]
-	if createState.Type != DirexioRoomProfileEventType || createState.Content["room_type"] != DirexioRoomTypeGroup || createState.Content["name"] != "Before" || createState.Content["invite_policy"] != "member" {
-		t.Fatalf("expected group metadata initial state, got %#v", createState)
+	createState, ok := initialStateOfType(transport.createRooms[0].InitialState, DirexioRoomProfileEventType)
+	if !ok || createState.Content["room_type"] != DirexioRoomTypeGroup || createState.Content["name"] != "Before" || createState.Content["invite_policy"] != "member" {
+		t.Fatalf("expected group metadata initial state, got %#v", transport.createRooms[0].InitialState)
 	}
 
 	updated := mustHandle[groupRecord](t, service, "groups.update", map[string]any{

@@ -2512,6 +2512,7 @@ func (s *Service) groupResult(ctx context.Context, params map[string]any) (any, 
 			RoomType:   DirexioRoomTypeGroup,
 			IsDirect:   false,
 			InitialState: []RoomStateEvent{
+				joinedHistoryVisibilityStateEvent(),
 				groupStateEvent(group, false),
 			},
 		})
@@ -2808,15 +2809,19 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 	}
 	if roomID == "" {
 		var apiErr *apiError
+		initialState := []RoomStateEvent{
+			channelStateEvent(ch, false),
+		}
+		if textChannelHistoryStartsAtJoin(channelType) {
+			initialState = append([]RoomStateEvent{joinedHistoryVisibilityStateEvent()}, initialState...)
+		}
 		roomID, apiErr = s.ensureProductRoom(ctx, "channel", CreateRoomRequest{
-			Name:       fallbackString(trimString(params["name"]), channelID),
-			Topic:      trimString(params["description"]),
-			Visibility: fallbackString(trimString(params["visibility"]), "public"),
-			RoomType:   DirexioRoomTypeChannel,
-			IsDirect:   false,
-			InitialState: []RoomStateEvent{
-				channelStateEvent(ch, false),
-			},
+			Name:         fallbackString(trimString(params["name"]), channelID),
+			Topic:        trimString(params["description"]),
+			Visibility:   fallbackString(trimString(params["visibility"]), "public"),
+			RoomType:     DirexioRoomTypeChannel,
+			IsDirect:     false,
+			InitialState: initialState,
 		})
 		if apiErr != nil {
 			return nil, apiErr

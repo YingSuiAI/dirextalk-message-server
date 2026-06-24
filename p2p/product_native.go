@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 const (
@@ -41,6 +43,25 @@ func direxioRoomType(kind string) string {
 		return DirexioRoomTypeChannel
 	default:
 		return ""
+	}
+}
+
+func joinedHistoryVisibilityStateEvent() RoomStateEvent {
+	return RoomStateEvent{
+		Type:     spec.MRoomHistoryVisibility,
+		StateKey: "",
+		Content: map[string]any{
+			"history_visibility": string(gomatrixserverlib.HistoryVisibilityJoined),
+		},
+	}
+}
+
+func textChannelHistoryStartsAtJoin(channelType string) bool {
+	switch strings.ToLower(strings.TrimSpace(channelType)) {
+	case "", "chat", "text":
+		return true
+	default:
+		return false
 	}
 }
 

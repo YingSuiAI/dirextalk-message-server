@@ -55,6 +55,7 @@ Current Direxio product rooms use native Matrix state:
 Rules:
 
 - Matrix `m.room.member membership=join` is the final joined fact.
+- New group rooms and chat/text channel rooms must set `m.room.history_visibility` to `joined` at creation so later members only receive ordinary timeline events from their own join point. Do not apply this retroactively to existing rooms unless explicitly requested.
 - Product read models are projections unless a domain rule explicitly makes a table source-of-truth state.
 - Ordinary Matrix timeline messages are not copied into a second P2P ordinary-message store. Ordinary send, history, search, unread, and redaction use Matrix Client-Server APIs.
 - The configured agents room is the narrow gateway exception: backend startup must create and persist a real private Matrix room id for `agent_room_id`, join both owner and local `@agent:<server>` to that room, and ordinary messages in that room may emit `agent_room.message` SSE events for local agent gateways. Gateway replies must be sent by `@agent:<server>`, not owner. Do not use legacy pseudo ids such as `!agent:<domain>`.

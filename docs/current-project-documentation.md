@@ -85,6 +85,7 @@ Protected action 需要 `Authorization: Bearer <access_token>`，或启用对应
   - role、mute 等成员策略。
 - `io.direxio.join_request`
   - public channel 申请审批状态。
+- 新建 group room 和 chat/text channel room 会在创建时写 `m.room.history_visibility=joined`，新成员只从自己的 Matrix join 之后接收普通 timeline 消息；当前规则不回溯修改已有房间。
 
 投影规则：
 
