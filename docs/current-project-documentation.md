@@ -202,7 +202,7 @@ Calls/Favorites/Follows/Reports：
 Agent/API permissions：
 
 - Agent token 可按 action enable/disable。
-- 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
+- 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 action 时必须同步默认权限、Postman、接口变更记录和相关测试。
 
 Multi-node：

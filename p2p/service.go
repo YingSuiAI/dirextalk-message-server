@@ -1355,17 +1355,19 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	}
 	s.mu.Lock()
 	userID := s.ownerMXID
+	agentRoomID := s.agentRoomID
 	s.mu.Unlock()
 	members, err := s.membersForUser(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)
 	}
 	return map[string]any{
-		"synced_at": time.Now().UTC().Format(time.RFC3339Nano),
-		"user":      map[string]any{"user_id": userID},
-		"contacts":  contacts,
-		"groups":    visibleGroups,
-		"channels":  visibleChannels,
+		"synced_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		"user":          map[string]any{"user_id": userID},
+		"agent_room_id": agentRoomID,
+		"contacts":      contacts,
+		"groups":        visibleGroups,
+		"channels":      visibleChannels,
 		"pending": map[string]any{
 			"friend_requests": pendingFriendRequestsFromContacts(contacts),
 			"group_invites":   pendingGroupInvitesFromMembers(members, groups),

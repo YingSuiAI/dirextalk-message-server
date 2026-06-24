@@ -2974,7 +2974,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取首屏元数据。\n\nRead first-screen metadata\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id`, which clients can cache to restore the Agent conversation after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"sync.bootstrap\",\n  \"params\": {}\n}",

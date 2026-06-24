@@ -123,6 +123,17 @@ func TestEnsureAgentRoomInvitesOwnerFromAgentWhenOwnerJoinRequiresInvite(t *test
 	}
 }
 
+func TestSyncBootstrapIncludesAgentRoomID(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.agentRoomID = "!agents-real:example.com"
+	bootstrapService(t, service)
+
+	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
+	if bootstrap["agent_room_id"] != "!agents-real:example.com" {
+		t.Fatalf("expected sync.bootstrap agent_room_id, got %#v", bootstrap)
+	}
+}
+
 func TestRoomSendPreservesChannelSharePayload(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
