@@ -100,31 +100,37 @@ func PrepareDBConnectionString(t *testing.T, dbType DBType) (connStr string, clo
 	if postgresDB == "" {
 		postgresDB = "postgres"
 	}
-	// we cannot use 'dendrite_test' here else 2x concurrently running packages will try to use the same db.
-	// instead, hash the current working directory, snaffle the first 16 bytes and append that to dendrite_test
-	// and use that as the unique db name. We do this because packages are per-directory hence by hashing the
-	// working (test) directory we ensure we get a consistent hash and don't hash against concurrent packages.
+	adminConnStr := connStr + fmt.Sprintf(" dbname=%s", postgresDB)
+	// Use a unique database per test so parallel package tests cannot drop or
+	// reset each other's state while still cleaning up after themselves.
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("cannot get working directory: %s", err)
 	}
-	hash := sha256.Sum256([]byte(wd))
+	hash := sha256.Sum256([]byte(wd + "/" + t.Name()))
 	dbName := fmt.Sprintf("dendrite_test_%s", hex.EncodeToString(hash[:16]))
 	createRemoteDB(t, dbName, user, connStr, postgresDB)
 	connStr += fmt.Sprintf(" dbname=%s", dbName)
 
 	return connStr, func() {
-		// Drop all tables on the database to get a fresh instance
-		db, err := sql.Open("postgres", connStr)
+		// Tests create one database per package. Drop it after the package test
+		// finishes so local PostgreSQL instances do not accumulate stale DBs.
+		db, err := sql.Open("postgres", adminConnStr)
 		if err != nil {
-			t.Fatalf("failed to connect to postgres db '%s': %s", connStr, err)
+			t.Fatalf("failed to connect to postgres admin db '%s': %s", adminConnStr, err)
 		}
-		_, err = db.Exec(`DROP SCHEMA public CASCADE;
-		CREATE SCHEMA public;`)
+		defer db.Close()
+		_, err = db.Exec(`
+			SELECT pg_terminate_backend(pid)
+			FROM pg_stat_activity
+			WHERE datname = $1 AND pid <> pg_backend_pid()
+		`, dbName)
 		if err != nil {
-			t.Fatalf("failed to cleanup postgres db '%s': %s", connStr, err)
+			t.Fatalf("failed to terminate connections to postgres db '%s': %s", dbName, err)
 		}
-		_ = db.Close()
+		if _, err = db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", pq.QuoteIdentifier(dbName))); err != nil {
+			t.Fatalf("failed to drop postgres db '%s': %s", dbName, err)
+		}
 	}
 }
 

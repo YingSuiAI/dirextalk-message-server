@@ -398,7 +398,17 @@ The audit covers the user's 11 explicit acceptance areas as follows:
 
 One intentional correction from this audit was test-only: `channel owner does not see report action from role` now asserts the current title text `频道信息(2)` instead of the stale text `产品公告（2）`; the business assertions that owners do not see report/leave actions remain unchanged.
 
-WSL2 multi-node regression:
+Multi-node regression:
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
@@ -406,9 +416,9 @@ docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a 
 python3 scripts/p2p-three-node-regression.py
 ```
 
-The WSL-compatible Python regression authenticates local nodes from `/var/direxio-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
+The Python regression authenticates local nodes from `/var/direxio-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
 
-The legacy Windows-only `scripts/p2p-dual-smoke.ps1` previously carried broader static action coverage for all 93 P2P actions and 86 permission-controlled API actions. Do not use it as the default Codex path in WSL2; port any required missing coverage to the Python or shell regression before relying on it for current validation. Invite and join-approval paths must use real portal owners from the compose topology; fabricated MXIDs are not valid Matrix users and can make federation resolve an invalid destination.
+The legacy `scripts/p2p-dual-smoke.ps1` previously carried broader static action coverage for all 93 P2P actions and 86 permission-controlled API actions. Do not use it as the default validation path; port any required missing coverage to the Python regression before relying on it for current validation. Invite and join-approval paths must use real portal owners from the compose topology; fabricated MXIDs are not valid Matrix users and can make federation resolve an invalid destination.
 
 Latest legacy full-smoke image:
 

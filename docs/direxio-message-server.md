@@ -40,7 +40,17 @@ docker compose -f docker-compose.p2p.yml build message-server
 docker push direxio/message-server:latest
 ```
 
-Before pushing a new `latest`, run the WSL2 multi-node regression against the rebuilt image:
+Before pushing a new `latest`, run the multi-node regression against the rebuilt image.
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"

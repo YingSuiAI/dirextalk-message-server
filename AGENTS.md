@@ -79,7 +79,7 @@ Rules:
 
 ## Development Workflow
 
-Use Bash from the repository root in WSL2/Linux.
+Run commands from the repository root in the shell that matches the current environment. PowerShell is acceptable on Windows; Bash is acceptable on Linux, macOS, or WSL. Prefer the platform-native command form instead of forcing WSL-only instructions.
 
 Recommended discovery and diagnostics:
 
@@ -106,13 +106,25 @@ docker compose -f docker-compose.p2p.yml up --build
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-Run the WSL-compatible multi-node regression:
+Run the multi-node regression.
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
 docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
 python3 scripts/p2p-three-node-regression.py
 ```
+
+Run local PostgreSQL-backed tests by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, and `POSTGRES_DB`. The default local password used by this workspace is `123789`. Tests create isolated `dendrite_test_*` databases and must drop those test databases when each test finishes.
 
 Use `docs/postman/direxio-message-server.postman_collection.json` for manual API checks. Import it into Postman, set `baseUrl`, then call `portal.auth` to obtain `access_token` and `agent_token`.
 
@@ -161,7 +173,7 @@ When project rules, contracts, event/state behavior, validation expectations, or
 - Verify malformed optional product metadata cannot block later projection events.
 - Verify restart recovery from PostgreSQL when durable state changes.
 - Verify owner profile changes propagate through `m.room.member` projection when profile behavior changes.
-- Verify WSL-compatible multi-node regression coverage exists for changed cross-node flows.
+- Verify multi-node regression coverage exists for changed cross-node flows on the current platform.
 
 ## Documentation Rules
 

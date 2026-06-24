@@ -54,7 +54,7 @@ func compareRelationsToExpected(t *testing.T, tab tables.Relations, r types.Rang
 		got := relations[relType][i]
 		want := expected[i]
 		if got != want {
-			t.Fatalf("range %v position %d should have been %q but got %q", r, i, got, want)
+			t.Fatalf("range %v position %d should have been %v but got %v", r, i, got, want)
 		}
 	}
 }

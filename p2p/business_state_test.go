@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2436,6 +2437,32 @@ func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
 	}
 	if channelMembers[1].DisplayName != "Carol" || channelMembers[1].AvatarURL != "mxc://example.com/carol" || channelMembers[1].Membership != "join" {
 		t.Fatalf("expected channel member profile and status, got %#v", channelMembers[1])
+	}
+}
+
+func TestMemberListsPinOwnerBeforeJoinOrder(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	for _, member := range []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@alice:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
+		{RoomID: "!group:example.com", UserID: "@bob:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@carol:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@dave:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
+	} {
+		if err := service.saveMember(context.Background(), member); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	groupMembers := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": "!group:example.com"})["members"].([]memberRecord)
+	if got := []string{groupMembers[0].UserID, groupMembers[1].UserID, groupMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@alice:example.com", "@bob:example.com"}) {
+		t.Fatalf("expected group owner first, then members by join time, got %#v", groupMembers)
+	}
+
+	channelMembers := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": "ch_order"})["members"].([]memberRecord)
+	if got := []string{channelMembers[0].UserID, channelMembers[1].UserID, channelMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@carol:example.com", "@dave:example.com"}) {
+		t.Fatalf("expected channel owner first, then members by join time, got %#v", channelMembers)
 	}
 }
 

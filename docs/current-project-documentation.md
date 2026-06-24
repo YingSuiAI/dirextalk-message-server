@@ -215,6 +215,12 @@ Multi-node：
 
 ## 8. 配置与开发命令
 
+当前工具链：
+
+- Go 1.26.4。
+- 命令从仓库根目录执行。
+- Windows 使用 PowerShell；Linux、macOS 或 WSL 使用 Bash/Zsh。文档命令应按当前环境给出，不应强制限定为 WSL。
+
 单节点 Docker：
 
 ```bash
@@ -222,13 +228,47 @@ docker compose -f docker-compose.p2p.yml up --build
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-WSL2 多节点 regression：
+多节点 regression。
+
+PowerShell：
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash：
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
 docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
 python3 scripts/p2p-three-node-regression.py
 ```
+
+本机 PostgreSQL 测试环境变量：
+
+PowerShell：
+
+```powershell
+$env:POSTGRES_USER = "postgres"
+$env:POSTGRES_PASSWORD = "123789"
+$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_PORT = "5432"
+$env:POSTGRES_DB = "postgres"
+```
+
+Bash：
+
+```bash
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=123789
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=postgres
+```
+
+测试 helper 会创建相互隔离的 `dendrite_test_*` 数据库，并在对应测试结束后删除创建的测试库。
 
 常用验证：
 

@@ -403,7 +403,7 @@ func (config *Dendrite) check() error { // monolithic
 
 	if config.Version != Version {
 		configErrs.Add(fmt.Sprintf(
-			"config version is %q, expected %q - this means that the format of the configuration "+
+			"config version is %d, expected %d - this means that the format of the configuration "+
 				"file has changed in some significant way, so please revisit the sample config "+
 				"and ensure you are not missing any important options that may have been added "+
 				"or changed recently!",

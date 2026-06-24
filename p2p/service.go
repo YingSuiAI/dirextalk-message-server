@@ -4231,7 +4231,7 @@ func (s *Service) setProductMemberMute(ctx context.Context, roomID, channelID st
 			return err
 		}
 		if apiErr := s.publishMemberPolicyState(ctx, member); apiErr != nil {
-			return fmt.Errorf(apiErr.Error)
+			return errors.New(apiErr.Error)
 		}
 	}
 	return nil
@@ -5274,6 +5274,11 @@ func filterMembers(members []memberRecord, status, role string) []memberRecord {
 func sortMembersByJoinOrder(members []memberRecord) {
 	sort.SliceStable(members, func(i, j int) bool {
 		left, right := members[i], members[j]
+		leftOwner := strings.EqualFold(left.Role, "owner")
+		rightOwner := strings.EqualFold(right.Role, "owner")
+		if leftOwner != rightOwner {
+			return leftOwner
+		}
 		if left.JoinedAt != right.JoinedAt {
 			if left.JoinedAt == 0 {
 				return false
