@@ -1707,6 +1707,55 @@ func TestRemotePublicChannelGetUsesClientProvidedOwnerNodeBaseURL(t *testing.T) 
 	}
 }
 
+func TestUserPublicChannelsForwardsToOwnerNodeBaseURL(t *testing.T) {
+	calls := 0
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/_p2p/query" {
+			t.Fatalf("expected remote public query path, got %s", r.URL.Path)
+		}
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode remote request: %v", err)
+		}
+		if req.Action != "users.public_channels" ||
+			trimString(req.Params["user_id"]) != "@owner:remote.example" ||
+			trimString(req.Params["remote_node_base_url"]) != "" {
+			t.Fatalf("unexpected remote request %#v", req)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"user_id": "@owner:remote.example",
+			"channels": []channel{{
+				ChannelID:   "remote_owned",
+				RoomID:      "!remote-owned:remote.example",
+				Name:        "Remote Owned",
+				Visibility:  "public",
+				JoinPolicy:  "open",
+				ChannelType: "chat",
+			}},
+		})
+	}))
+	defer remote.Close()
+
+	service := NewService(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	})
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{
+		"user_id":              "@owner:remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+	channels := result["channels"].([]channel)
+	if len(channels) != 1 || channels[0].ChannelID != "remote_owned" {
+		t.Fatalf("expected remote owner public channels, got %#v", result)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one remote owner node call, got %d", calls)
+	}
+}
+
 func TestRemotePublicChannelJoinRequestForwardsToOwnerNode(t *testing.T) {
 	requests := 0
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

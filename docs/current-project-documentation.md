@@ -214,7 +214,7 @@ Agent/API permissions：
 Multi-node：
 
 - 房间、成员、消息、redaction、state 通过 Matrix federation。
-- public channel discovery 和 join request 使用 `remote_node_base_url` 显式指定频道主节点 P2P base URL。
+- public channel discovery、user public channels 和 join request 使用 `remote_node_base_url` 显式指定目标 owner 节点 P2P base URL。
 - 后端校验远端 URL；本地自签名双节点开发可用 `P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY=true`。
 
 ## 8. 配置与开发命令

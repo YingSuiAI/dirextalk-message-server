@@ -3045,6 +3045,28 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 	if userID == "" {
 		return nil, badRequest("user_id is required")
 	}
+	if remoteNodeBaseURLParam(params) != "" {
+		var remote struct {
+			UserID   string    `json:"user_id"`
+			Channels []channel `json:"channels"`
+			Results  []channel `json:"results"`
+		}
+		status, err := s.remotePublicAction(ctx, domainFromMXID(userID), "users.public_channels", params, &remote)
+		if err != nil {
+			if status != 0 && status != http.StatusBadGateway {
+				return nil, statusError(status, err.Error())
+			}
+			return nil, statusError(http.StatusBadGateway, err.Error())
+		}
+		if status != http.StatusOK {
+			return nil, statusError(status, "target node public channels lookup failed")
+		}
+		channels := remote.Channels
+		if channels == nil {
+			channels = remote.Results
+		}
+		return map[string]any{"user_id": fallbackString(remote.UserID, userID), "channels": channels, "results": channels}, nil
+	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
 		return nil, internalError(err)
@@ -3053,18 +3075,25 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 	if err != nil {
 		return nil, internalError(err)
 	}
-	visibleMemberships := map[string]bool{}
+	ownedChannelIDs := map[string]bool{}
+	ownedRoomIDs := map[string]bool{}
 	for _, member := range members {
 		if memberHidden(member.Membership) {
 			continue
 		}
+		if !strings.EqualFold(member.Role, "owner") && !strings.EqualFold(member.Role, "admin") {
+			continue
+		}
 		if member.ChannelID != "" {
-			visibleMemberships[member.ChannelID] = true
+			ownedChannelIDs[member.ChannelID] = true
+		}
+		if member.RoomID != "" {
+			ownedRoomIDs[member.RoomID] = true
 		}
 	}
 	publicChannels := make([]channel, 0, len(channels))
 	for _, ch := range channels {
-		if !visibleMemberships[ch.ChannelID] {
+		if !ownedChannelIDs[ch.ChannelID] && !ownedRoomIDs[ch.RoomID] {
 			continue
 		}
 		if !strings.EqualFold(ch.Visibility, "public") {

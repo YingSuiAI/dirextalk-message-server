@@ -295,7 +295,7 @@ Public profile/channel lookup behavior:
 
 - `channels.public.get` is read-only and returns `404` for private channels.
 - `channels.public.join_request` can be called without bearer. Approval-policy channels store a local `pending` member record; open channels and owner approval write approved state and then trigger Matrix join locally or through requester-node `channels.public.join_result`.
-- `users.public_channels` can be called without bearer and returns only channels where the target user has owner membership and the channel visibility is `public`. The response includes `avatar_url`, `name`, `room_id`, `channel_id`, `member_count`, and the normal channel metadata consumed by the client.
+- `users.public_channels` can be called without bearer and returns only channels where the target user has owner membership and the channel visibility is `public`. When `remote_node_base_url` is present, the local node forwards the public query to that owner node. The response includes `avatar_url`, `name`, `room_id`, `channel_id`, `member_count`, and the normal channel metadata consumed by the client.
 
 Group/channel member behavior:
 
