@@ -871,7 +871,7 @@ func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *a
 	if err := s.writePortalCredentialsFile(); err != nil {
 		return nil, internalError(err)
 	}
-	return s.refreshMatrixSession(ctx, session, params)
+	return s.refreshMatrixSession(ctx, session, params, true)
 }
 
 func (s *Service) auth(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -883,7 +883,7 @@ func (s *Service) auth(ctx context.Context, params map[string]any) (any, *apiErr
 	}
 	session := s.sessionLocked()
 	s.mu.Unlock()
-	return s.refreshMatrixSession(ctx, session, params)
+	return s.refreshMatrixSession(ctx, session, params, true)
 }
 
 func (s *Service) changePortalPassword(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -911,7 +911,7 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 	if err := s.writePortalCredentialsFile(); err != nil {
 		return nil, internalError(err)
 	}
-	return s.refreshMatrixSession(ctx, session, params)
+	return s.refreshMatrixSession(ctx, session, params, true)
 }
 
 func (s *Service) agentPassword() any {
@@ -921,7 +921,7 @@ func (s *Service) agentPassword() any {
 }
 
 func (s *Service) agentMatrixSession(ctx context.Context, params map[string]any) (any, *apiError) {
-	session, apiErr := s.refreshMatrixSession(ctx, map[string]any{}, params)
+	session, apiErr := s.refreshMatrixSession(ctx, map[string]any{}, params, false)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -933,7 +933,7 @@ func (s *Service) agentMatrixSession(ctx context.Context, params map[string]any)
 	}, nil
 }
 
-func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]any, params map[string]any) (map[string]any, *apiError) {
+func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]any, params map[string]any, revokeExistingDevices bool) (map[string]any, *apiError) {
 	s.matrixSessionMu.Lock()
 	defer s.matrixSessionMu.Unlock()
 
@@ -948,7 +948,7 @@ func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]a
 		session["device_id"] = requestedDeviceID
 		return session, nil
 	}
-	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, avatarURL, requestedDeviceID)
+	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, avatarURL, requestedDeviceID, revokeExistingDevices)
 	if err != nil {
 		return nil, internalError(err)
 	}

@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-24
 
+## 2026-06-24 Portal Single-Device Login
+
+`portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
+
+`agent.matrix_session.create` remains an internal Agent/CLI Matrix session helper and does not evict the portal user's phone session.
+
 ## 2026-06-24 User Public Channel Lookup
 
 `users.public_channels` now returns only public channels owned by the target user. Public channels where the target user is only a normal member are no longer included in the "user's channels" list.

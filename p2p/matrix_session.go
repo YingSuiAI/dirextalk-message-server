@@ -11,7 +11,7 @@ import (
 )
 
 type MatrixSessionIssuer interface {
-	EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string) (string, error)
+	EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string, revokeExistingDevices bool) (string, error)
 }
 
 type MatrixProfileUpdater interface {
@@ -27,7 +27,7 @@ func NewDendriteMatrixSessionIssuer(userAPI userapi.UserInternalAPI, serverName 
 	return &DendriteMatrixSessionIssuer{userAPI: userAPI, serverName: serverName}
 }
 
-func (i *DendriteMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, requestedDeviceID string) (string, error) {
+func (i *DendriteMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, requestedDeviceID string, revokeExistingDevices bool) (string, error) {
 	localpart, serverName, err := gomatrixserverlib.SplitID('@', userID)
 	if err != nil {
 		return "", err
@@ -66,6 +66,15 @@ func (i *DendriteMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, u
 	}
 	if deviceRes.Device == nil {
 		return accessToken, nil
+	}
+	if revokeExistingDevices {
+		deleteRes := &userapi.PerformDeviceDeletionResponse{}
+		if err := i.userAPI.PerformDeviceDeletion(ctx, &userapi.PerformDeviceDeletionRequest{
+			UserID:         userID,
+			ExceptDeviceID: deviceRes.Device.ID,
+		}, deleteRes); err != nil {
+			return "", err
+		}
 	}
 	return deviceRes.Device.AccessToken, nil
 }
