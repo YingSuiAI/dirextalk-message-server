@@ -35,7 +35,7 @@ For inbound or federated behavior, start at the roomserver/federation output and
 
 ## Behavior Checks
 
-- For membership and invitations, verify owner, requester, local user, remote user, leave/kick/ban, and already-applied idempotent paths.
+- For membership and invitations, verify owner, requester, local user, remote user, leave/kick/ban, deleted direct-contact recovery, and already-applied idempotent paths. Deleted direct contacts keep the old direct room for recovery, but a peer re-request must stay pending until the deleting side explicitly accepts.
 - For redaction, distinguish local hiding from Matrix redaction. Local delete hides for one user; recall/redaction propagates as Matrix redaction.
 - For ordinary timeline messages, do not create a second product message source of truth.
 - For channel posts, comments, and reactions, verify Matrix event content, projection rows, redaction behavior, and owner history.

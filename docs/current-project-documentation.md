@@ -172,6 +172,7 @@ Contacts：
 - 发起联系人请求会创建 direct Matrix room，并邀请对方。
 - inbound/outbound request 来自 Matrix invite/member projection。
 - accept 通过 Matrix join 进入 direct room。
+- delete 后保留原 direct room 身份用于恢复。删除方主动重新添加时，如果对方仍保留 accepted 关系，可以通过 `contacts.reactivate` 复用旧房间；被删除方重新申请时只能在旧房间形成 pending request，必须由删除方 accept 后才能重新聊天。
 - reject/delete 只改变产品 projection 与对应 Matrix leave/kick 行为，不制造普通消息副本。
 
 Groups：
@@ -203,7 +204,7 @@ Calls/Favorites/Follows/Reports：
 Agent/API permissions：
 
 - Agent token 可按 action enable/disable。
-- 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
+- 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 action 时必须同步默认权限、Postman、接口变更记录和相关测试。
 
 Multi-node：
