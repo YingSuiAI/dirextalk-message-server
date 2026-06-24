@@ -4538,9 +4538,9 @@ func (s *Service) joinMember(ctx context.Context, scope string, params map[strin
 			} else if refreshedChannelID != "" {
 				member.ChannelID = refreshedChannelID
 			}
-		}
-		if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
-			return nil, internalError(err)
+			if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
+				return nil, internalError(err)
+			}
 		}
 	}
 	result := map[string]any{"status": "ok", "room_id": member.RoomID, "member": member}
