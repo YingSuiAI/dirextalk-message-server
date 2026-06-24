@@ -255,7 +255,7 @@ func (s *Service) hydrateConversationMembership(ctx context.Context, view conver
 	}
 	if ok && !memberHidden(member.Membership) {
 		view.Membership = member.Membership
-		view.Role = fallbackString(member.Role, "member")
+		view.Role = normalizeProductMemberRole(member.Role)
 	}
 	return view, nil
 }
@@ -300,7 +300,7 @@ func conversationCapabilitiesForView(view conversationView) conversationCapabili
 	active := view.Lifecycle == conversationLifecycleActive
 	ready := view.HydrationState == string(conversationProjectionReady)
 	joined := strings.EqualFold(view.Membership, "join") || strings.EqualFold(view.Membership, "joined")
-	owner := strings.EqualFold(view.Role, "owner") || strings.EqualFold(view.Role, "admin")
+	owner := productOwnerRole(view.Role)
 	open := ready && active && joined
 	if view.Kind == conversationKindDirect {
 		open = ready && active && strings.EqualFold(view.RelationshipStatus, "accepted")

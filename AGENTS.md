@@ -57,6 +57,7 @@ Rules:
 - Matrix `m.room.member membership=join` is the final joined fact.
 - New group rooms and chat/text channel rooms must set `m.room.history_visibility` to `joined` at creation so later members only receive ordinary timeline events from their own join point. Do not apply this retroactively to existing rooms unless explicitly requested.
 - Product read models are projections unless a domain rule explicitly makes a table source-of-truth state.
+- Product group/channel roles are `owner` or `member` only. Do not add or document additional product roles.
 - Ordinary Matrix timeline messages are not copied into a second P2P ordinary-message store. Ordinary send, history, search, unread, and redaction use Matrix Client-Server APIs.
 - Deleted direct contacts keep the old direct room identity for recovery. The side that deleted the contact may intentionally restore the old room without peer approval when the peer still retains the accepted relationship. A peer re-request after the relationship is deleted must remain `pending_*` in the old room until the deleting side explicitly accepts; it must not silently rejoin or restore chat.
 - The configured agents room is the narrow gateway exception: backend startup must create and persist a real private Matrix room id for `agent_room_id`, join both owner and local `@agent:<server>` to that room, and ordinary messages in that room may emit `agent_room.message` SSE events for local agent gateways. Gateway replies must be sent by `@agent:<server>`, not owner. Do not use legacy pseudo ids such as `!agent:<domain>`.
@@ -66,6 +67,8 @@ Rules:
 ## Business Scenarios
 
 - Portal/auth: bootstrap, password login, password rotation, Matrix device session creation, credentials file refresh.
+  - Login/session responses expose only `access_token` and one setup flag, `initialized`.
+  - `initialized` means the generated initial password has been changed through `portal.password`; profile completion must not affect it.
 - Profile: owner profile read/update, Matrix-facing profile storage, member profile propagation.
 - Contacts: direct room invite, inbound/outbound request projection, accept/reject/delete/reactivate, remark update.
 - Rooms/messages: ordinary text/media send, history, search, local hiding, and redaction through Matrix APIs.

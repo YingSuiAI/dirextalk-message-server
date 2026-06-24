@@ -481,8 +481,11 @@ func TestProjectReactionAndMembershipEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	reactions := mustHandle[map[string]any](t, service, "channels.my_reactions", nil)
-	gotReactions, ok := reactions["reactions"].([]reactionRecord)
-	if !ok || len(gotReactions) != 1 || gotReactions[0].PostID != "post_remote" || gotReactions[0].Reaction != "like" {
+	gotReactions, ok := reactions["reactions"].([]channelReactionHistory)
+	if !ok || len(gotReactions) != 1 || gotReactions[0].Reaction.PostID != "post_remote" || gotReactions[0].Reaction.Reaction != "like" {
+		t.Fatalf("expected projected reaction, got %#v", reactions)
+	}
+	if gotReactions[0].Post == nil || gotReactions[0].Post.Body != "projected post" {
 		t.Fatalf("expected projected reaction, got %#v", reactions)
 	}
 

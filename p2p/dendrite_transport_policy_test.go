@@ -229,6 +229,72 @@ func TestDendriteTransportCreateRoomCarriesCreatorProfile(t *testing.T) {
 	}
 }
 
+func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		profile map[string]any
+		wantOK  bool
+	}{
+		{
+			name:    "empty profile is not a channel",
+			profile: map[string]any{},
+		},
+		{
+			name: "group profile is not a channel",
+			profile: map[string]any{
+				"room_type": DirexioRoomTypeGroup,
+				"name":      "Group with A, B",
+			},
+		},
+		{
+			name: "channel profile without product id is not a channel",
+			profile: map[string]any{
+				"room_type": DirexioRoomTypeChannel,
+				"name":      "Posts",
+			},
+		},
+		{
+			name: "channel profile with Matrix room id as product id is not a channel",
+			profile: map[string]any{
+				"room_type":  DirexioRoomTypeChannel,
+				"channel_id": "!posts:test",
+				"name":       "Posts",
+			},
+		},
+		{
+			name: "channel profile is a channel",
+			profile: map[string]any{
+				"room_type":  DirexioRoomTypeChannel,
+				"channel_id": "ch",
+				"name":       "Posts",
+			},
+			wantOK: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := dendritetest.NewUser(t)
+			room := dendritetest.NewRoom(t, owner)
+			room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, tc.profile, dendritetest.WithStateKey(""))
+			rsAPI := &policyTransportRoomserver{
+				roomID: room.ID,
+				state:  room.CurrentState(),
+			}
+			transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+
+			ch, ok, err := transport.GetRoomChannel(context.Background(), room.ID)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if ok != tc.wantOK {
+				t.Fatalf("expected ok=%v, got ok=%v channel=%#v", tc.wantOK, ok, ch)
+			}
+			if tc.wantOK && ch.ChannelID != "ch" {
+				t.Fatalf("expected channel id ch, got %#v", ch)
+			}
+		})
+	}
+}
+
 type policyTransportRoomserver struct {
 	roomserverAPI.ClientRoomserverAPI
 	roomID                string

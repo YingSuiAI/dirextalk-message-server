@@ -61,18 +61,16 @@ type Service struct {
 	storeMode          string
 	projectorStarted   bool
 
-	initialized         bool
-	password            string
-	adminToken          string
-	matrixDeviceID      string
-	agentToken          string
-	ownerMXID           string
-	agentRoomID         string
-	passwordInitialized bool
-	profileInitialized  bool
-	profile             ownerProfile
-	agentConfig         agentConfig
-	apiPerms            map[string]apiPermission
+	initialized    bool
+	password       string
+	accessToken    string
+	matrixDeviceID string
+	agentToken     string
+	ownerMXID      string
+	agentRoomID    string
+	profile        ownerProfile
+	agentConfig    agentConfig
+	apiPerms       map[string]apiPermission
 
 	readMarkers   map[string]readMarker
 	channels      map[string]channel
@@ -141,17 +139,14 @@ type Store interface {
 }
 
 type portalState struct {
-	Initialized         bool
-	Password            string
-	AdminToken          string
-	MatrixToken         string
-	MatrixDeviceID      string
-	AgentToken          string
-	OwnerMXID           string
-	AgentRoomID         string
-	PasswordInitialized bool
-	ProfileInitialized  bool
-	Profile             ownerProfile
+	Initialized    bool
+	Password       string
+	AccessToken    string
+	MatrixDeviceID string
+	AgentToken     string
+	OwnerMXID      string
+	AgentRoomID    string
+	Profile        ownerProfile
 }
 
 type ownerProfile struct {
@@ -329,6 +324,13 @@ type reactionRecord struct {
 	UserID     string `json:"user_id"`
 	Active     bool   `json:"active"`
 	CreatedAt  string `json:"created_at"`
+}
+
+type channelReactionHistory struct {
+	Reaction reactionRecord        `json:"reaction"`
+	Channel  *channel              `json:"channel,omitempty"`
+	Post     *channelPostRecord    `json:"post,omitempty"`
+	Comment  *channelCommentRecord `json:"comment,omitempty"`
 }
 
 type memberRecord struct {
@@ -572,37 +574,24 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	if !hasPortal {
 		state = portalState{
-			Initialized:         true,
-			Password:            defaultPortalPassword(),
-			AdminToken:          randomToken("p2p_access"),
-			MatrixDeviceID:      matrixPortalDeviceID,
-			AgentToken:          randomToken("p2p_agent"),
-			OwnerMXID:           "@owner:" + serverName,
-			AgentRoomID:         "!agent:" + serverName,
-			PasswordInitialized: false,
+			Initialized:    false,
+			Password:       defaultPortalPassword(),
+			AccessToken:    randomToken("p2p_access"),
+			MatrixDeviceID: matrixPortalDeviceID,
+			AgentToken:     randomToken("p2p_agent"),
+			OwnerMXID:      "@owner:" + serverName,
+			AgentRoomID:    "!agent:" + serverName,
 			Profile: ownerProfile{
 				UserID: "@owner:" + serverName,
 				Domain: serverName,
 			},
 		}
 	}
-	if !state.Initialized {
-		state.Initialized = true
-	}
 	if strings.TrimSpace(state.Password) == "" {
 		state.Password = defaultPortalPassword()
 	}
-	accessToken := strings.TrimSpace(state.MatrixToken)
-	if accessToken == "" {
-		accessToken = strings.TrimSpace(state.AdminToken)
-	}
-	if accessToken == "" {
-		accessToken = randomToken("p2p_access")
-	}
-	state.AdminToken = accessToken
-	state.MatrixToken = accessToken
-	if state.ProfileInitialized && !state.PasswordInitialized {
-		state.PasswordInitialized = true
+	if strings.TrimSpace(state.AccessToken) == "" {
+		state.AccessToken = randomToken("p2p_access")
 	}
 	if state.MatrixDeviceID == "" {
 		state.MatrixDeviceID = matrixPortalDeviceID
@@ -623,23 +612,21 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		state.Profile.Domain = serverName
 	}
 	return &Service{
-		serverName:          serverName,
-		homeserver:          homeserver,
-		store:               store,
-		transport:           transport,
-		remoteHTTPClient:    newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
-		remoteAllowPrivate:  cfg.RemoteNodeAllowPrivateBaseURLs,
-		storeMode:           storeMode(store),
-		initialized:         state.Initialized,
-		password:            state.Password,
-		adminToken:          state.AdminToken,
-		matrixDeviceID:      state.MatrixDeviceID,
-		agentToken:          state.AgentToken,
-		ownerMXID:           state.OwnerMXID,
-		agentRoomID:         state.AgentRoomID,
-		passwordInitialized: state.PasswordInitialized,
-		profileInitialized:  state.ProfileInitialized,
-		profile:             state.Profile,
+		serverName:         serverName,
+		homeserver:         homeserver,
+		store:              store,
+		transport:          transport,
+		remoteHTTPClient:   newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
+		remoteAllowPrivate: cfg.RemoteNodeAllowPrivateBaseURLs,
+		storeMode:          storeMode(store),
+		initialized:        state.Initialized,
+		password:           state.Password,
+		accessToken:        state.AccessToken,
+		matrixDeviceID:     state.MatrixDeviceID,
+		agentToken:         state.AgentToken,
+		ownerMXID:          state.OwnerMXID,
+		agentRoomID:        state.AgentRoomID,
+		profile:            state.Profile,
 		agentConfig: agentConfig{
 			DisplayName:   "Agent",
 			ContextWindow: 30,
@@ -662,10 +649,10 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 }
 
-func (s *Service) AdminToken() string {
+func (s *Service) AccessToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.adminToken
+	return s.accessToken
 }
 
 func (s *Service) AgentToken() string {
@@ -832,7 +819,7 @@ func (s *Service) Handle(ctx context.Context, action string, params map[string]a
 func (s *Service) Authenticate(token string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return token != "" && (token == s.adminToken || token == s.agentToken)
+	return token != "" && (token == s.accessToken || token == s.agentToken)
 }
 
 func (s *Service) Authorize(token, action string) bool {
@@ -841,7 +828,7 @@ func (s *Service) Authorize(token, action string) bool {
 	if token == "" {
 		return false
 	}
-	if token == s.adminToken {
+	if token == s.accessToken {
 		return true
 	}
 	if token != s.agentToken {
@@ -869,26 +856,10 @@ func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *a
 		return nil, badRequest("password is required")
 	}
 	s.mu.Lock()
-	if s.initialized {
-		if password != s.password {
-			s.mu.Unlock()
-			return nil, statusError(409, "portal already initialized")
-		}
-		session := s.sessionLocked()
-		state := s.portalStateLocked()
+	if password != s.password {
 		s.mu.Unlock()
-		if s.store != nil {
-			if err := s.store.SavePortal(ctx, state); err != nil {
-				return nil, internalError(err)
-			}
-		}
-		if err := s.writePortalCredentialsFile(); err != nil {
-			return nil, internalError(err)
-		}
-		return s.refreshMatrixSession(ctx, session, params)
+		return nil, statusError(401, "password invalid")
 	}
-	s.password = password
-	s.initialized = true
 	session := s.sessionLocked()
 	state := s.portalStateLocked()
 	s.mu.Unlock()
@@ -906,10 +877,6 @@ func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *a
 func (s *Service) auth(ctx context.Context, params map[string]any) (any, *apiError) {
 	password := trimString(params["password"])
 	s.mu.Lock()
-	if !s.initialized {
-		s.mu.Unlock()
-		return nil, statusError(401, "portal is not initialized")
-	}
 	if password == "" || password != s.password {
 		s.mu.Unlock()
 		return nil, statusError(401, "password invalid")
@@ -926,18 +893,13 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 		return nil, badRequest("new_password is required")
 	}
 	s.mu.Lock()
-	if !s.initialized {
-		s.mu.Unlock()
-		return nil, statusError(401, "portal is not initialized")
-	}
 	if oldPassword == "" || oldPassword != s.password {
 		s.mu.Unlock()
 		return nil, statusError(401, "password invalid")
 	}
 	s.password = newPassword
-	s.adminToken = randomToken("p2p_access")
-	s.passwordInitialized = true
-	s.profileInitialized = s.portalProfileInitializedLocked()
+	s.accessToken = randomToken("p2p_access")
+	s.initialized = true
 	session := s.sessionLocked()
 	state := s.portalStateLocked()
 	s.mu.Unlock()
@@ -991,7 +953,7 @@ func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]a
 		return nil, internalError(err)
 	}
 	s.mu.Lock()
-	s.adminToken = token
+	s.accessToken = token
 	s.matrixDeviceID = requestedDeviceID
 	state := s.portalStateLocked()
 	session = s.sessionLocked()
@@ -1061,10 +1023,13 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 func (s *Service) agentStatus() any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	configured := strings.TrimSpace(s.agentRoomID) != "" &&
+		strings.TrimSpace(s.ownerMXID) != "" &&
+		strings.TrimSpace(s.agentConfig.DisplayName) != ""
 	return map[string]any{
 		"online":        s.agentConfig.Enabled,
 		"connected":     s.agentConfig.Enabled,
-		"configured":    s.initialized,
+		"configured":    configured,
 		"display_name":  s.agentConfig.DisplayName,
 		"agent_room_id": s.agentRoomID,
 	}
@@ -1248,7 +1213,6 @@ func (s *Service) updateProfile(ctx context.Context, params map[string]any) (any
 	s.profile.Birthday = trimString(params["birthday"])
 	s.profile.Phone = trimString(params["phone"])
 	s.profile.Email = trimString(params["email"])
-	s.profileInitialized = s.portalProfileInitializedLocked()
 	profile := s.profile
 	state := s.portalStateLocked()
 	s.mu.Unlock()
@@ -3020,6 +2984,10 @@ func (s *Service) channelPublicGet(ctx context.Context, params map[string]any) (
 	if !strings.EqualFold(ch.Visibility, "public") {
 		return nil, statusError(404, "channel not found")
 	}
+	ch, err = s.channelWithCurrentCounts(ctx, ch)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	return ch, nil
 }
 
@@ -3059,6 +3027,10 @@ func (s *Service) channelPublicSearch(ctx context.Context, params map[string]any
 		if query != "" && !strings.Contains(strings.ToLower(ch.ChannelID+" "+ch.RoomID+" "+ch.Name+" "+ch.Description), query) {
 			continue
 		}
+		ch, err = s.channelWithCurrentCounts(ctx, ch)
+		if err != nil {
+			return nil, internalError(err)
+		}
 		results = append(results, ch)
 		if len(results) >= limit {
 			break
@@ -3097,6 +3069,10 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 		}
 		if !strings.EqualFold(ch.Visibility, "public") {
 			continue
+		}
+		ch, err = s.channelWithCurrentCounts(ctx, ch)
+		if err != nil {
+			return nil, internalError(err)
 		}
 		publicChannels = append(publicChannels, ch)
 	}
@@ -3300,6 +3276,42 @@ func (s *Service) channelSnapshot(ctx context.Context, channelID string) channel
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.channels[channelID]
+}
+
+func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (channel, error) {
+	if strings.TrimSpace(ch.ChannelID) == "" {
+		return ch, nil
+	}
+	var members []memberRecord
+	var err error
+	if s.store != nil {
+		members, err = s.store.ListMembers(ctx, "", ch.ChannelID)
+		if err != nil {
+			return channel{}, err
+		}
+	} else {
+		s.mu.Lock()
+		members = make([]memberRecord, 0, len(s.members))
+		for _, member := range s.members {
+			if member.ChannelID == ch.ChannelID {
+				members = append(members, member)
+			}
+		}
+		s.mu.Unlock()
+	}
+	if len(members) == 0 {
+		return ch, nil
+	}
+	memberCount, pendingJoinCount := memberCounts(members)
+	if ch.MemberCount == memberCount && ch.PendingJoinCount == pendingJoinCount {
+		return ch, nil
+	}
+	ch.MemberCount = memberCount
+	ch.PendingJoinCount = pendingJoinCount
+	if err := s.saveChannel(ctx, ch); err != nil {
+		return channel{}, err
+	}
+	return ch, nil
 }
 
 func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID string) error {
@@ -4109,6 +4121,7 @@ func (s *Service) attachChannelCommentOperation(ctx context.Context, comment *ch
 }
 
 func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
+	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
 	}
@@ -4156,21 +4169,23 @@ func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
 	if memberRemoved(existing.Membership) && memberLeft(member.Membership) {
 		member.Membership = existing.Membership
 	}
-	if elevatedMemberRole(existing.Role) &&
-		!elevatedMemberRole(member.Role) &&
+	if productOwnerRole(existing.Role) &&
+		!productOwnerRole(member.Role) &&
 		!memberHidden(existing.Membership) &&
 		!memberHidden(member.Membership) {
 		member.Role = existing.Role
 	}
 }
 
-func elevatedMemberRole(role string) bool {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "owner", "admin":
-		return true
-	default:
-		return false
+func productOwnerRole(role string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), "owner")
+}
+
+func normalizeProductMemberRole(role string) string {
+	if productOwnerRole(role) {
+		return "owner"
 	}
+	return "member"
 }
 
 func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
@@ -4202,7 +4217,7 @@ func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
 			}
 			continue
 		}
-		if memberHidden(member.Membership) || elevatedMemberRole(member.Role) {
+		if memberHidden(member.Membership) || productOwnerRole(member.Role) {
 			continue
 		}
 		member.ChannelID = fallbackString(member.ChannelID, ch.ChannelID)
@@ -4223,7 +4238,7 @@ func (s *Service) setProductMemberMute(ctx context.Context, roomID, channelID st
 		if memberHidden(member.Membership) {
 			continue
 		}
-		if strings.EqualFold(member.Role, "owner") || strings.EqualFold(member.Role, "admin") {
+		if productOwnerRole(member.Role) {
 			continue
 		}
 		member.Muted = muted
@@ -4517,10 +4532,12 @@ func (s *Service) joinMember(ctx context.Context, scope string, params map[strin
 		}
 	}
 	if s.transport != nil {
-		if refreshedChannelID, err := s.refreshRoomChannel(ctx, member.RoomID); err != nil {
-			return nil, internalError(err)
-		} else if refreshedChannelID != "" {
-			member.ChannelID = refreshedChannelID
+		if scope == "channel" {
+			if refreshedChannelID, err := s.refreshRoomChannel(ctx, member.RoomID); err != nil {
+				return nil, internalError(err)
+			} else if refreshedChannelID != "" {
+				member.ChannelID = refreshedChannelID
+			}
 		}
 		if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
 			return nil, internalError(err)
@@ -4836,8 +4853,8 @@ func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any)
 		return result, nil
 	}
 	ch.MemberStatus = member.Membership
-	ch.Role = fallbackString(member.Role, "member")
-	ch.IsOwned = strings.EqualFold(ch.Role, "owner") || strings.EqualFold(ch.Role, "admin")
+	ch.Role = normalizeProductMemberRole(member.Role)
+	ch.IsOwned = productOwnerRole(ch.Role)
 	return map[string]any{"status": status, "member": member, "channel": ch}, nil
 }
 
@@ -5253,6 +5270,7 @@ func (s *Service) memberList(ctx context.Context, params map[string]any) any {
 }
 
 func filterMembers(members []memberRecord, status, role string) []memberRecord {
+	members = normalizeProductMemberRoles(members)
 	if status == "" && role == "" {
 		sortMembersByJoinOrder(members)
 		return members
@@ -5269,6 +5287,15 @@ func filterMembers(members []memberRecord, status, role string) []memberRecord {
 	}
 	sortMembersByJoinOrder(filtered)
 	return filtered
+}
+
+func normalizeProductMemberRoles(members []memberRecord) []memberRecord {
+	normalized := make([]memberRecord, len(members))
+	copy(normalized, members)
+	for i := range normalized {
+		normalized[i].Role = normalizeProductMemberRole(normalized[i].Role)
+	}
+	return normalized
 }
 
 func sortMembersByJoinOrder(members []memberRecord) {
@@ -5413,18 +5440,85 @@ func (s *Service) myReactions(ctx context.Context) any {
 	if s.store != nil {
 		reactions, err := s.store.ListReactions(ctx, userID)
 		if err == nil {
-			return map[string]any{"reactions": reactions}
+			return map[string]any{"reactions": s.reactionHistory(ctx, reactions, userID)}
 		}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	reactions := make([]reactionRecord, 0, len(s.reactions))
 	for _, record := range s.reactions {
 		if record.UserID == userID && record.Active {
 			reactions = append(reactions, record)
 		}
 	}
-	return map[string]any{"reactions": reactions}
+	s.mu.Unlock()
+	return map[string]any{"reactions": s.reactionHistory(ctx, reactions, userID)}
+}
+
+func (s *Service) reactionHistory(ctx context.Context, reactions []reactionRecord, ownerMXID string) []channelReactionHistory {
+	history := make([]channelReactionHistory, 0, len(reactions))
+	for _, reaction := range reactions {
+		item := channelReactionHistory{Reaction: reaction}
+		channelID := strings.TrimSpace(reaction.ChannelID)
+		postID := strings.TrimSpace(reaction.PostID)
+		if strings.EqualFold(reaction.TargetType, "post") && postID == "" {
+			postID = strings.TrimSpace(reaction.TargetID)
+		}
+		commentID := strings.TrimSpace(reaction.CommentID)
+		if strings.EqualFold(reaction.TargetType, "comment") && commentID == "" {
+			commentID = strings.TrimSpace(reaction.TargetID)
+		}
+		if channelID != "" {
+			if ch, ok, err := s.channelByIDOrRoom(ctx, channelID, ""); err == nil && ok {
+				if enriched, err := s.channelWithCurrentCounts(ctx, ch); err == nil {
+					ch = enriched
+				}
+				item.Channel = &ch
+			}
+		}
+		if postID != "" {
+			if post, ok, err := s.channelPostByID(ctx, postID, channelID); err == nil && ok {
+				posts := []channelPostRecord{post}
+				s.enrichChannelPosts(ctx, posts, ownerMXID)
+				item.Post = &posts[0]
+				if channelID == "" {
+					channelID = strings.TrimSpace(posts[0].ChannelID)
+				}
+			}
+		}
+		if commentID != "" {
+			if comment, ok, err := s.channelCommentByID(ctx, commentID, postID); err == nil && ok {
+				comments := []channelCommentRecord{comment}
+				s.enrichChannelComments(ctx, comments, ownerMXID)
+				item.Comment = &comments[0]
+				if postID == "" {
+					postID = strings.TrimSpace(comments[0].PostID)
+				}
+				if channelID == "" {
+					channelID = strings.TrimSpace(comments[0].ChannelID)
+				}
+			}
+		}
+		if item.Post == nil && postID != "" {
+			if post, ok, err := s.channelPostByID(ctx, postID, channelID); err == nil && ok {
+				posts := []channelPostRecord{post}
+				s.enrichChannelPosts(ctx, posts, ownerMXID)
+				item.Post = &posts[0]
+				if channelID == "" {
+					channelID = strings.TrimSpace(posts[0].ChannelID)
+				}
+			}
+		}
+		if item.Channel == nil && channelID != "" {
+			if ch, ok, err := s.channelByIDOrRoom(ctx, channelID, ""); err == nil && ok {
+				if enriched, err := s.channelWithCurrentCounts(ctx, ch); err == nil {
+					ch = enriched
+				}
+				item.Channel = &ch
+			}
+		}
+		history = append(history, item)
+	}
+	return history
 }
 
 func (s *Service) listContacts(ctx context.Context) ([]contactRecord, error) {
@@ -5649,57 +5743,39 @@ func (s *Service) joinedChannelsForOwner(ctx context.Context, channels []channel
 		if !ok {
 			continue
 		}
-		role := fallbackString(member.Role, "member")
+		role := normalizeProductMemberRole(member.Role)
 		ch.Role = role
 		ch.MemberStatus = "join"
-		ch.IsOwned = strings.EqualFold(role, "owner") || strings.EqualFold(role, "admin")
+		ch.IsOwned = productOwnerRole(role)
 		visible = append(visible, ch)
 	}
 	return visible, nil
 }
 
 func (s *Service) sessionLocked() map[string]any {
-	accountInitialized := s.accountInitializedLocked()
 	return map[string]any{
-		"access_token":             s.adminToken,
-		"device_id":                cleanMatrixDeviceID(s.matrixDeviceID),
-		"agent_token":              s.agentToken,
-		"user_id":                  s.ownerMXID,
-		"homeserver":               s.homeserver,
-		"agent_room_id":            s.agentRoomID,
-		"password":                 s.password,
-		"initialized":              s.initialized,
-		"password_initialized":     s.passwordInitialized,
-		"profile_initialized":      s.profileInitialized,
-		"account_initialized":      accountInitialized,
-		"setup_completed":          accountInitialized,
-		"already_initialized":      accountInitialized,
-		"initialization_completed": accountInitialized,
+		"access_token":  s.accessToken,
+		"device_id":     cleanMatrixDeviceID(s.matrixDeviceID),
+		"agent_token":   s.agentToken,
+		"user_id":       s.ownerMXID,
+		"homeserver":    s.homeserver,
+		"agent_room_id": s.agentRoomID,
+		"password":      s.password,
+		"initialized":   s.initialized,
 	}
 }
 
 func (s *Service) portalStateLocked() portalState {
 	return portalState{
-		Initialized:         s.initialized,
-		Password:            s.password,
-		AdminToken:          s.adminToken,
-		MatrixToken:         s.adminToken,
-		MatrixDeviceID:      cleanMatrixDeviceID(s.matrixDeviceID),
-		AgentToken:          s.agentToken,
-		OwnerMXID:           s.ownerMXID,
-		AgentRoomID:         s.agentRoomID,
-		PasswordInitialized: s.passwordInitialized,
-		ProfileInitialized:  s.profileInitialized,
-		Profile:             s.profile,
+		Initialized:    s.initialized,
+		Password:       s.password,
+		AccessToken:    s.accessToken,
+		MatrixDeviceID: cleanMatrixDeviceID(s.matrixDeviceID),
+		AgentToken:     s.agentToken,
+		OwnerMXID:      s.ownerMXID,
+		AgentRoomID:    s.agentRoomID,
+		Profile:        s.profile,
 	}
-}
-
-func (s *Service) portalProfileInitializedLocked() bool {
-	return strings.TrimSpace(s.profile.DisplayName) != ""
-}
-
-func (s *Service) accountInitializedLocked() bool {
-	return s.initialized && s.passwordInitialized && s.profileInitialized
 }
 
 func trimString(value any) string {
@@ -6049,7 +6125,7 @@ func (s *Service) writePortalCredentialsFile() error {
 		OwnerUserID: s.ownerMXID,
 		UserID:      s.ownerMXID,
 		Homeserver:  s.homeserver,
-		AccessToken: s.adminToken,
+		AccessToken: s.accessToken,
 		DeviceID:    matrixPortalDeviceID,
 		AgentToken:  s.agentToken,
 		Password:    s.password,

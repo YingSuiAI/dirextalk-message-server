@@ -54,6 +54,8 @@ Protected action 需要 `Authorization: Bearer <access_token>`，或启用对应
 - `channels.public.join_result`
 - `users.public_channels`
 
+`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。
+
 `channels.public.join_result` 是节点间审批结果回调，不是客户端常规入口。
 
 ## 3. 运行时结构
@@ -180,6 +182,7 @@ Groups：
 - group create 写 Matrix room type 与 `io.direxio.room.profile`。
 - invite/join/leave/remove/mute/unmute/dissolve 通过 `p2p.Transport` 与 native state 进入 Matrix。
 - member list 来自 P2P projection，但最终事实是 Matrix membership。
+- 群聊和频道只有 `owner` 与 `member` 两种产品角色。
 
 Channels：
 
@@ -188,6 +191,7 @@ Channels：
 - invite grant 用于私有或分享卡片加入。
 - public join request 使用上面的申请审批自动 join 生命周期。
 - channel member、mute、read marker、dissolve 都保持 Matrix-first。
+- 频道 `is_owned`、管理能力和发帖能力只来自 `owner` 角色。
 
 Channel posts/comments/reactions：
 

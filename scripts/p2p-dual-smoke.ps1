@@ -257,8 +257,8 @@ $aAuth = P2P $ABase "query" $null "portal.auth" @{ password = $aCred.password; d
 $bAuth = P2P $BBase "query" $null "portal.auth" @{ password = $bCred.password; device_id = "SMOKEB" }
 Assert $aAuth.access_token "A auth did not return access_token"
 Assert $bAuth.access_token "B auth did not return access_token"
-Assert ($aAuth.profile_initialized -eq $false) "A initial portal.auth should report profile_initialized=false"
-Assert ($bAuth.profile_initialized -eq $false) "B initial portal.auth should report profile_initialized=false"
+Assert ($aAuth.initialized -eq $false) "A initial portal.auth should report initialized=false before password change"
+Assert ($bAuth.initialized -eq $false) "B initial portal.auth should report initialized=false before password change"
 
 $aKeysUpload = Matrix-KeysUpload $ABase $aAuth.access_token
 $bKeysUpload = Matrix-KeysUpload $BBase $bAuth.access_token
@@ -266,7 +266,7 @@ Assert ($null -ne $aKeysUpload.one_time_key_counts) "A Matrix keys/upload did no
 Assert ($null -ne $bKeysUpload.one_time_key_counts) "B Matrix keys/upload did not return one_time_key_counts"
 
 $aStatus = P2P $ABase "query" $null "portal.status" @{}
-Assert ($aStatus.initialized -eq $true) "A portal.status did not report initialized"
+Assert ($aStatus.initialized -eq $false) "A portal.status should report initialized=false before password change"
 Assert ($aStatus.policy_index_mode -eq "matrix_state") "A portal.status did not report Matrix-state policy index mode"
 Assert ($aStatus.policy_index_ready -eq $true) "A portal.status did not report policy index ready"
 Assert ($aStatus.event_stream_ready -eq $true) "A portal.status did not report event stream ready"
@@ -282,7 +282,7 @@ $aProfile = P2P $ABase "command" $aAuth.access_token "profile.update" @{
 }
 Assert ($aProfile.display_name -eq $aName) "A profile update did not persist display_name"
 $aAuthAfterProfile = P2P $ABase "query" $null "portal.auth" @{ password = $aCred.password; device_id = "SMOKEA2" }
-Assert ($aAuthAfterProfile.profile_initialized -eq $true) "A portal.auth did not report profile_initialized=true after profile update"
+Assert ($aAuthAfterProfile.initialized -eq $false) "A portal.auth should still report initialized=false after profile update"
 $aAuth = $aAuthAfterProfile
 
 $agentPassword = P2P $ABase "command" $aAuth.agent_token "agent.password" @{}
@@ -313,7 +313,7 @@ $bProfile = P2P $BBase "command" $bAuth.access_token "profile.update" @{
 }
 Assert ($bProfile.display_name -eq $bName) "B profile update did not persist display_name"
 $bAuthAfterProfile = P2P $BBase "query" $null "portal.auth" @{ password = $bCred.password; device_id = "SMOKEB2" }
-Assert ($bAuthAfterProfile.profile_initialized -eq $true) "B portal.auth did not report profile_initialized=true after profile update"
+Assert ($bAuthAfterProfile.initialized -eq $false) "B portal.auth should still report initialized=false after profile update"
 $bAuth = $bAuthAfterProfile
 
 $bOwnerWellKnown = Public-Json "$BBase/.well-known/portal/owner.json"
@@ -1240,9 +1240,7 @@ $bootstrapAgain = P2P $ABase "query" $null "portal.bootstrap" @{
   device_id = "SMOKEBOOT$suffix"
 }
 Assert $bootstrapAgain.access_token "portal.bootstrap did not return access_token"
-Assert ($bootstrapAgain.initialized -eq $true) "portal.bootstrap did not preserve initialized=true"
-Assert ($bootstrapAgain.profile_initialized -eq $true) "portal.bootstrap did not preserve profile_initialized=true"
-Assert ($bootstrapAgain.setup_completed -eq $false) "portal.bootstrap should not report setup_completed=true before password change"
+Assert ($bootstrapAgain.initialized -eq $false) "portal.bootstrap should report initialized=false before password change"
 
 $bootstrapKeysUpload = Matrix-KeysUpload $ABase $bootstrapAgain.access_token
 Assert ($null -ne $bootstrapKeysUpload.one_time_key_counts) "Matrix keys/upload failed after portal.bootstrap"
@@ -1255,7 +1253,6 @@ $passwordChanged = P2P $ABase "command" $bootstrapAgain.access_token "portal.pas
 }
 Assert $passwordChanged.access_token "portal.password did not return rotated access_token"
 Assert ($passwordChanged.initialized -eq $true) "portal.password did not preserve initialized=true"
-Assert ($passwordChanged.setup_completed -eq $true) "portal.password did not report setup_completed=true"
 
 $passwordKeysUpload = Matrix-KeysUpload $ABase $passwordChanged.access_token
 Assert ($null -ne $passwordKeysUpload.one_time_key_counts) "Matrix keys/upload failed after portal.password"
@@ -1271,7 +1268,7 @@ $newPasswordAuth = P2P $ABase "query" $null "portal.auth" @{
   device_id = "SMOKENEW$suffix"
 }
 Assert $newPasswordAuth.access_token "portal.auth rejected new password after portal.password"
-Assert ($newPasswordAuth.setup_completed -eq $true) "portal.auth with new password did not report setup_completed=true"
+Assert ($newPasswordAuth.initialized -eq $true) "portal.auth with new password did not report initialized=true"
 
 $newPasswordKeysUpload = Matrix-KeysUpload $ABase $newPasswordAuth.access_token
 Assert ($null -ne $newPasswordKeysUpload.one_time_key_counts) "Matrix keys/upload failed after portal.auth with new password"

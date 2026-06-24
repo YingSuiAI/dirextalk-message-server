@@ -85,12 +85,6 @@ func TestPortalAuthUsesRequestedMatrixDeviceID(t *testing.T) {
 	if session["device_id"] != "DEVICE_B" || session["access_token"] != "matrix-token-for-DEVICE_B" {
 		t.Fatalf("expected session to use requested device id and token, got %#v", session)
 	}
-	if _, ok := session["admin_access_token"]; ok {
-		t.Fatalf("session must not expose admin_access_token: %#v", session)
-	}
-	if _, ok := session["matrix_access_token"]; ok {
-		t.Fatalf("session must not expose matrix_access_token: %#v", session)
-	}
 }
 
 func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {

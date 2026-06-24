@@ -1447,6 +1447,40 @@ func TestJoinRefreshesCurrentRoomMembersFromTransport(t *testing.T) {
 	}
 }
 
+func TestGroupJoinDoesNotBackfillRoomAsChannel(t *testing.T) {
+	transport := &recordingTransport{
+		roomID:      "!group:example.com",
+		roomChannel: channel{ChannelID: "ghost_channel", RoomID: "!group:example.com", Name: "Group with A, B", ChannelType: "chat"},
+		roomMembers: []memberRecord{
+			{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner", Membership: "join", Role: "owner"},
+			{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice", Membership: "join", Role: "member"},
+		},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Group with A, B",
+	})
+
+	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id": group.RoomID,
+		"user_id": "@alice:remote.example",
+	})
+
+	channels, err := service.listChannels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(channels) != 0 {
+		t.Fatalf("expected group join not to create channel records, got %#v", channels)
+	}
+	groups := mustHandle[map[string]any](t, service, "groups.list", nil)["groups"].([]groupRecord)
+	if len(groups) != 1 || groups[0].RoomID != group.RoomID {
+		t.Fatalf("expected group list to keep the joined group only, got %#v", groups)
+	}
+}
+
 func TestJoinRefreshPreservesExistingSparseRoomStateFields(t *testing.T) {
 	transport := &recordingTransport{
 		roomID:      "!channel:example.com",
@@ -2016,9 +2050,9 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	if err := service.saveMember(context.Background(), memberRecord{
 		RoomID:     ch.RoomID,
 		ChannelID:  ch.ChannelID,
-		UserID:     "@admin:example.com",
+		UserID:     "@bob:example.com",
 		Membership: "join",
-		Role:       "admin",
+		Role:       "member",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2029,12 +2063,18 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	})
 
 	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
-	if len(memberPolicyStates) != 1 {
-		t.Fatalf("expected one member policy state event for non-privileged member, got %#v", memberPolicyStates)
+	if len(memberPolicyStates) != 2 {
+		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}
-	state := memberPolicyStates[0]
-	if state.Event.StateKey != productpolicy.UserStateKey("@alice:example.com") || state.Event.Content["role"] != "member" || state.Event.Content["muted"] != true {
-		t.Fatalf("expected muted member policy state for regular member, got %#v", state)
+	mutedByUser := map[string]RoomStateEvent{}
+	for _, state := range memberPolicyStates {
+		mutedByUser[state.Event.StateKey] = state.Event
+	}
+	for _, userID := range []string{"@alice:example.com", "@bob:example.com"} {
+		state, ok := mutedByUser[productpolicy.UserStateKey(userID)]
+		if !ok || state.Content["role"] != "member" || state.Content["muted"] != true {
+			t.Fatalf("expected muted member policy state for %s as regular member, got %#v", userID, state)
+		}
 	}
 }
 
@@ -2104,9 +2144,9 @@ func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	}
 	if err := service.saveMember(context.Background(), memberRecord{
 		RoomID:     group.RoomID,
-		UserID:     "@admin:example.com",
+		UserID:     "@bob:example.com",
 		Membership: "join",
-		Role:       "admin",
+		Role:       "member",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2116,12 +2156,18 @@ func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	})
 
 	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
-	if len(memberPolicyStates) != 1 {
-		t.Fatalf("expected one member policy state event for non-privileged member, got %#v", memberPolicyStates)
+	if len(memberPolicyStates) != 2 {
+		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}
-	state := memberPolicyStates[0]
-	if state.Event.StateKey != productpolicy.UserStateKey("@alice:example.com") || state.Event.Content["role"] != "member" || state.Event.Content["muted"] != true {
-		t.Fatalf("expected muted member policy state for regular member, got %#v", state)
+	mutedByUser := map[string]RoomStateEvent{}
+	for _, state := range memberPolicyStates {
+		mutedByUser[state.Event.StateKey] = state.Event
+	}
+	for _, userID := range []string{"@alice:example.com", "@bob:example.com"} {
+		state, ok := mutedByUser[productpolicy.UserStateKey(userID)]
+		if !ok || state.Content["role"] != "member" || state.Content["muted"] != true {
+			t.Fatalf("expected muted member policy state for %s as regular member, got %#v", userID, state)
+		}
 	}
 }
 

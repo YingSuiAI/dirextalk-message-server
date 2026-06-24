@@ -2742,7 +2742,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "验证门户密码并返回会话 token。\n\nAuthenticate portal password and return session tokens\n\nAction: `portal.auth`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
+                "description": "验证门户密码并返回 `access_token` 和 `initialized`。\n\nAuthenticate the portal password and return `access_token` plus `initialized`. `initialized` is true only after the generated initial password has been changed.\n\nAction: `portal.auth`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"portal.auth\",\n  \"params\": {\n    \"password\": \"{{password}}\",\n    \"device_id\": \"POSTMANAUTH\"\n  }\n}",
@@ -2769,7 +2769,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "初始化或重新加载门户并返回会话 token。\n\nInitialize or rehydrate the portal and return session tokens\n\nAction: `portal.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
+                "description": "验证初始门户密码并返回 `access_token` 和 `initialized`。\n\nValidate the current portal password and return `access_token` plus `initialized`. `initialized` remains false until `portal.password` changes the generated initial password.\n\nAction: `portal.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"portal.bootstrap\",\n  \"params\": {\n    \"password\": \"{{password}}\",\n    \"device_id\": \"POSTMANBOOT\"\n  }\n}",
@@ -2801,7 +2801,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "轮换门户密码和会话 token。\n\nRotate portal password and session tokens\n\nAction: `portal.password`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "修改门户密码、轮换 `access_token`，并将 `initialized` 置为 true。\n\nChange the portal password, rotate `access_token`, and set `initialized` to true.\n\nAction: `portal.password`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"portal.password\",\n  \"params\": {\n    \"old_password\": \"{{password}}\",\n    \"new_password\": \"{{newPassword}}\",\n    \"device_id\": \"POSTMANPASS\"\n  }\n}",

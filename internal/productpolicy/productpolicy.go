@@ -300,12 +300,7 @@ type roomPolicy struct {
 }
 
 func (p roomPolicy) SenderPrivileged() bool {
-	switch strings.ToLower(strings.TrimSpace(p.SenderRole)) {
-	case "owner", "admin":
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(strings.TrimSpace(p.SenderRole), "owner")
 }
 
 func (p roomPolicy) DirectPeerInvite(senderMXID, targetMXID string) bool {

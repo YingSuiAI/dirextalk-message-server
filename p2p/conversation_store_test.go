@@ -185,7 +185,7 @@ func TestConversationStoreBackfillsProductRecords(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, `
 		INSERT INTO p2p_groups (room_id, name, topic, avatar_url, member_count, invite_policy, muted)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, "!group:example.com", "Group", "", "mxc://group", 3, "owner_admin", 0); err != nil {
+	`, "!group:example.com", "Group", "", "mxc://group", 3, "owner", 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `

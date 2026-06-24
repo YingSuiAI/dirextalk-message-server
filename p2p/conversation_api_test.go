@@ -473,6 +473,47 @@ func TestChannelConversationViewDisablesCommentCreateWhenChannelCommentsOff(t *t
 	})
 }
 
+func TestChannelConversationViewDisablesOwnerCapabilitiesForMember(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "example.com"})
+	if err := service.saveChannel(ctx, channel{
+		ChannelID:       "channel",
+		RoomID:          "!channel:example.com",
+		Name:            "Product Channel",
+		ChannelType:     "post",
+		CommentsEnabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      "!channel:example.com",
+		ChannelID:   "channel",
+		UserID:      "@owner:example.com",
+		DisplayName: "Member",
+		Membership:  "join",
+		Role:        "member",
+		JoinedAt:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, apiErr := service.Handle(ctx, "conversations.get", map[string]any{"room_id": "!channel:example.com"})
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	assertConversationFacts(t, got.(conversationView), map[string]any{
+		"membership":      "join",
+		"role":            "member",
+		"hydration_state": "ready",
+	})
+	assertConversationCapabilities(t, got.(conversationView), map[string]bool{
+		"open":           true,
+		"manage_members": false,
+		"rename":         false,
+		"post_create":    false,
+	})
+}
+
 func TestChannelPostCommentAndReactionReturnConversationOperation(t *testing.T) {
 	ctx := context.Background()
 	service := NewService(Config{ServerName: "example.com"})
