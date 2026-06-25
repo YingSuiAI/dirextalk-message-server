@@ -35,6 +35,14 @@ type Notification struct {
 	RoomName          string          `json:"room_name,omitempty"`
 	Sender            string          `json:"sender,omitempty"`
 	SenderDisplayName string          `json:"sender_display_name,omitempty"`
+	Title             string          `json:"title,omitempty"`
+	NotificationTitle string          `json:"notification_title,omitempty"`
+	RoomType          string          `json:"room_type,omitempty"`
+	PushType          string          `json:"push_type,omitempty"`
+	CallID            string          `json:"call_id,omitempty"`
+	CallKind          string          `json:"call_kind,omitempty"`
+	ChannelKind       string          `json:"channel_kind,omitempty"`
+	SuppressPush      bool            `json:"suppress_push,omitempty"`
 	Type              string          `json:"type,omitempty"`
 	UserIsTarget      bool            `json:"user_is_target,omitempty"`
 }

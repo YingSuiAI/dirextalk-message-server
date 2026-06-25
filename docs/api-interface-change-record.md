@@ -1,6 +1,12 @@
 # API Interface Change Record
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
+
+## 2026-06-25 Matrix Push Gateway Metadata
+
+Matrix event pushes sent to HTTP push gateways now include optional Direxio display/routing metadata when the room has Direxio product room state. Normal direct, group, and text-channel message pushes can include `notification.title`, `notification.push_type=message`, `notification.room_id`, `notification.event_id`, and short `notification.room_type` (`direct`, `group`, or `channel`). The gateway owns the visible body text and sets it to `Send you a new message`.
+
+Post channels (`io.direxio.room.profile.channel_type=post`) are not sent to HTTP push gateways in this phase. Matrix `m.call.invite` events in Direxio rooms use `push_type=call` and add `call_id` plus `call_kind=voice`; product `calls.create` / `calls.incoming` actions remain P2P event/call-record flows unless represented as Matrix call invite events.
 
 ## 2026-06-24 Portal Single-Device Login
 

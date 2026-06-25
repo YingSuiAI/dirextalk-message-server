@@ -540,9 +540,31 @@ func (s *OutputRoomEventConsumer) roomName(ctx context.Context, event *rstypes.H
 }
 
 var (
-	canonicalAliasTuple = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCanonicalAlias}
-	roomNameTuple       = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomName}
+	canonicalAliasTuple     = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCanonicalAlias}
+	roomNameTuple           = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomName}
+	direxioRoomProfileTuple = gomatrixserverlib.StateKeyTuple{EventType: "io.direxio.room.profile", StateKey: ""}
+	roomCreateTuple         = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}
 )
+
+const (
+	direxioRoomTypeDirect  = "io.direxio.room.direct"
+	direxioRoomTypeGroup   = "io.direxio.room.group"
+	direxioRoomTypeChannel = "io.direxio.room.channel"
+
+	pushTypeMessage = "message"
+	pushTypeCall    = "call"
+)
+
+type pushNotificationMetadata struct {
+	Title           string
+	RoomType        string
+	PushType        string
+	CallID          string
+	CallKind        string
+	ChannelKind     string
+	SuppressPush    bool
+	SuppressGateway bool
+}
 
 func unmarshalRoomName(event *rstypes.HeaderedEvent) (string, error) {
 	var nc eventutil.NameContent
@@ -560,6 +582,111 @@ func unmarshalCanonicalAlias(event *rstypes.HeaderedEvent) (string, error) {
 	}
 
 	return cac.Alias, nil
+}
+
+func (s *OutputRoomEventConsumer) pushNotificationMetadata(ctx context.Context, event *rstypes.HeaderedEvent, roomName string) (pushNotificationMetadata, error) {
+	profileContent, createContent := s.direxioRoomStateContent(ctx, event)
+	roomType := strings.TrimSpace(gjson.GetBytes(profileContent, "room_type").Str)
+	if roomType == "" {
+		roomType = strings.TrimSpace(gjson.GetBytes(createContent, "type").Str)
+	}
+	shortRoomType := pushRoomType(roomType)
+	if shortRoomType == "" {
+		return pushNotificationMetadata{}, nil
+	}
+
+	channelKind := strings.TrimSpace(gjson.GetBytes(profileContent, "channel_type").Str)
+	if shortRoomType == "channel" && strings.EqualFold(channelKind, "post") {
+		return pushNotificationMetadata{SuppressGateway: true}, nil
+	}
+
+	title := strings.TrimSpace(roomName)
+	if title == "" {
+		title = strings.TrimSpace(gjson.GetBytes(profileContent, "name").Str)
+	}
+
+	metadata := pushNotificationMetadata{
+		Title:    title,
+		RoomType: shortRoomType,
+		PushType: pushTypeMessage,
+	}
+	if event.Type() == "m.call.invite" {
+		metadata.PushType = pushTypeCall
+		if callID := strings.TrimSpace(gjson.GetBytes(event.Content(), "call_id").Str); callID != "" {
+			metadata.CallID = callID
+		}
+		metadata.CallKind = "voice"
+	}
+	return metadata, nil
+}
+
+func (s *OutputRoomEventConsumer) direxioRoomStateContent(ctx context.Context, event *rstypes.HeaderedEvent) (profileContent, createContent []byte) {
+	switch {
+	case event.Type() == direxioRoomProfileTuple.EventType && event.StateKeyEquals(""):
+		profileContent = event.Content()
+	case event.Type() == spec.MRoomCreate && event.StateKeyEquals(""):
+		createContent = event.Content()
+	}
+	if s.rsAPI == nil {
+		return profileContent, createContent
+	}
+
+	req := &rsapi.QueryCurrentStateRequest{
+		RoomID:      event.RoomID().String(),
+		StateTuples: []gomatrixserverlib.StateKeyTuple{direxioRoomProfileTuple, roomCreateTuple},
+	}
+	var res rsapi.QueryCurrentStateResponse
+	if err := s.rsAPI.QueryCurrentState(ctx, req, &res); err != nil {
+		return profileContent, createContent
+	}
+	if profileContent == nil {
+		if ev := res.StateEvents[direxioRoomProfileTuple]; ev != nil {
+			profileContent = ev.Content()
+		}
+	}
+	if createContent == nil {
+		if ev := res.StateEvents[roomCreateTuple]; ev != nil {
+			createContent = ev.Content()
+		}
+	}
+	return profileContent, createContent
+}
+
+func pushRoomType(roomType string) string {
+	switch strings.ToLower(strings.TrimSpace(roomType)) {
+	case direxioRoomTypeDirect:
+		return "direct"
+	case direxioRoomTypeGroup:
+		return "group"
+	case direxioRoomTypeChannel:
+		return "channel"
+	default:
+		return ""
+	}
+}
+
+func applyPushNotificationMetadata(notification *pushgateway.Notification, metadata pushNotificationMetadata) {
+	if metadata.Title != "" {
+		notification.Title = metadata.Title
+	}
+	if metadata.RoomType != "" {
+		notification.RoomType = metadata.RoomType
+	}
+	if metadata.PushType != "" {
+		notification.PushType = metadata.PushType
+	}
+	if metadata.CallID != "" {
+		notification.CallID = metadata.CallID
+	}
+	if metadata.CallKind != "" {
+		notification.CallKind = metadata.CallKind
+	}
+	if metadata.ChannelKind != "" {
+		notification.ChannelKind = metadata.ChannelKind
+	}
+	if metadata.SuppressPush {
+		notification.SuppressPush = true
+	}
 }
 
 // notifyLocal finds the right push actions for a local user, given an event.
@@ -620,6 +747,13 @@ func (s *OutputRoomEventConsumer) notifyLocal(ctx context.Context, event *rstype
 	if err != nil {
 		return fmt.Errorf("s.db.GetNotificationCount: %w", err)
 	}
+	metadata, err := s.pushNotificationMetadata(ctx, event, roomName)
+	if err != nil {
+		return fmt.Errorf("s.pushNotificationMetadata: %w", err)
+	}
+	if metadata.SuppressGateway {
+		return nil
+	}
 
 	log.WithFields(log.Fields{
 		"event_id":   event.EventID(),
@@ -659,7 +793,7 @@ func (s *OutputRoomEventConsumer) notifyLocal(ctx context.Context, event *rstype
 				for _, dev := range devices {
 					// Give each HTTP request its own context.
 					httpCtx, httpCancel := context.WithTimeout(ctx, 30*time.Second)
-					rej, err := s.notifyHTTP(httpCtx, event, url, format, []*pushgateway.Device{dev}, mem.Localpart, roomName, int(userNumUnreadNotifs))
+					rej, err := s.notifyHTTP(httpCtx, event, url, format, []*pushgateway.Device{dev}, mem.Localpart, roomName, int(userNumUnreadNotifs), metadata)
 					httpCancel()
 					if err != nil {
 						log.WithFields(log.Fields{
@@ -817,7 +951,7 @@ func (s *OutputRoomEventConsumer) localPushDevices(ctx context.Context, localpar
 }
 
 // notifyHTTP performs a notificatation to a Push Gateway.
-func (s *OutputRoomEventConsumer) notifyHTTP(ctx context.Context, event *rstypes.HeaderedEvent, url, format string, devices []*pushgateway.Device, localpart, roomName string, userNumUnreadNotifs int) ([]*pushgateway.Device, error) {
+func (s *OutputRoomEventConsumer) notifyHTTP(ctx context.Context, event *rstypes.HeaderedEvent, url, format string, devices []*pushgateway.Device, localpart, roomName string, userNumUnreadNotifs int, metadata pushNotificationMetadata) ([]*pushgateway.Device, error) {
 	logger := log.WithFields(log.Fields{
 		"event_id":    event.EventID(),
 		"url":         url,
@@ -838,6 +972,7 @@ func (s *OutputRoomEventConsumer) notifyHTTP(ctx context.Context, event *rstypes
 				RoomID:  event.RoomID().String(),
 			},
 		}
+		applyPushNotificationMetadata(&req.Notification, metadata)
 
 	default:
 		sender, err := s.rsAPI.QueryUserIDForSender(ctx, event.RoomID(), event.SenderID())
@@ -879,6 +1014,7 @@ func (s *OutputRoomEventConsumer) notifyHTTP(ctx context.Context, event *rstypes
 		if event.StateKey() != nil && *event.StateKey() == string(*localSender) {
 			req.Notification.UserIsTarget = true
 		}
+		applyPushNotificationMetadata(&req.Notification, metadata)
 	}
 
 	logger.Tracef("Notifying push gateway %s", url)

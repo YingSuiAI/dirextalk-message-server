@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/caching"
+	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
 	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/direxio-message-server/roomserver"
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
@@ -23,9 +24,45 @@ import (
 	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/YingSuiAI/direxio-message-server/setup/config"
 	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/direxio-message-server/userapi/api"
 	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
 	userAPITypes "github.com/YingSuiAI/direxio-message-server/userapi/types"
 )
+
+const (
+	direxioIOSAppID     = "io.direxio.app.ios"
+	direxioAndroidAppID = "io.direxio.app.android"
+	direxioAPNsPushKey  = "apns-device-token"
+	direxioFCMPushKey   = "fcm-device-token"
+)
+
+type recordingPushGateway struct {
+	url  string
+	req  *pushgateway.NotifyRequest
+	resp pushgateway.NotifyResponse
+}
+
+func (g *recordingPushGateway) Notify(ctx context.Context, url string, req *pushgateway.NotifyRequest, resp *pushgateway.NotifyResponse) error {
+	g.url = url
+	g.req = req
+	*resp = g.resp
+	return nil
+}
+
+type currentStateRoomserver struct {
+	FakeUserRoomserverAPI
+	state map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent
+}
+
+func (r *currentStateRoomserver) QueryCurrentState(ctx context.Context, req *rsapi.QueryCurrentStateRequest, res *rsapi.QueryCurrentStateResponse) error {
+	res.StateEvents = map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{}
+	for _, tuple := range req.StateTuples {
+		if ev := r.state[tuple]; ev != nil {
+			res.StateEvents[tuple] = ev
+		}
+	}
+	return nil
+}
 
 func mustCreateDatabase(t *testing.T, dbType test.DBType) (storage.UserDatabase, func()) {
 	t.Helper()
@@ -55,6 +92,245 @@ type FakeUserRoomserverAPI struct{ rsapi.UserRoomserverAPI }
 
 func (f *FakeUserRoomserverAPI) QueryUserIDForSender(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
 	return spec.NewUserID(string(senderID), true)
+}
+
+func TestPushNotificationMetadataUsesDirexioRoomStateForMessagePayload(t *testing.T) {
+	ctx := context.Background()
+	event := mustCreateEvent(t, `{
+		"type":"m.room.message",
+		"room_id":"!room:example.com",
+		"sender":"@alice:example.com",
+		"content":{"body":"hello","msgtype":"m.text"}
+	}`)
+	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
+		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+			direxioRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.direxio.room.profile",
+				"state_key":"",
+				"room_id":"!room:example.com",
+				"sender":"@alice:example.com",
+				"content":{
+					"room_type":"io.direxio.room.group",
+					"name":"Engineering"
+				}
+			}`),
+		},
+	}}
+
+	metadata, err := consumer.pushNotificationMetadata(ctx, event, "")
+	if err != nil {
+		t.Fatalf("pushNotificationMetadata returned error: %v", err)
+	}
+	if metadata.SuppressGateway {
+		t.Fatal("expected group message push to be sent")
+	}
+	if metadata.Title != "Engineering" {
+		t.Fatalf("unexpected title: %q", metadata.Title)
+	}
+	if metadata.PushType != "message" {
+		t.Fatalf("unexpected push_type: %q", metadata.PushType)
+	}
+	if metadata.RoomType != "group" {
+		t.Fatalf("unexpected room_type: %q", metadata.RoomType)
+	}
+}
+
+func TestPushNotificationMetadataSuppressesPostChannelMessages(t *testing.T) {
+	ctx := context.Background()
+	event := mustCreateEvent(t, `{
+		"type":"m.room.message",
+		"room_id":"!posts:example.com",
+		"sender":"@alice:example.com",
+		"content":{"body":"new post","msgtype":"m.text"}
+	}`)
+	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
+		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+			direxioRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.direxio.room.profile",
+				"state_key":"",
+				"room_id":"!posts:example.com",
+				"sender":"@alice:example.com",
+				"content":{
+					"room_type":"io.direxio.room.channel",
+					"channel_type":"post",
+					"name":"Announcements"
+				}
+			}`),
+		},
+	}}
+
+	metadata, err := consumer.pushNotificationMetadata(ctx, event, "")
+	if err != nil {
+		t.Fatalf("pushNotificationMetadata returned error: %v", err)
+	}
+	if !metadata.SuppressGateway {
+		t.Fatal("expected post channel message push to be suppressed")
+	}
+}
+
+func TestPushNotificationMetadataUsesCallInviteContent(t *testing.T) {
+	ctx := context.Background()
+	event := mustCreateEvent(t, `{
+		"type":"m.call.invite",
+		"room_id":"!callroom:example.com",
+		"sender":"@alice:example.com",
+		"content":{"call_id":"call-123","lifetime":60000,"version":1}
+	}`)
+	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
+		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+			direxioRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.direxio.room.profile",
+				"state_key":"",
+				"room_id":"!callroom:example.com",
+				"sender":"@alice:example.com",
+				"content":{"room_type":"io.direxio.room.direct","name":"Alice"}
+			}`),
+		},
+	}}
+
+	metadata, err := consumer.pushNotificationMetadata(ctx, event, "")
+	if err != nil {
+		t.Fatalf("pushNotificationMetadata returned error: %v", err)
+	}
+	if metadata.PushType != "call" {
+		t.Fatalf("unexpected push_type: %q", metadata.PushType)
+	}
+	if metadata.RoomType != "direct" {
+		t.Fatalf("unexpected room_type: %q", metadata.RoomType)
+	}
+	if metadata.CallID != "call-123" {
+		t.Fatalf("unexpected call_id: %q", metadata.CallID)
+	}
+	if metadata.CallKind != "voice" {
+		t.Fatalf("unexpected call_kind: %q", metadata.CallKind)
+	}
+}
+
+func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(t *testing.T) {
+	ctx := context.Background()
+	gateway := &recordingPushGateway{
+		resp: pushgateway.NotifyResponse{Rejected: []string{direxioAPNsPushKey}},
+	}
+	consumer := OutputRoomEventConsumer{pgClient: gateway}
+	event := mustCreateEvent(t, `{
+		"type":"m.room.message",
+		"room_id":"!room:example.com",
+		"sender":"@alice:example.com",
+		"content":{"body":"hello","msgtype":"m.text"}
+	}`)
+	devices := []*pushgateway.Device{
+		{
+			AppID:   direxioIOSAppID,
+			PushKey: direxioAPNsPushKey,
+			Data: map[string]interface{}{
+				"format":   "event_id_only",
+				"provider": "apns",
+				"platform": "ios",
+			},
+		},
+	}
+
+	metadata := pushNotificationMetadata{
+		Title:    "Direxio",
+		RoomType: "direct",
+		PushType: "message",
+	}
+	rejected, err := consumer.notifyHTTP(ctx, event, "https://push.direxio.ai/_matrix/push/v1/notify", "event_id_only", devices, "alice", "Direxio", int(7), metadata)
+	if err != nil {
+		t.Fatalf("notifyHTTP returned error: %v", err)
+	}
+	if gateway.url != "https://push.direxio.ai/_matrix/push/v1/notify" {
+		t.Fatalf("unexpected push gateway URL: %q", gateway.url)
+	}
+	if gateway.req == nil {
+		t.Fatal("expected push gateway request")
+	}
+	notification := gateway.req.Notification
+	if notification.EventID != event.EventID() {
+		t.Fatalf("unexpected event_id: %q", notification.EventID)
+	}
+	if notification.RoomID != event.RoomID().String() {
+		t.Fatalf("unexpected room_id: %q", notification.RoomID)
+	}
+	if notification.Counts == nil || notification.Counts.Unread != 7 {
+		t.Fatalf("unexpected notification counts: %#v", notification.Counts)
+	}
+	if notification.Title != "Direxio" {
+		t.Fatalf("unexpected notification title: %q", notification.Title)
+	}
+	if notification.RoomType != "direct" {
+		t.Fatalf("unexpected notification room_type: %q", notification.RoomType)
+	}
+	if notification.PushType != "message" {
+		t.Fatalf("unexpected notification push_type: %q", notification.PushType)
+	}
+	if len(notification.Devices) != 1 {
+		t.Fatalf("expected one device, got %d", len(notification.Devices))
+	}
+	device := notification.Devices[0]
+	if device.AppID != direxioIOSAppID || device.PushKey != direxioAPNsPushKey {
+		t.Fatalf("unexpected iOS APNs device: %#v", device)
+	}
+	wantData := map[string]interface{}{
+		"format":   "event_id_only",
+		"provider": "apns",
+		"platform": "ios",
+	}
+	if !reflect.DeepEqual(device.Data, wantData) {
+		t.Fatalf("unexpected iOS APNs device data:\n got: %#v\nwant: %#v", device.Data, wantData)
+	}
+	if len(rejected) != 1 || rejected[0].AppID != direxioIOSAppID || rejected[0].PushKey != direxioAPNsPushKey {
+		t.Fatalf("unexpected rejected devices: %#v", rejected)
+	}
+}
+
+func TestDeleteRejectedPushersRemovesOnlyRejectedDirexioIOSAppID(t *testing.T) {
+	ctx := context.Background()
+	localpart := "alice"
+	serverName := spec.ServerName("localhost")
+
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		db, close := mustCreateDatabase(t, dbType)
+		defer close()
+		consumer := OutputRoomEventConsumer{db: db}
+
+		for _, pusher := range []struct {
+			appID    string
+			pushKey  string
+			provider string
+			platform string
+		}{
+			{appID: direxioIOSAppID, pushKey: direxioAPNsPushKey, provider: "apns", platform: "ios"},
+			{appID: direxioAndroidAppID, pushKey: direxioFCMPushKey, provider: "fcm", platform: "android"},
+		} {
+			if err := db.UpsertPusher(ctx, api.Pusher{
+				Kind:    api.HTTPKind,
+				AppID:   pusher.appID,
+				PushKey: pusher.pushKey,
+				Data: map[string]interface{}{
+					"format":   "event_id_only",
+					"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
+					"provider": pusher.provider,
+					"platform": pusher.platform,
+				},
+			}, localpart, serverName); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		consumer.deleteRejectedPushers(ctx, []*pushgateway.Device{{
+			AppID:   direxioIOSAppID,
+			PushKey: direxioAPNsPushKey,
+		}}, localpart, serverName)
+
+		pushers, err := db.GetPushers(ctx, localpart, serverName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pushers) != 1 || pushers[0].AppID != direxioAndroidAppID || pushers[0].PushKey != direxioFCMPushKey {
+			t.Fatalf("expected only Android pusher to remain, got %#v", pushers)
+		}
+	})
 }
 
 func Test_evaluatePushRules(t *testing.T) {
