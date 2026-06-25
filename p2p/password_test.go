@@ -153,7 +153,7 @@ func TestAgentMatrixSessionDoesNotReplacePortalAccessToken(t *testing.T) {
 	}
 
 	agentSession := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
-		"device_id": "DIREXIO_MCP",
+		"device_id": "DIREXIO_AGENT_TEST",
 	})
 	if agentSession["access_token"] == portalToken {
 		t.Fatalf("expected agent Matrix session to have its own Matrix token")

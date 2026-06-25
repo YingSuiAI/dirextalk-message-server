@@ -118,7 +118,7 @@ func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID 
 
 func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	service.SetMCPMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
 		{TS: 1710000000000, Sender: "Alice", Msg: "old"},
 		{TS: 1710000100000, Sender: "Alice", Msg: "inside"},
 	}})
@@ -149,7 +149,7 @@ func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.agentRoomID = "!agents:example.com"
 	service.agentConfig.DisplayName = "Codex"
-	service.SetMCPMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
 		{TS: 1710000000000, Sender: "owner", Msg: "question", SenderMXID: "@owner:example.com"},
 		{TS: 1710000100000, Sender: "agent", Msg: "answer", SenderMXID: "@agent:example.com"},
 	}})

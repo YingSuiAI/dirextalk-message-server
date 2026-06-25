@@ -1,4 +1,4 @@
-package mcp
+package matrixhistory
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func (r *HTTPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID str
 	return messages, nil
 }
 
-func (r *HTTPMessageReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]ChannelContentEvent, error) {
+func (r *HTTPMessageReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]Event, error) {
 	token, err := r.accessToken(ctx)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (r *HTTPMessageReader) ListChannelContent(ctx context.Context, roomID strin
 		limit = 100
 	}
 	const pageLimit = 100
-	events := make([]ChannelContentEvent, 0)
+	events := make([]Event, 0)
 	seenTokens := map[string]struct{}{}
 	next := ""
 	for len(events) < limit {
@@ -133,8 +133,8 @@ func (r *HTTPMessageReader) accessToken(ctx context.Context) (string, error) {
 }
 
 type messagesResponse struct {
-	Chunk []ChannelContentEvent `json:"chunk"`
-	End   string                `json:"end"`
+	Chunk []Event `json:"chunk"`
+	End   string  `json:"end"`
 }
 
 func (r *HTTPMessageReader) getMessages(ctx context.Context, token, roomID string, values url.Values) (messagesResponse, error) {

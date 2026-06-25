@@ -4,13 +4,27 @@ import (
 	"context"
 	"sort"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/mcp"
+	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
 )
 
 const maxChannelContentBackfillEvents = 5000
 
 type channelContentReader interface {
-	ListChannelContent(ctx context.Context, roomID string, limit int) ([]mcp.ChannelContentEvent, error)
+	ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error)
+}
+
+func (s *Service) backfillJoinedPostChannelContent(ctx context.Context, roomID, channelID string) error {
+	if roomID == "" {
+		return nil
+	}
+	ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID)
+	if err != nil {
+		return err
+	}
+	if !ok || trimString(ch.ChannelType) != "post" {
+		return nil
+	}
+	return s.backfillJoinedChannelContent(ctx, roomID, fallbackString(channelID, ch.ChannelID))
 }
 
 func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, channelID string) error {
@@ -18,7 +32,7 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 		return nil
 	}
 	s.mu.Lock()
-	reader, _ := s.mcpMessages.(channelContentReader)
+	reader, _ := s.matrixMessages.(channelContentReader)
 	s.mu.Unlock()
 	if reader == nil {
 		return nil
@@ -75,7 +89,7 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 	return nil
 }
 
-func channelContentBackfillWeight(event mcp.ChannelContentEvent) int {
+func channelContentBackfillWeight(event matrixhistory.Event) int {
 	if event.Type == "m.reaction" {
 		return 2
 	}

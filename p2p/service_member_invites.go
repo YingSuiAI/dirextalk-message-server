@@ -275,7 +275,7 @@ func (s *Service) joinMember(ctx context.Context, scope string, params map[strin
 			if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
 				return nil, internalError(err)
 			}
-			if err := s.backfillJoinedChannelContent(ctx, member.RoomID, member.ChannelID); err != nil {
+			if err := s.backfillJoinedPostChannelContent(ctx, member.RoomID, member.ChannelID); err != nil {
 				return nil, internalError(err)
 			}
 		}

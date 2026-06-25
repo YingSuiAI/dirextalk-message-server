@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/p2p/mcp"
+	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -1238,14 +1238,16 @@ func TestChannelReactionDoesNotSaveProjectionWhenMatrixSendFails(t *testing.T) {
 }
 
 type fakeChannelBackfillReader struct {
-	events []mcp.ChannelContentEvent
+	events []matrixhistory.Event
+	calls  int
 }
 
 func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
 	return nil, nil
 }
 
-func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]mcp.ChannelContentEvent, error) {
+func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error) {
+	r.calls++
 	if limit > 0 && len(r.events) > limit {
 		return r.events[:limit], nil
 	}
@@ -1263,7 +1265,7 @@ func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {
 		"channel_type":     "post",
 		"comments_enabled": true,
 	})
-	service.SetMCPMessageReader(&fakeChannelBackfillReader{events: []mcp.ChannelContentEvent{
+	service.SetMatrixMessageReader(&fakeChannelBackfillReader{events: []matrixhistory.Event{
 		{
 			Type:           "m.reaction",
 			EventID:        "$reaction-post:example.com",
@@ -1367,6 +1369,51 @@ func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {
 	})["comments"].([]channelCommentRecord)
 	if len(comments) != 1 || comments[0].CommentID != "comment_one" || comments[0].Body != "historical comment" || comments[0].ReactionCount != 1 {
 		t.Fatalf("expected backfilled comment with reaction count, got %#v", comments)
+	}
+}
+
+func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "chat_channel",
+		"name":         "Chat Channel",
+		"channel_type": "chat",
+	})
+	reader := &fakeChannelBackfillReader{events: []matrixhistory.Event{
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1000,
+			Content: map[string]any{
+				"p2p_kind": "channel_post",
+				"post_id":  "post_one",
+				"body":     "should not sync",
+				"msgtype":  "m.text",
+			},
+		},
+	}}
+	service.SetMatrixMessageReader(reader)
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok, got %#v", joined)
+	}
+	if reader.calls != 0 {
+		t.Fatalf("chat channel join should not backfill historical channel content, called reader %d times", reader.calls)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 0 {
+		t.Fatalf("chat channel join should not project historical post content, got %#v", posts)
 	}
 }
 

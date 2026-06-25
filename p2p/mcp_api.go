@@ -19,7 +19,9 @@ type mcpRoomSummary = mcp.RoomSummary
 type mcpMessageSummary = mcp.MessageSummary
 type mcpPostSummary = mcp.PostSummary
 type mcpCommentSummary = mcp.CommentSummary
-type mcpMessageReader = mcp.MessageReader
+type matrixMessageReader = mcp.MessageReader
+
+const matrixHistoryDeviceID = "DIREXIO_MATRIX_HISTORY"
 
 func mcpLimit(params map[string]any) int {
 	limit := int(int64Param(params["limit"]))
@@ -148,7 +150,7 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	}
 	limit := mcpLimit(params)
 	s.mu.Lock()
-	reader := s.mcpMessages
+	reader := s.matrixMessages
 	s.mu.Unlock()
 	if reader == nil {
 		return nil, internalError(errors.New("MCP message reader is unavailable"))
@@ -311,12 +313,12 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 	}, nil
 }
 
-func (s *Service) MCPMatrixAccessToken(ctx context.Context) (string, error) {
-	return s.mcpMatrixAccessToken(ctx)
+func (s *Service) MatrixHistoryAccessToken(ctx context.Context) (string, error) {
+	return s.matrixHistoryAccessToken(ctx)
 }
 
-func (s *Service) mcpMatrixAccessToken(ctx context.Context) (string, error) {
-	session, apiErr := s.agentMatrixSession(ctx, map[string]any{"device_id": "DIREXIO_MCP"})
+func (s *Service) matrixHistoryAccessToken(ctx context.Context) (string, error) {
+	session, apiErr := s.agentMatrixSession(ctx, map[string]any{"device_id": matrixHistoryDeviceID})
 	if apiErr != nil {
 		return "", errors.New(apiErr.Error)
 	}
