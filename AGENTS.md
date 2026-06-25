@@ -54,7 +54,7 @@ Current Direxio product rooms use native Matrix state:
 Rules:
 
 - Matrix `m.room.member membership=join` is the final joined fact.
-- New group rooms and chat/text channel rooms must set `m.room.history_visibility` to `joined` at creation so later members only receive ordinary timeline events from their own join point. Do not apply this retroactively to existing rooms unless explicitly requested.
+- New group rooms and chat/text channel rooms must set `m.room.history_visibility` to `joined` at creation so later members only receive ordinary timeline events from their own join point. Post channels are the explicit exception: do not set joined history visibility for `channel_type=post`, because members must be able to see all current channel posts and comments. Do not apply history visibility changes retroactively to existing rooms unless explicitly requested.
 - Product read models are projections unless a domain rule explicitly makes a table source-of-truth state.
 - Product group/channel roles are `owner` or `member` only. Do not add or document additional product roles.
 - Ordinary Matrix timeline messages are not copied into a second P2P ordinary-message store. Ordinary send, history, search, unread, and redaction use Matrix Client-Server APIs.

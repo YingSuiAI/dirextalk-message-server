@@ -15,7 +15,7 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
-func TestGroupAndChatChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
+func TestGroupAndTextChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -27,15 +27,40 @@ func TestGroupAndChatChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 		"name":         "Chat",
 		"channel_type": "chat",
 	})
+	transport.roomID = "!text:example.com"
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "text",
+		"name":         "Text",
+		"channel_type": "text",
+	})
 
-	if len(transport.createRooms) != 2 {
-		t.Fatalf("expected group and chat channel rooms to be created, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 3 {
+		t.Fatalf("expected group, chat channel, and text channel rooms to be created, got %#v", transport.createRooms)
 	}
 	for _, req := range transport.createRooms {
 		got, ok := initialHistoryVisibility(req)
 		if !ok || got != string(gomatrixserverlib.HistoryVisibilityJoined) {
 			t.Fatalf("expected joined history visibility for %s room create, got %q ok=%v in %#v", req.RoomType, got, ok, req.InitialState)
 		}
+	}
+}
+
+func TestPostChannelCreateDoesNotLimitHistoryToJoinPoint(t *testing.T) {
+	transport := &recordingTransport{roomID: "!posts:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "posts",
+		"name":         "Posts",
+		"channel_type": "post",
+	})
+
+	if len(transport.createRooms) != 1 {
+		t.Fatalf("expected post channel room to be created, got %#v", transport.createRooms)
+	}
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); ok {
+		t.Fatalf("post channels must allow members to see existing posts/comments; unexpected history_visibility %q in %#v", got, transport.createRooms[0].InitialState)
 	}
 }
 
