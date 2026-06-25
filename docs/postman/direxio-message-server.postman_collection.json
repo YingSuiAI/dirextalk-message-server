@@ -26,14 +26,14 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/events?since=0",
-            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
+            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
           }
         }
       ]
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；只有 MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；MCP 类 action 和 `/_p2p/events` 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",

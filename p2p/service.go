@@ -484,6 +484,12 @@ func (s *Service) Authorize(token, action string) bool {
 	return token == s.agentToken && serviceapi.AgentAction(action)
 }
 
+func (s *Service) AuthorizeEventStream(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return token != "" && (token == s.accessToken || token == s.agentToken)
+}
+
 func publicAction(action string) bool {
 	return serviceapi.PublicAction(action)
 }

@@ -23,7 +23,7 @@ This repository is a Direxio fork of Element Dendrite. It is one Go monolith tha
 }
 ```
 
-Protected product actions require `Authorization: Bearer <access_token>`. `agent_token` is only accepted for `mcp.*` actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
+Protected product actions require `Authorization: Bearer <access_token>`. `agent_token` is accepted for fixed `mcp.*` actions and for `GET /_p2p/events` so agent gateways can passively receive `agent_room.message` events. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
 
 ## Runtime Model
 
@@ -76,7 +76,7 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows/reports: favorite add/list/delete/batch delete, follow add/list/remove, report submission.
-- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions.
+- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow

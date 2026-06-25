@@ -425,12 +425,14 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 		t.Fatalf("expected non-MCP Agent action to fail, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
 
-	agentEventsReq := httptest.NewRequest(http.MethodGet, "/_p2p/events", nil)
-	agentEventsReq.Header.Set("Authorization", "Bearer "+agentToken)
-	agentEventsRec := httptest.NewRecorder()
-	router.ServeHTTP(agentEventsRec, agentEventsReq)
-	if agentEventsRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected Agent token to be rejected from events stream, got %d body=%s", agentEventsRec.Code, agentEventsRec.Body.String())
+	agentEventsRec, cancel, done := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", agentToken)
+	cancel()
+	waitForEventStreamDone(t, done)
+	if agentEventsRec.Code() != http.StatusOK {
+		t.Fatalf("expected Agent token to subscribe to events stream, got %d body=%s", agentEventsRec.Code(), agentEventsRec.BodyString())
+	}
+	if got := agentEventsRec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("expected Agent token events request to receive SSE content type, got %q", got)
 	}
 
 	adminRequest := mustRoute(t, router, service, "/_p2p/command", map[string]any{
@@ -557,9 +559,14 @@ func (w *sseTestResponseWriter) BodyString() string {
 
 func startEventStreamTest(t *testing.T, router http.Handler, service *Service, path string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
 	t.Helper()
+	return startEventStreamTestWithToken(t, router, path, service.AccessToken())
+}
+
+func startEventStreamTestWithToken(t *testing.T, router http.Handler, path, token string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
-	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := newSSETestResponseWriter()
 	done := make(chan struct{})
 	go func() {

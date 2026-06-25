@@ -104,7 +104,7 @@ Read the generated local login credentials from the running container:
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P API calls and Matrix client calls use `access_token`; `agent_token` is accepted only for `mcp.*` actions.
+The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P body actions and Matrix client calls use `access_token`; `agent_token` is accepted only for fixed `mcp.*` actions and `GET /_p2p/events`.
 
 Dual-instance federation test deployment:
 
@@ -269,7 +269,7 @@ Backend product actions include:
 
 Contact, group/channel invite, and member mutation actions return `operation` and, when a ProductCore conversation exists, the hydrated `conversation` so clients can refresh, open, or close the current route without reconstructing room state from names, member counts, or Matrix room metadata.
 
-Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only `mcp.*` actions. Dynamic Agent permission endpoints are removed.
+Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only fixed `mcp.*` actions and subscribe to `GET /_p2p/events` for passive gateway listening. Dynamic Agent permission endpoints are removed.
 
 ## Verification
 

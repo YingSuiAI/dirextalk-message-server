@@ -17,7 +17,7 @@ Use this skill when a change can affect clients, agents, external nodes, operato
   - `GET /_p2p/events`
   - `GET /.well-known/portal/owner.json`
 - Direxio action requests use `{ "action": "...", "params": { ... } }`.
-- Protected product actions require bearer access token. Agent token is only accepted for `mcp.*` actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+- Protected product actions require bearer access token. Agent token is accepted for fixed `mcp.*` actions and for `GET /_p2p/events` so agent gateways can passively receive `agent_room.message` events. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - `channels.public.join_result` is an internal node-to-node callback, not a normal client workflow entry.
 - Agent permission management endpoints are removed. Do not reintroduce dynamic Agent action permissions unless the product contract changes explicitly.
 - Ordinary message send, history, unread, search, and redaction use Matrix Client-Server APIs. Local history hiding uses `POST /_matrix/client/v1/io.direxio/rooms/{roomID}/local_delete`.

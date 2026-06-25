@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-25
 
+## 2026-06-25 Agent Token Event Stream Access
+
+`GET /_p2p/events` now accepts bearer `agent_token` as well as owner `access_token`. This is a narrow route-level exception for passive agent gateways that listen for `agent_room.message` and reply through fixed MCP actions.
+
+Non-MCP protected body actions still reject `agent_token`; the fixed MCP action allowlist is unchanged.
+
 ## 2026-06-25 Immutable Channel Type
 
 `channels.update` now ignores `channel_type`. Channel type is creation-time metadata and cannot be changed after a channel exists. Requests that include `channel_type` continue to apply other mutable fields but leave the stored `channel_type` unchanged.
@@ -12,7 +18,7 @@ Clients must set `channel_type` only in `channels.create`. Post channels (`chann
 
 Agent-token dynamic permission management is removed. `apis.list` and `apis.status` are no longer P2P actions and calls to those action names return `unknown action`.
 
-Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` and non-MCP protected actions reject `agent_token`.
+Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` is a route-level exception for passive gateway listening; non-MCP protected body actions reject `agent_token`.
 
 The first-party CLI module and its helper package are removed: `cmd/direxio-cli`, `internal/agentclient`, CLI build scripts, CLI agent-skill docs, and the project-local `direxio-cli` Codex skill.
 
@@ -193,7 +199,7 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 The live P2P action count is now 85.
 
