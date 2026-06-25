@@ -102,3 +102,100 @@ func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
 		}
 	})
 }
+
+func TestPerformPusherSetStoresDirexioIOSAPNsPusherAndKeepsAndroidPusher(t *testing.T) {
+	ctx := context.Background()
+	localpart := "alice"
+	serverName := spec.ServerName("localhost")
+
+	const (
+		iosAppID       = "io.direxio.app.ios"
+		androidAppID   = "io.direxio.app.android"
+		gatewayURL     = "https://push.direxio.ai/_matrix/push/v1/notify"
+		oldAPNsToken   = "old-apns-device-token"
+		newAPNsToken   = "new-apns-device-token"
+		androidFCMKey  = "android-fcm-device-token"
+		expectedFormat = "event_id_only"
+	)
+
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		db, closeDB := mustCreateUserDatabase(t, dbType)
+		defer closeDB()
+
+		userAPI := &internal.UserInternalAPI{DB: db}
+		for _, pushKey := range []string{oldAPNsToken, newAPNsToken} {
+			err := userAPI.PerformPusherSet(ctx, &api.PerformPusherSetRequest{
+				Pusher: api.Pusher{
+					PushKey:           pushKey,
+					Kind:              api.HTTPKind,
+					AppID:             iosAppID,
+					AppDisplayName:    "Direxio",
+					DeviceDisplayName: "iPhone",
+					Language:          "zh-CN",
+					Data: map[string]interface{}{
+						"format":   expectedFormat,
+						"url":      gatewayURL,
+						"provider": "apns",
+						"platform": "ios",
+					},
+				},
+				Localpart:  localpart,
+				ServerName: serverName,
+			}, &struct{}{})
+			if err != nil {
+				t.Fatalf("PerformPusherSet returned error for iOS APNs pusher: %v", err)
+			}
+		}
+
+		err := userAPI.PerformPusherSet(ctx, &api.PerformPusherSetRequest{
+			Pusher: api.Pusher{
+				PushKey:           androidFCMKey,
+				Kind:              api.HTTPKind,
+				AppID:             androidAppID,
+				AppDisplayName:    "Direxio",
+				DeviceDisplayName: "Android",
+				Language:          "zh-CN",
+				Data: map[string]interface{}{
+					"format":   expectedFormat,
+					"url":      gatewayURL,
+					"provider": "fcm",
+					"platform": "android",
+				},
+			},
+			Localpart:  localpart,
+			ServerName: serverName,
+		}, &struct{}{})
+		if err != nil {
+			t.Fatalf("PerformPusherSet returned error for Android FCM pusher: %v", err)
+		}
+
+		pushers, err := db.GetPushers(ctx, localpart, serverName)
+		if err != nil {
+			t.Fatalf("GetPushers returned error: %v", err)
+		}
+		if len(pushers) != 2 {
+			t.Fatalf("expected 2 pushers, got %d: %+v", len(pushers), pushers)
+		}
+
+		byAppID := map[string]api.Pusher{}
+		for _, pusher := range pushers {
+			byAppID[pusher.AppID] = pusher
+		}
+
+		iosPusher := byAppID[iosAppID]
+		if iosPusher.PushKey != newAPNsToken {
+			t.Fatalf("expected iOS APNs pusher to rotate to %q, got %q", newAPNsToken, iosPusher.PushKey)
+		}
+		if iosPusher.Data["url"] != gatewayURL ||
+			iosPusher.Data["format"] != expectedFormat ||
+			iosPusher.Data["provider"] != "apns" ||
+			iosPusher.Data["platform"] != "ios" {
+			t.Fatalf("unexpected iOS APNs pusher data: %#v", iosPusher.Data)
+		}
+
+		androidPusher := byAppID[androidAppID]
+		if androidPusher.PushKey != androidFCMKey {
+			t.Fatalf("expected Android pusher to remain, got %q", androidPusher.PushKey)
+		}
+	})
+}
