@@ -33,7 +33,7 @@ func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
 	ctx := context.Background()
 	localpart := "alice"
 	serverName := spec.ServerName("localhost")
-	appID := "io.direxio.app.android"
+	appID := "com.direxio.ai"
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		db, closeDB := mustCreateUserDatabase(t, dbType)

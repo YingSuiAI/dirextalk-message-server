@@ -17,6 +17,11 @@ import (
 	"github.com/matrix-org/util"
 )
 
+const (
+	direxioAndroidPusherAppID = "com.direxio.ai"
+	direxioIOSPusherAppID     = "com.direxio.app"
+)
+
 // GetPushers handles /_matrix/client/r0/pushers
 func GetPushers(
 	req *http.Request, device *userapi.Device,
@@ -76,6 +81,9 @@ func SetPusher(
 	if len(body.PushKey) > 512 {
 		return invalidParam("length of pushkey must be no more than 512 bytes")
 	}
+	if body.Kind == userapi.HTTPKind && !isDirexioHTTPPusherAppID(body.AppID) {
+		return invalidParam("unsupported Direxio push app_id")
+	}
 	uInt := body.Data["url"]
 	if uInt != nil {
 		u, ok := uInt.(string)
@@ -117,4 +125,8 @@ func invalidParam(msg string) util.JSONResponse {
 		Code: http.StatusBadRequest,
 		JSON: spec.InvalidParam(msg),
 	}
+}
+
+func isDirexioHTTPPusherAppID(appID string) bool {
+	return appID == direxioAndroidPusherAppID || appID == direxioIOSPusherAppID
 }

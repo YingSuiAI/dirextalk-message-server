@@ -25,22 +25,24 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
+Direxio HTTP pushers must use the client build identifiers as Matrix `app_id` values: `com.direxio.ai` for Android FCM and `com.direxio.app` for iOS APNs.
+
 ```json
 {
   "kind": "http",
-  "app_id": "io.direxio.mobile",
+  "app_id": "com.direxio.app",
   "app_display_name": "Direxio",
   "device_display_name": "iPhone",
   "pushkey": "<apns-or-fcm-device-token>",
   "lang": "en",
   "data": {
-    "url": "https://push.direxio.com/_matrix/push/v1/notify",
+    "url": "https://push.direxio.ai/_matrix/push/v1/notify",
     "format": "event_id_only"
   }
 }
 ```
 
-Use a regional gateway URL when required, for example `https://push-eu.direxio.com/_matrix/push/v1/notify` or `https://push-sea.direxio.com/_matrix/push/v1/notify`.
+Use a regional gateway URL when required, for example `https://push-eu.direxio.ai/_matrix/push/v1/notify` or `https://push-sea.direxio.ai/_matrix/push/v1/notify`.
 
 ## Server Responsibilities
 
