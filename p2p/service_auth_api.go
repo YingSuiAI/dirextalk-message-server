@@ -79,7 +79,7 @@ func (s *Service) agentPassword() any {
 }
 
 func (s *Service) agentMatrixSession(ctx context.Context, params map[string]any) (any, *apiError) {
-	session, apiErr := s.refreshMatrixSession(ctx, map[string]any{}, params, false)
+	session, apiErr := s.createAgentMatrixSession(ctx, params)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -89,6 +89,34 @@ func (s *Service) agentMatrixSession(ctx context.Context, params map[string]any)
 		"user_id":      session["user_id"],
 		"homeserver":   session["homeserver"],
 	}, nil
+}
+
+func (s *Service) createAgentMatrixSession(ctx context.Context, params map[string]any) (map[string]any, *apiError) {
+	s.matrixSessionMu.Lock()
+	defer s.matrixSessionMu.Unlock()
+
+	requestedDeviceID := requestedMatrixDeviceID(params)
+	s.mu.Lock()
+	issuer := s.sessions
+	userID := s.profile.UserID
+	displayName := s.profile.DisplayName
+	avatarURL := s.profile.AvatarURL
+	homeserver := s.homeserver
+	s.mu.Unlock()
+	session := map[string]any{
+		"device_id":  requestedDeviceID,
+		"user_id":    userID,
+		"homeserver": homeserver,
+	}
+	if issuer == nil {
+		return session, nil
+	}
+	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, avatarURL, requestedDeviceID, false)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	session["access_token"] = token
+	return session, nil
 }
 
 func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]any, params map[string]any, revokeExistingDevices bool) (map[string]any, *apiError) {

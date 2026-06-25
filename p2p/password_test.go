@@ -138,6 +138,34 @@ func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {
 	}
 }
 
+func TestAgentMatrixSessionDoesNotReplacePortalAccessToken(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	portalSession := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{
+		"password":  service.password,
+		"device_id": "PORTAL_DEVICE",
+	})
+	portalToken := portalSession["access_token"].(string)
+	if portalToken == "" {
+		t.Fatalf("expected portal auth to return access token")
+	}
+
+	agentSession := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
+		"device_id": "DIREXIO_MCP",
+	})
+	if agentSession["access_token"] == portalToken {
+		t.Fatalf("expected agent Matrix session to have its own Matrix token")
+	}
+	if service.AccessToken() != portalToken {
+		t.Fatalf("agent Matrix session must not replace portal access token, got %q want %q", service.AccessToken(), portalToken)
+	}
+	if !service.Authorize(portalToken, "channels.list") {
+		t.Fatalf("existing portal token must remain valid after agent Matrix session creation")
+	}
+}
+
 func TestPortalAuthSerializesMatrixSessionRefresh(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	issuer := &concurrentGuardMatrixSessionIssuer{}
