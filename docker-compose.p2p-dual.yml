@@ -21,7 +21,7 @@ x-postgres-env: &postgres-env
 
 services:
   postgres-a:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
@@ -38,7 +38,7 @@ services:
       - p2p_dual_a
 
   postgres-b:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
@@ -55,7 +55,7 @@ services:
       - p2p_dual_b
 
   postgres-c:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
