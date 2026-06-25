@@ -3,8 +3,6 @@ package p2p
 import (
 	"context"
 	"strings"
-
-	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 )
 
 func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -174,9 +172,6 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 	if systemPrompt := trimString(params["system_prompt"]); systemPrompt != "" {
 		s.agentConfig.SystemPrompt = systemPrompt
 	}
-	if actions := stringSliceParam(params["allowed_actions"]); actions != nil {
-		s.agentConfig.AllowedActions = actions
-	}
 	return agentConfigToMap(s.agentConfig)
 }
 
@@ -197,51 +192,10 @@ func (s *Service) agentStatus() any {
 
 func agentConfigToMap(cfg agentConfig) map[string]any {
 	return map[string]any{
-		"display_name":    cfg.DisplayName,
-		"context_window":  cfg.ContextWindow,
-		"enabled":         cfg.Enabled,
-		"model":           cfg.Model,
-		"system_prompt":   cfg.SystemPrompt,
-		"allowed_actions": append([]string{}, cfg.AllowedActions...),
+		"display_name":   cfg.DisplayName,
+		"context_window": cfg.ContextWindow,
+		"enabled":        cfg.Enabled,
+		"model":          cfg.Model,
+		"system_prompt":  cfg.SystemPrompt,
 	}
-}
-
-func (s *Service) apiPermissionList() map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return map[string]any{"items": apiPermissionItemsLocked(s.apiPerms)}
-}
-
-func (s *Service) apiPermissionStatus(params map[string]any) (any, *apiError) {
-	rawItems, _ := params["items"].([]any)
-	if len(rawItems) == 0 {
-		return nil, badRequest("items cannot be empty")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, raw := range rawItems {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			return nil, badRequest("invalid permission item")
-		}
-		action := trimString(item["action"])
-		if action == "" {
-			return nil, badRequest("action is required")
-		}
-		perm, ok := s.apiPerms[action]
-		if !ok {
-			return nil, badRequest("route is not Agent-permission controlled")
-		}
-		perm.Enabled = boolParam(item["enabled"])
-		s.apiPerms[action] = perm
-	}
-	return map[string]any{"items": apiPermissionItemsLocked(s.apiPerms)}, nil
-}
-
-func apiPermissionItemsLocked(perms map[string]apiPermission) []apiPermission {
-	return serviceapi.PermissionItems(perms)
-}
-
-func defaultAPIPermissions() map[string]apiPermission {
-	return serviceapi.DefaultAPIPermissions()
 }

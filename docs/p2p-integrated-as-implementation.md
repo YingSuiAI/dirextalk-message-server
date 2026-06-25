@@ -104,7 +104,7 @@ Read the generated local login credentials from the running container:
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P API calls and Matrix client calls use `access_token`; Agent callers use `agent_token` and are limited by `apis.status`.
+The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P API calls and Matrix client calls use `access_token`; `agent_token` is accepted only for `mcp.*` actions.
 
 Dual-instance federation test deployment:
 
@@ -203,7 +203,7 @@ Request envelope:
 Protected actions require:
 
 ```http
-Authorization: Bearer <access_token or agent_token>
+Authorization: Bearer <access_token>
 ```
 
 Public actions currently allowed without bearer:
@@ -245,7 +245,7 @@ Required client direction:
 - `defaultAdminBaseUri()` should point to `/_p2p` on the same browser-accessible homeserver origin. New code should not target `/_as` or URL-shaped product routes.
 - Ordinary room text, media, reaction, redaction, and Matrix membership operations should use Matrix SDK APIs. ProductPolicy now runs on those Matrix Client-Server writes for Direxio product rooms.
 - Channel post/comment Matrix sends must include `p2p_kind=channel_post` or `p2p_kind=channel_comment`; media events keep their Matrix `msgtype` such as `m.image`, `m.video`, `m.audio`, or `m.file`.
-- Product management and projection queries remain P2P body actions: portal/auth/status, contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, reports, Agent/API permissions, `sync.bootstrap`, and read markers.
+- Product management and projection queries remain P2P body actions: portal/auth/status, contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, reports, Agent config/status/password, MCP actions, `sync.bootstrap`, and read markers.
 - `GET /_p2p/events?since=<seq>` is the primary lightweight realtime refresh path. Clients should use it with `Last-Event-ID` or `since` replay and then refresh details through Matrix sync or targeted P2P query calls.
 - Ordinary chat/media history, unread counts, local hiding, search, and recall are Matrix responsibilities. Use Matrix send, `/sync`, `/rooms/{roomID}/messages`, `/search`, Matrix redaction, and Direxio Matrix `local_delete`.
 
@@ -265,11 +265,11 @@ Backend product actions include:
 - Contacts: `contacts.list`, `contacts.request`, `contacts.requests.accept`, `contacts.requests.reject`, `contacts.requests.delete`, `contacts.delete`
 - Groups: `groups.create`, `groups.update`, `groups.invite`, `groups.invite.reject`, `groups.members`, `groups.join`, `groups.leave`, `groups.mute`, `groups.unmute`, `groups.member.remove`, `groups.member.mute`, `groups.member.unmute`, `groups.invite_policy.update`
 - Channels/users: `channels.create`, `channels.list`, `channels.public.get`, `channels.public.join_request`, `users.public_channels`, `channels.join`, `channels.update`, `channels.invite`, `channels.invite_grant.create`, `channels.leave`, `channels.members`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`, `channels.join_request.approve`, `channels.join_request.reject`, `channels.posts.list`, `channels.posts.create`, `channels.posts.recall`, `channels.comments.list`, `channels.comments.create`, `channels.comments.recall`, `channels.post_reaction.toggle`, `channels.comment_reaction.toggle`, `channels.read_marker`, `channels.my_comments`, `channels.my_reactions`
-- Calls/favorites/follows/agent/apis: `calls.create`, `calls.get`, `calls.active`, `calls.list`, `calls.incoming`, `calls.event`, `favorites.list`, `favorites.add`, `favorites.delete`, `favorites.delete_batch`, `follows.list`, `follows.add`, `follows.remove`, `agent.password`, `agent.config.get`, `agent.config.update`, `agent.status`, `apis.list`, `apis.status`
+- Calls/favorites/follows/agent/mcp: `calls.create`, `calls.get`, `calls.active`, `calls.list`, `calls.incoming`, `calls.event`, `favorites.list`, `favorites.add`, `favorites.delete`, `favorites.delete_batch`, `follows.list`, `follows.add`, `follows.remove`, `agent.password`, `agent.config.get`, `agent.config.update`, `agent.status`, `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, `mcp.channel_comments.create`
 
 Contact, group/channel invite, and member mutation actions return `operation` and, when a ProductCore conversation exists, the hydrated `conversation` so clients can refresh, open, or close the current route without reconstructing room state from names, member counts, or Matrix room metadata.
 
-Agent authorization now uses the same body-action catalog: owner `access_token` may call all protected actions, while `agent_token` calls only actions present in the Agent permission catalog and currently enabled by `apis.status`.
+Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only `mcp.*` actions. Dynamic Agent permission endpoints are removed.
 
 ## Verification
 

@@ -47,7 +47,7 @@ Public actions:
 
 Protected action groups:
 
-- Agent/API: `agent.config.get`, `agent.config.update`, `agent.password`, `agent.status`, `apis.list`, `apis.status`
+- Agent/MCP: `agent.config.get`, `agent.config.update`, `agent.password`, `agent.status`, `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, `mcp.channel_comments.create`
 - Portal/Profile/Sync: `portal.password`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`
 - Contacts: `contacts.request`, `contacts.list`, `contacts.update`, `contacts.delete`, `contacts.requests.accept`, `contacts.requests.reject`, `contacts.requests.delete`
 - Conversations: `conversations.list`, `conversations.get`

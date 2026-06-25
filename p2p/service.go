@@ -64,7 +64,7 @@ type Service struct {
 	agentRoomID    string
 	profile        ownerProfile
 	agentConfig    agentConfig
-	apiPerms       map[string]apiPermission
+	actions        map[string]actionHandler
 
 	readMarkers   map[string]readMarker
 	channels      map[string]channel
@@ -135,7 +135,6 @@ type Store interface {
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
 type agentConfig = domain.AgentConfig
-type apiPermission = domain.APIPermission
 
 const matrixPortalDeviceID = "P2P_PORTAL"
 
@@ -401,7 +400,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if state.Profile.Domain == "" {
 		state.Profile.Domain = serverName
 	}
-	return &Service{
+	service := &Service{
 		serverName:         serverName,
 		homeserver:         homeserver,
 		store:              store,
@@ -422,7 +421,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			ContextWindow: 30,
 			Enabled:       true,
 		},
-		apiPerms:      defaultAPIPermissions(),
 		readMarkers:   map[string]readMarker{},
 		channels:      map[string]channel{},
 		contacts:      map[string]contactRecord{},
@@ -437,6 +435,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		inviteGrants:  map[string]channelInviteGrant{},
 		eventNotify:   make(chan struct{}),
 	}
+	service.actions = service.actionHandlers()
+	return service
 }
 
 func (s *Service) AccessToken() string {
@@ -451,165 +451,19 @@ func (s *Service) AgentToken() string {
 	return s.agentToken
 }
 
-//nolint:gocyclo // Product commands stay in one router until the command layer is split into typed handlers.
 func (s *Service) Handle(ctx context.Context, action string, params map[string]any) (any, *apiError) {
 	action = strings.TrimSpace(action)
-	switch action {
-	case "portal.bootstrap":
-		return s.bootstrap(ctx, params)
-	case "portal.auth":
-		return s.auth(ctx, params)
-	case "portal.status":
-		return s.portalStatus(), nil
-	case "portal.password":
-		return s.changePortalPassword(ctx, params)
-	case "agent.password":
-		return s.agentPassword(), nil
-	case "agent.matrix_session.create":
-		return s.agentMatrixSession(ctx, params)
-	case "profile.get":
-		return s.getProfile(), nil
-	case "profile.update":
-		return s.updateProfile(ctx, params)
-	case "sync.bootstrap":
-		return s.syncBootstrap(ctx)
-	case "conversations.list":
-		return s.conversationList(ctx)
-	case "conversations.get":
-		return s.conversationGet(ctx, params)
-	case "mcp.rooms.search":
-		return s.mcpRoomsSearch(ctx, params)
-	case "mcp.messages.send":
-		return s.mcpMessagesSend(ctx, params)
-	case "mcp.messages.list":
-		return s.mcpMessagesList(ctx, params)
-	case "mcp.channel_posts.list":
-		return s.mcpChannelPostsList(ctx, params)
-	case "mcp.channel_comments.list":
-		return s.mcpChannelCommentsList(ctx, params)
-	case "mcp.channel_comments.create":
-		return s.mcpChannelCommentCreate(ctx, params)
-	case "sync.read_marker":
-		return s.updateReadMarker(ctx, params)
-	case "apis.list":
-		return s.apiPermissionList(), nil
-	case "apis.status":
-		return s.apiPermissionStatus(params)
-	case "agent.config.get":
-		return s.getAgentConfig(), nil
-	case "agent.config.update":
-		return s.updateAgentConfig(params), nil
-	case "agent.status":
-		return s.agentStatus(), nil
-	case "follows.list":
-		return s.followList(ctx), nil
-	case "follows.add":
-		return s.followAdd(ctx, params)
-	case "follows.remove":
-		return s.followRemove(ctx, params)
-	case "favorites.list":
-		return s.favoriteList(ctx, params), nil
-	case "favorites.add":
-		return s.favoriteMessage(ctx, params)
-	case "favorites.delete":
-		return s.favoriteDelete(ctx, params)
-	case "favorites.delete_batch":
-		return s.favoriteDeleteBatch(ctx, params)
-	case "reports.submit":
-		return s.reportSubmit(ctx, params)
-	case "contacts.list":
-		return s.contactList(ctx)
-	case "contacts.request":
-		return s.contactRequest(ctx, params)
-	case "contacts.reactivate":
-		return s.contactReactivate(ctx, params)
-	case "contacts.requests.accept", "contacts.requests.reject", "contacts.requests.delete", "contacts.delete":
-		return s.contactMutation(ctx, action, params)
-	case "contacts.update":
-		return s.contactUpdate(ctx, params)
-	case "calls.create", "calls.incoming":
-		return s.callSession(ctx, params)
-	case "calls.get":
-		return s.callGet(ctx, params)
-	case "calls.event":
-		return s.callEvent(ctx, params)
-	case "calls.active", "calls.list":
-		return s.callList(ctx, params, action == "calls.active"), nil
-	case "groups.create":
-		return s.groupResult(ctx, params)
-	case "groups.update":
-		return s.groupUpdate(ctx, params)
-	case "groups.invite":
-		return s.inviteMembers(ctx, "group", params)
-	case "groups.join":
-		return s.joinMember(ctx, "group", params)
-	case "groups.list":
-		return s.groupList(ctx), nil
-	case "groups.members":
-		return s.memberList(ctx, params), nil
-	case "groups.dissolve":
-		return s.dissolveGroup(ctx, params)
-	case "groups.leave", "groups.invite.reject", "groups.member.remove", "groups.member.mute", "groups.member.unmute":
-		return s.memberMutation(ctx, "group", action, params)
-	case "groups.mute", "groups.unmute", "groups.invite_policy.update":
-		return s.groupPolicyMutation(ctx, action, params)
-	case "channels.create":
-		return s.channelResult(ctx, params)
-	case "channels.update":
-		return s.channelUpdate(ctx, params)
-	case "channels.join":
-		return s.joinMember(ctx, "channel", params)
-	case "channels.invite_grant.create":
-		return s.channelInviteGrantCreate(ctx, params)
-	case "channels.invite":
-		return s.inviteMembers(ctx, "channel", params)
-	case "channels.dissolve":
-		return s.dissolveChannel(ctx, params)
-	case "channels.leave", "channels.member.remove", "channels.member.mute", "channels.member.unmute", "channels.join_request.approve", "channels.join_request.reject":
-		return s.memberMutation(ctx, "channel", action, params)
-	case "channels.mute", "channels.unmute":
-		return s.channelPolicyMutation(ctx, action, params)
-	case "channels.read_marker":
-		return s.updateReadMarker(ctx, params)
-	case "channels.list":
-		return s.channelList(ctx), nil
-	case "channels.members":
-		return s.memberList(ctx, params), nil
-	case "channels.public.search":
-		return s.channelPublicSearch(ctx, params)
-	case "channels.public.get":
-		return s.channelPublicGet(ctx, params)
-	case "channels.public.join_request":
-		return s.channelJoinRequest(ctx, params)
-	case "channels.public.join_result":
-		return s.channelJoinResult(ctx, params)
-	case "users.public_channels":
-		return s.userPublicChannels(ctx, params)
-	case "channels.posts.list":
-		return s.channelPosts(ctx, params), nil
-	case "channels.posts.create":
-		return s.channelPost(ctx, params)
-	case "channels.posts.recall", "channels.comments.recall":
-		return s.recallChannelContent(ctx, action, params)
-	case "channels.comments.list":
-		return s.channelComments(ctx, params), nil
-	case "channels.comments.create":
-		return s.channelComment(ctx, params)
-	case "channels.post_reaction.toggle", "channels.comment_reaction.toggle":
-		return s.channelReaction(ctx, action, params)
-	case "channels.my_comments":
-		return s.myChannelComments(ctx, params), nil
-	case "channels.my_reactions":
-		return s.myReactions(ctx), nil
-	default:
+	handler, ok := s.actions[action]
+	if !ok {
 		return nil, badRequest("unknown action")
 	}
+	return handler(ctx, params)
 }
 
 func (s *Service) Authenticate(token string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return token != "" && (token == s.accessToken || token == s.agentToken)
+	return token != "" && token == s.accessToken
 }
 
 func (s *Service) Authorize(token, action string) bool {
@@ -621,11 +475,7 @@ func (s *Service) Authorize(token, action string) bool {
 	if token == s.accessToken {
 		return true
 	}
-	if token != s.agentToken {
-		return false
-	}
-	perm, ok := s.apiPerms[action]
-	return ok && perm.Enabled
+	return token == s.agentToken && serviceapi.AgentAction(action)
 }
 
 func publicAction(action string) bool {

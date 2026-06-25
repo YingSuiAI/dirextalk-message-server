@@ -2,6 +2,14 @@
 
 Last updated: 2026-06-25
 
+## 2026-06-25 Agent Token And CLI Cleanup
+
+Agent-token dynamic permission management is removed. `apis.list` and `apis.status` are no longer P2P actions and calls to those action names return `unknown action`.
+
+Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` and non-MCP protected actions reject `agent_token`.
+
+The first-party CLI module and its helper package are removed: `cmd/direxio-cli`, `internal/agentclient`, CLI build scripts, CLI agent-skill docs, and the project-local `direxio-cli` Codex skill.
+
 ## 2026-06-25 Matrix Push Gateway Metadata
 
 Matrix event pushes sent to HTTP push gateways now include optional Direxio display/routing metadata when the room has Direxio product room state. Normal direct, group, and text-channel message pushes can include `notification.title`, `notification.push_type=message`, `notification.room_id`, `notification.event_id`, and short `notification.room_type` (`direct`, `group`, or `channel`). The gateway owns the visible body text and sets it to `Send you a new message`.
@@ -12,7 +20,7 @@ Post channels (`io.direxio.room.profile.channel_type=post`) are not sent to HTTP
 
 `portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
 
-`agent.matrix_session.create` remains an internal Agent/CLI Matrix session helper and does not evict the portal user's phone session.
+`agent.matrix_session.create` remains an owner-token internal Matrix session helper and does not evict the portal user's phone session.
 
 ## 2026-06-24 User Public Channel Lookup
 
@@ -72,7 +80,7 @@ Added six protected MCP-oriented P2P actions for the local Direxio MCP adapter:
 - `mcp.messages.send` on `POST /_p2p/command`
 - `mcp.channel_comments.create` on `POST /_p2p/command`
 
-All six require a bearer access token or enabled Agent token and are enabled in the default Agent permission set. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
+All six require bearer auth. Owner `access_token` can call them, and `agent_token` is accepted only for these fixed MCP actions. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
 
 Ordinary MCP message send/list remains separate from channel post/comment product content. `mcp.messages.send` writes a plain `m.room.message` without `p2p_kind`; `mcp.messages.list` reads ordinary Matrix timeline messages through a server-side Matrix reader and filters out events carrying product `p2p_kind`. No P2P ordinary-message store was added.
 
@@ -90,15 +98,14 @@ Breaking removals and contract changes:
 - Public channel approval no longer exposes Matrix invite as the product workflow. Approval writes `io.direxio.join_request status=approved`; the requester homeserver performs Matrix join.
 - New public internal action `channels.public.join_result` carries owner-node approval results to the requester node. Params: `room_id`, `channel_id`, `user_id`, `status`, `reason`, `server_names`, and `request_id`.
 - Public channel join response status is one of `pending`, `rejected`, `approved`, `joining`, `joined`, or `join_failed`.
-- `apis.list` and `apis.status` Agent permission items are action-only. Response items contain `action`, `description`, and `enabled`; `method` and `path` are removed. `apis.status` updates must send `action` and `enabled`, and no longer accept `method`/`path` lookup compatibility.
-- Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It requires a bearer access token or an enabled Agent token and returns the Matrix Client-Server session needed by trusted CLI tooling: `access_token`, `device_id`, `user_id`, and `homeserver`. The response is for internal CLI use and must not be displayed by normal CLI workflows.
+- Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It requires bearer `access_token` and returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
 The live P2P body-action count is 86. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 ## Current Pass
 
-This pass completes the Matrix-only ordinary message migration for Direxio product rooms. There is now one ordinary message source of truth: Matrix Client-Server event storage and timelines. P2P product APIs keep product metadata, contact/group/channel state, channel post/comment projections, calls, favorites, follows, reports, Agent permissions, and bootstrap metadata.
+This pass completes the Matrix-only ordinary message migration for Direxio product rooms. There is now one ordinary message source of truth: Matrix Client-Server event storage and timelines. P2P product APIs keep product metadata, contact/group/channel state, channel post/comment projections, calls, favorites, follows, reports, Agent configuration, and bootstrap metadata.
 
 Breaking removals from the P2P body-action surface:
 
@@ -115,7 +122,7 @@ Breaking removals from the P2P body-action surface:
 - `contacts.download`
 - `contacts.import`
 
-The removed actions are absent from `p2p.Service.Handle`, `defaultAPIPermissions()`, Postman, and the dual-node smoke business flow. Calls to those names are treated as unknown P2P actions. Clients must not use them as deprecated compatibility paths.
+The removed actions are absent from `p2p.Service.Handle`, Postman, and the dual-node smoke business flow. Calls to those names are treated as unknown P2P actions. Clients must not use them as deprecated compatibility paths.
 
 ## Matrix Message Contract
 
@@ -180,7 +187,7 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-Protected product actions require bearer access token or an enabled Agent token. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 The live P2P action count is now 85.
 
@@ -261,7 +268,7 @@ Clients should align as follows:
 
 ## Updated Artifacts
 
-- P2P service action switch and default Agent permission catalog.
+- P2P action registry and fixed Agent MCP allowlist.
 - P2P storage migration dropping the legacy ordinary-message mirror table.
 - Syncapi local hide storage and Matrix read-path filtering.
 - Roomserver projector rules for ordinary messages, channel posts/comments, reactions, and redactions.

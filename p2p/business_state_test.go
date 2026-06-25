@@ -2209,12 +2209,11 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 	bootstrapService(t, service)
 
 	cfg := mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
-		"display_name":    "Ops Agent",
-		"context_window":  float64(64),
-		"enabled":         true,
-		"model":           "local-model",
-		"system_prompt":   "help users",
-		"allowed_actions": []any{"contacts.request", "channels.create"},
+		"display_name":   "Ops Agent",
+		"context_window": float64(64),
+		"enabled":        true,
+		"model":          "local-model",
+		"system_prompt":  "help users",
 	})
 	if cfg["display_name"] != "Ops Agent" || int64Param(cfg["context_window"]) != 64 || cfg["enabled"] != true {
 		t.Fatalf("expected updated agent config, got %#v", cfg)
@@ -2318,63 +2317,11 @@ func TestGroupInviteAcceptsInviteArrayAlias(t *testing.T) {
 	}
 }
 
-func TestAgentPermissionCatalogCoversMigratedBusinessActions(t *testing.T) {
-	perms := defaultAPIPermissions()
-	for _, action := range []string{
-		"apis.list",
-		"contacts.list",
-		"contacts.request",
-		"contacts.delete",
-		"channels.create",
-		"channels.list",
-		"channels.dissolve",
-		"channels.members",
-		"channels.posts.list",
-		"channels.posts.create",
-		"channels.posts.recall",
-		"channels.comments.list",
-		"channels.comments.create",
-		"channels.my_comments",
-		"channels.my_reactions",
-		"users.public_channels",
-		"groups.list",
-		"groups.dissolve",
-		"groups.members",
-		"groups.invite",
-		"favorites.list",
-		"favorites.add",
-		"favorites.delete",
-		"reports.submit",
-	} {
-		if perm, ok := perms[action]; !ok || !perm.Enabled {
-			t.Fatalf("expected Agent permission for %s, got %#v", action, perm)
-		}
-	}
-	for _, action := range []string{
-		"sync.messages",
-		"sync.unread",
-		"search",
-		"rooms.send",
-		"rooms.send_media",
-		"rooms.messages.delete",
-		"rooms.messages.delete_batch",
-		"rooms.messages.delete_range",
-		"rooms.messages.recall",
-	} {
-		if perm, ok := perms[action]; ok {
-			t.Fatalf("expected removed Agent permission %s to be absent, got %#v", action, perm)
-		}
-	}
-}
-
 func TestContactBackupActionsRemoved(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	for _, action := range []string{"contacts.export", "contacts.download", "contacts.import"} {
 		if result, apiErr := service.Handle(context.Background(), action, map[string]any{}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
 			t.Fatalf("expected removed %s action to be unknown, result=%#v err=%#v", action, result, apiErr)
-		}
-		if _, ok := defaultAPIPermissions()[action]; ok {
-			t.Fatalf("expected removed %s action to be absent from default API permissions", action)
 		}
 	}
 }

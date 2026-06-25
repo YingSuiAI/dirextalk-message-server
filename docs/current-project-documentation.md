@@ -42,7 +42,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 需要 `Authorization: Bearer <access_token>`，或启用对应 action 权限的 `agent_token`。当前 public action 是：
+Protected action 需要 `Authorization: Bearer <access_token>`。`agent_token` 只允许访问 `mcp.*` action。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -64,10 +64,11 @@ Protected action 需要 `Authorization: Bearer <access_token>`，或启用对应
 
 - `cmd/direxio-message-server`：生产服务入口，monolith 模式运行。
 - `setup/monolith.go`：装配 client、federation、media、sync、relay、P2P routes。
-- `p2p/service.go`：P2P action 分发与业务编排。
-- `p2p/storage.go`：P2P projection/read model 持久化。
-- `p2p/dendrite_transport.go`：真实 Matrix 写入适配层。
-- `p2p/projector.go`：roomserver output 到 P2P projection 的投影。
+- `p2p/action_registry.go`：P2P action 到业务 handler 的注册表。
+- `p2p/service_*.go`：P2P 业务编排。
+- `p2p/storage`：P2P projection/read model 持久化。
+- `p2p/dendrite`：真实 Matrix 写入适配层。
+- `p2p/projector_*.go`、`p2p/projection`：roomserver output 到 P2P projection 的投影。
 - `p2p/consumer.go`：订阅 roomserver 输出并调用 projector。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Direxio 产品策略校验。
 
@@ -105,7 +106,7 @@ P2P action 生命周期：
 1. HTTP route 接收 `/query` 或 `/command` envelope。
 2. route 调用 `Service.Authorize`：
    - public action 直接放行；
-   - protected action 校验 access token 或 Agent token 权限。
+   - protected action 校验 access token；`agent_token` 仅允许 MCP action。
 3. `Service.Handle` 分发到对应业务函数。
 4. 业务函数校验参数、所有者/成员/策略权限。
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
@@ -167,7 +168,7 @@ Portal/Profile：
 - 默认启动时自动初始化 portal owner、owner token、agent token、默认密码和 owner profile。
 - `P2P_PORTAL_PASSWORD` 可覆盖默认密码。
 - `P2P_PORTAL_CREDENTIALS_FILE` 用于启动、密码变更和 session token 变更后的 credential JSON 写出。
-- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 Agent/CLI 内部会话，不删除用户手机 device。
+- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 owner-token 内部辅助 action，不删除用户手机 device。
 - profile update 同步 P2P profile/member projection，并写入 Matrix-facing profile storage。
 
 Contacts：
@@ -206,11 +207,11 @@ Calls/Favorites/Follows/Reports：
 - calls 是产品会话 read model，支持 create/incoming/get/list/active/event，持久化接通/结束时间、结束方和原因，并通过 `call.changed` P2P event 推送实时状态。
 - favorites、follows、reports 是 P2P product state，使用 P2P store 持久化。
 
-Agent/API permissions：
+Agent/API：
 
-- Agent token 可按 action enable/disable。
+- Agent token 不再有动态权限表，只能访问 `mcp.*` action；其他 protected action 只认 owner `access_token`。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
-- 新增 action 时必须同步默认权限、Postman、接口变更记录和相关测试。
+- 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 
 Multi-node：
 
@@ -290,7 +291,7 @@ docker compose -f docker-compose.p2p-dual.yml config
 ## 9. 代码规范
 
 - Go 代码必须 `gofmt`。
-- 先从全局 Direxio server 视角梳理入口、鉴权、policy、storage、roomserver output、consumer/projection、sync/federation、CLI/docs 和验证路径，再把改动落在最小 owning package。
+- 先从全局 Direxio server 视角梳理入口、鉴权、policy、storage、roomserver output、consumer/projection、sync/federation、docs 和验证路径，再把改动落在最小 owning package。
 - 不新增 URL-shaped 产品接口；新增产品能力优先使用稳定 action 和 params schema。
 - 不静默改变请求/响应字段；接口变化必须更新 `docs/api-interface-change-record.md`。
 - 必须持久化的产品状态不得放内存-only；扩展 `p2p.Store` 和 migration。
@@ -300,7 +301,7 @@ docker compose -f docker-compose.p2p-dual.yml config
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - Postman JSON 必须保持可导入。
 - 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是 `direxio-change-orchestrator`、`direxio-contract-sync`、`direxio-event-state-tracer`、`direxio-storage-migration-guard`、`direxio-targeted-verification` 和 `direxio-cli`。
+- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是 `direxio-change-orchestrator`、`direxio-contract-sync`、`direxio-event-state-tracer`、`direxio-storage-migration-guard` 和 `direxio-targeted-verification`。
 
 ## 10. 文档规则
 

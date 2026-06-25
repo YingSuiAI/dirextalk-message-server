@@ -26,14 +26,14 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/events?since=0",
-            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token. Agent token works only when `events.stream` is enabled in apis.status.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
+            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
           }
         }
       ]
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`，MCP 类 action 默认使用 `agent_token`。\n\nComplete action collection generated from p2p.Service.Handle. Total actions: 92. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；只有 MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -58,7 +58,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 Agent 配置。\n\nRead Agent config\n\nAction: `agent.config.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取 Agent 配置。\n\nRead Agent config\n\nAction: `agent.config.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.config.get\",\n  \"params\": {}\n}",
@@ -90,10 +90,10 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新 Agent 配置。\n\nUpdate Agent config\n\nAction: `agent.config.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新 Agent 配置。\n\nUpdate Agent config\n\nAction: `agent.config.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"agent.config.update\",\n  \"params\": {\n    \"display_name\": \"Postman Agent\",\n    \"context_window\": 12,\n    \"enabled\": true,\n    \"model\": \"gpt-4.1\",\n    \"system_prompt\": \"You are a local assistant.\",\n    \"allowed_actions\": [\n      \"sync.bootstrap\",\n      \"channels.list\"\n    ]\n  }\n}",
+                  "raw": "{\n  \"action\": \"agent.config.update\",\n  \"params\": {\n    \"display_name\": \"Postman Agent\",\n    \"context_window\": 12,\n    \"enabled\": true,\n    \"model\": \"gpt-4.1\",\n    \"system_prompt\": \"You are a local assistant.\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -122,7 +122,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "Agent 读取当前门户密码。\n\nAgent reads current portal password\n\nAction: `agent.password`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "Agent 读取当前门户密码。\n\nAgent reads current portal password\n\nAction: `agent.password`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.password\",\n  \"params\": {}\n}",
@@ -154,7 +154,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "为 Direxio CLI 工具创建内部 Matrix 会话。\n\nCreate internal Matrix session for Direxio CLI tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token or enabled agent_token. The returned Matrix access token is sensitive and should be consumed by CLI internals.",
+                "description": "为 Direxio CLI 工具创建内部 Matrix 会话。\n\nCreate internal Matrix session for Direxio CLI tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.matrix_session.create\",\n  \"params\": {\n    \"device_id\": \"DIREXIO_CLI\"\n  }\n}",
@@ -186,7 +186,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 Agent 状态。\n\nRead Agent status\n\nAction: `agent.status`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取 Agent 状态。\n\nRead Agent status\n\nAction: `agent.status`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.status\",\n  \"params\": {}\n}",
@@ -203,72 +203,7 @@
         },
         {
           "name": "apis（智能体权限）",
-          "item": [
-            {
-              "name": "apis.list（列出智能体权限）",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}",
-                    "type": "text"
-                  }
-                ],
-                "url": "{{baseUrl}}/_p2p/command",
-                "description": "列出 Agent 可控制的 API 权限；返回项只包含 `action`、`description` 和 `enabled`。\n\nList Agent-controllable API permissions. Returned permission items contain `action`, `description`, and `enabled` only.\n\nAction: `apis.list`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"action\": \"apis.list\",\n  \"params\": {}\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              }
-            },
-            {
-              "name": "apis.status（更新智能体权限）",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}",
-                    "type": "text"
-                  }
-                ],
-                "url": "{{baseUrl}}/_p2p/command",
-                "description": "启用或禁用 Agent 对 action 的访问权限；权限更新必须用 `action` 标识。\n\nEnable or disable Agent access to actions. Permission updates must identify entries by `action`; legacy `method`/`path` lookup is not accepted.\n\nAction: `apis.status`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"action\": \"apis.status\",\n  \"params\": {\n    \"items\": [\n      {\n        \"action\": \"agent.status\",\n        \"enabled\": true\n      }\n    ]\n  }\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              }
-            }
-          ],
+          "item": [],
           "description": "管理 Agent token 可调用 action 权限的接口。"
         },
         {
@@ -294,7 +229,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出当前活跃通话。\n\nList active calls\n\nAction: `calls.active`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出当前活跃通话。\n\nList active calls\n\nAction: `calls.active`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.active\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -326,7 +261,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建通话会话。\n\nCreate call session\n\nAction: `calls.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "创建通话会话。\n\nCreate call session\n\nAction: `calls.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.create\",\n  \"params\": {\n    \"call_id\": \"{{callID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"media_type\": \"voice\"\n  }\n}",
@@ -358,7 +293,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新通话会话状态。event 支持 connected、ended、rejected、missed、failed；写入后会通过 /_p2p/events 推送 call.changed。\n\nUpdate call session state. Events support connected, ended, rejected, missed, and failed; writes emit call.changed through /_p2p/events.\n\nAction: `calls.event`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新通话会话状态。event 支持 connected、ended、rejected、missed、failed；写入后会通过 /_p2p/events 推送 call.changed。\n\nUpdate call session state. Events support connected, ended, rejected, missed, and failed; writes emit call.changed through /_p2p/events.\n\nAction: `calls.event`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.event\",\n  \"params\": {\n    \"call_id\": \"{{callID}}\",\n    \"event\": \"rejected\",\n    \"media_type\": \"voice\",\n    \"reason\": \"user_reject\",\n    \"duration_ms\": 0\n  }\n}",
@@ -390,7 +325,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取通话会话详情。\n\nRead call session detail\n\nAction: `calls.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取通话会话详情。\n\nRead call session detail\n\nAction: `calls.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.get\",\n  \"params\": {\n    \"call_id\": \"{{callID}}\"\n  }\n}",
@@ -422,7 +357,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "登记收到的来电会话。\n\nRegister incoming call session\n\nAction: `calls.incoming`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "登记收到的来电会话。\n\nRegister incoming call session\n\nAction: `calls.incoming`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.incoming\",\n  \"params\": {\n    \"call_id\": \"{{callID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"media_type\": \"video\"\n  }\n}",
@@ -454,7 +389,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出通话会话。\n\nList call sessions\n\nAction: `calls.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出通话会话。\n\nList call sessions\n\nAction: `calls.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.list\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -492,7 +427,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建频道。\n\nCreate channel\n\nAction: `channels.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "创建频道。\n\nCreate channel\n\nAction: `channels.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.create\",\n  \"params\": {\n    \"name\": \"Postman Channel\",\n    \"description\": \"created from Postman\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"approval\",\n    \"channel_type\": \"chat\"\n  }\n}",
@@ -524,7 +459,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "解散当前用户拥有的频道。\n\nDissolve owned channel\n\nAction: `channels.dissolve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "解散当前用户拥有的频道。\n\nDissolve owned channel\n\nAction: `channels.dissolve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.dissolve\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -556,7 +491,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "邀请频道成员。\n\nInvite channel members\n\nAction: `channels.invite`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "邀请频道成员。\n\nInvite channel members\n\nAction: `channels.invite`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.invite\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\",\n    \"display_name\": \"Peer\"\n  }\n}",
@@ -588,7 +523,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建面向某个分享房间的频道邀请授权。\n\nCreate a room-scoped channel invite grant\n\nAction: `channels.invite_grant.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.\n\nThe share room's current joined members are invited to the channel. Clients should call `channels.join` with `grant_id` or `share_room_id` when the invite card is opened.",
+                "description": "创建面向某个分享房间的频道邀请授权。\n\nCreate a room-scoped channel invite grant\n\nAction: `channels.invite_grant.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.\n\nThe share room's current joined members are invited to the channel. Clients should call `channels.join` with `grant_id` or `share_room_id` when the invite card is opened.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.invite_grant.create\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"share_room_id\": \"{{shareRoomID}}\"\n  }\n}",
@@ -620,7 +555,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "通过房间 ID 加入频道。\n\nJoin channel by room id\n\nAction: `channels.join`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
+                "description": "通过房间 ID 加入频道。\n\nJoin channel by room id\n\nAction: `channels.join`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.join\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"server_names\": [\n      \"{{remoteServerName}}\"\n    ],\n    \"display_name\": \"Peer\",\n    \"avatar_url\": \"\"\n  }\n}",
@@ -652,7 +587,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "批准频道加入申请。\n\nApprove channel join request\n\nAction: `channels.join_request.approve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "批准频道加入申请。\n\nApprove channel join request\n\nAction: `channels.join_request.approve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.join_request.approve\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -684,7 +619,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "拒绝频道加入申请。\n\nReject channel join request\n\nAction: `channels.join_request.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "拒绝频道加入申请。\n\nReject channel join request\n\nAction: `channels.join_request.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.join_request.reject\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -716,7 +651,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "离开频道。\n\nLeave channel\n\nAction: `channels.leave`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "离开频道。\n\nLeave channel\n\nAction: `channels.leave`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.leave\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -748,7 +683,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出频道。\n\nList channels\n\nAction: `channels.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出频道。\n\nList channels\n\nAction: `channels.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.list\",\n  \"params\": {}\n}",
@@ -780,7 +715,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "禁言频道成员。\n\nMute channel member\n\nAction: `channels.member.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "禁言频道成员。\n\nMute channel member\n\nAction: `channels.member.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.member.mute\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -812,7 +747,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "移除频道成员。\n\nRemove channel member\n\nAction: `channels.member.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "移除频道成员。\n\nRemove channel member\n\nAction: `channels.member.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.member.remove\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\",\n    \"reason\": \"remove from Postman\"\n  }\n}",
@@ -844,7 +779,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "解除频道成员禁言。\n\nUnmute channel member\n\nAction: `channels.member.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "解除频道成员禁言。\n\nUnmute channel member\n\nAction: `channels.member.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.member.unmute\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -876,7 +811,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出频道成员。\n\nList channel members\n\nAction: `channels.members`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出频道成员。\n\nList channel members\n\nAction: `channels.members`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.members\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"status\": \"\",\n    \"role\": \"\"\n  }\n}",
@@ -908,7 +843,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "静音频道。\n\nMute channel\n\nAction: `channels.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "静音频道。\n\nMute channel\n\nAction: `channels.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.mute\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -940,7 +875,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出当前 owner 的频道评论。\n\nList owner channel comments\n\nAction: `channels.my_comments`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出当前 owner 的频道评论。\n\nList owner channel comments\n\nAction: `channels.my_comments`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.my_comments\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"post_id\": \"{{postID}}\"\n  }\n}",
@@ -972,7 +907,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新频道读标记。\n\nUpdate channel read marker\n\nAction: `channels.read_marker`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新频道读标记。\n\nUpdate channel read marker\n\nAction: `channels.read_marker`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.read_marker\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"event_id\": \"{{eventID}}\",\n    \"origin_server_ts\": 0\n  }\n}",
@@ -1004,7 +939,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "取消频道静音。\n\nUnmute channel\n\nAction: `channels.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "取消频道静音。\n\nUnmute channel\n\nAction: `channels.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.unmute\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -1036,7 +971,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新频道资料。\n\nUpdate channel\n\nAction: `channels.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新频道资料。\n\nUpdate channel\n\nAction: `channels.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.update\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"name\": \"Updated Postman Channel\",\n    \"description\": \"updated\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"open\",\n    \"channel_type\": \"chat\",\n    \"comments_enabled\": true,\n    \"muted\": false\n  }\n}",
@@ -1074,7 +1009,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建频道帖子评论。\n\nCreate channel post comment\n\nAction: `channels.comments.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "创建频道帖子评论。\n\nCreate channel post comment\n\nAction: `channels.comments.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.comments.create\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"post_id\": \"{{postID}}\",\n    \"body\": \"Postman comment\",\n    \"message_type\": \"text\",\n    \"reply_to_comment_id\": \"\",\n    \"reply_to_author_mxid\": \"\",\n    \"mentions\": []\n  }\n}",
@@ -1106,7 +1041,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出频道帖子评论。\n\nList channel post comments\n\nAction: `channels.comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出频道帖子评论。\n\nList channel post comments\n\nAction: `channels.comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.comments.list\",\n  \"params\": {\n    \"post_id\": \"{{postID}}\"\n  }\n}",
@@ -1138,7 +1073,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "撤回频道评论。\n\nRecall channel comment\n\nAction: `channels.comments.recall`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "撤回频道评论。\n\nRecall channel comment\n\nAction: `channels.comments.recall`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.comments.recall\",\n  \"params\": {\n    \"post_id\": \"{{postID}}\",\n    \"comment_id\": \"{{commentID}}\",\n    \"reason\": \"recall comment from Postman\"\n  }\n}",
@@ -1176,7 +1111,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建频道帖子。\n\nCreate channel post\n\nAction: `channels.posts.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "创建频道帖子。\n\nCreate channel post\n\nAction: `channels.posts.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.posts.create\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"body\": \"Postman post\",\n    \"message_type\": \"text\",\n    \"media_json\": {}\n  }\n}",
@@ -1208,7 +1143,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出频道帖子。\n\nList channel posts\n\nAction: `channels.posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出频道帖子。\n\nList channel posts\n\nAction: `channels.posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.posts.list\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\"\n  }\n}",
@@ -1240,7 +1175,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "撤回频道帖子。\n\nRecall channel post\n\nAction: `channels.posts.recall`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "撤回频道帖子。\n\nRecall channel post\n\nAction: `channels.posts.recall`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.posts.recall\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"post_id\": \"{{postID}}\",\n    \"reason\": \"recall post from Postman\"\n  }\n}",
@@ -1392,7 +1327,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "切换频道评论互动状态。\n\nToggle channel comment reaction\n\nAction: `channels.comment_reaction.toggle`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "切换频道评论互动状态。\n\nToggle channel comment reaction\n\nAction: `channels.comment_reaction.toggle`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.comment_reaction.toggle\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"post_id\": \"{{postID}}\",\n    \"comment_id\": \"{{commentID}}\",\n    \"reaction\": \"like\"\n  }\n}",
@@ -1424,7 +1359,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出当前 owner 的频道互动记录。\n\nList owner channel reactions\n\nAction: `channels.my_reactions`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出当前 owner 的频道互动记录。\n\nList owner channel reactions\n\nAction: `channels.my_reactions`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.my_reactions\",\n  \"params\": {}\n}",
@@ -1456,7 +1391,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "切换频道帖子互动状态。\n\nToggle channel post reaction\n\nAction: `channels.post_reaction.toggle`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "切换频道帖子互动状态。\n\nToggle channel post reaction\n\nAction: `channels.post_reaction.toggle`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"channels.post_reaction.toggle\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"post_id\": \"{{postID}}\",\n    \"reaction\": \"like\"\n  }\n}",
@@ -1494,7 +1429,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "删除联系人。\n\nDelete contact\n\nAction: `contacts.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "删除联系人。\n\nDelete contact\n\nAction: `contacts.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.delete\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -1526,7 +1461,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出联系人。\n\nList contacts\n\nAction: `contacts.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出联系人。\n\nList contacts\n\nAction: `contacts.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.list\",\n  \"params\": {}\n}",
@@ -1558,7 +1493,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建联系人申请。\n\nCreate contact request\n\nAction: `contacts.request`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "创建联系人申请。\n\nCreate contact request\n\nAction: `contacts.request`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.request\",\n  \"params\": {\n    \"mxid\": \"{{peerUserID}}\",\n    \"display_name\": \"Peer\",\n    \"remark\": \"我是 Peer，请通过好友申请\"\n  }\n}",
@@ -1617,7 +1552,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新联系人备注。\n\nUpdate contact remark\n\nAction: `contacts.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新联系人备注。\n\nUpdate contact remark\n\nAction: `contacts.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.update\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"display_name\": \"Remark name\",\n    \"domain\": \"{{remoteDomain}}\"\n  }\n}",
@@ -1655,7 +1590,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "接受联系人申请。\n\nAccept contact request\n\nAction: `contacts.requests.accept`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "接受联系人申请。\n\nAccept contact request\n\nAction: `contacts.requests.accept`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.requests.accept\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"peer_mxid\": \"{{peerUserID}}\",\n    \"display_name\": \"Peer\",\n    \"domain\": \"{{remoteDomain}}\",\n    \"server_names\": [\n      \"{{remoteServerName}}\"\n    ]\n  }\n}",
@@ -1687,7 +1622,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "删除联系人申请。\n\nDelete contact request\n\nAction: `contacts.requests.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "删除联系人申请。\n\nDelete contact request\n\nAction: `contacts.requests.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.requests.delete\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -1719,7 +1654,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "拒绝联系人申请。\n\nReject contact request\n\nAction: `contacts.requests.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "拒绝联系人申请。\n\nReject contact request\n\nAction: `contacts.requests.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.requests.reject\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"peer_mxid\": \"{{peerUserID}}\",\n    \"display_name\": \"Peer\",\n    \"domain\": \"{{remoteDomain}}\"\n  }\n}",
@@ -1757,7 +1692,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取一个 ProductCore 会话详情，返回稳定会话身份、成员数、成员关系、角色、水合状态、原因和能力信息。\n\nRead one ProductCore conversation. The response includes stable conversation identity plus member_count, membership, relationship_status, role, hydration_state, hydration_reason, and capabilities (`open`, `send`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, `delete`).\n\nAction: `conversations.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取一个 ProductCore 会话详情，返回稳定会话身份、成员数、成员关系、角色、水合状态、原因和能力信息。\n\nRead one ProductCore conversation. The response includes stable conversation identity plus member_count, membership, relationship_status, role, hydration_state, hydration_reason, and capabilities (`open`, `send`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, `delete`).\n\nAction: `conversations.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"conversations.get\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -1789,7 +1724,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出 ProductCore 会话，返回稳定会话身份、成员数、成员关系、角色、水合状态、原因和能力信息。\n\nList ProductCore conversations. Each conversation includes stable conversation identity plus member_count, membership, relationship_status, role, hydration_state, hydration_reason, and capabilities (`open`, `send`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, `delete`).\n\nAction: `conversations.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出 ProductCore 会话，返回稳定会话身份、成员数、成员关系、角色、水合状态、原因和能力信息。\n\nList ProductCore conversations. Each conversation includes stable conversation identity plus member_count, membership, relationship_status, role, hydration_state, hydration_reason, and capabilities (`open`, `send`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, `delete`).\n\nAction: `conversations.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"conversations.list\",\n  \"params\": {}\n}",
@@ -1827,7 +1762,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "添加收藏消息。\n\nAdd favorite message\n\nAction: `favorites.add`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "添加收藏消息。\n\nAdd favorite message\n\nAction: `favorites.add`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"favorites.add\",\n  \"params\": {\n    \"event_id\": \"{{eventID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"sender_id\": \"{{ownerUserID}}\",\n    \"sender_name\": \"Owner\",\n    \"content\": \"favorite message\",\n    \"message_type\": \"text\",\n    \"origin_server_ts\": 0\n  }\n}",
@@ -1859,7 +1794,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "删除收藏消息。\n\nDelete favorite message\n\nAction: `favorites.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "删除收藏消息。\n\nDelete favorite message\n\nAction: `favorites.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"favorites.delete\",\n  \"params\": {\n    \"id\": \"{{favoriteID}}\"\n  }\n}",
@@ -1891,7 +1826,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "批量删除收藏消息。\n\nBatch delete favorites\n\nAction: `favorites.delete_batch`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "批量删除收藏消息。\n\nBatch delete favorites\n\nAction: `favorites.delete_batch`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"favorites.delete_batch\",\n  \"params\": {\n    \"ids\": [\n      \"{{favoriteID}}\"\n    ]\n  }\n}",
@@ -1923,7 +1858,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出收藏消息。\n\nList favorite messages\n\nAction: `favorites.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出收藏消息。\n\nList favorite messages\n\nAction: `favorites.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"favorites.list\",\n  \"params\": {\n    \"message_type\": \"text\"\n  }\n}",
@@ -1961,7 +1896,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "添加关注域名。\n\nAdd followed domain\n\nAction: `follows.add`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "添加关注域名。\n\nAdd followed domain\n\nAction: `follows.add`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"follows.add\",\n  \"params\": {\n    \"domain\": \"{{remoteDomain}}\"\n  }\n}",
@@ -1993,7 +1928,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出关注域名。\n\nList followed domains\n\nAction: `follows.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出关注域名。\n\nList followed domains\n\nAction: `follows.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"follows.list\",\n  \"params\": {}\n}",
@@ -2025,7 +1960,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "移除关注域名。\n\nRemove followed domain\n\nAction: `follows.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "移除关注域名。\n\nRemove followed domain\n\nAction: `follows.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"follows.remove\",\n  \"params\": {\n    \"domain\": \"{{remoteDomain}}\"\n  }\n}",
@@ -2063,7 +1998,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "创建群组。\n\nCreate group\n\nAction: `groups.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
+                "description": "创建群组。\n\nCreate group\n\nAction: `groups.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.create\",\n  \"params\": {\n    \"name\": \"Postman Group\",\n    \"topic\": \"created from Postman\",\n    \"avatar_url\": \"\",\n    \"invite_policy\": \"member\"\n  }\n}",
@@ -2095,7 +2030,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "解散当前用户拥有的群组。\n\nDissolve owned group\n\nAction: `groups.dissolve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "解散当前用户拥有的群组。\n\nDissolve owned group\n\nAction: `groups.dissolve`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.dissolve\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -2127,7 +2062,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "邀请群成员。\n\nInvite group members\n\nAction: `groups.invite`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "邀请群成员。\n\nInvite group members\n\nAction: `groups.invite`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.invite\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"invite\": [\n      \"{{peerUserID}}\"\n    ],\n    \"display_name\": \"Peer\",\n    \"reason\": \"invite from Postman\"\n  }\n}",
@@ -2159,7 +2094,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "拒绝当前用户收到的群邀请。\n\nReject current user group invite\n\nAction: `groups.invite.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "拒绝当前用户收到的群邀请。\n\nReject current user group invite\n\nAction: `groups.invite.reject`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.invite.reject\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"reason\": \"reject from Postman\"\n  }\n}",
@@ -2191,7 +2126,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新群邀请策略。\n\nUpdate group invite policy\n\nAction: `groups.invite_policy.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新群邀请策略。\n\nUpdate group invite policy\n\nAction: `groups.invite_policy.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.invite_policy.update\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"invite_policy\": \"owner\"\n  }\n}",
@@ -2223,7 +2158,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "加入群组。\n\nJoin group\n\nAction: `groups.join`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
+                "description": "加入群组。\n\nJoin group\n\nAction: `groups.join`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.\n\nResponse includes `operation` and the hydrated ProductCore `conversation` for direct client routing.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.join\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"server_names\": [\n      \"{{remoteServerName}}\"\n    ],\n    \"display_name\": \"Peer\"\n  }\n}",
@@ -2255,7 +2190,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "离开群组。\n\nLeave group\n\nAction: `groups.leave`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "离开群组。\n\nLeave group\n\nAction: `groups.leave`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.leave\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -2287,7 +2222,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出群组。\n\nList groups\n\nAction: `groups.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出群组。\n\nList groups\n\nAction: `groups.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.list\",\n  \"params\": {}\n}",
@@ -2319,7 +2254,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "禁言群成员。\n\nMute group member\n\nAction: `groups.member.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "禁言群成员。\n\nMute group member\n\nAction: `groups.member.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.member.mute\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -2351,7 +2286,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "移除群成员。\n\nRemove group member\n\nAction: `groups.member.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "移除群成员。\n\nRemove group member\n\nAction: `groups.member.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.member.remove\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\",\n    \"reason\": \"remove from Postman\"\n  }\n}",
@@ -2383,7 +2318,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "解除群成员禁言。\n\nUnmute group member\n\nAction: `groups.member.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "解除群成员禁言。\n\nUnmute group member\n\nAction: `groups.member.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.member.unmute\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",
@@ -2415,7 +2350,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出群成员。\n\nList group members\n\nAction: `groups.members`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "列出群成员。\n\nList group members\n\nAction: `groups.members`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.members\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"status\": \"\",\n    \"role\": \"\"\n  }\n}",
@@ -2447,7 +2382,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "静音群组。\n\nMute group\n\nAction: `groups.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "静音群组。\n\nMute group\n\nAction: `groups.mute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.mute\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -2479,7 +2414,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "取消群组静音。\n\nUnmute group\n\nAction: `groups.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "取消群组静音。\n\nUnmute group\n\nAction: `groups.unmute`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.unmute\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\"\n  }\n}",
@@ -2511,7 +2446,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新群组资料。\n\nUpdate group profile\n\nAction: `groups.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新群组资料。\n\nUpdate group profile\n\nAction: `groups.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"groups.update\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"name\": \"Updated Postman Group\",\n    \"topic\": \"updated\",\n    \"avatar_url\": \"\",\n    \"invite_policy\": \"owner\",\n    \"muted\": false\n  }\n}",
@@ -2528,7 +2463,7 @@
         },
         {
           "name": "MCP（智能体接口）",
-          "description": "Direxio Local MCP 相关接口，面向本地 Agent/工具调用。默认使用 `agent_token` 鉴权；对应 action 需在 `apis.status` 中启用。",
+          "description": "Direxio Local MCP 相关接口，面向本地 Agent/工具调用。可使用 `agent_token` 或 owner `access_token` 鉴权。",
           "item": [
             {
               "name": "mcp.rooms.search（搜索房间）",
@@ -2550,7 +2485,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "搜索 Direxio Local MCP 使用的联系人、群组和频道摘要。\n\nSearch concise contact, group, and channel room summaries for Direxio Local MCP.\n\nAction: `mcp.rooms.search`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "搜索 Direxio Local MCP 使用的联系人、群组和频道摘要。\n\nSearch concise contact, group, and channel room summaries for Direxio Local MCP.\n\nAction: `mcp.rooms.search`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.rooms.search\",\n  \"params\": {\n    \"query\": \"Alice\",\n    \"type\": \"all\",\n    \"limit\": 50\n  }\n}",
@@ -2582,7 +2517,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "通过 MCP action 发送普通 Matrix 房间文本消息。\n\nSend a plain ordinary Matrix room message through the protected MCP action.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "通过 MCP action 发送普通 Matrix 房间文本消息。\n\nSend a plain ordinary Matrix room message through the protected MCP action.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.send\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"msg\": \"hello\"\n  }\n}",
@@ -2614,7 +2549,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询指定房间的普通消息摘要；不包含频道帖子和评论。\n\nList concise ordinary message summaries for a room. Channel posts and comments are excluded.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "查询指定房间的普通消息摘要；不包含频道帖子和评论。\n\nList concise ordinary message summaries for a room. Channel posts and comments are excluded.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.list\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"from_ts\": 1710000000000,\n    \"to_ts\": 1710086400000,\n    \"limit\": 50\n  }\n}",
@@ -2646,7 +2581,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询频道房间内的帖子摘要。\n\nList concise channel post summaries for a channel room.\n\nAction: `mcp.channel_posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "查询频道房间内的帖子摘要。\n\nList concise channel post summaries for a channel room.\n\nAction: `mcp.channel_posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.channel_posts.list\",\n  \"params\": {\n    \"room_id\": \"!channel:example.com\",\n    \"limit\": 50\n  }\n}",
@@ -2678,7 +2613,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询指定频道帖子的评论摘要。\n\nList concise comment summaries for a channel post.\n\nAction: `mcp.channel_comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "查询指定频道帖子的评论摘要。\n\nList concise comment summaries for a channel post.\n\nAction: `mcp.channel_comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.channel_comments.list\",\n  \"params\": {\n    \"post_id\": \"post_123\",\n    \"limit\": 50\n  }\n}",
@@ -2710,7 +2645,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "通过 MCP action 给已有频道帖子创建纯文本评论。\n\nCreate a plain text comment on an existing channel post through the MCP action.\n\nAction: `mcp.channel_comments.create`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）；该 action 需在 `apis.status` 中启用。",
+                "description": "通过 MCP action 给已有频道帖子创建纯文本评论。\n\nCreate a plain text comment on an existing channel post through the MCP action.\n\nAction: `mcp.channel_comments.create`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.channel_comments.create\",\n  \"params\": {\n    \"post_id\": \"post_123\",\n    \"msg\": \"I agree\"\n  }\n}",
@@ -2801,7 +2736,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "修改门户密码、轮换 `access_token`，并将 `initialized` 置为 true。\n\nChange the portal password, rotate `access_token`, and set `initialized` to true.\n\nAction: `portal.password`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "修改门户密码、轮换 `access_token`，并将 `initialized` 置为 true。\n\nChange the portal password, rotate `access_token`, and set `initialized` to true.\n\nAction: `portal.password`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"portal.password\",\n  \"params\": {\n    \"old_password\": \"{{password}}\",\n    \"new_password\": \"{{newPassword}}\",\n    \"device_id\": \"POSTMANPASS\"\n  }\n}",
@@ -2866,7 +2801,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 owner 个人资料。\n\nRead owner profile\n\nAction: `profile.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取 owner 个人资料。\n\nRead owner profile\n\nAction: `profile.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"profile.get\",\n  \"params\": {}\n}",
@@ -2898,7 +2833,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新 owner 个人资料。\n\nUpdate owner profile\n\nAction: `profile.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新 owner 个人资料。\n\nUpdate owner profile\n\nAction: `profile.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"profile.update\",\n  \"params\": {\n    \"display_name\": \"Postman Owner\",\n    \"avatar_url\": \"mxc://example/avatar\",\n    \"gender\": \"\",\n    \"birthday\": \"\",\n    \"phone\": \"\",\n    \"email\": \"owner@example.com\"\n  }\n}",
@@ -2936,7 +2871,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "提交用户或频道举报。\n\nSubmit user or channel report\n\nAction: `reports.submit`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "提交用户或频道举报。\n\nSubmit user or channel report\n\nAction: `reports.submit`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"reports.submit\",\n  \"params\": {\n    \"reporter_domain\": \"{{serverName}}\",\n    \"reported_domain\": \"{{remoteDomain}}\",\n    \"reason\": \"spam or abuse report\",\n    \"target_type\": 1,\n    \"images\": []\n  }\n}",
@@ -2974,7 +2909,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id`, which clients can cache to restore the Agent conversation after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id`, which clients can cache to restore the Agent conversation after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"sync.bootstrap\",\n  \"params\": {}\n}",
@@ -3006,7 +2941,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新读标记。\n\nUpdate read marker\n\nAction: `sync.read_marker`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. Agent token works only when this action is enabled in apis.status.",
+                "description": "更新读标记。\n\nUpdate read marker\n\nAction: `sync.read_marker`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"sync.read_marker\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"event_id\": \"{{eventID}}\",\n    \"origin_server_ts\": 0\n  }\n}",

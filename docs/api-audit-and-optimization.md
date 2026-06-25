@@ -233,7 +233,7 @@ Remaining operational guidance:
 
 ### P2: Action Catalog Is Split Across Code And Docs
 
-`Service.Handle`, `defaultAPIPermissions`, docs, smoke coverage, and Postman examples can drift. The current code has 81 actions; docs and generated artifacts must stay synchronized with that source of truth.
+`p2p/action_registry.go`, `serviceapi` public/MCP allowlists, docs, smoke coverage, and Postman examples can drift. Keep generated artifacts synchronized with that source of truth.
 
 Recommended improvement:
 

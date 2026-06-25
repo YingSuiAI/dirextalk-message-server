@@ -23,7 +23,7 @@ This repository is a Direxio fork of Element Dendrite. It is one Go monolith tha
 }
 ```
 
-Protected product actions require `Authorization: Bearer <access_token>` or an enabled `agent_token`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
+Protected product actions require `Authorization: Bearer <access_token>`. `agent_token` is only accepted for `mcp.*` actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
 
 ## Runtime Model
 
@@ -31,14 +31,13 @@ Protected product actions require `Authorization: Bearer <access_token>` or an e
 - `setup/monolith.go` wires client, federation, media, sync, relay, and Direxio product routes.
 - `setup/config` owns runtime configuration.
 - `internal/productpolicy` enforces Direxio product rules on Matrix Client-Server writes.
-- `p2p/service.go` owns product action dispatch and business orchestration.
-- `p2p/transport.go` and `p2p/dendrite_transport.go` adapt product-originated writes into Matrix room/member/state/message/redaction behavior.
+- `p2p/action_registry.go` maps product actions to service handlers; `p2p/service_*.go` files own business orchestration.
+- `p2p/transport.go`, `p2p/transportapi`, and `p2p/dendrite` adapt product-originated writes into Matrix room/member/state/message/redaction behavior.
 - `p2p/consumer.go` and `p2p/projector.go` project roomserver output into Direxio read models and product events.
 - Package storage implementations own durable state and migrations for their package.
-- `cmd/direxio-cli` and `internal/agentclient` are first-party agent/operator integration surfaces.
 - Docker development uses PostgreSQL 18 and writes bootstrap credentials to `/var/direxio-message-server/p2p/bootstrap.json`.
 
-Do not reason about changes as isolated P2P, Matrix, or Direxio Message Server layers. Trace the complete path from entry point to authorization, policy, storage, roomserver output, consumers, federation/sync visibility, CLI/docs examples, and verification.
+Do not reason about changes as isolated P2P, Matrix, or Direxio Message Server layers. Trace the complete path from entry point to authorization, policy, storage, roomserver output, consumers, federation/sync visibility, docs examples, and verification.
 
 ## Matrix-Native Product State
 
@@ -77,7 +76,7 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows/reports: favorite add/list/delete/batch delete, follow add/list/remove, report submission.
-- Agent/API permissions: Agent config/status/password and per-action enable/disable gating for Agent tokens.
+- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow
@@ -136,11 +135,10 @@ Use `docs/postman/direxio-message-server.postman_collection.json` for manual API
 Project-specific skills live under `.codex/skills/`. They must be maintained as global Direxio server skills, not as P2P/Matrix/Direxio Message Server layer silos:
 
 - `direxio-change-orchestrator`: first-pass whole-system impact map before behavior changes.
-- `direxio-contract-sync`: public route/action/schema/auth/CLI/Postman/docs synchronization.
+- `direxio-contract-sync`: public route/action/schema/auth/Postman/docs synchronization.
 - `direxio-event-state-tracer`: Matrix event/state/policy/consumer/projection/sync/federation tracing.
 - `direxio-storage-migration-guard`: durable storage, migrations, indexes, DB selection, and restart recovery.
 - `direxio-targeted-verification`: focused formatting, tests, build, JSON, compose, skill, and lint checks.
-- `direxio-cli`: operate an existing Direxio service through the first-party CLI.
 
 When project rules, contracts, event/state behavior, validation expectations, or workflow conventions change, update `AGENTS.md`, `docs/current-project-documentation.md` when applicable, and the relevant `.codex/skills/*/SKILL.md` files in the same change.
 

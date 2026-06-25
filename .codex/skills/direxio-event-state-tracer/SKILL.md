@@ -17,7 +17,7 @@ For user/API-originated writes:
 4. Roomserver input and output event.
 5. Consumers in `syncapi`, `federationapi`, `userapi`, `appservice`, and Direxio projection.
 6. Persistent stores and read models.
-7. Client-visible read path: `/sync`, history, search, federation response, Direxio action read, `/_p2p/events`, or CLI command.
+7. Client-visible read path: `/sync`, history, search, federation response, Direxio action read, or `/_p2p/events`.
 
 For inbound or federated behavior, start at the roomserver/federation output and trace consumers forward to visible state.
 

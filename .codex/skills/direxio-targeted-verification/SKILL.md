@@ -1,6 +1,6 @@
 ---
 name: direxio-targeted-verification
-description: Choose focused verification for Direxio Message Server repository changes. Use after modifying Go code, routes, contracts, docs, Postman JSON, Docker/compose files, scripts, CLI commands, storage migrations, event/state flows, setup/config, or project-local skills.
+description: Choose focused verification for Direxio Message Server repository changes. Use after modifying Go code, routes, contracts, docs, Postman JSON, Docker/compose files, scripts, storage migrations, event/state flows, setup/config, or project-local skills.
 ---
 
 # Direxio Targeted Verification
@@ -27,7 +27,7 @@ python3 /mnt/c/Users/84960/.codex/skills/.system/skill-creator/scripts/quick_val
 - Route auth, HTTP helpers, setup, monolith wiring, or config: `go test ./internal/httputil ./setup -count=1`.
 - Client API behavior: focused `go test ./clientapi/... -run <TestName> -count=1`, then broaden only when shared routing/auth behavior changed.
 - Roomserver, sync, user, federation, media, relay, or appservice behavior: test the owning package and direct consumer package touched by the impact map.
-- CLI or agent client changes: `go test ./cmd/direxio-cli ./internal/agentclient -count=1`.
+- Removed first-party CLI modules must not be referenced by verification commands.
 - Startup, build tags, command wiring, or broad package contracts: `go build ./cmd/direxio-message-server`.
 - Storage migrations or SQL helpers: owning package storage tests plus `go test ./internal/sqlutil -count=1` when helper behavior changed.
 - Postman collection: `python3 -m json.tool docs/postman/direxio-message-server.postman_collection.json >/dev/null`.

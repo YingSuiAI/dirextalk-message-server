@@ -25,18 +25,11 @@ type OwnerProfile struct {
 }
 
 type AgentConfig struct {
-	DisplayName    string   `json:"display_name"`
-	ContextWindow  int64    `json:"context_window"`
-	Enabled        bool     `json:"enabled"`
-	Model          string   `json:"model"`
-	SystemPrompt   string   `json:"system_prompt"`
-	AllowedActions []string `json:"allowed_actions"`
-}
-
-type APIPermission struct {
-	Action      string `json:"action"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
+	DisplayName   string `json:"display_name"`
+	ContextWindow int64  `json:"context_window"`
+	Enabled       bool   `json:"enabled"`
+	Model         string `json:"model"`
+	SystemPrompt  string `json:"system_prompt"`
 }
 
 type ReadMarker struct {
