@@ -1,0 +1,208 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+)
+
+func (s *DatabaseStore) UpsertChannel(ctx context.Context, ch channel) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_channels (
+				channel_id, room_id, name, description, avatar_url, visibility,
+				join_policy, channel_type, comments_enabled, muted, member_count, pending_join_count
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			ON CONFLICT(channel_id) DO UPDATE SET
+				room_id = EXCLUDED.room_id,
+				name = EXCLUDED.name,
+				description = EXCLUDED.description,
+				avatar_url = EXCLUDED.avatar_url,
+				visibility = EXCLUDED.visibility,
+				join_policy = EXCLUDED.join_policy,
+				channel_type = EXCLUDED.channel_type,
+				comments_enabled = EXCLUDED.comments_enabled,
+				muted = EXCLUDED.muted,
+				member_count = EXCLUDED.member_count,
+				pending_join_count = EXCLUDED.pending_join_count
+		`, ch.ChannelID, ch.RoomID, ch.Name, ch.Description, ch.AvatarURL, ch.Visibility,
+			ch.JoinPolicy, ch.ChannelType, boolInt(ch.CommentsEnabled), boolInt(ch.Muted), ch.MemberCount, ch.PendingJoinCount)
+		return err
+	})
+}
+
+func (s *DatabaseStore) DeleteChannel(ctx context.Context, channelID string) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM p2p_channels WHERE channel_id = $1`, channelID)
+		return err
+	})
+}
+
+func (s *DatabaseStore) ListChannels(ctx context.Context) ([]channel, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id, room_id, name, description, avatar_url, visibility,
+			join_policy, channel_type, comments_enabled, muted, member_count, pending_join_count
+		FROM p2p_channels ORDER BY channel_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var channels []channel
+	for rows.Next() {
+		var ch channel
+		var commentsEnabled, muted int64
+		if err := rows.Scan(&ch.ChannelID, &ch.RoomID, &ch.Name, &ch.Description, &ch.AvatarURL, &ch.Visibility,
+			&ch.JoinPolicy, &ch.ChannelType, &commentsEnabled, &muted, &ch.MemberCount, &ch.PendingJoinCount); err != nil {
+			return nil, err
+		}
+		ch.CommentsEnabled = commentsEnabled == 1
+		ch.Muted = muted == 1
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
+
+func (s *DatabaseStore) UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_channel_invite_grants (grant_id, channel_id, room_id, share_room_id, created_by, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT(grant_id) DO UPDATE SET
+				channel_id = EXCLUDED.channel_id,
+				room_id = EXCLUDED.room_id,
+				share_room_id = EXCLUDED.share_room_id,
+				created_by = EXCLUDED.created_by,
+				created_at = EXCLUDED.created_at
+		`, grant.GrantID, grant.ChannelID, grant.RoomID, grant.ShareRoomID, grant.CreatedBy, grant.CreatedAt)
+		return err
+	})
+}
+
+func (s *DatabaseStore) ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT grant_id, channel_id, room_id, share_room_id, created_by, created_at
+		FROM p2p_channel_invite_grants ORDER BY created_at DESC, grant_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var grants []channelInviteGrant
+	for rows.Next() {
+		var grant channelInviteGrant
+		if err := rows.Scan(&grant.GrantID, &grant.ChannelID, &grant.RoomID, &grant.ShareRoomID, &grant.CreatedBy, &grant.CreatedAt); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
+func (s *DatabaseStore) InsertChannelPost(ctx context.Context, post channelPostRecord) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_channel_posts (
+				post_id, channel_id, room_id, event_id, author_mxid, author_name,
+				body, message_type, media_json, origin_server_ts, comment_count
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			ON CONFLICT(post_id) DO UPDATE SET
+				channel_id = EXCLUDED.channel_id,
+				room_id = EXCLUDED.room_id,
+				event_id = EXCLUDED.event_id,
+				author_mxid = EXCLUDED.author_mxid,
+				author_name = EXCLUDED.author_name,
+				body = EXCLUDED.body,
+				message_type = EXCLUDED.message_type,
+				media_json = EXCLUDED.media_json,
+				origin_server_ts = EXCLUDED.origin_server_ts,
+				comment_count = EXCLUDED.comment_count
+		`, post.PostID, post.ChannelID, post.RoomID, post.EventID, post.AuthorMXID, post.AuthorName,
+			post.Body, post.MessageType, post.MediaJSON, post.OriginServerTS, post.CommentCount)
+		return err
+	})
+}
+
+func (s *DatabaseStore) ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error) {
+	var rows *sql.Rows
+	var err error
+	if channelID == "" {
+		rows, err = s.db.QueryContext(ctx, listPostsSelect+` ORDER BY origin_server_ts DESC`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, listPostsSelect+` WHERE channel_id = $1 ORDER BY origin_server_ts DESC`, channelID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var posts []channelPostRecord
+	for rows.Next() {
+		var post channelPostRecord
+		if err := rows.Scan(&post.PostID, &post.ChannelID, &post.RoomID, &post.EventID, &post.AuthorMXID, &post.AuthorName,
+			&post.Body, &post.MessageType, &post.MediaJSON, &post.OriginServerTS, &post.CommentCount); err != nil {
+			return nil, err
+		}
+		posts = append(posts, post)
+	}
+	return posts, rows.Err()
+}
+
+const listPostsSelect = `SELECT post_id, channel_id, room_id, event_id, author_mxid, author_name, body, message_type, media_json, origin_server_ts, comment_count FROM p2p_channel_posts`
+
+func (s *DatabaseStore) InsertChannelComment(ctx context.Context, comment channelCommentRecord) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_channel_comments (
+				comment_id, post_id, channel_id, event_id, author_mxid, author_name,
+				body, message_type, media_json, reply_to_comment_id, reply_to_author_mxid, mentions_json,
+				origin_server_ts, reaction_count, reacted_by_me
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			ON CONFLICT(comment_id) DO UPDATE SET
+				post_id = EXCLUDED.post_id,
+				channel_id = EXCLUDED.channel_id,
+				event_id = EXCLUDED.event_id,
+				author_mxid = EXCLUDED.author_mxid,
+				author_name = EXCLUDED.author_name,
+				body = EXCLUDED.body,
+				message_type = EXCLUDED.message_type,
+				media_json = EXCLUDED.media_json,
+				reply_to_comment_id = EXCLUDED.reply_to_comment_id,
+				reply_to_author_mxid = EXCLUDED.reply_to_author_mxid,
+				mentions_json = EXCLUDED.mentions_json,
+				origin_server_ts = EXCLUDED.origin_server_ts,
+				reaction_count = EXCLUDED.reaction_count,
+				reacted_by_me = EXCLUDED.reacted_by_me
+		`, comment.CommentID, comment.PostID, comment.ChannelID, comment.EventID, comment.AuthorMXID, comment.AuthorName,
+			comment.Body, comment.MessageType, comment.MediaJSON, comment.ReplyToCommentID, comment.ReplyToAuthorMXID, fallbackString(comment.MentionsJSON, "[]"),
+			comment.OriginServerTS, comment.ReactionCount, boolInt(comment.ReactedByMe))
+		return err
+	})
+}
+
+func (s *DatabaseStore) ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error) {
+	var rows *sql.Rows
+	var err error
+	if postID == "" {
+		rows, err = s.db.QueryContext(ctx, listCommentsSelect+` ORDER BY origin_server_ts ASC`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, listCommentsSelect+` WHERE post_id = $1 ORDER BY origin_server_ts ASC`, postID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var comments []channelCommentRecord
+	for rows.Next() {
+		var comment channelCommentRecord
+		var reacted int64
+		if err := rows.Scan(&comment.CommentID, &comment.PostID, &comment.ChannelID, &comment.EventID, &comment.AuthorMXID, &comment.AuthorName,
+			&comment.Body, &comment.MessageType, &comment.MediaJSON, &comment.ReplyToCommentID, &comment.ReplyToAuthorMXID, &comment.MentionsJSON,
+			&comment.OriginServerTS, &comment.ReactionCount, &reacted); err != nil {
+			return nil, err
+		}
+		comment.ReactedByMe = reacted == 1
+		comments = append(comments, comment)
+	}
+	return comments, rows.Err()
+}
+
+const listCommentsSelect = `SELECT comment_id, post_id, channel_id, event_id, author_mxid, author_name, body, message_type, media_json, reply_to_comment_id, reply_to_author_mxid, mentions_json, origin_server_ts, reaction_count, reacted_by_me FROM p2p_channel_comments`

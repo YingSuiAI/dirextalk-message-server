@@ -1,4 +1,4 @@
-package p2p
+package storage
 
 import (
 	"context"
@@ -120,6 +120,10 @@ func (s *DatabaseStore) DeleteConversationByRoomID(ctx context.Context, matrixRo
 		_, err := txn.ExecContext(ctx, `DELETE FROM p2p_conversations WHERE matrix_room_id = $1`, matrixRoomID)
 		return err
 	})
+}
+
+func (s *DatabaseStore) BackfillProductConversations(ctx context.Context) error {
+	return s.backfillProductConversations(ctx)
 }
 
 func (s *DatabaseStore) backfillProductConversations(ctx context.Context) error {

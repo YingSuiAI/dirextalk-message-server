@@ -176,19 +176,19 @@ func TestConversationStoreBackfillsProductRecords(t *testing.T) {
 	ctx := context.Background()
 	store := newConversationTestStore(t, ctx)
 
-	if _, err := store.db.ExecContext(ctx, `
+	if _, err := store.DB().ExecContext(ctx, `
 		INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, avatar_url, domain, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, "!dm:example.com", "@alice:example.com", "Alice", "mxc://alice", "example.com", "accepted"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `
+	if _, err := store.DB().ExecContext(ctx, `
 		INSERT INTO p2p_groups (room_id, name, topic, avatar_url, member_count, invite_policy, muted)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, "!group:example.com", "Group", "", "mxc://group", 3, "owner", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `
+	if _, err := store.DB().ExecContext(ctx, `
 		INSERT INTO p2p_channels (
 			channel_id, room_id, name, description, avatar_url, visibility,
 			join_policy, channel_type, comments_enabled, member_count,
@@ -198,7 +198,7 @@ func TestConversationStoreBackfillsProductRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.backfillProductConversations(ctx); err != nil {
+	if err := store.BackfillProductConversations(ctx); err != nil {
 		t.Fatal(err)
 	}
 

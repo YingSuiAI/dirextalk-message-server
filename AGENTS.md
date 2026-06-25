@@ -148,6 +148,8 @@ When project rules, contracts, event/state behavior, validation expectations, or
 
 - Keep Go code formatted with `gofmt` or existing `goimports`.
 - Keep behavior close to the owning package, but review the complete cross-package path before editing.
+- Keep large Direxio product modules grouped by business responsibility. Prefer business directories only when package dependencies stay acyclic; otherwise split focused files in the owning package before introducing a new module seam.
+- Shared product record/value types that must be used by multiple business packages should live in a small domain package with aliases or adapters at existing entry points when that preserves compatibility.
 - Do not add URL-shaped product endpoints unless there is a strong compatibility reason. Prefer stable product actions and documented `params` schemas.
 - Do not silently change API request or response fields. If an input/output contract changes, update `docs/api-interface-change-record.md`.
 - Do not add memory-only state for behavior that must survive restart. Add or extend durable storage and migrations.

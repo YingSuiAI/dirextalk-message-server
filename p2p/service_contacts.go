@@ -1,0 +1,688 @@
+package p2p
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+)
+
+func (s *Service) contactRequest(ctx context.Context, params map[string]any) (any, *apiError) {
+	mxid := trimString(params["mxid"])
+	if mxid == "" {
+		return nil, badRequest("mxid is required")
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	s.mu.Unlock()
+	if mxid == ownerMXID {
+		return nil, badRequest("mxid must be a remote peer")
+	}
+	domain := trimString(params["domain"])
+	if domain == "" && strings.Contains(mxid, ":") {
+		domain = mxid[strings.Index(mxid, ":")+1:]
+	}
+	if existing, ok, err := s.lookupContactByPeer(ctx, mxid); err != nil {
+		return nil, internalError(err)
+	} else if ok && contactDeleted(existing.Status) {
+		return s.restoreDeletedContact(ctx, existing, params, domain)
+	} else if ok && contactPendingInbound(existing.Status) {
+		return s.acceptPendingInboundContact(ctx, existing, params)
+	} else if ok && strings.EqualFold(strings.TrimSpace(existing.Status), "pending_outbound") {
+		return s.resendPendingOutboundContactRequest(ctx, existing, params, domain)
+	} else if ok && contactAccepted(existing.Status) && remoteNodeBaseURLParam(params) != "" && domainFromMXID(existing.PeerMXID) != s.serverName {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		s.mu.Unlock()
+		if apiErr := s.requestPeerContactReactivation(ctx, existing, params, ownerMXID); apiErr != nil {
+			if contactReactivationNotRetained(apiErr) {
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, existing, params, fallbackString(domain, existing.Domain))
+			}
+			return nil, apiErr
+		}
+		if err := s.attachContactConversationOperation(ctx, &existing, "contacts.request", existing.Status); err != nil {
+			return nil, internalError(err)
+		}
+		return existing, nil
+	} else if ok {
+		if err := s.attachContactConversationOperation(ctx, &existing, "contacts.request", existing.Status); err != nil {
+			return nil, internalError(err)
+		}
+		return existing, nil
+	}
+	return s.createDirectContactRequest(ctx, mxid, params, domain)
+}
+
+func (s *Service) createDirectContactRequest(ctx context.Context, mxid string, params map[string]any, domain string) (contactRecord, *apiError) {
+	roomID := "!dm-" + randomToken("room") + ":" + s.serverName
+	remark := contactRequestRemark(params)
+	if s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		directName := fallbackString(trimString(params["display_name"]), mxid)
+		res, err := s.transport.CreateRoom(ctx, CreateRoomRequest{
+			CreatorMXID:        ownerMXID,
+			CreatorDisplayName: ownerDisplayName,
+			CreatorAvatarURL:   ownerAvatarURL,
+			Name:               directName,
+			Visibility:         "private",
+			RoomType:           DirexioRoomTypeDirect,
+			IsDirect:           true,
+			InviteMXIDs:        []string{mxid},
+			InitialState: []RoomStateEvent{
+				roomProfileForDirect(directName, ownerMXID, mxid, ownerDisplayName, ownerAvatarURL, remark, false),
+			},
+		})
+		if err != nil {
+			return contactRecord{}, transportWriteError(err)
+		}
+		roomID = res.RoomID
+	}
+	contact := contactRecord{
+		PeerMXID:    mxid,
+		DisplayName: trimString(params["display_name"]),
+		AvatarURL:   trimString(params["avatar_url"]),
+		Domain:      domain,
+		RoomID:      roomID,
+		Status:      "pending_outbound",
+		Remark:      remark,
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) resendPendingOutboundContactRequest(ctx context.Context, contact contactRecord, params map[string]any, fallbackDomain string) (contactRecord, *apiError) {
+	if remark := contactRequestRemark(params); remark != "" {
+		contact.Remark = remark
+	}
+	if displayName := trimString(params["display_name"]); displayName != "" {
+		contact.DisplayName = displayName
+	}
+	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
+		contact.AvatarURL = avatarURL
+	}
+	if domain := trimString(params["domain"]); domain != "" {
+		contact.Domain = domain
+	} else if contact.Domain == "" {
+		contact.Domain = fallbackDomain
+	}
+	if contact.RoomID != "" && s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		directName := fallbackString(contact.DisplayName, contact.PeerMXID)
+		if err := s.transport.InviteUser(ctx, InviteUserRequest{
+			RoomID:      contact.RoomID,
+			InviterMXID: ownerMXID,
+			InviteeMXID: contact.PeerMXID,
+			IsDirect:    true,
+			InviteRoomState: []RoomStateEvent{
+				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
+			},
+		}); err != nil {
+			return contactRecord{}, transportWriteError(err)
+		}
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) acceptPendingInboundContact(ctx context.Context, contact contactRecord, params map[string]any) (any, *apiError) {
+	if contact.RoomID != "" && s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		roomID, apiErr := s.joinContactDirectRoom(ctx, contact, params, ownerMXID, ownerDisplayName, ownerAvatarURL)
+		if apiErr != nil {
+			if contactReactivationNotRetained(apiErr) {
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(trimString(params["domain"]), contact.Domain))
+			}
+			return nil, apiErr
+		}
+		contact.RoomID = roomID
+	}
+	if displayName := trimString(params["display_name"]); contact.DisplayName == "" && displayName != "" {
+		contact.DisplayName = displayName
+	}
+	if avatarURL := trimString(params["avatar_url"]); contact.AvatarURL == "" && avatarURL != "" {
+		contact.AvatarURL = avatarURL
+	}
+	if domain := trimString(params["domain"]); contact.Domain == "" && domain != "" {
+		contact.Domain = domain
+	}
+	contact.Status = "accepted"
+	contact.Remark = ""
+	if err := s.saveContact(ctx, contact); err != nil {
+		return nil, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return nil, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) restoreDeletedContact(ctx context.Context, contact contactRecord, params map[string]any, fallbackDomain string) (any, *apiError) {
+	if contact.RoomID != "" && s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		if remoteNodeBaseURLParam(params) != "" && domainFromMXID(contact.PeerMXID) != s.serverName {
+			if apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID); apiErr != nil {
+				if contactReactivationNotRetained(apiErr) {
+					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
+				}
+				return nil, apiErr
+			}
+			join, err := s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, stringSliceParam(params["server_names"]))
+			if err != nil {
+				return nil, transportWriteError(err)
+			}
+			if strings.TrimSpace(join.RoomID) != "" {
+				contact.RoomID = join.RoomID
+			}
+		} else {
+			roomID, apiErr := s.joinContactDirectRoom(ctx, contact, params, ownerMXID, ownerDisplayName, ownerAvatarURL)
+			if apiErr != nil {
+				if contactReactivationNotRetained(apiErr) {
+					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
+				}
+				return nil, apiErr
+			}
+			contact.RoomID = roomID
+		}
+	}
+	if displayName := trimString(params["display_name"]); displayName != "" {
+		contact.DisplayName = displayName
+	}
+	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
+		contact.AvatarURL = avatarURL
+	}
+	if domain := trimString(params["domain"]); domain != "" {
+		contact.Domain = domain
+	} else if contact.Domain == "" {
+		contact.Domain = fallbackDomain
+	}
+	contact.Status = "accepted"
+	contact.Remark = ""
+	if err := s.saveContact(ctx, contact); err != nil {
+		return nil, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return nil, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, contact contactRecord, params map[string]any, fallbackDomain string) (contactRecord, *apiError) {
+	if strings.TrimSpace(contact.RoomID) == "" {
+		return s.createDirectContactRequest(ctx, contact.PeerMXID, params, fallbackDomain)
+	}
+	if remark := contactRequestRemark(params); remark != "" {
+		contact.Remark = remark
+	}
+	if displayName := trimString(params["display_name"]); displayName != "" {
+		contact.DisplayName = displayName
+	}
+	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
+		contact.AvatarURL = avatarURL
+	}
+	if domain := trimString(params["domain"]); domain != "" {
+		contact.Domain = domain
+	} else if contact.Domain == "" {
+		contact.Domain = fallbackDomain
+	}
+	contact.Status = "pending_outbound"
+	if s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		directName := fallbackString(contact.DisplayName, contact.PeerMXID)
+		if err := s.transport.InviteUser(ctx, InviteUserRequest{
+			RoomID:      contact.RoomID,
+			InviterMXID: ownerMXID,
+			InviteeMXID: contact.PeerMXID,
+			IsDirect:    true,
+			InviteRoomState: []RoomStateEvent{
+				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
+			},
+		}); err != nil {
+			return contactRecord{}, transportWriteError(err)
+		}
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return contactRecord{}, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) joinContactDirectRoom(ctx context.Context, contact contactRecord, params map[string]any, ownerMXID, ownerDisplayName, ownerAvatarURL string) (string, *apiError) {
+	serverNames := stringSliceParam(params["server_names"])
+	join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+		RoomIDOrAlias: contact.RoomID,
+		UserMXID:      ownerMXID,
+		DisplayName:   ownerDisplayName,
+		AvatarURL:     ownerAvatarURL,
+		ServerNames:   serverNames,
+	})
+	if err != nil {
+		if !isDirectRoomJoinRequiresInvite(err) {
+			return "", transportWriteError(err)
+		}
+		if apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID); apiErr != nil {
+			return "", apiErr
+		}
+		join, err = s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, serverNames)
+		if err != nil {
+			return "", transportWriteError(err)
+		}
+	}
+	if strings.TrimSpace(join.RoomID) != "" {
+		return join.RoomID, nil
+	}
+	return contact.RoomID, nil
+}
+
+func (s *Service) joinReactivatedDirectRoom(ctx context.Context, roomID, userMXID, displayName, avatarURL string, serverNames []string) (JoinRoomResult, error) {
+	const maxAttempts = 6
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+			RoomIDOrAlias: roomID,
+			UserMXID:      userMXID,
+			DisplayName:   displayName,
+			AvatarURL:     avatarURL,
+			ServerNames:   serverNames,
+		})
+		if err == nil || !isDirectRoomJoinRequiresInvite(err) {
+			return join, err
+		}
+		if attempt == maxAttempts-1 {
+			return JoinRoomResult{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return JoinRoomResult{}, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 150 * time.Millisecond):
+		}
+	}
+	return JoinRoomResult{}, productpolicy.Forbidden("direct room join requires invite")
+}
+
+func (s *Service) requestPeerContactReactivation(ctx context.Context, contact contactRecord, params map[string]any, requesterMXID string) *apiError {
+	peerServer := domainFromMXID(contact.PeerMXID)
+	if peerServer == "" || peerServer == s.serverName {
+		return statusError(http.StatusForbidden, "peer node is required to reactivate direct room")
+	}
+	remoteBase := remoteNodeBaseURLParam(params)
+	if remoteBase == "" {
+		remoteBase = "https://" + peerServer + "/_p2p"
+	}
+	var result map[string]any
+	status, err := s.remotePublicAction(ctx, peerServer, "contacts.reactivate", map[string]any{
+		"room_id":              contact.RoomID,
+		"requester_mxid":       requesterMXID,
+		"remote_node_base_url": remoteBase,
+	}, &result)
+	if err != nil {
+		if status != 0 && status != http.StatusBadGateway {
+			return statusError(status, err.Error())
+		}
+		return statusError(http.StatusBadGateway, err.Error())
+	}
+	if status != http.StatusOK {
+		if status == http.StatusNotFound {
+			return statusError(status, "retained contact not found")
+		}
+		return statusError(status, "target node contact reactivation failed")
+	}
+	return nil
+}
+
+func (s *Service) contactReactivate(ctx context.Context, params map[string]any) (any, *apiError) {
+	roomID := trimString(params["room_id"])
+	requesterMXID := trimString(params["requester_mxid"])
+	if roomID == "" || requesterMXID == "" {
+		return nil, badRequest("room_id and requester_mxid are required")
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	s.mu.Unlock()
+	if requesterMXID == ownerMXID {
+		return nil, badRequest("requester_mxid must be a remote peer")
+	}
+	contact, ok, err := s.lookupContactByPeer(ctx, requesterMXID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !ok || contact.RoomID != roomID || !contactAccepted(contact.Status) {
+		return nil, statusError(http.StatusNotFound, "retained contact not found")
+	}
+	if s.transport != nil {
+		if err := s.transport.InviteUser(ctx, InviteUserRequest{
+			RoomID:      roomID,
+			InviterMXID: ownerMXID,
+			InviteeMXID: requesterMXID,
+			IsDirect:    true,
+			InviteRoomState: []RoomStateEvent{
+				roomProfileForDirect(contact.DisplayName, requesterMXID, ownerMXID, contact.DisplayName, contact.AvatarURL, contact.Remark, false),
+			},
+		}); err != nil {
+			return nil, transportWriteError(err)
+		}
+	}
+	result := map[string]any{"status": "invited", "room_id": roomID}
+	if err := s.attachConversationOperation(ctx, result, "contacts.reactivate", "invited", roomID); err != nil {
+		return nil, internalError(err)
+	}
+	return result, nil
+}
+
+func contactReactivationNotRetained(apiErr *apiError) bool {
+	return apiErr != nil &&
+		apiErr.Status == http.StatusNotFound &&
+		strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Error)), "retained contact")
+}
+
+func isDirectRoomJoinRequiresInvite(err error) bool {
+	var policyErr *productpolicy.PolicyError
+	return errors.As(err, &policyErr) &&
+		policyErr.Code == http.StatusForbidden &&
+		policyErr.Message == "direct room join requires invite"
+}
+
+//nolint:gocyclo // Contact mutations share transport and persistence guards in one compatibility endpoint.
+func (s *Service) contactMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
+	peer := trimString(params["peer_mxid"])
+	if peer == "" {
+		peer = trimString(params["mxid"])
+	}
+	roomID := trimString(params["room_id"])
+	if action == "contacts.delete" || action == "contacts.requests.delete" {
+		contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if !ok {
+			contact = contactRecord{
+				RoomID:      roomID,
+				PeerMXID:    peer,
+				DisplayName: trimString(params["display_name"]),
+				AvatarURL:   trimString(params["avatar_url"]),
+				Domain:      trimString(params["domain"]),
+				Remark:      contactRequestRemark(params),
+			}
+		}
+		if action == "contacts.requests.delete" && contactAccepted(contact.Status) {
+			result := map[string]any{"status": "ok"}
+			if err := s.attachConversationOperation(ctx, result, action, contact.Status, contact.RoomID); err != nil {
+				return nil, internalError(err)
+			}
+			return result, nil
+		}
+		wasDeleted := contactDeleted(contact.Status)
+		if action == "contacts.delete" && !wasDeleted && contact.RoomID != "" && s.transport != nil {
+			s.mu.Lock()
+			ownerMXID := s.ownerMXID
+			s.mu.Unlock()
+			if err := s.transport.LeaveRoom(ctx, LeaveRoomRequest{
+				RoomID:   contact.RoomID,
+				UserMXID: ownerMXID,
+			}); err != nil {
+				return nil, transportWriteError(err)
+			}
+		}
+		contact.Status = "deleted"
+		if contact.DisplayName == "" {
+			contact.DisplayName = trimString(params["display_name"])
+		}
+		if contact.AvatarURL == "" {
+			contact.AvatarURL = trimString(params["avatar_url"])
+		}
+		if contact.Domain == "" {
+			contact.Domain = trimString(params["domain"])
+		}
+		if err := s.saveContact(ctx, contact); err != nil {
+			return nil, internalError(err)
+		}
+		result := map[string]any{"status": "ok"}
+		if err := s.attachConversationOperation(ctx, result, action, contact.Status, contact.RoomID); err != nil {
+			return nil, internalError(err)
+		}
+		return result, nil
+	}
+	status := "accepted"
+	if action == "contacts.requests.reject" {
+		status = "rejected"
+	}
+	var existing contactRecord
+	if roomID != "" {
+		found, ok, err := s.lookupContactByRoom(ctx, roomID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if !ok {
+			return nil, statusError(http.StatusNotFound, "contact request not found")
+		}
+		existing = found
+		if peer == "" {
+			peer = existing.PeerMXID
+		}
+	}
+	if action == "contacts.requests.reject" && contactAccepted(existing.Status) {
+		if err := s.attachContactConversationOperation(ctx, &existing, action, existing.Status); err != nil {
+			return nil, internalError(err)
+		}
+		return existing, nil
+	}
+	if action == "contacts.requests.accept" && contactAccepted(existing.Status) {
+		if err := s.attachContactConversationOperation(ctx, &existing, action, existing.Status); err != nil {
+			return nil, internalError(err)
+		}
+		return existing, nil
+	}
+	if action == "contacts.requests.accept" && s.transport != nil && roomID != "" {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+			RoomIDOrAlias: roomID,
+			UserMXID:      ownerMXID,
+			DisplayName:   ownerDisplayName,
+			AvatarURL:     ownerAvatarURL,
+			ServerNames:   stringSliceParam(params["server_names"]),
+		})
+		if err != nil {
+			return nil, transportWriteError(err)
+		}
+		if strings.TrimSpace(join.RoomID) != "" {
+			roomID = join.RoomID
+		}
+	}
+	displayName := trimString(params["display_name"])
+	if existing.DisplayName != "" && (action == "contacts.requests.accept" || action == "contacts.requests.reject") {
+		displayName = existing.DisplayName
+	}
+	contact := contactRecord{
+		PeerMXID:    peer,
+		DisplayName: displayName,
+		AvatarURL:   trimString(params["avatar_url"]),
+		Domain:      trimString(params["domain"]),
+		RoomID:      roomID,
+		Status:      status,
+		Remark:      existing.Remark,
+	}
+	if contact.DisplayName == "" {
+		contact.DisplayName = existing.DisplayName
+	}
+	if contact.AvatarURL == "" {
+		contact.AvatarURL = existing.AvatarURL
+	}
+	if contact.Domain == "" {
+		contact.Domain = existing.Domain
+	}
+	if contactAccepted(contact.Status) {
+		contact.Remark = ""
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return nil, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, action, contact.Status); err != nil {
+		return nil, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) contactUpdate(ctx context.Context, params map[string]any) (any, *apiError) {
+	roomID := trimString(params["room_id"])
+	if roomID == "" {
+		return nil, badRequest("room_id is required")
+	}
+	displayName := trimString(params["display_name"])
+	if displayName == "" {
+		return nil, badRequest("display_name is required")
+	}
+	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !ok {
+		return nil, statusError(http.StatusNotFound, "contact not found")
+	}
+	if !contactAccepted(contact.Status) {
+		return nil, statusError(http.StatusForbidden, "contact is not accepted")
+	}
+	contact.DisplayName = displayName
+	if domain := trimString(params["domain"]); domain != "" {
+		contact.Domain = domain
+	}
+	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
+		contact.AvatarURL = avatarURL
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return nil, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.update", contact.Status); err != nil {
+		return nil, internalError(err)
+	}
+	return contact, nil
+}
+
+func (s *Service) contactList(ctx context.Context) (any, *apiError) {
+	contacts, err := s.listContacts(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return map[string]any{"contacts": contacts}, nil
+}
+
+func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
+	s.mu.Lock()
+	s.contacts[contact.RoomID] = contact
+	if contact.RoomID != "" {
+		delete(s.groups, contact.RoomID)
+		deleteConversationKindByRoomLocked(s.conversations, contact.RoomID, conversationKindGroup)
+	}
+	s.mu.Unlock()
+	if s.store != nil {
+		if err := s.store.UpsertContact(ctx, contact); err != nil {
+			return err
+		}
+		if contact.RoomID != "" {
+			if err := s.store.DeleteGroup(ctx, contact.RoomID); err != nil {
+				return err
+			}
+			if err := s.deleteStoredConversationKind(ctx, contact.RoomID, conversationKindGroup); err != nil {
+				return err
+			}
+		}
+	}
+	return s.saveConversation(ctx, conversationFromContact(contact))
+}
+
+func (s *Service) saveChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error {
+	s.mu.Lock()
+	s.inviteGrants[grant.GrantID] = grant
+	s.mu.Unlock()
+	if s.store != nil {
+		return s.store.UpsertChannelInviteGrant(ctx, grant)
+	}
+	return nil
+}
+
+func (s *Service) listChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error) {
+	if s.store != nil {
+		return s.store.ListChannelInviteGrants(ctx)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	grants := make([]channelInviteGrant, 0, len(s.inviteGrants))
+	for _, grant := range s.inviteGrants {
+		grants = append(grants, grant)
+	}
+	sort.SliceStable(grants, func(i, j int) bool {
+		if grants[i].CreatedAt == grants[j].CreatedAt {
+			return grants[i].GrantID < grants[j].GrantID
+		}
+		return grants[i].CreatedAt > grants[j].CreatedAt
+	})
+	return grants, nil
+}
+
+func (s *Service) lookupChannelInviteGrantForParams(ctx context.Context, params map[string]any) (channelInviteGrant, bool, error) {
+	grantID := trimString(params["grant_id"])
+	shareRoomID := trimString(params["share_room_id"])
+	if shareRoomID == "" {
+		shareRoomID = trimString(params["via_room_id"])
+	}
+	roomID := trimString(params["room_id"])
+	channelID := trimString(params["channel_id"])
+	grants, err := s.listChannelInviteGrants(ctx)
+	if err != nil {
+		return channelInviteGrant{}, false, err
+	}
+	for _, grant := range grants {
+		if grantID != "" && grant.GrantID != grantID {
+			continue
+		}
+		if shareRoomID != "" && grant.ShareRoomID != shareRoomID {
+			continue
+		}
+		if roomID != "" && grant.RoomID != roomID {
+			continue
+		}
+		if channelID != "" && grant.ChannelID != channelID {
+			continue
+		}
+		return grant, true, nil
+	}
+	return channelInviteGrant{}, false, nil
+}

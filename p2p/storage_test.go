@@ -55,20 +55,20 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {
 			var name string
-			if err := store.db.QueryRowContext(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, indexName).Scan(&name); err != nil {
+			if err := store.DB().QueryRowContext(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, indexName).Scan(&name); err != nil {
 				t.Fatalf("expected index %s to exist: %v", indexName, err)
 			}
 		})
 	}
 	var contactPeerIndex string
-	if err := store.db.QueryRowContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'p2p_contacts_peer_idx'`).Scan(&contactPeerIndex); err != nil {
+	if err := store.DB().QueryRowContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'p2p_contacts_peer_idx'`).Scan(&contactPeerIndex); err != nil {
 		t.Fatalf("expected contact peer index definition: %v", err)
 	}
 	if !strings.Contains(strings.ToUpper(contactPeerIndex), "UNIQUE") {
 		t.Fatalf("expected p2p_contacts_peer_idx to be unique, got %s", contactPeerIndex)
 	}
 	var messageTableCount int
-	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'p2p_messages'`).Scan(&messageTableCount); err != nil {
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'p2p_messages'`).Scan(&messageTableCount); err != nil {
 		t.Fatal(err)
 	}
 	if messageTableCount != 0 {
@@ -117,7 +117,7 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 	if len(contacts) != 1 || contacts[0].RoomID != "!second:example.com" || contacts[0].AvatarURL != "mxc://remote.example/alice" || contacts[0].Remark != "updated request" || contacts[0].Status != "accepted" {
 		t.Fatalf("expected contact upsert to keep one row per peer, got %#v", contacts)
 	}
-	if _, err := store.db.ExecContext(ctx, `
+	if _, err := store.DB().ExecContext(ctx, `
 		INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, domain, status)
 		VALUES ($1, $2, $3, $4, $5)
 	`, "!third:example.com", "@alice:remote.example", "Alice Duplicate", "remote.example", "pending_outbound"); err == nil {
@@ -135,10 +135,10 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &DatabaseStore{db: db, writer: writer}
+	store := NewUnmigratedDatabaseStore(db, writer)
 	defer store.Close()
 
-	if _, execErr := store.db.ExecContext(ctx, `
+	if _, execErr := store.DB().ExecContext(ctx, `
 		CREATE TABLE p2p_contacts (
 			room_id TEXT PRIMARY KEY NOT NULL,
 			peer_mxid TEXT NOT NULL,
@@ -149,7 +149,7 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	`); execErr != nil {
 		t.Fatal(execErr)
 	}
-	if _, execErr := store.db.ExecContext(ctx, `CREATE INDEX p2p_contacts_peer_idx ON p2p_contacts(peer_mxid)`); execErr != nil {
+	if _, execErr := store.DB().ExecContext(ctx, `CREATE INDEX p2p_contacts_peer_idx ON p2p_contacts(peer_mxid)`); execErr != nil {
 		t.Fatal(execErr)
 	}
 	duplicates := []contactRecord{
@@ -159,18 +159,18 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 		{RoomID: "!bob:example.com", PeerMXID: "@bob:remote.example", DisplayName: "Bob", Domain: "remote.example", Status: "pending_outbound"},
 	}
 	for _, contact := range duplicates {
-		if _, execErr := store.db.ExecContext(ctx, `
+		if _, execErr := store.DB().ExecContext(ctx, `
 			INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, domain, status)
 			VALUES ($1, $2, $3, $4, $5)
 		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.Domain, contact.Status); execErr != nil {
 			t.Fatal(execErr)
 		}
 	}
-	if migrationErr := markP2PMigrationsBeforeContactPeerUnique(ctx, store.db); migrationErr != nil {
+	if migrationErr := markP2PMigrationsBeforeContactPeerUnique(ctx, store.DB()); migrationErr != nil {
 		t.Fatal(migrationErr)
 	}
 
-	if migrationErr := store.migrate(ctx); migrationErr != nil {
+	if migrationErr := store.Migrate(ctx); migrationErr != nil {
 		t.Fatal(migrationErr)
 	}
 
@@ -185,7 +185,7 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	if alice.RoomID != "!accepted:example.com" || alice.Status != "accepted" {
 		t.Fatalf("expected migration to keep accepted contact for duplicate peer, got %#v", alice)
 	}
-	if _, err := store.db.ExecContext(ctx, `
+	if _, err := store.DB().ExecContext(ctx, `
 		INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, domain, status)
 		VALUES ($1, $2, $3, $4, $5)
 	`, "!new-alice:example.com", "@alice:remote.example", "Alice Duplicate", "remote.example", "pending_outbound"); err == nil {

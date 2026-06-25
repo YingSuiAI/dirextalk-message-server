@@ -31,6 +31,7 @@ Use this skill before code or contract changes. Treat the repository as one Dire
 - Do not bypass the established write path for room, membership, state, message, or redaction behavior. Product-originated Matrix writes go through `p2p.Transport`; Matrix client behavior uses the owning Client-Server route and product policy.
 - Do not add memory-only state for behavior that must survive restart.
 - Do not silently change client-visible request/response fields, action names, route behavior, auth rules, or CLI output.
+- When splitting large product code, group by business responsibility. Use a new directory/package only when dependencies remain one-way; otherwise keep focused files in the owning package until a clear module seam exists.
 - Preserve Matrix-native product state rules: current product state is based on `m.room.create.content.type`, `io.direxio.room.profile`, `io.direxio.member.policy`, and `io.direxio.join_request`. Do not reintroduce removed legacy product state.
 - Ordinary Matrix timeline messages remain Matrix-native. Direxio read models store product projections, not a second ordinary-message source of truth.
 - Remote public lookup is read-only and must use a request-provided `remote_node_base_url`; do not derive outbound URLs from Matrix room IDs.

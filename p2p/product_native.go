@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -24,14 +25,7 @@ const (
 	AgentGatewaySourceContentKey = "io.direxio.gateway_source"
 )
 
-type p2pEvent struct {
-	Seq       int64          `json:"seq"`
-	Type      string         `json:"type"`
-	RoomID    string         `json:"room_id,omitempty"`
-	EventID   string         `json:"event_id,omitempty"`
-	Payload   map[string]any `json:"payload,omitempty"`
-	CreatedAt string         `json:"created_at"`
-}
+type p2pEvent = domain.Event
 
 func direxioRoomType(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
