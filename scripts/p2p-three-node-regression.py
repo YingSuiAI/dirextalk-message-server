@@ -312,6 +312,18 @@ def assert_history(node: Node, room_id: str, text: str) -> None:
     wait_until(f"{node.label} Matrix /messages did not return historical group message", has_message)
 
 
+def assert_matrix_channel_content(node: Node, room_id: str, expected_bodies: list[str]) -> None:
+    def has_channel_content():
+        bodies = []
+        for event in matrix_messages(node, room_id):
+            content = event.get("content") or {}
+            if content.get("p2p_kind") in {"channel_post", "channel_comment"}:
+                bodies.append(content.get("body"))
+        return all(body in bodies for body in expected_bodies)
+
+    wait_until(f"{node.label} Matrix /messages did not return historical channel content", has_channel_content)
+
+
 def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None:
     for sender in nodes:
         search = mcp(sender, "query", "mcp.rooms.search", {"type": "group", "limit": 100})
@@ -383,6 +395,105 @@ def assert_mcp_channel_tools(nodes: list[Node], suffix: int) -> None:
             any(item.get("comment_id") == comment_id and item.get("msg") == comment_body for item in list(comments.get("comments") or [])),
             f"{owner.label} mcp.channel_comments.list did not return created comment",
         )
+
+
+def assert_remote_post_channel_history(owner: Node, joiner: Node, channel: dict[str, Any], suffix: int) -> None:
+    channel_id = channel.get("channel_id") or ""
+    room_id = channel.get("room_id") or ""
+    expect(bool(channel_id and room_id), "post channel did not include channel_id and room_id")
+
+    first_body = f"historical post one {suffix}"
+    second_body = f"historical post two {suffix}"
+    first_post = p2p(
+        owner,
+        "command",
+        "channels.posts.create",
+        {"channel_id": channel_id, "room_id": room_id, "body": first_body, "message_type": "text"},
+    )
+    first_post_id = first_post.get("post_id") or ""
+    second_post = p2p(
+        owner,
+        "command",
+        "channels.posts.create",
+        {"channel_id": channel_id, "room_id": room_id, "body": second_body, "message_type": "text"},
+    )
+    second_post_id = second_post.get("post_id") or ""
+    expect(bool(first_post_id and second_post_id), "historical channel posts were not created")
+
+    comment_body = f"historical comment {suffix}"
+    comment = p2p(
+        owner,
+        "command",
+        "channels.comments.create",
+        {"channel_id": channel_id, "room_id": room_id, "post_id": first_post_id, "body": comment_body},
+    )
+    comment_id = comment.get("comment_id") or ""
+    expect(bool(comment_id), "historical channel comment was not created")
+
+    post_reaction = p2p(
+        owner,
+        "command",
+        "channels.post_reaction.toggle",
+        {"channel_id": channel_id, "room_id": room_id, "post_id": first_post_id, "reaction": "like"},
+    )
+    expect(post_reaction.get("active") is True, "historical post reaction did not activate")
+    comment_reaction = p2p(
+        owner,
+        "command",
+        "channels.comment_reaction.toggle",
+        {
+            "channel_id": channel_id,
+            "room_id": room_id,
+            "post_id": first_post_id,
+            "comment_id": comment_id,
+            "reaction": "like",
+        },
+    )
+    expect(comment_reaction.get("active") is True, "historical comment reaction did not activate")
+
+    owner_p2p_base = owner.base.replace("127.0.0.1", PUBLIC_HOST)
+    joiner_p2p_base = joiner.base.replace("127.0.0.1", PUBLIC_HOST)
+    joined = p2p(
+        joiner,
+        "command",
+        "channels.public.join_request",
+        {
+            "room_id": room_id,
+            "channel_id": channel_id,
+            "remote_node_base_url": f"{owner_p2p_base}/_p2p",
+            "requester_node_base_url": f"{joiner_p2p_base}/_p2p",
+            "server_names": [owner.server_name],
+            "display_name": joiner.name,
+            "avatar_url": joiner.avatar,
+        },
+    )
+    expect(joined.get("status") == "joined", f"{joiner.label} did not join remote post channel: {joined!r}")
+
+    def joined_posts_ready():
+        posts = list((p2p(joiner, "command", "channels.posts.list", {"channel_id": channel_id}).get("posts") or []))
+        first = find_by(posts, post_id=first_post_id)
+        second = find_by(posts, post_id=second_post_id)
+        if not first or not second:
+            return None
+        if first.get("body") != first_body or second.get("body") != second_body:
+            return None
+        if int(first.get("comment_count") or 0) < 1 or int(first.get("reaction_count") or 0) < 1:
+            return None
+        return posts
+
+    wait_until(f"{joiner.label} product posts list did not backfill historical posts/reactions", joined_posts_ready)
+
+    def joined_comments_ready():
+        comments = list((p2p(joiner, "command", "channels.comments.list", {"post_id": first_post_id}).get("comments") or []))
+        first_comment = find_by(comments, comment_id=comment_id)
+        if not first_comment:
+            return None
+        if first_comment.get("body") != comment_body or int(first_comment.get("reaction_count") or 0) < 1:
+            return None
+        return comments
+
+    wait_until(f"{joiner.label} product comments list did not backfill historical comment/reaction", joined_comments_ready)
+    assert_matrix_channel_content(joiner, room_id, [first_body, second_body, comment_body])
 
 
 def main() -> int:
@@ -476,6 +587,9 @@ def main() -> int:
         },
     )
     print("PASS channel capabilities call=false post/comment/reaction=true")
+
+    assert_remote_post_channel_history(b, a, channel, suffix)
+    print("PASS remote post channel join backfills historical posts/comments/reactions to product and Matrix clients")
 
     assert_mcp_channel_tools([a, b, c], suffix)
     print("PASS MCP Agent token channel post/comment tools on A/B/C")

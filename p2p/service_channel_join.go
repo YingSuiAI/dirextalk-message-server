@@ -191,6 +191,9 @@ func (s *Service) completeApprovedChannelJoin(ctx context.Context, member member
 	if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
 		return nil, internalError(err)
 	}
+	if err := s.backfillJoinedChannelContent(ctx, member.RoomID, member.ChannelID); err != nil {
+		return nil, internalError(err)
+	}
 	return map[string]any{"status": "joined", "room_id": member.RoomID, "member": member, "channel": s.channelSnapshot(ctx, member.ChannelID)}, nil
 }
 

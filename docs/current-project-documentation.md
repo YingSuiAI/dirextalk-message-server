@@ -199,7 +199,8 @@ Channel posts/comments/reactions：
 
 - 仍是产品内容 projection。
 - 使用 Matrix `m.room.message` 携带 `p2p_kind=channel_post` 或 `p2p_kind=channel_comment`。
-- reaction 使用 Matrix reaction/内容字段投影到 P2P reaction read model。
+- reaction 使用 Matrix reaction/内容字段投影到 P2P reaction read model；点赞开关事件携带 `active`，因此取消点赞也会覆盖到其他节点的 read model。
+- 新成员加入 post channel 后，服务端会从 Matrix `/messages` 历史回填当前频道已有 posts/comments/reactions 到本节点 projection，客户端可通过 product list 接口和 Matrix history 同时看到入群前内容。
 - recall 通过 Matrix redaction。
 
 Calls/Favorites/Follows/Reports：

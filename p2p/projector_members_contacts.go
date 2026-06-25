@@ -15,11 +15,21 @@ func (s *Service) projectReaction(ctx context.Context, event *types.HeaderedEven
 	if err := json.Unmarshal(event.Content(), &content); err != nil {
 		return err
 	}
+	return s.projectReactionContent(ctx, eventProjectionMeta{
+		RoomID:         event.RoomID().String(),
+		EventID:        event.EventID(),
+		SenderMXID:     string(event.SenderID()),
+		OriginServerTS: int64(event.OriginServerTS()),
+	}, content)
+}
+
+func (s *Service) projectReactionContent(ctx context.Context, meta eventProjectionMeta, content map[string]any) error {
 	relatesTo, _ := content["m.relates_to"].(map[string]any)
 	reactionName := trimString(relatesTo["key"])
 	if reactionName == "" {
 		reactionName = fallbackString(trimString(content["reaction"]), "like")
 	}
+	channelID := trimString(content["channel_id"])
 	postID := trimString(content["post_id"])
 	commentID := trimString(content["comment_id"])
 	targetType := "post"
@@ -29,21 +39,42 @@ func (s *Service) projectReaction(ctx context.Context, event *types.HeaderedEven
 		targetID = commentID
 	}
 	if targetID == "" {
-		targetID = trimString(relatesTo["event_id"])
+		relatedEventID := trimString(relatesTo["event_id"])
+		resolvedTargetType, resolvedTargetID, resolvedPostID, resolvedCommentID, resolvedChannelID, err := s.channelReactionTargetByEventID(ctx, relatedEventID, channelID)
+		if err != nil {
+			return err
+		}
+		if resolvedTargetID != "" {
+			targetType = resolvedTargetType
+			targetID = resolvedTargetID
+			postID = resolvedPostID
+			commentID = resolvedCommentID
+			channelID = fallbackString(channelID, resolvedChannelID)
+		} else {
+			targetID = relatedEventID
+		}
 	}
 	if targetID == "" {
 		return nil
 	}
+	active := true
+	if _, ok := content["active"]; ok {
+		active = boolParam(content["active"])
+	}
+	createdAt := time.Now().UTC()
+	if meta.OriginServerTS > 0 {
+		createdAt = time.UnixMilli(meta.OriginServerTS).UTC()
+	}
 	record := reactionRecord{
 		TargetType: targetType,
 		TargetID:   targetID,
-		ChannelID:  trimString(content["channel_id"]),
+		ChannelID:  channelID,
 		PostID:     postID,
 		CommentID:  commentID,
 		Reaction:   reactionName,
-		UserID:     string(event.SenderID()),
-		Active:     true,
-		CreatedAt:  eventTime(event).Format(time.RFC3339Nano),
+		UserID:     meta.SenderMXID,
+		Active:     active,
+		CreatedAt:  createdAt.Format(time.RFC3339Nano),
 	}
 	return s.saveReaction(ctx, record)
 }

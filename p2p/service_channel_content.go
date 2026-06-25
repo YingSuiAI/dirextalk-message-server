@@ -515,6 +515,33 @@ func (s *Service) channelPostByID(ctx context.Context, postID, channelID string)
 	return channelPostRecord{}, false, nil
 }
 
+func (s *Service) channelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostRecord, bool, error) {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return channelPostRecord{}, false, nil
+	}
+	if s.store != nil {
+		posts, err := s.store.ListChannelPosts(ctx, channelID)
+		if err != nil {
+			return channelPostRecord{}, false, err
+		}
+		for _, post := range posts {
+			if post.EventID == eventID {
+				return post, true, nil
+			}
+		}
+		return channelPostRecord{}, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, post := range s.posts {
+		if post.EventID == eventID && (channelID == "" || post.ChannelID == channelID) {
+			return post, true, nil
+		}
+	}
+	return channelPostRecord{}, false, nil
+}
+
 func (s *Service) channelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error) {
 	if s.store != nil {
 		comments, err := s.store.ListChannelComments(ctx, postID)
@@ -536,6 +563,47 @@ func (s *Service) channelCommentByID(ctx context.Context, commentID, postID stri
 		}
 	}
 	return channelCommentRecord{}, false, nil
+}
+
+func (s *Service) channelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error) {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return channelCommentRecord{}, false, nil
+	}
+	if s.store != nil {
+		comments, err := s.store.ListChannelComments(ctx, "")
+		if err != nil {
+			return channelCommentRecord{}, false, err
+		}
+		for _, comment := range comments {
+			if comment.EventID == eventID && (channelID == "" || comment.ChannelID == channelID) {
+				return comment, true, nil
+			}
+		}
+		return channelCommentRecord{}, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, comment := range s.comments {
+		if comment.EventID == eventID && (channelID == "" || comment.ChannelID == channelID) {
+			return comment, true, nil
+		}
+	}
+	return channelCommentRecord{}, false, nil
+}
+
+func (s *Service) channelReactionTargetByEventID(ctx context.Context, eventID, channelID string) (targetType, targetID, postID, commentID, resolvedChannelID string, err error) {
+	if comment, ok, lookupErr := s.channelCommentByEventID(ctx, eventID, channelID); lookupErr != nil {
+		return "", "", "", "", "", lookupErr
+	} else if ok {
+		return "comment", comment.CommentID, comment.PostID, comment.CommentID, comment.ChannelID, nil
+	}
+	if post, ok, lookupErr := s.channelPostByEventID(ctx, eventID, channelID); lookupErr != nil {
+		return "", "", "", "", "", lookupErr
+	} else if ok {
+		return "post", post.PostID, post.PostID, "", post.ChannelID, nil
+	}
+	return "", "", "", "", "", nil
 }
 
 func (s *Service) roomIDForChannelComment(ctx context.Context, comment channelCommentRecord, fallbackRoomID string) (string, error) {
@@ -645,7 +713,7 @@ func (s *Service) channelReaction(ctx context.Context, action string, params map
 		record = existing
 		record.Active = !existing.Active
 	}
-	if record.Active && s.transport != nil && roomID != "" && eventID != "" {
+	if s.transport != nil && roomID != "" && eventID != "" {
 		_, sendErr := s.transport.SendMessage(ctx, SendMessageRequest{
 			SenderMXID:  userID,
 			RoomID:      roomID,
@@ -662,6 +730,7 @@ func (s *Service) channelReaction(ctx context.Context, action string, params map
 				"post_id":    postID,
 				"comment_id": commentID,
 				"reaction":   reactionName,
+				"active":     record.Active,
 			},
 		})
 		if sendErr != nil {

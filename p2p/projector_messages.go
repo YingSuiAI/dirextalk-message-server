@@ -9,6 +9,13 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
 )
 
+type eventProjectionMeta struct {
+	RoomID         string
+	EventID        string
+	SenderMXID     string
+	OriginServerTS int64
+}
+
 func (s *Service) projectMessage(ctx context.Context, event *types.HeaderedEvent) error {
 	content := map[string]any{}
 	if err := json.Unmarshal(event.Content(), &content); err != nil {
@@ -112,25 +119,44 @@ func conversationActivityPreview(body, msgType string) string {
 }
 
 func (s *Service) projectChannelPost(ctx context.Context, event *types.HeaderedEvent, content map[string]any, body, msgType string) error {
+	return s.projectChannelPostContent(ctx, eventProjectionMeta{
+		RoomID:         event.RoomID().String(),
+		EventID:        event.EventID(),
+		SenderMXID:     string(event.SenderID()),
+		OriginServerTS: int64(event.OriginServerTS()),
+	}, content, body, msgType)
+}
+
+func (s *Service) projectChannelPostContent(ctx context.Context, meta eventProjectionMeta, content map[string]any, body, msgType string) error {
 	postID := trimString(content["post_id"])
 	if postID == "" {
-		postID = "post_" + strings.TrimPrefix(event.EventID(), "$")
+		postID = "post_" + strings.TrimPrefix(meta.EventID, "$")
 	}
 	post := channelPostRecord{
 		PostID:         postID,
 		ChannelID:      trimString(content["channel_id"]),
-		RoomID:         event.RoomID().String(),
-		EventID:        event.EventID(),
-		AuthorMXID:     string(event.SenderID()),
+		RoomID:         meta.RoomID,
+		EventID:        meta.EventID,
+		AuthorMXID:     meta.SenderMXID,
 		AuthorName:     trimString(content["sender_name"]),
 		Body:           body,
 		MessageType:    msgType,
 		MediaJSON:      trimString(content["media_json"]),
-		OriginServerTS: int64(event.OriginServerTS()),
+		OriginServerTS: meta.OriginServerTS,
 		CommentCount:   0,
 	}
 	s.mu.Lock()
-	s.posts = append(s.posts, post)
+	upserted := false
+	for i := range s.posts {
+		if s.posts[i].PostID == post.PostID {
+			s.posts[i] = post
+			upserted = true
+			break
+		}
+	}
+	if !upserted {
+		s.posts = append(s.posts, post)
+	}
 	s.mu.Unlock()
 	if s.store != nil {
 		return s.store.InsertChannelPost(ctx, post)
@@ -139,9 +165,18 @@ func (s *Service) projectChannelPost(ctx context.Context, event *types.HeaderedE
 }
 
 func (s *Service) projectChannelComment(ctx context.Context, event *types.HeaderedEvent, content map[string]any, body, msgType string) error {
+	return s.projectChannelCommentContent(ctx, eventProjectionMeta{
+		RoomID:         event.RoomID().String(),
+		EventID:        event.EventID(),
+		SenderMXID:     string(event.SenderID()),
+		OriginServerTS: int64(event.OriginServerTS()),
+	}, content, body, msgType)
+}
+
+func (s *Service) projectChannelCommentContent(ctx context.Context, meta eventProjectionMeta, content map[string]any, body, msgType string) error {
 	commentID := trimString(content["comment_id"])
 	if commentID == "" {
-		commentID = "comment_" + strings.TrimPrefix(event.EventID(), "$")
+		commentID = "comment_" + strings.TrimPrefix(meta.EventID, "$")
 	}
 	mentionsJSON := "[]"
 	if rawMentionsJSON, ok := content["mentions_json"]; ok {
@@ -161,8 +196,8 @@ func (s *Service) projectChannelComment(ctx context.Context, event *types.Header
 		CommentID:         commentID,
 		PostID:            trimString(content["post_id"]),
 		ChannelID:         trimString(content["channel_id"]),
-		EventID:           event.EventID(),
-		AuthorMXID:        string(event.SenderID()),
+		EventID:           meta.EventID,
+		AuthorMXID:        meta.SenderMXID,
 		AuthorName:        trimString(content["sender_name"]),
 		Body:              body,
 		MessageType:       msgType,
@@ -170,12 +205,22 @@ func (s *Service) projectChannelComment(ctx context.Context, event *types.Header
 		ReplyToCommentID:  trimString(content["reply_to_comment_id"]),
 		ReplyToAuthorMXID: trimString(content["reply_to_author_mxid"]),
 		MentionsJSON:      mentionsJSON,
-		OriginServerTS:    int64(event.OriginServerTS()),
+		OriginServerTS:    meta.OriginServerTS,
 		ReactionCount:     0,
 		ReactedByMe:       false,
 	}
 	s.mu.Lock()
-	s.comments = append(s.comments, comment)
+	upserted := false
+	for i := range s.comments {
+		if s.comments[i].CommentID == comment.CommentID {
+			s.comments[i] = comment
+			upserted = true
+			break
+		}
+	}
+	if !upserted {
+		s.comments = append(s.comments, comment)
+	}
 	s.mu.Unlock()
 	if s.store != nil {
 		return s.store.InsertChannelComment(ctx, comment)

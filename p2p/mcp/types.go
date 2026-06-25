@@ -40,6 +40,15 @@ type CommentSummary struct {
 	Msg       string `json:"msg"`
 }
 
+type ChannelContentEvent struct {
+	RoomID         string         `json:"room_id"`
+	EventID        string         `json:"event_id"`
+	Type           string         `json:"type"`
+	Sender         string         `json:"sender"`
+	OriginServerTS int64          `json:"origin_server_ts"`
+	Content        map[string]any `json:"content"`
+}
+
 type MessageReader interface {
 	ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]MessageSummary, error)
 }

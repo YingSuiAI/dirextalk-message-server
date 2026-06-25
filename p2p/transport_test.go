@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/p2p/mcp"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -1233,6 +1234,139 @@ func TestChannelReactionDoesNotSaveProjectionWhenMatrixSendFails(t *testing.T) {
 		t.Fatal(err)
 	} else if ok {
 		t.Fatalf("reaction projection should not be saved when Matrix send fails, got %#v", reaction)
+	}
+}
+
+type fakeChannelBackfillReader struct {
+	events []mcp.ChannelContentEvent
+}
+
+func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
+	return nil, nil
+}
+
+func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]mcp.ChannelContentEvent, error) {
+	if limit > 0 && len(r.events) > limit {
+		return r.events[:limit], nil
+	}
+	return r.events, nil
+}
+
+func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "post_channel",
+		"name":             "Post Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	service.SetMCPMessageReader(&fakeChannelBackfillReader{events: []mcp.ChannelContentEvent{
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 3000,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-one:example.com", "key": "like"},
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$comment-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 2000,
+			Content: map[string]any{
+				"p2p_kind":   "channel_comment",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_one",
+				"comment_id": "comment_one",
+				"body":       "historical comment",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-comment:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 4000,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$comment-one:example.com", "key": "like"},
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1000,
+			Content: map[string]any{
+				"p2p_kind":   "channel_post",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_one",
+				"body":       "historical post",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-two:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1100,
+			Content: map[string]any{
+				"p2p_kind":   "channel_post",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_two",
+				"body":       "unliked post",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post-two-on:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 1200,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-two:example.com", "key": "like"},
+				"active":       true,
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post-two-off:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 1300,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-two:example.com", "key": "like"},
+				"active":       false,
+			},
+		},
+	}})
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok, got %#v", joined)
+	}
+
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 2 || posts[0].PostID != "post_one" || posts[0].Body != "historical post" || posts[0].CommentCount != 1 || posts[0].ReactionCount != 1 {
+		t.Fatalf("expected backfilled post with comment/reaction counts, got %#v", posts)
+	}
+	if posts[1].PostID != "post_two" || posts[1].ReactionCount != 0 {
+		t.Fatalf("expected active=false reaction event to clear backfilled reaction count, got %#v", posts)
+	}
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{
+		"post_id": "post_one",
+	})["comments"].([]channelCommentRecord)
+	if len(comments) != 1 || comments[0].CommentID != "comment_one" || comments[0].Body != "historical comment" || comments[0].ReactionCount != 1 {
+		t.Fatalf("expected backfilled comment with reaction count, got %#v", comments)
 	}
 }
 
