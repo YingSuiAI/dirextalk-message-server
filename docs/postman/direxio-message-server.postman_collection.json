@@ -3039,7 +3039,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "列出某个用户拥有的公开频道。\n\nList public channels owned by a user\n\nAction: `users.public_channels`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
+                "description": "列出某个用户拥有的公开频道。跨节点查询时可在 params 中传 `remote_node_base_url`，本地节点会转发到目标 owner 节点。\n\nList public channels owned by a user. For cross-node lookup, optionally pass `remote_node_base_url` in params so the local node forwards to the target owner node.\n\nAction: `users.public_channels`\nEndpoint: `POST /_p2p/query`\nAuth: Public action; no bearer token required.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"users.public_channels\",\n  \"params\": {\n    \"user_id\": \"{{peerUserID}}\"\n  }\n}",

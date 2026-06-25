@@ -167,6 +167,7 @@ Portal/Profile：
 - 默认启动时自动初始化 portal owner、owner token、agent token、默认密码和 owner profile。
 - `P2P_PORTAL_PASSWORD` 可覆盖默认密码。
 - `P2P_PORTAL_CREDENTIALS_FILE` 用于启动、密码变更和 session token 变更后的 credential JSON 写出。
+- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 Agent/CLI 内部会话，不删除用户手机 device。
 - profile update 同步 P2P profile/member projection，并写入 Matrix-facing profile storage。
 
 Contacts：
@@ -214,7 +215,7 @@ Agent/API permissions：
 Multi-node：
 
 - 房间、成员、消息、redaction、state 通过 Matrix federation。
-- public channel discovery 和 join request 使用 `remote_node_base_url` 显式指定频道主节点 P2P base URL。
+- public channel discovery、user public channels 和 join request 使用 `remote_node_base_url` 显式指定目标 owner 节点 P2P base URL。
 - 后端校验远端 URL；本地自签名双节点开发可用 `P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY=true`。
 
 ## 8. 配置与开发命令

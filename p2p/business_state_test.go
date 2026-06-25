@@ -2505,7 +2505,7 @@ func TestGroupJoinCreatesLocalGroupRecord(t *testing.T) {
 	}
 }
 
-func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
+func TestUserPublicChannelsReturnsOwnedPublicChannelsOnly(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	publicChannel := mustHandle[channel](t, service, "channels.create", map[string]any{
 		"channel_id":  "public_owned",
@@ -2525,6 +2525,12 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 		"channel_id": "member_only",
 		"room_id":    "!member-only:example.com",
 		"name":       "Member Only",
+		"visibility": "public",
+	})
+	legacyAdmin := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "legacy_admin",
+		"room_id":    "!legacy-admin:example.com",
+		"name":       "Legacy Admin",
 		"visibility": "public",
 	})
 	mustHandle[map[string]any](t, service, "channels.join", map[string]any{
@@ -2553,11 +2559,22 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:      legacyAdmin.RoomID,
+		ChannelID:   legacyAdmin.ChannelID,
+		UserID:      "@alice:example.com",
+		DisplayName: "Alice",
+		Domain:      "example.com",
+		Membership:  "join",
+		Role:        "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{"user_mxid": "@alice:example.com"})
 	channels := result["channels"].([]channel)
-	if len(channels) != 2 {
-		t.Fatalf("expected alice owned and joined public channels, got %#v", result)
+	if len(channels) != 1 {
+		t.Fatalf("expected alice owned public channels only, got %#v", result)
 	}
 	got := map[string]channel{}
 	for _, ch := range channels {
@@ -2566,8 +2583,11 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 	if ch := got[publicChannel.ChannelID]; ch.RoomID != publicChannel.RoomID || ch.AvatarURL != "mxc://example.com/public-owned" {
 		t.Fatalf("expected alice owned public channel with display fields, got %#v", result)
 	}
-	if ch := got[memberOnly.ChannelID]; ch.RoomID != memberOnly.RoomID {
-		t.Fatalf("expected alice joined public channel, got %#v", result)
+	if _, ok := got[memberOnly.ChannelID]; ok {
+		t.Fatalf("did not expect alice member-only public channel, got %#v", result)
+	}
+	if _, ok := got[legacyAdmin.ChannelID]; ok {
+		t.Fatalf("did not expect deprecated admin role to count as owned channel, got %#v", result)
 	}
 	if _, ok := got[privateChannel.ChannelID]; ok {
 		t.Fatalf("expected private channel to be hidden, got %#v", result)

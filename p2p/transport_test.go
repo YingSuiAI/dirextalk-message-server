@@ -1495,13 +1495,13 @@ func TestGroupJoinDoesNotCopyStaleChannelIDToMembers(t *testing.T) {
 		"room_id": "!group:example.com",
 		"name":    "Group with A, B",
 	})
-	if err := service.saveChannel(context.Background(), channel{
+	service.mu.Lock()
+	service.channels["ghost_channel"] = channel{
 		ChannelID: "ghost_channel",
 		RoomID:    group.RoomID,
 		Name:      "Stale channel projection",
-	}); err != nil {
-		t.Fatal(err)
 	}
+	service.mu.Unlock()
 
 	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
 		"room_id": group.RoomID,
@@ -1704,6 +1704,70 @@ func TestRemotePublicChannelGetUsesClientProvidedOwnerNodeBaseURL(t *testing.T) 
 	}
 	if calls != 1 {
 		t.Fatalf("expected one remote owner node call, got %d", calls)
+	}
+}
+
+func TestUserPublicChannelsForwardsToOwnerNodeBaseURL(t *testing.T) {
+	calls := 0
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/_p2p/query" {
+			t.Fatalf("expected remote public query path, got %s", r.URL.Path)
+		}
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode remote request: %v", err)
+		}
+		if req.Action != "users.public_channels" ||
+			trimString(req.Params["user_id"]) != "@owner:remote.example" ||
+			trimString(req.Params["remote_node_base_url"]) != "" {
+			t.Fatalf("unexpected remote request %#v", req)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"user_id": "@owner:remote.example",
+			"channels": []channel{{
+				ChannelID:   "remote_owned",
+				RoomID:      "!remote-owned:remote.example",
+				Name:        "Remote Owned",
+				Visibility:  "public",
+				JoinPolicy:  "open",
+				ChannelType: "chat",
+			}},
+		})
+	}))
+	defer remote.Close()
+
+	service := NewService(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	})
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{
+		"user_id":              "@owner:remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+	channels := result["channels"].([]channel)
+	if len(channels) != 1 || channels[0].ChannelID != "remote_owned" {
+		t.Fatalf("expected remote owner public channels, got %#v", result)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one remote owner node call, got %d", calls)
+	}
+}
+
+func TestUserPublicChannelsRemoteLookupRequiresValidUserID(t *testing.T) {
+	service := NewService(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	})
+	bootstrapService(t, service)
+
+	if _, apiErr := service.Handle(context.Background(), "users.public_channels", map[string]any{
+		"user_id":              "owner",
+		"remote_node_base_url": "https://remote.example/_p2p",
+	}); apiErr == nil || apiErr.Status != http.StatusBadRequest || apiErr.Error != "valid user_id is required" {
+		t.Fatalf("expected invalid remote user id to return targeted 400, got %#v", apiErr)
 	}
 }
 

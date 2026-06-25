@@ -10,14 +10,16 @@ import (
 )
 
 type recordingMatrixSessionIssuer struct {
-	deviceID    string
-	profileUser string
-	profileName string
-	profileURL  string
+	deviceID              string
+	revokeExistingDevices bool
+	profileUser           string
+	profileName           string
+	profileURL            string
 }
 
-func (i *recordingMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string) (string, error) {
+func (i *recordingMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string, revokeExistingDevices bool) (string, error) {
 	i.deviceID = deviceID
+	i.revokeExistingDevices = revokeExistingDevices
 	return "matrix-token-for-" + deviceID, nil
 }
 
@@ -34,7 +36,7 @@ type concurrentGuardMatrixSessionIssuer struct {
 	calls     int32
 }
 
-func (i *concurrentGuardMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string) (string, error) {
+func (i *concurrentGuardMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string, revokeExistingDevices bool) (string, error) {
 	active := atomic.AddInt32(&i.active, 1)
 	for {
 		maxActive := atomic.LoadInt32(&i.maxActive)
@@ -82,6 +84,9 @@ func TestPortalAuthUsesRequestedMatrixDeviceID(t *testing.T) {
 	if issuer.deviceID != "DEVICE_B" {
 		t.Fatalf("expected Matrix issuer to receive requested device id, got %q", issuer.deviceID)
 	}
+	if !issuer.revokeExistingDevices {
+		t.Fatalf("expected portal auth to revoke existing Matrix devices")
+	}
 	if session["device_id"] != "DEVICE_B" || session["access_token"] != "matrix-token-for-DEVICE_B" {
 		t.Fatalf("expected session to use requested device id and token, got %#v", session)
 	}
@@ -98,6 +103,9 @@ func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {
 
 	if issuer.deviceID != "DIREXIO_CLI" {
 		t.Fatalf("expected Matrix issuer to receive CLI device id, got %q", issuer.deviceID)
+	}
+	if issuer.revokeExistingDevices {
+		t.Fatalf("agent Matrix sessions must not revoke the portal user's devices")
 	}
 	if session["device_id"] != "DIREXIO_CLI" {
 		t.Fatalf("expected session device id to be DIREXIO_CLI, got %#v", session)

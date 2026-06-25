@@ -66,7 +66,7 @@ Rules:
 
 ## Business Scenarios
 
-- Portal/auth: bootstrap, password login, password rotation, Matrix device session creation, credentials file refresh.
+- Portal/auth: bootstrap, password login, password rotation, Matrix device session creation, credentials file refresh. Portal login/password/bootstrap Matrix sessions are single-device for the portal owner: creating a new portal session deletes the owner's other Matrix devices so old phones receive `M_UNKNOWN_TOKEN`; `agent.matrix_session.create` is the exception and must not evict the user's phone session.
   - Login/session responses expose only `access_token` and one setup flag, `initialized`.
   - `initialized` means the generated initial password has been changed through `portal.password`; profile completion must not affect it.
 - Profile: owner profile read/update, Matrix-facing profile storage, member profile propagation.
