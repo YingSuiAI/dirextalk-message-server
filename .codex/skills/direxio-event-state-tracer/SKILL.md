@@ -28,7 +28,7 @@ For inbound or federated behavior, start at the roomserver/federation output and
 - Member policy uses `io.direxio.member.policy`.
 - Public channel approval uses `io.direxio.join_request`.
 - Matrix `m.room.member membership=join` is the joined fact. Approval state is not joined state.
-- New group rooms and chat/text channel rooms must create `m.room.history_visibility` as `joined`; post channels (`channel_type=post`) must write `m.room.history_visibility` as `shared` on creation, existing-room binding, and updates to `post`, because members need access to existing channel posts and comments. Do not rely on sync-layer hard filtering to hide pre-join ordinary timeline history.
+- New group rooms and chat/text channel rooms must create `m.room.history_visibility` as `joined`; post channels (`channel_type=post`) must write `m.room.history_visibility` as `shared` on creation and existing-room binding, because members need access to existing channel posts and comments. Channel type is immutable after creation; `channels.update` must ignore `channel_type` for old-client compatibility. Do not rely on sync-layer hard filtering to hide pre-join ordinary timeline history.
 - Malformed optional product metadata must not block unrelated later projection events.
 - Non-product Matrix rooms must not pollute Direxio product lists unless the bridge is intentional.
 - Profile changes must keep Matrix-facing profile storage and Direxio profile/member views aligned when both are read.

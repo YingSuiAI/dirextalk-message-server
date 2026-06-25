@@ -101,11 +101,6 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 	if joinPolicy := trimString(params["join_policy"]); joinPolicy != "" {
 		ch.JoinPolicy = joinPolicy
 	}
-	channelTypeUpdated := false
-	if channelType := trimString(params["channel_type"]); channelType != "" {
-		ch.ChannelType = channelType
-		channelTypeUpdated = true
-	}
 	if _, ok := params["comments_enabled"]; ok {
 		ch.CommentsEnabled = boolParam(params["comments_enabled"])
 	}
@@ -117,11 +112,6 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 	}
 	if err := s.publishChannelState(ctx, ch, false); err != nil {
 		return nil, internalError(err)
-	}
-	if channelTypeUpdated {
-		if err := s.publishChannelHistoryVisibilityState(ctx, ch); err != nil {
-			return nil, internalError(err)
-		}
 	}
 	return ch, nil
 }

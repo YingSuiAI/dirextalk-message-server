@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-25
 
+## 2026-06-25 Immutable Channel Type
+
+`channels.update` now ignores `channel_type`. Channel type is creation-time metadata and cannot be changed after a channel exists. Requests that include `channel_type` continue to apply other mutable fields but leave the stored `channel_type` unchanged.
+
+Clients must set `channel_type` only in `channels.create`. Post channels (`channel_type=post`) get shared Matrix history visibility at creation or when binding an existing room as a post channel.
+
 ## 2026-06-25 Agent Token And CLI Cleanup
 
 Agent-token dynamic permission management is removed. `apis.list` and `apis.status` are no longer P2P actions and calls to those action names return `unknown action`.

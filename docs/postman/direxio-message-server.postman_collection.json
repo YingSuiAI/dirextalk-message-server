@@ -974,7 +974,7 @@
                 "description": "更新频道资料。\n\nUpdate channel\n\nAction: `channels.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"channels.update\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"name\": \"Updated Postman Channel\",\n    \"description\": \"updated\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"open\",\n    \"channel_type\": \"chat\",\n    \"comments_enabled\": true,\n    \"muted\": false\n  }\n}",
+                  "raw": "{\n  \"action\": \"channels.update\",\n  \"params\": {\n    \"channel_id\": \"{{channelID}}\",\n    \"room_id\": \"{{roomID}}\",\n    \"name\": \"Updated Postman Channel\",\n    \"description\": \"updated\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"open\",\n    \"comments_enabled\": true,\n    \"muted\": false\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"

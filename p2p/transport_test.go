@@ -1092,7 +1092,7 @@ func TestChannelUpdateAndDissolvePublishRoomStateThroughTransport(t *testing.T) 
 	}
 }
 
-func TestChannelUpdateToPostPublishesSharedHistoryVisibility(t *testing.T) {
+func TestChannelUpdateIgnoresChannelTypeChanges(t *testing.T) {
 	transport := &recordingTransport{roomID: "!channel:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -1104,16 +1104,17 @@ func TestChannelUpdateToPostPublishesSharedHistoryVisibility(t *testing.T) {
 
 	updated := mustHandle[channel](t, service, "channels.update", map[string]any{
 		"channel_id":   ch.ChannelID,
+		"name":         "Still Chat",
 		"channel_type": "post",
 	})
-	if updated.ChannelType != "post" {
-		t.Fatalf("expected post channel response, got %#v", updated)
+	if updated.ChannelType != "chat" || updated.Name != "Still Chat" {
+		t.Fatalf("expected channel_type update to be ignored while mutable fields apply, got %#v", updated)
 	}
-	if len(transport.stateEvents) != 2 {
-		t.Fatalf("expected update to publish metadata and shared history visibility state events, got %#v", transport.stateEvents)
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected ignored channel_type update to publish only metadata state, got %#v", transport.stateEvents)
 	}
-	if got, ok := updateStateHistoryVisibility(transport.stateEvents[1]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
-		t.Fatalf("expected update to post channel to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[1])
+	if transport.stateEvents[0].Event.Content["channel_type"] != "chat" {
+		t.Fatalf("expected published profile to preserve original channel_type, got %#v", transport.stateEvents[0])
 	}
 }
 
