@@ -37,15 +37,8 @@ the `-url` flag:
 ./bin/create-account -config /path/to/message-server.yaml -username USERNAME -url https://localhost:8448
 ```
 
-An example of using `create-account` when running in **Docker**, having found the `CONTAINERNAME` from `docker ps`:
-
-```bash
-docker exec -it CONTAINERNAME /usr/bin/create-account -config /path/to/message-server.yaml -username USERNAME
-```
-
-```bash
-docker exec -it CONTAINERNAME /usr/bin/create-account -config /path/to/message-server.yaml -username USERNAME -admin
-```
+The runtime Docker image intentionally omits `create-account` to keep the image small. Build
+the tool locally if you need this command-line flow, or use shared secret registration.
 
 ## Using shared secret registration
 

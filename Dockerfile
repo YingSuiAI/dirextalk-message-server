@@ -22,11 +22,15 @@ RUN --mount=target=. \
     GOARCH="$TARGETARCH" \
     GOOS="linux" \
     CGO_ENABLED=$([ "$TARGETARCH" = "$USERARCH" ] && echo "1" || echo "0") \
-    go build -v -trimpath -o /out/ ./cmd/...
+    go build -v -trimpath -ldflags="-s -w" -o /out/ \
+      ./cmd/direxio-message-server \
+      ./cmd/generate-config \
+      ./cmd/generate-keys
 
 
 #
-# Builds the Direxio Message Server image containing all required binaries
+# Builds the Direxio Message Server image containing the runtime binary and
+# per-instance initialization tools.
 #
 FROM alpine:latest
 RUN apk --update --no-cache add curl
@@ -37,11 +41,9 @@ LABEL org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Com
 LABEL org.opencontainers.image.documentation="https://github.com/YingSuiAI/direxio-message-server"
 LABEL org.opencontainers.image.vendor="YingSuiAI"
 
-COPY --from=build /out/create-account /usr/bin/create-account
 COPY --from=build /out/generate-config /usr/bin/generate-config
 COPY --from=build /out/generate-keys /usr/bin/generate-keys
 COPY --from=build /out/direxio-message-server /usr/bin/direxio-message-server
-COPY --from=build /out/dendrite /usr/bin/dendrite
 
 VOLUME /etc/direxio-message-server
 WORKDIR /etc/direxio-message-server
