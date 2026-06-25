@@ -54,8 +54,9 @@ func (s *mockHisVisRoomserverAPI) QueryUserIDForSender(ctx context.Context, room
 type mockDB struct {
 	storage.DatabaseTransaction
 	// user ID -> membership (i.e. 'join', 'leave', etc.)
-	currentMembership map[string]string
-	roomID            string
+	currentMembership    map[string]string
+	currentMembershipPos map[string]int64
+	roomID               string
 }
 
 func (s *mockDB) SelectMembershipForUser(ctx context.Context, roomID string, userID string, pos int64) (string, int64, error) {
@@ -64,7 +65,13 @@ func (s *mockDB) SelectMembershipForUser(ctx context.Context, roomID string, use
 		if !ok {
 			return spec.Leave, math.MaxInt64, nil
 		}
-		return membership, math.MaxInt64, nil
+		topologicalPos := int64(math.MaxInt64)
+		if s.currentMembershipPos != nil {
+			if value, ok := s.currentMembershipPos[userID]; ok {
+				topologicalPos = value
+			}
+		}
+		return membership, topologicalPos, nil
 	}
 
 	return "", 0, fmt.Errorf("room not found: \"%v\"", roomID)
@@ -208,6 +215,66 @@ func Test_ApplyHistoryVisbility_Boundaries(t *testing.T) {
 			"$hisvis-4",     // Changes from 'invited' to 'shared', so is a boundary event and visible
 			"$msg-4",        // Room is 'shared', so visible
 			"$other-joined", // other's membership
+		},
+		filteredEventIDs,
+	)
+}
+
+func TestApplyHistoryVisibilityKeepsPostJoinMessagesWhenStateAtEventMissing(t *testing.T) {
+	ctx := context.Background()
+
+	roomID := "!roomid:domain"
+	userID := spec.NewUserIDOrPanic("@other:domain", false)
+	senderUserID := spec.NewUserIDOrPanic("@creator:domain", false)
+	roomVersion := gomatrixserverlib.RoomVersionV10
+	roomVerImpl := gomatrixserverlib.MustGetRoomVersion(roomVersion)
+
+	makeMessage := func(eventID string, depth int64, sender spec.UserID) *types.HeaderedEvent {
+		t.Helper()
+		pdu, err := roomVerImpl.NewEventFromTrustedJSONWithEventID(eventID, []byte(fmt.Sprintf(`{
+			"type": "m.room.message",
+			"room_id": "%s",
+			"sender": "%s",
+			"depth": %d,
+			"content": {"msgtype": "m.text", "body": "hello"}
+		}`, roomID, sender.String(), depth)), false)
+		if err != nil {
+			t.Fatalf("failed to prepare event: %s", err.Error())
+		}
+		event := &types.HeaderedEvent{PDU: pdu}
+		event.Visibility = gomatrixserverlib.HistoryVisibilityJoined
+		return event
+	}
+	beforeJoin := makeMessage("$before-join-message", 5, senderUserID)
+	afterJoin := makeMessage("$after-join-message", 15, senderUserID)
+	ownAfterJoin := makeMessage("$own-after-join-message", 16, userID)
+
+	rsAPI := &mockHisVisRoomserverAPI{
+		events: nil,
+		roomID: roomID,
+	}
+	syncDB := &mockDB{
+		roomID: roomID,
+		currentMembership: map[string]string{
+			userID.String(): spec.Join,
+		},
+		currentMembershipPos: map[string]int64{
+			userID.String(): 10,
+		},
+	}
+
+	filteredEvents, err := ApplyHistoryVisibilityFilter(ctx, syncDB, rsAPI, []*types.HeaderedEvent{beforeJoin, afterJoin, ownAfterJoin}, nil, userID, "hisVisTest")
+	if err != nil {
+		t.Fatalf("ApplyHistoryVisibility returned non-nil error: %s", err.Error())
+	}
+	filteredEventIDs := make([]string, len(filteredEvents))
+	for i, event := range filteredEvents {
+		filteredEventIDs[i] = event.EventID()
+	}
+	assert.DeepEqual(t,
+		[]string{
+			"$after-join-message",
+			"$own-after-join-message",
 		},
 		filteredEventIDs,
 	)
