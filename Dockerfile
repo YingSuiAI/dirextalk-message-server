@@ -6,7 +6,7 @@
 # If you update this Dockerfile, ensure to sync your changes to the other
 # Dockerfiles in this repo (search *Dockerfile).
 FROM --platform=${BUILDPLATFORM} docker.io/golang:1.26.4-alpine AS base
-RUN apk --update --no-cache add bash build-base curl git
+RUN apk --update --no-cache add bash build-base git
 
 #
 # build creates all needed binaries
@@ -33,7 +33,7 @@ RUN --mount=target=. \
 # per-instance initialization tools.
 #
 FROM alpine:latest
-RUN apk --update --no-cache add curl
+RUN apk --update --no-cache add ca-certificates
 LABEL org.opencontainers.image.title="Direxio Message Server"
 LABEL org.opencontainers.image.description="Direxio Matrix homeserver and P2P product API server"
 LABEL org.opencontainers.image.source="https://github.com/YingSuiAI/direxio-message-server"

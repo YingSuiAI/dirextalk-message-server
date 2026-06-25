@@ -73,7 +73,7 @@ services:
       message-server-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8008/_p2p/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30
