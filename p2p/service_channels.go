@@ -17,6 +17,7 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 		channelID = "ch_" + randomToken("channel")
 	}
 	roomID := trimString(params["room_id"])
+	existingRoomID := roomID != ""
 	channelType := fallbackString(trimString(params["channel_type"]), "chat")
 	ch := channel{
 		ChannelID:        channelID,
@@ -42,8 +43,8 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 		initialState := []RoomStateEvent{
 			channelStateEvent(ch, false),
 		}
-		if textChannelHistoryStartsAtJoin(channelType) {
-			initialState = append([]RoomStateEvent{joinedHistoryVisibilityStateEvent()}, initialState...)
+		if historyVisibilityState, ok := channelHistoryVisibilityStateEvent(channelType); ok {
+			initialState = append([]RoomStateEvent{historyVisibilityState}, initialState...)
 		}
 		roomID, apiErr = s.ensureProductRoom(ctx, "channel", CreateRoomRequest{
 			Name:         fallbackString(trimString(params["name"]), channelID),
@@ -63,6 +64,11 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 	}
 	if err := s.saveOwnerMember(ctx, ch.RoomID, ch.ChannelID); err != nil {
 		return nil, internalError(err)
+	}
+	if existingRoomID {
+		if err := s.publishChannelHistoryVisibilityState(ctx, ch); err != nil {
+			return nil, internalError(err)
+		}
 	}
 	return ch, nil
 }
@@ -95,8 +101,10 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 	if joinPolicy := trimString(params["join_policy"]); joinPolicy != "" {
 		ch.JoinPolicy = joinPolicy
 	}
+	channelTypeUpdated := false
 	if channelType := trimString(params["channel_type"]); channelType != "" {
 		ch.ChannelType = channelType
+		channelTypeUpdated = true
 	}
 	if _, ok := params["comments_enabled"]; ok {
 		ch.CommentsEnabled = boolParam(params["comments_enabled"])
@@ -109,6 +117,11 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 	}
 	if err := s.publishChannelState(ctx, ch, false); err != nil {
 		return nil, internalError(err)
+	}
+	if channelTypeUpdated {
+		if err := s.publishChannelHistoryVisibilityState(ctx, ch); err != nil {
+			return nil, internalError(err)
+		}
 	}
 	return ch, nil
 }
@@ -352,11 +365,31 @@ func (s *Service) publishChannelState(ctx context.Context, ch channel, dissolved
 	s.mu.Lock()
 	senderMXID := s.ownerMXID
 	s.mu.Unlock()
-	return s.transport.SendStateEvent(ctx, SendStateEventRequest{
+	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
 		RoomID:     ch.RoomID,
 		SenderMXID: senderMXID,
 		Event:      channelStateEvent(ch, dissolved),
-	})
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) publishChannelHistoryVisibilityState(ctx context.Context, ch channel) error {
+	if s.transport == nil || strings.TrimSpace(ch.RoomID) == "" {
+		return nil
+	}
+	if historyVisibilityState, ok := channelHistoryVisibilityStateEvent(ch.ChannelType); ok {
+		s.mu.Lock()
+		senderMXID := s.ownerMXID
+		s.mu.Unlock()
+		return s.transport.SendStateEvent(ctx, SendStateEventRequest{
+			RoomID:     ch.RoomID,
+			SenderMXID: senderMXID,
+			Event:      historyVisibilityState,
+		})
+	}
+	return nil
 }
 
 func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, status, reason string) *apiError {

@@ -40,22 +40,32 @@ func direxioRoomType(kind string) string {
 	}
 }
 
-func joinedHistoryVisibilityStateEvent() RoomStateEvent {
+func historyVisibilityStateEvent(visibility gomatrixserverlib.HistoryVisibility) RoomStateEvent {
 	return RoomStateEvent{
 		Type:     spec.MRoomHistoryVisibility,
 		StateKey: "",
 		Content: map[string]any{
-			"history_visibility": string(gomatrixserverlib.HistoryVisibilityJoined),
+			"history_visibility": string(visibility),
 		},
 	}
 }
 
-func textChannelHistoryStartsAtJoin(channelType string) bool {
+func joinedHistoryVisibilityStateEvent() RoomStateEvent {
+	return historyVisibilityStateEvent(gomatrixserverlib.HistoryVisibilityJoined)
+}
+
+func sharedHistoryVisibilityStateEvent() RoomStateEvent {
+	return historyVisibilityStateEvent(gomatrixserverlib.HistoryVisibilityShared)
+}
+
+func channelHistoryVisibilityStateEvent(channelType string) (RoomStateEvent, bool) {
 	switch strings.ToLower(strings.TrimSpace(channelType)) {
 	case "", "chat", "text":
-		return true
+		return joinedHistoryVisibilityStateEvent(), true
+	case "post":
+		return sharedHistoryVisibilityStateEvent(), true
 	default:
-		return false
+		return RoomStateEvent{}, false
 	}
 }
 

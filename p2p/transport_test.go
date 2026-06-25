@@ -45,7 +45,7 @@ func TestGroupAndTextChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 	}
 }
 
-func TestPostChannelCreateDoesNotLimitHistoryToJoinPoint(t *testing.T) {
+func TestPostChannelCreateUsesSharedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{roomID: "!posts:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -59,8 +59,31 @@ func TestPostChannelCreateDoesNotLimitHistoryToJoinPoint(t *testing.T) {
 	if len(transport.createRooms) != 1 {
 		t.Fatalf("expected post channel room to be created, got %#v", transport.createRooms)
 	}
-	if got, ok := initialHistoryVisibility(transport.createRooms[0]); ok {
-		t.Fatalf("post channels must allow members to see existing posts/comments; unexpected history_visibility %q in %#v", got, transport.createRooms[0].InitialState)
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("post channels must use shared history visibility for existing posts/comments, got %q ok=%v in %#v", got, ok, transport.createRooms[0].InitialState)
+	}
+}
+
+func TestPostChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "posts",
+		"room_id":      "!existing:example.com",
+		"name":         "Posts",
+		"channel_type": "post",
+	})
+
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("existing room channel must not create a new room, got %#v", transport.createRooms)
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected existing post room to publish shared history visibility, got %#v", transport.stateEvents)
+	}
+	if got, ok := updateStateHistoryVisibility(transport.stateEvents[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("expected existing post room to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[0])
 	}
 }
 
@@ -104,6 +127,14 @@ func initialHistoryVisibility(req CreateRoomRequest) (string, bool) {
 		return value, true
 	}
 	return "", false
+}
+
+func updateStateHistoryVisibility(req SendStateEventRequest) (string, bool) {
+	if req.Event.Type != spec.MRoomHistoryVisibility || req.Event.StateKey != "" {
+		return "", false
+	}
+	value, _ := req.Event.Content["history_visibility"].(string)
+	return value, true
 }
 
 func initialStateOfType(states []RoomStateEvent, eventType string) (RoomStateEvent, bool) {
@@ -999,8 +1030,11 @@ func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
 	}
 	state := transport.createRooms[0].InitialState
 	profileState, ok := initialStateOfType(state, DirexioRoomProfileEventType)
-	if len(state) != 1 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
+	if len(state) != 2 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
 		t.Fatalf("expected Direxio channel profile state, got %#v", state)
+	}
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("expected shared post channel history visibility, got %q ok=%v in %#v", got, ok, state)
 	}
 	content := profileState.Content
 	for key, want := range map[string]any{
@@ -1055,6 +1089,31 @@ func TestChannelUpdateAndDissolvePublishRoomStateThroughTransport(t *testing.T) 
 	dissolveState := transport.stateEvents[1]
 	if dissolveState.RoomID != ch.RoomID || dissolveState.Event.Content["dissolved"] != true {
 		t.Fatalf("expected dissolved channel state, got %#v", dissolveState)
+	}
+}
+
+func TestChannelUpdateToPostPublishesSharedHistoryVisibility(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch_to_post",
+		"name":         "Before",
+		"channel_type": "chat",
+	})
+
+	updated := mustHandle[channel](t, service, "channels.update", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"channel_type": "post",
+	})
+	if updated.ChannelType != "post" {
+		t.Fatalf("expected post channel response, got %#v", updated)
+	}
+	if len(transport.stateEvents) != 2 {
+		t.Fatalf("expected update to publish metadata and shared history visibility state events, got %#v", transport.stateEvents)
+	}
+	if got, ok := updateStateHistoryVisibility(transport.stateEvents[1]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("expected update to post channel to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[1])
 	}
 }
 
