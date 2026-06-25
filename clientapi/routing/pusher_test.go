@@ -23,3 +23,51 @@ func TestIsDirexioHTTPPusherAppID(t *testing.T) {
 		})
 	}
 }
+
+func TestRequiresDirexioHTTPPusherAppID(t *testing.T) {
+	tests := []struct {
+		name  string
+		appID string
+		data  map[string]interface{}
+		want  bool
+	}{
+		{
+			name:  "current app id to production gateway",
+			appID: "com.direxio.ai",
+			data:  map[string]interface{}{"url": "https://push.direxio.ai/_matrix/push/v1/notify"},
+			want:  true,
+		},
+		{
+			name:  "retired app id to any gateway",
+			appID: "io.direxio.app.android",
+			data:  map[string]interface{}{"url": "https://example.com/_matrix/push/v1/notify"},
+			want:  true,
+		},
+		{
+			name:  "regional Direxio gateway",
+			appID: "custom",
+			data:  map[string]interface{}{"url": "https://push-eu.direxio.ai/_matrix/push/v1/notify"},
+			want:  true,
+		},
+		{
+			name:  "non-Direxio gateway",
+			appID: "custom",
+			data:  map[string]interface{}{"url": "https://push.example.com/_matrix/push/v1/notify"},
+			want:  false,
+		},
+		{
+			name:  "Direxio host wrong path",
+			appID: "custom",
+			data:  map[string]interface{}{"url": "https://push.direxio.ai/notify"},
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := requiresDirexioHTTPPusherAppID(tt.appID, tt.data); got != tt.want {
+				t.Fatalf("requiresDirexioHTTPPusherAppID(%q, %#v) = %t, want %t", tt.appID, tt.data, got, tt.want)
+			}
+		})
+	}
+}

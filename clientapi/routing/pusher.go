@@ -9,6 +9,7 @@ package routing
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
 	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
@@ -21,6 +22,12 @@ const (
 	direxioAndroidPusherAppID = "com.direxio.ai"
 	direxioIOSPusherAppID     = "com.direxio.app"
 )
+
+var retiredDirexioPusherAppIDs = map[string]struct{}{
+	"io.direxio.app.android": {},
+	"io.direxio.app.ios":     {},
+	"io.direxio.mobile":      {},
+}
 
 // GetPushers handles /_matrix/client/r0/pushers
 func GetPushers(
@@ -81,7 +88,9 @@ func SetPusher(
 	if len(body.PushKey) > 512 {
 		return invalidParam("length of pushkey must be no more than 512 bytes")
 	}
-	if body.Kind == userapi.HTTPKind && !isDirexioHTTPPusherAppID(body.AppID) {
+	if body.Kind == userapi.HTTPKind &&
+		requiresDirexioHTTPPusherAppID(body.AppID, body.Data) &&
+		!isDirexioHTTPPusherAppID(body.AppID) {
 		return invalidParam("unsupported Direxio push app_id")
 	}
 	uInt := body.Data["url"]
@@ -129,4 +138,25 @@ func invalidParam(msg string) util.JSONResponse {
 
 func isDirexioHTTPPusherAppID(appID string) bool {
 	return appID == direxioAndroidPusherAppID || appID == direxioIOSPusherAppID
+}
+
+func requiresDirexioHTTPPusherAppID(appID string, data map[string]interface{}) bool {
+	if _, retired := retiredDirexioPusherAppIDs[appID]; retired {
+		return true
+	}
+
+	rawURL, ok := data["url"].(string)
+	if !ok {
+		return false
+	}
+	pushURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(pushURL.Hostname())
+	if host == "push.direxio.ai" ||
+		(strings.HasPrefix(host, "push-") && strings.HasSuffix(host, ".direxio.ai")) {
+		return pushURL.Path == "/_matrix/push/v1/notify"
+	}
+	return false
 }
