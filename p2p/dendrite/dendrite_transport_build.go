@@ -1,4 +1,4 @@
-package p2p
+package dendrite
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func (t *DendriteTransport) queryAndBuildEvent(
 	if err == nil || !queryRes.RoomExists || queryRes.RoomVersion != "" {
 		return event, queryRes, err
 	}
-	fillMissingRoomVersion(ctx, roomID, &queryRes, t.rsAPI.DefaultRoomVersion(), t.rsAPI.QueryRoomVersionForRoom)
+	FillMissingRoomVersion(ctx, roomID, &queryRes, t.rsAPI.DefaultRoomVersion(), t.rsAPI.QueryRoomVersionForRoom)
 	eventsNeeded, neededErr := gomatrixserverlib.StateNeededForProtoEvent(proto)
 	if neededErr != nil {
 		return nil, queryRes, neededErr
@@ -36,7 +36,7 @@ func (t *DendriteTransport) queryAndBuildEvent(
 	return event, queryRes, err
 }
 
-func fillMissingRoomVersion(
+func FillMissingRoomVersion(
 	ctx context.Context,
 	roomID string,
 	queryRes *roomserverAPI.QueryLatestEventsAndStateResponse,

@@ -1,8 +1,21 @@
-package p2p
+package dendrite
 
-import "github.com/YingSuiAI/direxio-message-server/p2p/transportapi"
+import (
+	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
+	"github.com/YingSuiAI/direxio-message-server/p2p/transportapi"
+)
 
-type Transport = transportapi.Transport
+const (
+	DirexioRoomTypeChannel       = productpolicy.DirexioRoomTypeChannel
+	DirexioRoomProfileEventType  = productpolicy.DirexioRoomProfileEventType
+	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
+	DirexioMemberPolicyEventType = productpolicy.DirexioMemberPolicyEventType
+)
+
+type channel = domain.Channel
+type memberRecord = domain.MemberRecord
+
 type CreateRoomRequest = transportapi.CreateRoomRequest
 type RoomStateEvent = transportapi.RoomStateEvent
 type SendStateEventRequest = transportapi.SendStateEventRequest

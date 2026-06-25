@@ -373,7 +373,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			MatrixDeviceID: matrixPortalDeviceID,
 			AgentToken:     randomToken("p2p_agent"),
 			OwnerMXID:      "@owner:" + serverName,
-			AgentRoomID:    "!agent:" + serverName,
 			Profile: ownerProfile{
 				UserID: "@owner:" + serverName,
 				Domain: serverName,
@@ -394,9 +393,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	if state.OwnerMXID == "" {
 		state.OwnerMXID = "@owner:" + serverName
-	}
-	if state.AgentRoomID == "" {
-		state.AgentRoomID = "!agent:" + serverName
 	}
 	if state.Profile.UserID == "" {
 		state.Profile.UserID = state.OwnerMXID
