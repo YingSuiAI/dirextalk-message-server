@@ -1893,6 +1893,9 @@ func TestRemotePublicChannelApprovalCallsRequesterNodeFromStoredJoinRequest(t *t
 	if len(requesterTransport.joins) != 1 || requesterTransport.joins[0] != "@owner:b.example in !remote:c.example" {
 		t.Fatalf("expected requester node Matrix join, got %#v", requesterTransport.joins)
 	}
+	if len(requesterTransport.joinRequests) != 1 || len(requesterTransport.joinRequests[0].ServerNames) != 1 || requesterTransport.joinRequests[0].ServerNames[0] != "c.example" {
+		t.Fatalf("expected requester node Matrix join to carry owner room server name, got %#v", requesterTransport.joinRequests)
+	}
 	requesterMembers := mustHandle[map[string]any](t, requesterService, "channels.members", map[string]any{
 		"room_id": ch.RoomID,
 	})["members"].([]memberRecord)
@@ -1960,6 +1963,45 @@ func TestChannelPublicJoinResultApprovedJoinsRequesterNode(t *testing.T) {
 	}
 	if owner.DisplayName != "Local Owner" || owner.AvatarURL != "mxc://local.example/owner" {
 		t.Fatalf("expected local member to keep owner profile after join result, got %#v", owner)
+	}
+}
+
+func TestChannelPublicJoinResultApprovedFallsBackToRoomServerName(t *testing.T) {
+	transport := &recordingTransport{roomID: "!remote:remote.example"}
+	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)
+	bootstrapService(t, service)
+	ch := channel{
+		ChannelID:  "remote_ch",
+		RoomID:     "!remote:remote.example",
+		Name:       "Remote Public",
+		Visibility: "public",
+		JoinPolicy: "approval",
+	}
+	if err := service.saveChannel(context.Background(), ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     ch.RoomID,
+		ChannelID:  ch.ChannelID,
+		UserID:     "@owner:local.example",
+		Domain:     "local.example",
+		Membership: "pending",
+		Role:       "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_result", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@owner:local.example",
+		"status":     "approved",
+	})
+	if result["status"] != "joined" {
+		t.Fatalf("expected approved join result to join requester node, got %#v", result)
+	}
+	if len(transport.joinRequests) != 1 || len(transport.joinRequests[0].ServerNames) != 1 || transport.joinRequests[0].ServerNames[0] != "remote.example" {
+		t.Fatalf("expected join result to fall back to room server name, got %#v", transport.joinRequests)
 	}
 }
 

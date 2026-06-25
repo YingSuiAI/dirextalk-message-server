@@ -4961,7 +4961,7 @@ func (s *Service) completeApprovedChannelJoin(ctx context.Context, member member
 		UserMXID:      member.UserID,
 		DisplayName:   member.DisplayName,
 		AvatarURL:     member.AvatarURL,
-		ServerNames:   stringSliceParam(params["server_names"]),
+		ServerNames:   channelJoinServerNames(params["server_names"], member.RoomID),
 	})
 	if err != nil {
 		member.Membership = "join_failed"
@@ -5024,7 +5024,7 @@ func (s *Service) notifyRemoteChannelJoinResult(ctx context.Context, member memb
 		"status":               status,
 		"reason":               trimString(params["reason"]),
 		"request_id":           trimString(params["request_id"]),
-		"server_names":         stringSliceParam(params["server_names"]),
+		"server_names":         channelJoinServerNames(params["server_names"], member.RoomID),
 		"remote_node_base_url": base,
 	}
 	var remote map[string]any
@@ -5916,6 +5916,23 @@ func stringSliceParam(value any) []string {
 	default:
 		return nil
 	}
+}
+
+func channelJoinServerNames(value any, roomID string) []string {
+	names := stringSliceParam(value)
+	result := make([]string, 0, len(names))
+	for _, name := range names {
+		if text := strings.TrimSpace(name); text != "" {
+			result = append(result, text)
+		}
+	}
+	if len(result) > 0 {
+		return result
+	}
+	if serverName, ok := roomServerFromMatrixRoomID(roomID); ok {
+		return []string{serverName}
+	}
+	return nil
 }
 
 func jsonArrayStringParam(value any) (string, error) {
