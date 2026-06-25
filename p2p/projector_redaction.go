@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/YingSuiAI/direxio-message-server/p2p/projection"
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
 )
 
@@ -78,10 +79,5 @@ func (s *Service) storeHasChannelContentEvent(ctx context.Context, eventID strin
 }
 
 func eventTime(event *types.HeaderedEvent) time.Time {
-
-	ts := int64(event.OriginServerTS())
-	if ts <= 0 {
-		return time.Now().UTC()
-	}
-	return time.UnixMilli(ts).UTC()
+	return projection.EventTime(event)
 }

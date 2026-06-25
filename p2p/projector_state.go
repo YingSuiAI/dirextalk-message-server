@@ -3,9 +3,9 @@ package p2p
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/p2p/projection"
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
 )
 
@@ -64,41 +64,7 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 	if boolParam(content["dissolved"]) {
 		return s.deleteChannel(ctx, channelID)
 	}
-	channelType := fallbackString(trimString(content["channel_type"]), fallbackString(existing.ChannelType, "chat"))
-	commentsEnabled := existing.CommentsEnabled
-	if _, ok := content["comments_enabled"]; ok {
-		commentsEnabled = boolParam(content["comments_enabled"])
-	}
-	memberCount := existing.MemberCount
-	if memberCount == 0 {
-		memberCount = 1
-	}
-	description := existing.Description
-	if _, ok := content["description"]; ok {
-		description = trimString(content["description"])
-	}
-	avatarURL := existing.AvatarURL
-	if _, ok := content["avatar_url"]; ok {
-		avatarURL = trimString(content["avatar_url"])
-	}
-	muted := existing.Muted
-	if _, ok := content["muted"]; ok {
-		muted = boolParam(content["muted"])
-	}
-	ch := channel{
-		ChannelID:        channelID,
-		RoomID:           event.RoomID().String(),
-		Name:             fallbackString(trimString(content["name"]), fallbackString(existing.Name, channelID)),
-		Description:      description,
-		AvatarURL:        avatarURL,
-		Visibility:       fallbackString(trimString(content["visibility"]), fallbackString(existing.Visibility, "private")),
-		JoinPolicy:       fallbackString(trimString(content["join_policy"]), fallbackString(existing.JoinPolicy, "invite")),
-		ChannelType:      channelType,
-		CommentsEnabled:  commentsEnabled,
-		Muted:            muted,
-		MemberCount:      memberCount,
-		PendingJoinCount: existing.PendingJoinCount,
-	}
+	ch := projection.ChannelProfile(event.RoomID().String(), channelID, existing, content)
 	s.mu.Lock()
 	s.channels[ch.ChannelID] = ch
 	s.mu.Unlock()
@@ -120,31 +86,7 @@ func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.H
 		return s.deleteGroup(ctx, roomID)
 	}
 	existing, _, _ := s.groupByRoom(ctx, roomID)
-	memberCount := existing.MemberCount
-	if memberCount == 0 {
-		memberCount = 1
-	}
-	topic := existing.Topic
-	if _, ok := content["topic"]; ok {
-		topic = trimString(content["topic"])
-	}
-	avatarURL := existing.AvatarURL
-	if _, ok := content["avatar_url"]; ok {
-		avatarURL = trimString(content["avatar_url"])
-	}
-	muted := existing.Muted
-	if _, ok := content["muted"]; ok {
-		muted = boolParam(content["muted"])
-	}
-	group := groupRecord{
-		RoomID:       roomID,
-		Name:         fallbackString(trimString(content["name"]), fallbackString(existing.Name, roomID)),
-		Topic:        topic,
-		AvatarURL:    avatarURL,
-		MemberCount:  memberCount,
-		InvitePolicy: fallbackString(trimString(content["invite_policy"]), fallbackString(existing.InvitePolicy, "member")),
-		Muted:        muted,
-	}
+	group := projection.GroupProfile(roomID, existing, content)
 	if err := s.saveGroup(ctx, group); err != nil {
 		return err
 	}
@@ -171,22 +113,7 @@ func (s *Service) projectMemberPolicyState(ctx context.Context, event *types.Hea
 	if err != nil {
 		return err
 	}
-	if !ok {
-		member = memberRecord{
-			RoomID:     event.RoomID().String(),
-			UserID:     userID,
-			Domain:     domainFromMXID(userID),
-			Membership: "join",
-			Role:       "member",
-			JoinedAt:   eventTime(event).UnixMilli(),
-		}
-	}
-	if role := trimString(content["role"]); role != "" {
-		member.Role = role
-	}
-	if _, ok := content["muted"]; ok {
-		member.Muted = boolParam(content["muted"])
-	}
+	member = projection.MemberPolicy(event.RoomID().String(), userID, member, ok, content, eventTime(event))
 	if err := s.saveMember(ctx, member); err != nil {
 		return err
 	}
@@ -212,32 +139,14 @@ func (s *Service) projectJoinRequestState(ctx context.Context, event *types.Head
 	if userID == "" {
 		return nil
 	}
-	membership := ""
-	switch strings.ToLower(strings.TrimSpace(trimString(content["status"]))) {
-	case "pending":
-		membership = "pending"
-	case "approved":
-		membership = "invite"
-	case "rejected":
-		membership = "reject"
-	default:
-		return nil
-	}
 	roomID := event.RoomID().String()
 	member, ok, err := s.lookupMember(ctx, roomID, userID)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		member = s.memberRecordFor(roomID, trimString(content["channel_id"]), userID)
-	}
-	member.RoomID = roomID
-	member.UserID = userID
-	member.Membership = membership
-	member.Role = fallbackString(member.Role, "member")
-	member.Domain = fallbackString(member.Domain, domainFromMXID(userID))
-	if member.JoinedAt == 0 {
-		member.JoinedAt = eventTime(event).UnixMilli()
+	member, valid := projection.JoinRequestMember(roomID, trimString(content["channel_id"]), userID, member, ok, content, eventTime(event))
+	if !valid {
+		return nil
 	}
 	if err := s.saveMember(ctx, member); err != nil {
 		return err

@@ -10,6 +10,7 @@ import (
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
+	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 )
 
 type Config struct {
@@ -628,10 +629,5 @@ func (s *Service) Authorize(token, action string) bool {
 }
 
 func publicAction(action string) bool {
-	switch action {
-	case "portal.bootstrap", "portal.auth", "portal.status", "contacts.reactivate", "channels.public.search", "channels.public.get", "channels.public.join_request", "channels.public.join_result", "users.public_channels":
-		return true
-	default:
-		return false
-	}
+	return serviceapi.PublicAction(action)
 }
