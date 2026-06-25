@@ -21,6 +21,7 @@ type Config struct {
 }
 
 const (
+	ownerLocalpart = "owner"
 	agentLocalpart = "agent"
 	agentRoomName  = "Agents"
 )
@@ -325,6 +326,10 @@ func storeMode(store Store) string {
 	return "database"
 }
 
+func ownerMXIDForServer(serverName string) string {
+	return "@" + ownerLocalpart + ":" + serverName
+}
+
 func (s *Service) SetMatrixSessionIssuer(issuer MatrixSessionIssuer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -366,15 +371,16 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		homeserver = "https://" + serverName
 	}
 	if !hasPortal {
+		ownerMXID := ownerMXIDForServer(serverName)
 		state = portalState{
 			Initialized:    false,
 			Password:       defaultPortalPassword(),
 			AccessToken:    randomToken("p2p_access"),
 			MatrixDeviceID: matrixPortalDeviceID,
 			AgentToken:     randomToken("p2p_agent"),
-			OwnerMXID:      "@owner:" + serverName,
+			OwnerMXID:      ownerMXID,
 			Profile: ownerProfile{
-				UserID: "@owner:" + serverName,
+				UserID: ownerMXID,
 				Domain: serverName,
 			},
 		}
@@ -392,7 +398,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		state.AgentToken = randomToken("p2p_agent")
 	}
 	if state.OwnerMXID == "" {
-		state.OwnerMXID = "@owner:" + serverName
+		state.OwnerMXID = ownerMXIDForServer(serverName)
 	}
 	if state.Profile.UserID == "" {
 		state.Profile.UserID = state.OwnerMXID

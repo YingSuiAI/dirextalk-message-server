@@ -71,6 +71,20 @@ func requireEightDigitPassword(t *testing.T, password string) {
 	}
 }
 
+func TestNewServiceInitializesOwnerProfileWithFullMXID(t *testing.T) {
+	service := NewService(Config{ServerName: " example.com "})
+
+	if service.ownerMXID != "@owner:example.com" {
+		t.Fatalf("expected owner MXID @owner:example.com, got %q", service.ownerMXID)
+	}
+	if service.profile.UserID != service.ownerMXID {
+		t.Fatalf("expected profile user ID to match owner MXID, got %q", service.profile.UserID)
+	}
+	if service.profile.Domain != "example.com" {
+		t.Fatalf("expected profile domain example.com, got %q", service.profile.Domain)
+	}
+}
+
 func TestPortalAuthUsesRequestedMatrixDeviceID(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	issuer := &recordingMatrixSessionIssuer{}
