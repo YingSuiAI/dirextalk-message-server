@@ -186,12 +186,17 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	if len(req.InviteMXIDs) != 1 || req.InviteMXIDs[0] != "@agent:example.com" {
 		t.Fatalf("expected agent invite on room create, got %#v", req.InviteMXIDs)
 	}
-	statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType)
-	if online, valid := agentStatusOnlineState(statusState, "@agent:example.com"); !ok || !valid || !online {
-		t.Fatalf("expected created agent room to carry online Matrix state, got %#v", req.InitialState)
+	if statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType); ok {
+		t.Fatalf("agent status state must be sent by @agent after join, not as owner-created initial state: %#v", statusState)
 	}
 	if len(transport.joinRequests) != 1 || transport.joinRequests[0].UserMXID != "@agent:example.com" || transport.joinRequests[0].DisplayName != "Agent" {
 		t.Fatalf("expected agent to join created room, got %#v", transport.joinRequests)
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected agent to publish status after joining created room, got %#v", transport.stateEvents)
+	}
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
+		t.Fatalf("expected @agent to publish online status after join, got %#v", transport.stateEvents[0])
 	}
 }
 
@@ -223,7 +228,7 @@ func TestEnsureAgentRoomJoinsAgentAndOwnerForExistingRealRoom(t *testing.T) {
 	if len(transport.stateEvents) != 1 {
 		t.Fatalf("expected existing agent room to publish status state, got %#v", transport.stateEvents)
 	}
-	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@owner:example.com", "@agent:example.com"); !ok || !online {
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
 		t.Fatalf("expected existing agent room online status state, got %#v", transport.stateEvents[0])
 	}
 }
@@ -280,7 +285,7 @@ func TestAgentConfigUpdatePublishesAgentRoomStatusState(t *testing.T) {
 	if len(transport.stateEvents) != 1 {
 		t.Fatalf("expected one agent status state update, got %#v", transport.stateEvents)
 	}
-	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@owner:example.com", "@agent:example.com"); !ok || online {
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || online {
 		t.Fatalf("expected disabled agent status state, got %#v", transport.stateEvents[0])
 	}
 }

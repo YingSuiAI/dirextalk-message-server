@@ -215,7 +215,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 			if err := s.ensureAgentRoomOwnerMember(ctx, currentRoomID, ownerMXID, ownerDisplayName, agentMXID); err != nil {
 				return false, err
 			}
-			if err := s.publishAgentStatusState(ctx, currentRoomID, ownerMXID, agentMXID, agentOnline); err != nil {
+			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, agentOnline); err != nil {
 				return false, err
 			}
 		}
@@ -229,7 +229,6 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 		Topic:              "Direxio agents room",
 		Visibility:         "private",
 		InviteMXIDs:        []string{agentMXID},
-		InitialState:       []RoomStateEvent{agentStatusStateEvent(agentMXID, agentOnline)},
 	})
 	if err != nil {
 		return false, err
@@ -242,6 +241,9 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	s.agentRoomID = roomID
 	s.mu.Unlock()
 	if err := s.ensureAgentRoomAgentMember(ctx, roomID, ownerMXID, agentMXID, agentDisplayName); err != nil {
+		return false, err
+	}
+	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, agentOnline); err != nil {
 		return false, err
 	}
 	return roomID != currentRoomID, nil
@@ -508,11 +510,10 @@ func (s *Service) authorizeEventStream(token string) bool {
 func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
-	ownerMXID := s.ownerMXID
 	agentMXID := s.agentMXIDLocked()
 	online := s.agentConfig.Enabled
 	s.mu.Unlock()
-	return s.publishAgentStatusState(ctx, roomID, ownerMXID, agentMXID, online)
+	return s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, online)
 }
 
 func (s *Service) publishAgentStatusState(ctx context.Context, roomID, senderMXID, agentMXID string, online bool) error {
