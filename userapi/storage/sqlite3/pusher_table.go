@@ -47,12 +47,27 @@ CREATE INDEX IF NOT EXISTS userapi_pusher_localpart_idx ON userapi_pushers(local
 
 -- Pushkey must be unique for a given user and app.
 CREATE UNIQUE INDEX IF NOT EXISTS userapi_pusher_app_id_pushkey_localpart_idx ON userapi_pushers(app_id, pushkey, localpart, server_name);
+
+-- Direxio keeps one push device per user. If older databases contain multiple
+-- pushers, retain the newest registration before enforcing the invariant.
+DELETE FROM userapi_pushers AS stale
+WHERE EXISTS (
+	SELECT 1 FROM userapi_pushers AS keep
+	WHERE keep.localpart = stale.localpart
+		AND keep.server_name = stale.server_name
+		AND (
+			keep.pushkey_ts_ms > stale.pushkey_ts_ms OR
+			(keep.pushkey_ts_ms = stale.pushkey_ts_ms AND keep.id > stale.id)
+		)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS userapi_pusher_localpart_server_name_unique_idx ON userapi_pushers(localpart, server_name);
 `
 
 const insertPusherSQL = "" +
 	"INSERT INTO userapi_pushers (localpart, server_name, session_id, pushkey, pushkey_ts_ms, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data)" +
 	"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)" +
-	"ON CONFLICT (app_id, pushkey, localpart, server_name) DO UPDATE SET session_id = $3, pushkey_ts_ms = $5, kind = $6, app_display_name = $8, device_display_name = $9, profile_tag = $10, lang = $11, data = $12"
+	"ON CONFLICT (localpart, server_name) DO UPDATE SET session_id = $3, pushkey = $4, pushkey_ts_ms = $5, kind = $6, app_id = $7, app_display_name = $8, device_display_name = $9, profile_tag = $10, lang = $11, data = $12"
 
 const selectPushersSQL = "" +
 	"SELECT session_id, pushkey, pushkey_ts_ms, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM userapi_pushers WHERE localpart = $1 AND server_name = $2"

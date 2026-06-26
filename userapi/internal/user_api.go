@@ -848,7 +848,7 @@ func (a *UserInternalAPI) PerformPusherSet(ctx context.Context, req *api.Perform
 	if req.Pusher.Kind == "" {
 		return a.DB.RemovePusher(ctx, req.Pusher.AppID, req.Pusher.PushKey, req.Localpart, req.ServerName)
 	}
-	if err := a.removePushersForAppID(ctx, req.Localpart, req.ServerName, req.Pusher.AppID, req.Pusher.PushKey); err != nil {
+	if err := a.removeOtherPushersForUser(ctx, req.Localpart, req.ServerName, req.Pusher.AppID, req.Pusher.PushKey); err != nil {
 		return err
 	}
 	if req.Pusher.PushKeyTS == 0 {
@@ -857,7 +857,7 @@ func (a *UserInternalAPI) PerformPusherSet(ctx context.Context, req *api.Perform
 	return a.DB.UpsertPusher(ctx, req.Pusher, req.Localpart, req.ServerName)
 }
 
-func (a *UserInternalAPI) removePushersForAppID(
+func (a *UserInternalAPI) removeOtherPushersForUser(
 	ctx context.Context,
 	localpart string,
 	serverName spec.ServerName,
@@ -870,7 +870,7 @@ func (a *UserInternalAPI) removePushersForAppID(
 	}
 	for i := range pushers {
 		pusher := pushers[i]
-		if pusher.AppID != appID || pusher.PushKey == keepPushKey {
+		if pusher.AppID == appID && pusher.PushKey == keepPushKey {
 			continue
 		}
 		if err = a.DB.RemovePusher(ctx, pusher.AppID, pusher.PushKey, localpart, serverName); err != nil {

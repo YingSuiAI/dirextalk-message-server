@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	direxioIOSAppID     = "io.direxio.app.ios"
-	direxioAndroidAppID = "io.direxio.app.android"
+	direxioIOSAppID     = "com.direxio.app"
+	direxioAndroidAppID = "com.direxio.ai"
 	direxioAPNsPushKey  = "apns-device-token"
 	direxioFCMPushKey   = "fcm-device-token"
 )
@@ -284,9 +284,10 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	}
 }
 
-func TestDeleteRejectedPushersRemovesOnlyRejectedDirexioIOSAppID(t *testing.T) {
+func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing.T) {
 	ctx := context.Background()
 	localpart := "alice"
+	otherLocalpart := "bob"
 	serverName := spec.ServerName("localhost")
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
@@ -294,28 +295,31 @@ func TestDeleteRejectedPushersRemovesOnlyRejectedDirexioIOSAppID(t *testing.T) {
 		defer close()
 		consumer := OutputRoomEventConsumer{db: db}
 
-		for _, pusher := range []struct {
-			appID    string
-			pushKey  string
-			provider string
-			platform string
-		}{
-			{appID: direxioIOSAppID, pushKey: direxioAPNsPushKey, provider: "apns", platform: "ios"},
-			{appID: direxioAndroidAppID, pushKey: direxioFCMPushKey, provider: "fcm", platform: "android"},
-		} {
-			if err := db.UpsertPusher(ctx, api.Pusher{
-				Kind:    api.HTTPKind,
-				AppID:   pusher.appID,
-				PushKey: pusher.pushKey,
-				Data: map[string]interface{}{
-					"format":   "event_id_only",
-					"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
-					"provider": pusher.provider,
-					"platform": pusher.platform,
-				},
-			}, localpart, serverName); err != nil {
-				t.Fatal(err)
-			}
+		if err := db.UpsertPusher(ctx, api.Pusher{
+			Kind:    api.HTTPKind,
+			AppID:   direxioIOSAppID,
+			PushKey: direxioAPNsPushKey,
+			Data: map[string]interface{}{
+				"format":   "event_id_only",
+				"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
+				"provider": "apns",
+				"platform": "ios",
+			},
+		}, localpart, serverName); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.UpsertPusher(ctx, api.Pusher{
+			Kind:    api.HTTPKind,
+			AppID:   direxioAndroidAppID,
+			PushKey: direxioFCMPushKey,
+			Data: map[string]interface{}{
+				"format":   "event_id_only",
+				"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
+				"provider": "fcm",
+				"platform": "android",
+			},
+		}, otherLocalpart, serverName); err != nil {
+			t.Fatal(err)
 		}
 
 		consumer.deleteRejectedPushers(ctx, []*pushgateway.Device{{
@@ -327,8 +331,16 @@ func TestDeleteRejectedPushersRemovesOnlyRejectedDirexioIOSAppID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(pushers) != 1 || pushers[0].AppID != direxioAndroidAppID || pushers[0].PushKey != direxioFCMPushKey {
-			t.Fatalf("expected only Android pusher to remain, got %#v", pushers)
+		if len(pushers) != 0 {
+			t.Fatalf("expected rejected pusher to be removed, got %#v", pushers)
+		}
+
+		otherPushers, err := db.GetPushers(ctx, otherLocalpart, serverName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(otherPushers) != 1 || otherPushers[0].AppID != direxioAndroidAppID || otherPushers[0].PushKey != direxioFCMPushKey {
+			t.Fatalf("expected other user's Android pusher to remain, got %#v", otherPushers)
 		}
 	})
 }

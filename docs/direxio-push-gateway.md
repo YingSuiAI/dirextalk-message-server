@@ -48,6 +48,7 @@ Content-Type: application/json
 ```
 
 Direxio HTTP pushers must use the client build identifiers as Matrix `app_id` values: `com.direxio.ai` for Android FCM and `com.direxio.app` for iOS APNs.
+Each Matrix user keeps only one active Direxio pusher. Registering a new Android or iOS token replaces the user's previous pusher, even when the new token uses the other platform's `app_id`.
 
 ```json
 {
@@ -79,7 +80,7 @@ Use a regional gateway URL when required, for example `https://push-eu.direxio.a
 }
 ```
 
-Rejected pushkeys are removed from the local user database for the rejected device's `app_id`, so an APNs rejection for `io.direxio.app.ios` does not remove another pusher app using the same token string.
+Rejected pushkeys are removed from the local user database for the rejected device's `app_id`. If the client later receives a fresh platform token, registering it through `/pushers/set` becomes the user's new sole active pusher.
 
 ## Push Gateway Project
 
@@ -101,7 +102,7 @@ The first implementation can be based on Sygnal, then branded and configured as 
 Use an HTTPS test server or the standalone gateway's development mode as the pusher `data.url`, then run:
 
 ```powershell
-go test ./userapi/util -run "Test(GetPushDevicesPreservesDirexioIOSAPNsPusherData|NotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID|NotifyUserCountsAsync)" -count=1
+go test ./userapi/util -run "Test(GetPushDevicesPreservesDirexioIOSAPNsPusherData|NotifyUserCountsAsyncSendsLatestDirexioPusherOnly|NotifyUserCountsAsync)" -count=1
 go test ./userapi/internal -run "TestPerformPusherSet" -count=1
 go build ./cmd/direxio-message-server
 ```
