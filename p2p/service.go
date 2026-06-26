@@ -65,6 +65,7 @@ type Service struct {
 	agentRoomID    string
 	profile        ownerProfile
 	agentConfig    agentConfig
+	agentStreams   int
 	actions        map[string]actionHandler
 
 	readMarkers   map[string]readMarker
@@ -485,9 +486,33 @@ func (s *Service) Authorize(token, action string) bool {
 }
 
 func (s *Service) AuthorizeEventStream(token string) bool {
+	authorized, _ := s.authorizeEventStream(token)
+	return authorized
+}
+
+func (s *Service) authorizeEventStream(token string) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return token != "" && (token == s.accessToken || token == s.agentToken)
+	if token == "" {
+		return false, false
+	}
+	if token == s.accessToken {
+		return true, false
+	}
+	return token == s.agentToken, token == s.agentToken
+}
+
+func (s *Service) registerAgentEventStream() func() {
+	s.mu.Lock()
+	s.agentStreams++
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		if s.agentStreams > 0 {
+			s.agentStreams--
+		}
+		s.mu.Unlock()
+	}
 }
 
 func publicAction(action string) bool {

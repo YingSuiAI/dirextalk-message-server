@@ -273,6 +273,8 @@ Contact, group/channel invite, and member mutation actions return `operation` an
 
 Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only fixed `mcp.*` actions and subscribe to `GET /_p2p/events` for passive gateway listening. Dynamic Agent permission endpoints are removed.
 
+`agent.status` is an owner-token action. Its `connected` field is runtime presence from active `agent_token` SSE subscriptions to `GET /_p2p/events`; owner event streams do not count. Its `online` field is true only when Agent config is enabled and an agent-token event stream is currently connected.
+
 ## Verification
 
 Backend:

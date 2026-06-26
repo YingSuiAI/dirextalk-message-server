@@ -186,7 +186,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 Agent 状态。\n\nRead Agent status\n\nAction: `agent.status`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
+                "description": "读取 Agent 状态。`connected` 表示当前存在使用 agent_token 的 /_p2p/events SSE 长连接；`online` 表示 Agent 已启用且 connected。\n\nRead Agent status. `connected` means an active /_p2p/events SSE stream is currently connected with agent_token; `online` means Agent is enabled and connected.\n\nAction: `agent.status`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.status\",\n  \"params\": {}\n}",

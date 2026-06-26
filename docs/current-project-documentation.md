@@ -211,6 +211,7 @@ Calls/Favorites/Follows/Reports：
 Agent/API：
 
 - Agent token 不再有动态权限表，只能访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events` 供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。
+- `agent.status.connected` 表示至少一个使用 `agent_token` 的 `GET /_p2p/events` SSE 长连接当前仍然存活；owner `access_token` 订阅 events 不会让 Agent 变成 connected。`agent.status.online` 表示 Agent 配置已启用且真实 connected。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 

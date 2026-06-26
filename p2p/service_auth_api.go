@@ -206,12 +206,13 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 func (s *Service) agentStatus() any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	connected := s.agentStreams > 0
 	configured := strings.TrimSpace(s.agentRoomID) != "" &&
 		strings.TrimSpace(s.ownerMXID) != "" &&
 		strings.TrimSpace(s.agentConfig.DisplayName) != ""
 	return map[string]any{
-		"online":        s.agentConfig.Enabled,
-		"connected":     s.agentConfig.Enabled,
+		"online":        s.agentConfig.Enabled && connected,
+		"connected":     connected,
 		"configured":    configured,
 		"display_name":  s.agentConfig.DisplayName,
 		"agent_room_id": s.agentRoomID,

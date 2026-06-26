@@ -449,6 +449,48 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	}
 }
 
+func TestAgentStatusConnectedReflectsAgentEventStream(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	status := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if status["connected"] != false || status["online"] != false {
+		t.Fatalf("expected disconnected agent before SSE subscription, got %#v", status)
+	}
+
+	ownerRec, cancelOwner, ownerDone := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
+	defer cancelOwner()
+	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if status["connected"] != false || status["online"] != false {
+		t.Fatalf("expected owner event stream not to mark agent connected, got %#v body=%s", status, ownerRec.BodyString())
+	}
+	cancelOwner()
+	waitForEventStreamDone(t, ownerDone)
+
+	agentRec, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	defer cancelAgent()
+	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if status["connected"] != true || status["online"] != true {
+		t.Fatalf("expected agent token event stream to mark agent connected, got %#v body=%s", status, agentRec.BodyString())
+	}
+
+	_ = mustRoute(t, router, service, "/_p2p/command", map[string]any{
+		"action": "agent.config.update",
+		"params": map[string]any{"enabled": false},
+	})
+	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if status["connected"] != true || status["online"] != false {
+		t.Fatalf("expected disabled agent to stay connected but not online, got %#v", status)
+	}
+
+	cancelAgent()
+	waitForEventStreamDone(t, agentDone)
+	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if status["connected"] != false || status["online"] != false {
+		t.Fatalf("expected agent disconnect after SSE closes, got %#v", status)
+	}
+}
+
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
 	t.Helper()
 	req := jsonRequest(t, path, body)

@@ -1,6 +1,12 @@
 # API Interface Change Record
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
+
+## 2026-06-26 Agent Status Connection Semantics
+
+`agent.status.connected` now reports whether at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`. Owner `access_token` event streams do not mark the agent connected.
+
+`agent.status.online` now reports `enabled && connected`, so a disabled but still connected gateway remains `connected: true` and `online: false`.
 
 ## 2026-06-25 Agent Token Event Stream Access
 
