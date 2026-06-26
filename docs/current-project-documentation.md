@@ -301,8 +301,8 @@ docker compose -f docker-compose.p2p-dual.yml config
 - public channel membership 不得在 Matrix join 前标记为 joined。
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - Postman JSON 必须保持可导入。
-- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是 `direxio-change-orchestrator`、`direxio-contract-sync`、`direxio-event-state-tracer`、`direxio-storage-migration-guard` 和 `direxio-targeted-verification`。
+- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Direxio 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
+- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是：`direxio-change-orchestrator`（全链路影响图）、`direxio-contract-sync`（合同/示例同步）、`direxio-event-state-tracer`（Matrix 事件状态规则）、`direxio-storage-migration-guard`（持久化和 migration 规则）和 `direxio-targeted-verification`（本仓库验证命令选择）。
 
 ## 10. 文档规则
 

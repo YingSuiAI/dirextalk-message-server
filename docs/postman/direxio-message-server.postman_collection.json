@@ -149,15 +149,15 @@
                   },
                   {
                     "key": "Authorization",
-                    "value": "Bearer {{agentToken}}",
+                    "value": "Bearer {{accessToken}}",
                     "type": "text"
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "为 Direxio CLI 工具创建内部 Matrix 会话。\n\nCreate internal Matrix session for Direxio CLI tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
+                "description": "为本地 Agent 网关或工具创建内部 Matrix 会话。\n\nCreate an internal Matrix session for local Agent gateway or tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"agent.matrix_session.create\",\n  \"params\": {\n    \"device_id\": \"DIREXIO_CLI\"\n  }\n}",
+                  "raw": "{\n  \"action\": \"agent.matrix_session.create\",\n  \"params\": {\n    \"device_id\": \"DIREXIO_AGENT_GATEWAY\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -200,11 +200,6 @@
             }
           ],
           "description": "智能体配置、状态、密码和内部 Matrix 会话相关接口。"
-        },
-        {
-          "name": "apis（智能体权限）",
-          "item": [],
-          "description": "管理 Agent token 可调用 action 权限的接口。"
         },
         {
           "name": "calls（通话）",
