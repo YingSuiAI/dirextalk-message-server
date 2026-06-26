@@ -51,7 +51,7 @@ func eventsHandler(service *Service) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !service.Authorize(bearerToken(r.Header.Get("Authorization")), "events.stream") {
+		if !service.AuthorizeEventStream(bearerToken(r.Header.Get("Authorization"))) {
 			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
 			return
 		}

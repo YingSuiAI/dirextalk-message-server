@@ -21,7 +21,7 @@ x-postgres-env: &postgres-env
 
 services:
   postgres-a:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
@@ -38,7 +38,7 @@ services:
       - p2p_dual_a
 
   postgres-b:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
@@ -55,7 +55,7 @@ services:
       - p2p_dual_b
 
   postgres-c:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       <<: *postgres-env
@@ -207,7 +207,7 @@ services:
     networks:
       - p2p_dual_a
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8008/_p2p/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -243,7 +243,7 @@ services:
     networks:
       - p2p_dual_b
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8008/_p2p/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -279,7 +279,7 @@ services:
     networks:
       - p2p_dual_c
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/_p2p/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8008/_p2p/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30

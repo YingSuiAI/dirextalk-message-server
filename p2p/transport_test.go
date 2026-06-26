@@ -10,12 +10,13 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
-func TestGroupAndChatChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
+func TestGroupAndTextChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -27,15 +28,63 @@ func TestGroupAndChatChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 		"name":         "Chat",
 		"channel_type": "chat",
 	})
+	transport.roomID = "!text:example.com"
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "text",
+		"name":         "Text",
+		"channel_type": "text",
+	})
 
-	if len(transport.createRooms) != 2 {
-		t.Fatalf("expected group and chat channel rooms to be created, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 3 {
+		t.Fatalf("expected group, chat channel, and text channel rooms to be created, got %#v", transport.createRooms)
 	}
 	for _, req := range transport.createRooms {
 		got, ok := initialHistoryVisibility(req)
 		if !ok || got != string(gomatrixserverlib.HistoryVisibilityJoined) {
 			t.Fatalf("expected joined history visibility for %s room create, got %q ok=%v in %#v", req.RoomType, got, ok, req.InitialState)
 		}
+	}
+}
+
+func TestPostChannelCreateUsesSharedHistoryVisibility(t *testing.T) {
+	transport := &recordingTransport{roomID: "!posts:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "posts",
+		"name":         "Posts",
+		"channel_type": "post",
+	})
+
+	if len(transport.createRooms) != 1 {
+		t.Fatalf("expected post channel room to be created, got %#v", transport.createRooms)
+	}
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("post channels must use shared history visibility for existing posts/comments, got %q ok=%v in %#v", got, ok, transport.createRooms[0].InitialState)
+	}
+}
+
+func TestPostChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "posts",
+		"room_id":      "!existing:example.com",
+		"name":         "Posts",
+		"channel_type": "post",
+	})
+
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("existing room channel must not create a new room, got %#v", transport.createRooms)
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected existing post room to publish shared history visibility, got %#v", transport.stateEvents)
+	}
+	if got, ok := updateStateHistoryVisibility(transport.stateEvents[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("expected existing post room to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[0])
 	}
 }
 
@@ -79,6 +128,14 @@ func initialHistoryVisibility(req CreateRoomRequest) (string, bool) {
 		return value, true
 	}
 	return "", false
+}
+
+func updateStateHistoryVisibility(req SendStateEventRequest) (string, bool) {
+	if req.Event.Type != spec.MRoomHistoryVisibility || req.Event.StateKey != "" {
+		return "", false
+	}
+	value, _ := req.Event.Content["history_visibility"].(string)
+	return value, true
 }
 
 func initialStateOfType(states []RoomStateEvent, eventType string) (RoomStateEvent, bool) {
@@ -974,8 +1031,11 @@ func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
 	}
 	state := transport.createRooms[0].InitialState
 	profileState, ok := initialStateOfType(state, DirexioRoomProfileEventType)
-	if len(state) != 1 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
+	if len(state) != 2 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
 		t.Fatalf("expected Direxio channel profile state, got %#v", state)
+	}
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+		t.Fatalf("expected shared post channel history visibility, got %q ok=%v in %#v", got, ok, state)
 	}
 	content := profileState.Content
 	for key, want := range map[string]any{
@@ -1030,6 +1090,32 @@ func TestChannelUpdateAndDissolvePublishRoomStateThroughTransport(t *testing.T) 
 	dissolveState := transport.stateEvents[1]
 	if dissolveState.RoomID != ch.RoomID || dissolveState.Event.Content["dissolved"] != true {
 		t.Fatalf("expected dissolved channel state, got %#v", dissolveState)
+	}
+}
+
+func TestChannelUpdateIgnoresChannelTypeChanges(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch_to_post",
+		"name":         "Before",
+		"channel_type": "chat",
+	})
+
+	updated := mustHandle[channel](t, service, "channels.update", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"name":         "Still Chat",
+		"channel_type": "post",
+	})
+	if updated.ChannelType != "chat" || updated.Name != "Still Chat" {
+		t.Fatalf("expected channel_type update to be ignored while mutable fields apply, got %#v", updated)
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected ignored channel_type update to publish only metadata state, got %#v", transport.stateEvents)
+	}
+	if transport.stateEvents[0].Event.Content["channel_type"] != "chat" {
+		t.Fatalf("expected published profile to preserve original channel_type, got %#v", transport.stateEvents[0])
 	}
 }
 
@@ -1148,6 +1234,186 @@ func TestChannelReactionDoesNotSaveProjectionWhenMatrixSendFails(t *testing.T) {
 		t.Fatal(err)
 	} else if ok {
 		t.Fatalf("reaction projection should not be saved when Matrix send fails, got %#v", reaction)
+	}
+}
+
+type fakeChannelBackfillReader struct {
+	events []matrixhistory.Event
+	calls  int
+}
+
+func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
+	return nil, nil
+}
+
+func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error) {
+	r.calls++
+	if limit > 0 && len(r.events) > limit {
+		return r.events[:limit], nil
+	}
+	return r.events, nil
+}
+
+func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "post_channel",
+		"name":             "Post Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	service.SetMatrixMessageReader(&fakeChannelBackfillReader{events: []matrixhistory.Event{
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 3000,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-one:example.com", "key": "like"},
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$comment-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 2000,
+			Content: map[string]any{
+				"p2p_kind":   "channel_comment",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_one",
+				"comment_id": "comment_one",
+				"body":       "historical comment",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-comment:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 4000,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$comment-one:example.com", "key": "like"},
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1000,
+			Content: map[string]any{
+				"p2p_kind":   "channel_post",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_one",
+				"body":       "historical post",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-two:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1100,
+			Content: map[string]any{
+				"p2p_kind":   "channel_post",
+				"channel_id": ch.ChannelID,
+				"post_id":    "post_two",
+				"body":       "unliked post",
+				"msgtype":    "m.text",
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post-two-on:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 1200,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-two:example.com", "key": "like"},
+				"active":       true,
+			},
+		},
+		{
+			Type:           "m.reaction",
+			EventID:        "$reaction-post-two-off:example.com",
+			Sender:         "@alice:example.com",
+			OriginServerTS: 1300,
+			Content: map[string]any{
+				"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-two:example.com", "key": "like"},
+				"active":       false,
+			},
+		},
+	}})
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok, got %#v", joined)
+	}
+
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 2 || posts[0].PostID != "post_one" || posts[0].Body != "historical post" || posts[0].CommentCount != 1 || posts[0].ReactionCount != 1 {
+		t.Fatalf("expected backfilled post with comment/reaction counts, got %#v", posts)
+	}
+	if posts[1].PostID != "post_two" || posts[1].ReactionCount != 0 {
+		t.Fatalf("expected active=false reaction event to clear backfilled reaction count, got %#v", posts)
+	}
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{
+		"post_id": "post_one",
+	})["comments"].([]channelCommentRecord)
+	if len(comments) != 1 || comments[0].CommentID != "comment_one" || comments[0].Body != "historical comment" || comments[0].ReactionCount != 1 {
+		t.Fatalf("expected backfilled comment with reaction count, got %#v", comments)
+	}
+}
+
+func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "chat_channel",
+		"name":         "Chat Channel",
+		"channel_type": "chat",
+	})
+	reader := &fakeChannelBackfillReader{events: []matrixhistory.Event{
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1000,
+			Content: map[string]any{
+				"p2p_kind": "channel_post",
+				"post_id":  "post_one",
+				"body":     "should not sync",
+				"msgtype":  "m.text",
+			},
+		},
+	}}
+	service.SetMatrixMessageReader(reader)
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok, got %#v", joined)
+	}
+	if reader.calls != 0 {
+		t.Fatalf("chat channel join should not backfill historical channel content, called reader %d times", reader.calls)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 0 {
+		t.Fatalf("chat channel join should not project historical post content, got %#v", posts)
 	}
 }
 
@@ -1893,6 +2159,9 @@ func TestRemotePublicChannelApprovalCallsRequesterNodeFromStoredJoinRequest(t *t
 	if len(requesterTransport.joins) != 1 || requesterTransport.joins[0] != "@owner:b.example in !remote:c.example" {
 		t.Fatalf("expected requester node Matrix join, got %#v", requesterTransport.joins)
 	}
+	if len(requesterTransport.joinRequests) != 1 || len(requesterTransport.joinRequests[0].ServerNames) != 1 || requesterTransport.joinRequests[0].ServerNames[0] != "c.example" {
+		t.Fatalf("expected requester node Matrix join to carry owner room server name, got %#v", requesterTransport.joinRequests)
+	}
 	requesterMembers := mustHandle[map[string]any](t, requesterService, "channels.members", map[string]any{
 		"room_id": ch.RoomID,
 	})["members"].([]memberRecord)
@@ -1960,6 +2229,45 @@ func TestChannelPublicJoinResultApprovedJoinsRequesterNode(t *testing.T) {
 	}
 	if owner.DisplayName != "Local Owner" || owner.AvatarURL != "mxc://local.example/owner" {
 		t.Fatalf("expected local member to keep owner profile after join result, got %#v", owner)
+	}
+}
+
+func TestChannelPublicJoinResultApprovedFallsBackToRoomServerName(t *testing.T) {
+	transport := &recordingTransport{roomID: "!remote:remote.example"}
+	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)
+	bootstrapService(t, service)
+	ch := channel{
+		ChannelID:  "remote_ch",
+		RoomID:     "!remote:remote.example",
+		Name:       "Remote Public",
+		Visibility: "public",
+		JoinPolicy: "approval",
+	}
+	if err := service.saveChannel(context.Background(), ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     ch.RoomID,
+		ChannelID:  ch.ChannelID,
+		UserID:     "@owner:local.example",
+		Domain:     "local.example",
+		Membership: "pending",
+		Role:       "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_result", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@owner:local.example",
+		"status":     "approved",
+	})
+	if result["status"] != "joined" {
+		t.Fatalf("expected approved join result to join requester node, got %#v", result)
+	}
+	if len(transport.joinRequests) != 1 || len(transport.joinRequests[0].ServerNames) != 1 || transport.joinRequests[0].ServerNames[0] != "remote.example" {
+		t.Fatalf("expected join result to fall back to room server name, got %#v", transport.joinRequests)
 	}
 }
 

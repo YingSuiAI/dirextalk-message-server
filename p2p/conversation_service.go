@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
 	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
 )
 
@@ -229,8 +230,8 @@ func (s *Service) channelConversationView(ctx context.Context, view conversation
 		channelID = ch.ChannelID
 		view.Title = fallbackString(ch.Name, view.Title)
 		view.AvatarURL = fallbackString(ch.AvatarURL, view.AvatarURL)
-		view.channelType = fallbackString(ch.ChannelType, "chat")
-		view.commentsEnabled = ch.CommentsEnabled
+		view.ChannelType = fallbackString(ch.ChannelType, "chat")
+		view.CommentsEnabled = ch.CommentsEnabled
 		if ch.MemberCount > 0 {
 			view.MemberCount = ch.MemberCount
 		}
@@ -309,7 +310,7 @@ func conversationCapabilitiesForView(view conversationView) conversationCapabili
 	canCall := open && view.Kind != conversationKindChannel
 	manageMembers := open && owner && isMemberConversation
 	leave := open && isMemberConversation
-	isPostChannel := view.Kind == conversationKindChannel && strings.EqualFold(fallbackString(view.channelType, "chat"), "post")
+	isPostChannel := view.Kind == conversationKindChannel && strings.EqualFold(fallbackString(view.ChannelType, "chat"), "post")
 	deleteConversation := false
 	if view.Kind == conversationKindDirect {
 		deleteConversation = open
@@ -328,11 +329,11 @@ func conversationCapabilitiesForView(view conversationView) conversationCapabili
 		Leave:           leave,
 		Delete:          deleteConversation,
 		PostCreate:      open && owner && isPostChannel,
-		CommentCreate:   open && isPostChannel && view.commentsEnabled,
+		CommentCreate:   open && isPostChannel && view.CommentsEnabled,
 		ReactionToggle:  open && isPostChannel,
 		PostRecall:      open && owner && isPostChannel,
 		CommentRecall:   open && owner && isPostChannel,
-		CommentsEnabled: isPostChannel && view.commentsEnabled,
+		CommentsEnabled: isPostChannel && view.CommentsEnabled,
 	}
 }
 
@@ -390,45 +391,16 @@ func (s *Service) attachContactConversationOperation(ctx context.Context, contac
 }
 
 func conversationFromContact(contact contactRecord) conversationRecord {
-	lifecycle := conversationLifecycleActive
-	if contactDeleted(contact.Status) {
-		lifecycle = conversationLifecycleDeleted
-	} else if !strings.EqualFold(contact.Status, "accepted") {
-		lifecycle = conversationLifecyclePending
-	}
-	return conversationRecord{
-		MatrixRoomID:    contact.RoomID,
-		Kind:            conversationKindDirect,
-		Lifecycle:       lifecycle,
-		PeerMXID:        contact.PeerMXID,
-		Title:           fallbackString(contact.DisplayName, contact.PeerMXID),
-		AvatarURL:       contact.AvatarURL,
-		ProjectionState: conversationProjectionReady,
-	}
+	return domain.ConversationFromContact(contact)
 }
 
 func conversationFromGroup(group groupRecord) conversationRecord {
-	return conversationRecord{
-		MatrixRoomID:    group.RoomID,
-		Kind:            conversationKindGroup,
-		Lifecycle:       conversationLifecycleActive,
-		Title:           group.Name,
-		AvatarURL:       group.AvatarURL,
-		ProjectionState: conversationProjectionReady,
-	}
+	return domain.ConversationFromGroup(group)
 }
 
 func conversationFromChannel(ch channel) conversationRecord {
-	return conversationRecord{
-		MatrixRoomID:    ch.RoomID,
-		Kind:            conversationKindChannel,
-		Lifecycle:       conversationLifecycleActive,
-		Title:           ch.Name,
-		AvatarURL:       ch.AvatarURL,
-		ProjectionState: conversationProjectionReady,
-	}
+	return domain.ConversationFromChannel(ch)
 }
-
 func (s *Service) projectConversationProfile(ctx context.Context, event *rstypes.HeaderedEvent, kind conversationKind, content map[string]any) error {
 	now := eventTime(event).UnixMilli()
 	title := fallbackString(trimString(content["name"]), trimString(content["display_name"]))

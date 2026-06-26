@@ -15,6 +15,28 @@ Matrix room event on the recipient homeserver
 
 The gateway should default to Matrix `event_id_only` behavior. Push payloads are wake-up hints, not a message storage or sync channel. Clients must fetch message and call details from their own homeserver after receiving a system push.
 
+Direxio Message Server extends Matrix event pushes with optional display and routing metadata when the room has Direxio Matrix-native product state. A normal direct/group/text-channel message notification sent to the gateway includes:
+
+```json
+{
+  "notification": {
+    "event_id": "$event:server",
+    "room_id": "!room:server",
+    "title": "Conversation name",
+    "room_type": "direct",
+    "push_type": "message",
+    "counts": {
+      "unread": 1
+    },
+    "devices": []
+  }
+}
+```
+
+`room_type` is one of `direct`, `group`, or `channel`, derived from `io.direxio.room.profile.room_type` with `m.room.create.content.type` as a fallback. The gateway uses `title` for the visible notification title and sets the visible body to `Send you a new message`. Post-channel rooms, identified by `io.direxio.room.profile.channel_type=post`, are not sent to the HTTP push gateway in this phase.
+
+For Matrix `m.call.invite` events in Direxio rooms, the notification uses `push_type=call` and includes `room_id`, `event_id`, `room_type`, `call_id`, and `call_kind=voice` as flat fields under `notification`. Product `calls.create` / `calls.incoming` actions currently emit P2P events and durable call records; they are not yet a separate HTTP push gateway path unless represented as Matrix call invite events.
+
 ## Client Pusher Registration
 
 After login or device-token refresh, the client registers its device token with the local homeserver:
@@ -57,7 +79,7 @@ Use a regional gateway URL when required, for example `https://push-eu.direxio.a
 }
 ```
 
-Rejected pushkeys are removed from the local user database for that `app_id`.
+Rejected pushkeys are removed from the local user database for the rejected device's `app_id`, so an APNs rejection for `io.direxio.app.ios` does not remove another pusher app using the same token string.
 
 ## Push Gateway Project
 
@@ -79,8 +101,9 @@ The first implementation can be based on Sygnal, then branded and configured as 
 Use an HTTPS test server or the standalone gateway's development mode as the pusher `data.url`, then run:
 
 ```powershell
-go test ./userapi -run TestNotifyUserCountsAsync -count=1
-go build ./cmd/dendrite
+go test ./userapi/util -run "Test(GetPushDevicesPreservesDirexioIOSAPNsPusherData|NotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID|NotifyUserCountsAsync)" -count=1
+go test ./userapi/internal -run "TestPerformPusherSet" -count=1
+go build ./cmd/direxio-message-server
 ```
 
 For end-to-end validation, register a mobile pusher, send a message while the target app is offline, and confirm the app receives a system push then refreshes through `/sync`.

@@ -285,25 +285,17 @@ $aAuthAfterProfile = P2P $ABase "query" $null "portal.auth" @{ password = $aCred
 Assert ($aAuthAfterProfile.initialized -eq $false) "A portal.auth should still report initialized=false after profile update"
 $aAuth = $aAuthAfterProfile
 
-$agentPassword = P2P $ABase "command" $aAuth.agent_token "agent.password" @{}
+$agentPassword = P2P $ABase "command" $aAuth.access_token "agent.password" @{}
 Assert ($agentPassword.password) "agent.password did not return a password"
 
-$agentConfig = P2P $ABase "command" $aAuth.agent_token "agent.config.get" @{}
+$agentConfig = P2P $ABase "command" $aAuth.access_token "agent.config.get" @{}
 Assert ($agentConfig.display_name) "agent.config.get did not return config"
 
-$agentConfigUpdated = P2P $ABase "command" $aAuth.agent_token "agent.config.update" @{
+$agentConfigUpdated = P2P $ABase "command" $aAuth.access_token "agent.config.update" @{
   display_name = "Smoke Agent $suffix"
   context_window = 12
 }
 Assert ($agentConfigUpdated.display_name -eq "Smoke Agent $suffix") "agent.config.update did not persist display_name"
-
-$apiList = P2P $ABase "command" $aAuth.access_token "apis.list" @{}
-Assert ((Items $apiList.items).Count -gt 0) "apis.list returned no permission items"
-
-$apiStatus = P2P $ABase "command" $aAuth.access_token "apis.status" @{
-  items = @(@{ action = "agent.status"; enabled = $true })
-}
-Assert ((Items $apiStatus.items).Count -gt 0) "apis.status did not return updated permission items"
 
 $bName = "B Smoke $suffix"
 $bAvatar = "mxc://$BServerName/avatar-$suffix"
@@ -1232,8 +1224,8 @@ $groupsAfterDissolve = P2P $ABase "command" $aAuth.access_token "groups.list" @{
 $dissolvedGroupStillListed = Items($groupsAfterDissolve.groups) | Where-Object { $_.room_id -eq $leaveGroup.room_id }
 Assert ((Items $dissolvedGroupStillListed).Count -eq 0) "groups.dissolve left dissolved group in groups.list"
 
-$agentStatus = P2P $ABase "command" $aAuth.agent_token "agent.status" @{}
-Assert ($agentStatus.configured -eq $true) "agent token could not read agent.status"
+$agentStatus = P2P $ABase "command" $aAuth.access_token "agent.status" @{}
+Assert ($agentStatus.configured -eq $true) "access token could not read agent.status"
 
 $bootstrapAgain = P2P $ABase "query" $null "portal.bootstrap" @{
   password = $aCred.password

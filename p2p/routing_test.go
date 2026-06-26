@@ -42,7 +42,7 @@ func TestCommandUsesBodyActionAndBearerAuth(t *testing.T) {
 	}
 }
 
-func TestAgentMatrixSessionCreateAllowsAgentToken(t *testing.T) {
+func TestAgentMatrixSessionCreateRejectsAgentToken(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	issuer := &recordingMatrixSessionIssuer{}
 	service.SetMatrixSessionIssuer(issuer)
@@ -57,21 +57,8 @@ func TestAgentMatrixSessionCreateAllowsAgentToken(t *testing.T) {
 
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	var got map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["access_token"] != "matrix-token-for-DIREXIO_CLI" {
-		t.Fatalf("expected Matrix access token for CLI device, got %#v", got)
-	}
-	if _, ok := got["password"]; ok {
-		t.Fatalf("agent Matrix session response must not include password: %#v", got)
-	}
-	if _, ok := got["agent_token"]; ok {
-		t.Fatalf("agent Matrix session response must not include agent token: %#v", got)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -407,7 +394,7 @@ func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	}
 }
 
-func TestAPIStatusControlsAgentActionAuthorization(t *testing.T) {
+func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	session := mustRoute(t, router, service, "/_p2p/command", map[string]any{
@@ -416,19 +403,15 @@ func TestAPIStatusControlsAgentActionAuthorization(t *testing.T) {
 	})
 	agentToken := session["agent_token"].(string)
 
-	list := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "apis.list"})
-	listItems := list["items"].([]any)
-	assertAPIPermissionsActionOnly(t, listItems)
-	if !apiPermissionListed(listItems, "contacts.request", true) {
-		t.Fatalf("expected contacts.request enabled in API permissions, got %#v", list)
-	}
-
-	agentListReq := jsonRequest(t, "/_p2p/query", map[string]any{"action": "apis.list"})
-	agentListReq.Header.Set("Authorization", "Bearer "+agentToken)
-	agentListRec := httptest.NewRecorder()
-	router.ServeHTTP(agentListRec, agentListReq)
-	if agentListRec.Code != http.StatusOK {
-		t.Fatalf("expected Agent token to read apis.list, got %d body=%s", agentListRec.Code, agentListRec.Body.String())
+	mcpReq := jsonRequest(t, "/_p2p/query", map[string]any{
+		"action": "mcp.rooms.search",
+		"params": map[string]any{"q": "none"},
+	})
+	mcpReq.Header.Set("Authorization", "Bearer "+agentToken)
+	mcpRec := httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusOK {
+		t.Fatalf("expected Agent token to call MCP action, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
 	}
 
 	agentRequest := jsonRequest(t, "/_p2p/command", map[string]any{
@@ -438,48 +421,18 @@ func TestAPIStatusControlsAgentActionAuthorization(t *testing.T) {
 	agentRequest.Header.Set("Authorization", "Bearer "+agentToken)
 	agentRec := httptest.NewRecorder()
 	router.ServeHTTP(agentRec, agentRequest)
-	if agentRec.Code != http.StatusOK {
-		t.Fatalf("expected enabled agent action to pass, got %d body=%s", agentRec.Code, agentRec.Body.String())
+	if agentRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected non-MCP Agent action to fail, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
 
-	updated := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "apis.status",
-		"params": map[string]any{
-			"items": []any{map[string]any{"action": "contacts.request", "enabled": false}},
-		},
-	})
-	updatedItems := updated["items"].([]any)
-	assertAPIPermissionsActionOnly(t, updatedItems)
-	if !apiPermissionListed(updatedItems, "contacts.request", false) {
-		t.Fatalf("expected contacts.request disabled after update, got %#v", updated)
+	agentEventsRec, cancel, done := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", agentToken)
+	cancel()
+	waitForEventStreamDone(t, done)
+	if agentEventsRec.Code() != http.StatusOK {
+		t.Fatalf("expected Agent token to subscribe to events stream, got %d body=%s", agentEventsRec.Code(), agentEventsRec.BodyString())
 	}
-
-	legacyStatus := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "apis.status",
-		"params": map[string]any{
-			"items": []any{map[string]any{
-				"method":  "POST",
-				"path":    "/contacts/requests",
-				"enabled": true,
-			}},
-		},
-	})
-	legacyStatus.Header.Set("Authorization", "Bearer "+service.AccessToken())
-	legacyRec := httptest.NewRecorder()
-	router.ServeHTTP(legacyRec, legacyStatus)
-	if legacyRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected legacy method/path permission update to fail, got %d body=%s", legacyRec.Code, legacyRec.Body.String())
-	}
-
-	agentBlocked := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "contacts.request",
-		"params": map[string]any{"mxid": "@agent-blocked:example.com"},
-	})
-	agentBlocked.Header.Set("Authorization", "Bearer "+agentToken)
-	blockedRec := httptest.NewRecorder()
-	router.ServeHTTP(blockedRec, agentBlocked)
-	if blockedRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected disabled agent action to be rejected, got %d body=%s", blockedRec.Code, blockedRec.Body.String())
+	if got := agentEventsRec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("expected Agent token events request to receive SSE content type, got %q", got)
 	}
 
 	adminRequest := mustRoute(t, router, service, "/_p2p/command", map[string]any{
@@ -487,36 +440,12 @@ func TestAPIStatusControlsAgentActionAuthorization(t *testing.T) {
 		"params": map[string]any{"mxid": "@admin-still-ok:example.com"},
 	})
 	if adminRequest["room_id"] == "" {
-		t.Fatalf("expected admin to bypass agent permission switch, got %#v", adminRequest)
+		t.Fatalf("expected access token to call non-MCP action, got %#v", adminRequest)
 	}
-}
 
-func apiPermissionListed(items []any, action string, enabled bool) bool {
-	for _, raw := range items {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		if item["action"] == action && item["enabled"] == enabled {
-			return true
-		}
-	}
-	return false
-}
-
-func assertAPIPermissionsActionOnly(t *testing.T, items []any) {
-	t.Helper()
-	for _, raw := range items {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			t.Fatalf("expected permission item object, got %#v", raw)
-		}
-		if _, ok := item["method"]; ok {
-			t.Fatalf("expected permission item to omit method, got %#v", item)
-		}
-		if _, ok := item["path"]; ok {
-			t.Fatalf("expected permission item to omit path, got %#v", item)
-		}
+	removed := mustRouteError(t, router, service, "/_p2p/command", map[string]any{"action": "apis.list"})
+	if removed.Status != http.StatusBadRequest {
+		t.Fatalf("expected removed apis.list to be unknown, got %#v", removed)
 	}
 }
 
@@ -533,6 +462,23 @@ func mustRoute(t *testing.T, router http.Handler, service *Service, path string,
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
+	return got
+}
+
+func mustRouteError(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) apiError {
+	t.Helper()
+	req := jsonRequest(t, path, body)
+	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("%s expected error, got 200 body=%s", path, rec.Body.String())
+	}
+	var got apiError
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	got.Status = rec.Code
 	return got
 }
 
@@ -613,9 +559,14 @@ func (w *sseTestResponseWriter) BodyString() string {
 
 func startEventStreamTest(t *testing.T, router http.Handler, service *Service, path string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
 	t.Helper()
+	return startEventStreamTestWithToken(t, router, path, service.AccessToken())
+}
+
+func startEventStreamTestWithToken(t *testing.T, router http.Handler, path, token string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
-	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := newSSETestResponseWriter()
 	done := make(chan struct{})
 	go func() {

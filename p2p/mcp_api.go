@@ -8,45 +8,20 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/YingSuiAI/direxio-message-server/p2p/mcp"
 )
 
-const defaultMCPLimit = 50
-const maxMCPLimit = 100
+const defaultMCPLimit = mcp.DefaultLimit
+const maxMCPLimit = mcp.MaxLimit
 
-type mcpRoomSummary struct {
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	RoomID   string `json:"room_id"`
-	Subtitle string `json:"subtitle,omitempty"`
-	LastMsg  string `json:"last_msg,omitempty"`
-	LastTS   int64  `json:"last_ts,omitempty"`
-}
+type mcpRoomSummary = mcp.RoomSummary
+type mcpMessageSummary = mcp.MessageSummary
+type mcpPostSummary = mcp.PostSummary
+type mcpCommentSummary = mcp.CommentSummary
+type matrixMessageReader = mcp.MessageReader
 
-type mcpMessageSummary struct {
-	TS         int64  `json:"ts"`
-	Sender     string `json:"sender"`
-	Msg        string `json:"msg"`
-	SenderMXID string `json:"-"`
-}
-
-type mcpPostSummary struct {
-	PostID       string `json:"post_id"`
-	TS           int64  `json:"ts"`
-	Sender       string `json:"sender"`
-	Msg          string `json:"msg"`
-	CommentCount int64  `json:"comment_count"`
-}
-
-type mcpCommentSummary struct {
-	CommentID string `json:"comment_id"`
-	TS        int64  `json:"ts"`
-	Sender    string `json:"sender"`
-	Msg       string `json:"msg"`
-}
-
-type mcpMessageReader interface {
-	ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error)
-}
+const matrixHistoryDeviceID = "DIREXIO_MATRIX_HISTORY"
 
 func mcpLimit(params map[string]any) int {
 	limit := int(int64Param(params["limit"]))
@@ -60,13 +35,7 @@ func mcpLimit(params map[string]any) int {
 }
 
 func inMCPTimeRange(ts, fromTS, toTS int64) bool {
-	if fromTS > 0 && ts < fromTS {
-		return false
-	}
-	if toTS > 0 && ts > toTS {
-		return false
-	}
-	return true
+	return mcp.InTimeRange(ts, fromTS, toTS)
 }
 
 func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -181,7 +150,7 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	}
 	limit := mcpLimit(params)
 	s.mu.Lock()
-	reader := s.mcpMessages
+	reader := s.matrixMessages
 	s.mu.Unlock()
 	if reader == nil {
 		return nil, internalError(errors.New("MCP message reader is unavailable"))
@@ -344,12 +313,12 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 	}, nil
 }
 
-func (s *Service) MCPMatrixAccessToken(ctx context.Context) (string, error) {
-	return s.mcpMatrixAccessToken(ctx)
+func (s *Service) MatrixHistoryAccessToken(ctx context.Context) (string, error) {
+	return s.matrixHistoryAccessToken(ctx)
 }
 
-func (s *Service) mcpMatrixAccessToken(ctx context.Context) (string, error) {
-	session, apiErr := s.agentMatrixSession(ctx, map[string]any{"device_id": "DIREXIO_MCP"})
+func (s *Service) matrixHistoryAccessToken(ctx context.Context) (string, error) {
+	session, apiErr := s.agentMatrixSession(ctx, map[string]any{"device_id": matrixHistoryDeviceID})
 	if apiErr != nil {
 		return "", errors.New(apiErr.Error)
 	}

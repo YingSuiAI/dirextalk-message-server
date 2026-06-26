@@ -1,0 +1,38 @@
+.git
+.gitignore
+.dockerignore
+.codegraph/
+.codex/
+
+# Local build and test outputs.
+bin/
+build/
+dist/
+coverage/
+*.out
+*.test
+*.prof
+
+# Local runtime data and generated configs.
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+*.pem
+*.key
+*.crt
+message-server.yaml
+bootstrap.json
+
+# Editor, OS, and dependency cache noise.
+.idea/
+.vscode/
+.vs/
+*.swp
+*.tmp
+node_modules/
+
+# Docker compose local data should never become build context.
+data/
+volumes/

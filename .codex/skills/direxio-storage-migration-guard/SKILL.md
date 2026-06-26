@@ -18,6 +18,7 @@ Use this skill whenever behavior depends on durable state. Work at the owning pa
 
 - Do not use memory-only state for persisted behavior.
 - Keep storage interfaces honest: update interface, implementation, tests, and callers together.
+- Keep durable adapters behind one-way dependencies. If storage moves to a business subpackage, shared product records should come from a small domain package rather than importing the service package.
 - Preserve restart behavior. Add regression coverage for state restored after reopening the store when the behavior is user-visible.
 - Keep migrations additive and idempotent. Avoid destructive data rewrites unless explicitly required and tested.
 - Add indexes for query patterns introduced by new behavior, not speculative indexes.

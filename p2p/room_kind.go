@@ -1,23 +1,11 @@
 package p2p
 
-import "strings"
+import "github.com/YingSuiAI/direxio-message-server/p2p/projection"
 
 func conversationKindFromContent(content map[string]any) (conversationKind, string) {
-	if kind := conversationKindFromRoomType(trimString(content["room_type"])); kind != "" {
-		return kind, ""
-	}
-	return "", "missing explicit room_type"
+	return projection.ConversationKindFromContent(content)
 }
 
 func conversationKindFromRoomType(roomType string) conversationKind {
-	switch strings.ToLower(strings.TrimSpace(roomType)) {
-	case DirexioRoomTypeDirect:
-		return conversationKindDirect
-	case DirexioRoomTypeGroup:
-		return conversationKindGroup
-	case DirexioRoomTypeChannel:
-		return conversationKindChannel
-	default:
-		return ""
-	}
+	return projection.ConversationKindFromRoomType(roomType)
 }
