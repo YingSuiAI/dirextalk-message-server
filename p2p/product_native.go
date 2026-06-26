@@ -21,6 +21,7 @@ const (
 	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
 
 	AgentRoomMessageEventType    = "agent_room.message"
+	DirexioAgentStatusEventType  = "io.direxio.agent.status"
 	AgentGatewayContentKey       = "io.direxio.agent_gateway"
 	AgentGatewaySourceContentKey = "io.direxio.gateway_source"
 )
@@ -66,6 +67,47 @@ func channelHistoryVisibilityStateEvent(channelType string) (RoomStateEvent, boo
 		return sharedHistoryVisibilityStateEvent(), true
 	default:
 		return RoomStateEvent{}, false
+	}
+}
+
+func agentStatusStateEvent(agentMXID string, online bool) RoomStateEvent {
+	return RoomStateEvent{
+		Type:     DirexioAgentStatusEventType,
+		StateKey: strings.TrimSpace(agentMXID),
+		Content: map[string]any{
+			"online": online,
+		},
+	}
+}
+
+func agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID string) RoomStateEvent {
+	return RoomStateEvent{
+		Type:     spec.MRoomPowerLevels,
+		StateKey: "",
+		Content: map[string]any{
+			"users": map[string]any{
+				strings.TrimSpace(ownerMXID): 100,
+				strings.TrimSpace(agentMXID): 50,
+			},
+			"users_default":  0,
+			"events_default": 0,
+			"state_default":  50,
+			"ban":            50,
+			"kick":           50,
+			"redact":         50,
+			"invite":         0,
+			"events": map[string]any{
+				spec.MRoomName:              50,
+				spec.MRoomTopic:             50,
+				spec.MRoomPowerLevels:       100,
+				spec.MRoomHistoryVisibility: 100,
+				spec.MRoomCanonicalAlias:    50,
+				spec.MRoomAvatar:            50,
+				spec.MRoomEncryption:        100,
+				"m.room.server_acl":         100,
+				DirexioAgentStatusEventType: 50,
+			},
+		},
 	}
 }
 

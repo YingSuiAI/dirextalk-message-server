@@ -1,45 +1,38 @@
 ---
 name: direxio-change-orchestrator
-description: Global first-pass impact map for this Direxio Message Server monolith before modifying server behavior, routes, authorization, product policy, storage, Matrix event handling, sync/federation flows, docs, tests, Docker, or runtime wiring. Use this instead of layer-specific P2P/Matrix/Direxio Message Server framing whenever a change can cross packages or affect user-visible behavior.
+description: Global Direxio Message Server impact map before changing server behavior, routes, authorization, product policy, storage, Matrix event handling, sync/federation flows, docs, tests, Docker, runtime wiring, or project-local skills.
 ---
 
 # Direxio Change Orchestrator
 
-Use this skill before code or contract changes. Treat the repository as one Direxio server: Matrix protocol APIs, Direxio product actions, event projection, policy checks, storage, docs, and deployment files are one system.
+Treat this repository as one Direxio server, not separate P2P, Matrix, and Dendrite layers. Use this skill to build the project-specific impact map before edits that can cross packages or affect user-visible behavior.
 
-## First Pass
+## Impact Map
 
-1. Restate the requested behavior and the user-visible outcome.
-2. Use `codebase-memory-mcp` first for symbol, route, caller, callee, and architecture discovery. Run `index_repository` only if the project is not indexed. Use `rg` for exact strings, configs, docs, JSON, shell, and compose files.
-3. Identify entry points:
-   - Service startup and route wiring: `cmd/direxio-message-server`, `setup/monolith.go`, `setup/base`, `setup/config`.
+1. Restate the requested behavior and user-visible result.
+2. Use `mcp__codegraph.codegraph_explore` for indexed Go symbols, routes, callers, callees, and blast radius. Use `rg` for exact strings, docs, JSON, shell, compose, and generated examples.
+3. Map only the touched Direxio surfaces:
+   - Startup and route wiring: `cmd/direxio-message-server`, `setup/monolith.go`, `setup/base`, `setup/config`.
    - HTTP/API routes: `clientapi/routing`, `federationapi/routing`, `mediaapi/routing`, `syncapi/routing`, `relayapi`, `p2p`.
-   - Matrix event/state flow: `roomserver`, consumers in `syncapi`, `federationapi`, `userapi`, `appservice`, and Direxio projection in `p2p`.
-   - Product policy and action facade: `internal/productpolicy`, `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite`.
-   - Durable state: storage interfaces, migrations, tables, and tests in the owning package.
-   - Agent/MCP surface: `p2p/mcp`, MCP actions in `p2p/action_registry.go`, and Agent-token authorization rules.
-4. Classify follow-up skills:
-   - Public route, body action, request/response, auth, Postman, or docs contract: use `direxio-contract-sync`.
-   - Matrix event, membership, profile, redaction, sync, federation, product policy, or projected read model: use `direxio-event-state-tracer`.
-   - SQL schema, migrations, indexes, database selection, restart recovery, or durable read models: use `direxio-storage-migration-guard`.
-   - Formatting, tests, build, JSON, compose, lint, or regression selection: use `direxio-targeted-verification`.
+   - Product facade and policy: `internal/productpolicy`, `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite`.
+   - Matrix event/state flow: `roomserver`, `syncapi`, `federationapi`, `userapi`, `appservice`, and Direxio projection in `p2p`.
+   - Durable state: owning storage interfaces, migrations, tables, and restart/reopen tests.
+   - Agent/MCP surface: `p2p/mcp`, MCP actions, `p2p/serviceapi/actions.go`, and Agent-token authorization.
+4. Route to follow-up skills by changed surface:
+   - Public route, body action, request/response, auth, Postman, or docs contract: `direxio-contract-sync`.
+   - Matrix event, membership, profile, redaction, sync, federation, product policy, or projected read model: `direxio-event-state-tracer`.
+   - SQL schema, migrations, indexes, database selection, restart recovery, or durable read models: `direxio-storage-migration-guard`.
+   - Formatting, tests, build, JSON, compose, skill, or lint selection: `direxio-targeted-verification`.
 
-## Global Guardrails
+## Direxio Guardrails
 
-- Do not split reasoning into isolated "P2P vs Matrix vs Direxio Message Server" buckets. Map the full path from API entry to durable state, event output, sync/federation visibility, docs examples, and verification.
-- Keep Matrix protocol APIs under their existing Matrix/Synapse/Direxio Message Server namespaces. Keep Direxio product APIs behind the small body-action surface unless there is a documented compatibility reason.
-- Do not bypass the established write path for room, membership, state, message, or redaction behavior. Product-originated Matrix writes go through `p2p.Transport`; Matrix client behavior uses the owning Client-Server route and product policy.
-- Do not add memory-only state for behavior that must survive restart.
-- Do not silently change client-visible request/response fields, action names, route behavior, or auth rules.
-- When splitting large product code, group by business responsibility. Use a new directory/package only when dependencies remain one-way; otherwise keep focused files in the owning package until a clear module seam exists.
-- Preserve Matrix-native product state rules: current product state is based on `m.room.create.content.type`, `io.direxio.room.profile`, `io.direxio.member.policy`, and `io.direxio.join_request`. Do not reintroduce removed legacy product state.
-- Ordinary Matrix timeline messages remain Matrix-native. Direxio read models store product projections, not a second ordinary-message source of truth.
-- Remote public lookup is read-only and must use a request-provided `remote_node_base_url`; do not derive outbound URLs from Matrix room IDs.
+- Follow the full path from API entry to authorization, policy, storage, roomserver output, consumers/projection, sync/federation visibility, docs examples, and verification.
+- Keep Matrix protocol APIs under their Matrix/Synapse/Dendrite namespaces. Keep Direxio product APIs behind the small body-action surface unless a current product contract explicitly says otherwise.
+- Product-originated Matrix room/member/state/message/redaction writes go through `p2p.Transport`; Matrix client behavior uses the owning Client-Server route and `internal/productpolicy`.
+- Persist behavior that must survive restart. Do not add memory-only state for durable product facts.
+- Do not silently change client-visible fields, action names, routes, or auth rules; sync contracts and examples in the same change.
+- Group product code by business responsibility. Add a new directory/package only when dependencies remain one-way; otherwise keep focused files in the owning package.
+- Current Matrix-native product state is `m.room.create.content.type`, `io.direxio.room.profile`, `io.direxio.member.policy`, and `io.direxio.join_request`. Removed legacy product state must not be generated, read, or projected as current behavior.
+- Ordinary Matrix timeline messages stay Matrix-native. Direxio read models store product projections, not a second ordinary-message source of truth.
+- Remote public lookup is read-only and must use request-provided `remote_node_base_url`; never derive outbound remote-node URLs from Matrix room IDs.
 - Do not mark channel membership as joined until Matrix membership has reached `join`.
-
-## Implementation Loop
-
-1. Build a small impact map with files, symbols, tests, docs, and runtime checks.
-2. Edit the owning path with the smallest coherent change. Avoid opportunistic refactors outside the impact map.
-3. Update contracts, migrations, docs, examples, and skills in the same change when behavior or workflow rules change.
-4. Run `direxio-targeted-verification` and report executed commands, skipped checks, and residual risk.

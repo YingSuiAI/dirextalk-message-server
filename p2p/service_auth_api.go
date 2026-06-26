@@ -1,9 +1,6 @@
 package p2p
 
-import (
-	"context"
-	"strings"
-)
+import "context"
 
 func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *apiError) {
 	password := trimString(params["password"])
@@ -98,9 +95,8 @@ func (s *Service) createAgentMatrixSession(ctx context.Context, params map[strin
 	requestedDeviceID := requestedMatrixDeviceID(params)
 	s.mu.Lock()
 	issuer := s.sessions
-	userID := s.profile.UserID
-	displayName := s.profile.DisplayName
-	avatarURL := s.profile.AvatarURL
+	userID := s.agentMXIDLocked()
+	displayName := s.agentDisplayNameLocked()
 	homeserver := s.homeserver
 	s.mu.Unlock()
 	session := map[string]any{
@@ -111,7 +107,7 @@ func (s *Service) createAgentMatrixSession(ctx context.Context, params map[strin
 	if issuer == nil {
 		return session, nil
 	}
-	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, avatarURL, requestedDeviceID, false)
+	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, "", requestedDeviceID, false)
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -182,9 +178,9 @@ func (s *Service) getAgentConfig() any {
 	return agentConfigToMap(s.agentConfig)
 }
 
-func (s *Service) updateAgentConfig(params map[string]any) any {
+func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) (any, *apiError) {
+	statusMayChange := false
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
 	}
@@ -193,6 +189,7 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 	}
 	if _, ok := params["enabled"]; ok {
 		s.agentConfig.Enabled = boolParam(params["enabled"])
+		statusMayChange = true
 	}
 	if model := trimString(params["model"]); model != "" {
 		s.agentConfig.Model = model
@@ -200,22 +197,14 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 	if systemPrompt := trimString(params["system_prompt"]); systemPrompt != "" {
 		s.agentConfig.SystemPrompt = systemPrompt
 	}
-	return agentConfigToMap(s.agentConfig)
-}
-
-func (s *Service) agentStatus() any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	configured := strings.TrimSpace(s.agentRoomID) != "" &&
-		strings.TrimSpace(s.ownerMXID) != "" &&
-		strings.TrimSpace(s.agentConfig.DisplayName) != ""
-	return map[string]any{
-		"online":        s.agentConfig.Enabled,
-		"connected":     s.agentConfig.Enabled,
-		"configured":    configured,
-		"display_name":  s.agentConfig.DisplayName,
-		"agent_room_id": s.agentRoomID,
+	result := agentConfigToMap(s.agentConfig)
+	s.mu.Unlock()
+	if statusMayChange {
+		if err := s.publishCurrentAgentStatusState(ctx); err != nil {
+			return nil, transportWriteError(err)
+		}
 	}
+	return result, nil
 }
 
 func agentConfigToMap(cfg agentConfig) map[string]any {

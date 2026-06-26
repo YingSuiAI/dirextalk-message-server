@@ -11,9 +11,9 @@ Direxio Message Server supports presence, which allows you to send your online/o
 to other users, and to receive their statuses automatically. They will be displayed
 by supported clients.
 
-Note that enabling presence **can negatively impact** the performance of your Direxio Message Server
+Note that presence **can negatively impact** the performance of your Direxio Message Server
 server — it will require more CPU time and will increase the "chattiness" of your server
-over federation. It is disabled by default for this reason.
+over federation, so it is disabled by default.
 
 Direxio Message Server has two options for controlling presence:
 

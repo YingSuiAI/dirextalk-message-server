@@ -1,4 +1,4 @@
 interface:
   display_name: "Direxio Contract Sync"
-  short_description: "Keep public contracts and examples aligned"
-  default_prompt: "Use $direxio-contract-sync when changing any Direxio HTTP route, body action, request or response schema, auth behavior, CLI example, or Postman collection."
+  short_description: "Sync Direxio contracts and examples"
+  default_prompt: "Use $direxio-contract-sync when changing Direxio routes, body actions, params, response fields, auth rules, Postman examples, or current contract docs."

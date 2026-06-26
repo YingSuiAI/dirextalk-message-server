@@ -76,7 +76,7 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows/reports: favorite add/list/delete/batch delete, follow add/list/remove, report submission.
-- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening.
+- Agent/API: Agent config/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. Owner clients must read bridge online state from native Matrix room state in the real `agent_room_id`: `io.direxio.agent.status` with state key `@agent:<server>` and content field `online`. `sync.bootstrap` only returns `agent_room_id`; do not add `agent_online` back to bootstrap and do not emit `agent.presence` SSE events. `agent.status`/`agents.status` are removed and must not be used.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow
@@ -134,13 +134,13 @@ Use `docs/postman/direxio-message-server.postman_collection.json` for manual API
 
 Project-specific skills live under `.codex/skills/`. They must be maintained as global Direxio server skills, not as P2P/Matrix/Direxio Message Server layer silos:
 
-- `direxio-change-orchestrator`: first-pass whole-system impact map before behavior changes.
-- `direxio-contract-sync`: public route/action/schema/auth/Postman/docs synchronization.
-- `direxio-event-state-tracer`: Matrix event/state/policy/consumer/projection/sync/federation tracing.
-- `direxio-storage-migration-guard`: durable storage, migrations, indexes, DB selection, and restart recovery.
-- `direxio-targeted-verification`: focused formatting, tests, build, JSON, compose, skill, and lint checks.
+- `direxio-change-orchestrator`: whole-server impact maps and project-skill routing.
+- `direxio-contract-sync`: route/action/schema/auth/Postman/current-doc synchronization.
+- `direxio-event-state-tracer`: Matrix event/state/policy/consumer/projection/sync/federation rules.
+- `direxio-storage-migration-guard`: durable storage, migrations, indexes, DB selection, and restart recovery rules.
+- `direxio-targeted-verification`: repo-specific formatting, tests, build, JSON, compose, skill, and lint check selection.
 
-When project rules, contracts, event/state behavior, validation expectations, or workflow conventions change, update `AGENTS.md`, `docs/current-project-documentation.md` when applicable, and the relevant `.codex/skills/*/SKILL.md` files in the same change.
+Keep project skills as Direxio-specific guidance. Do not duplicate generic system skills; update `AGENTS.md`, `docs/current-project-documentation.md` when applicable, and the relevant `.codex/skills/*/SKILL.md` files together when project rules, contracts, event/state behavior, validation expectations, or workflow conventions change.
 
 ## Code Standards
 

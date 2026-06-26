@@ -2222,10 +2222,6 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 	if cfg["display_name"] != "Ops Agent" || cfg["model"] != "local-model" {
 		t.Fatalf("expected persisted agent config, got %#v", cfg)
 	}
-	status := mustHandle[map[string]any](t, service, "agent.status", nil)
-	if status["configured"] != false || status["agent_room_id"] != "" {
-		t.Fatalf("expected unconfigured in-memory agent without real room id, got %#v", status)
-	}
 
 	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
 		"mxid":         "@alice:example.com",

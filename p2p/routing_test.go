@@ -449,6 +449,45 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	}
 }
 
+func TestAgentStatusActionRemoved(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	err := mustRouteError(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if err.Status != http.StatusBadRequest {
+		t.Fatalf("expected removed agent.status action to be unknown, got %#v", err)
+	}
+}
+
+func TestSyncBootstrapOmitsDeprecatedAgentOnline(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
+	if _, ok := bootstrap["agent_online"]; ok {
+		t.Fatalf("expected sync.bootstrap to omit deprecated agent_online, got %#v", bootstrap)
+	}
+	if _, ok := bootstrap["agent_presence"]; ok {
+		t.Fatalf("expected sync.bootstrap to omit deprecated agent_presence, got %#v", bootstrap["agent_presence"])
+	}
+}
+
+func TestAgentTokenEventStreamIsPassive(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	defer cancelAgent()
+
+	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
+	if _, ok := bootstrap["agent_online"]; ok {
+		t.Fatalf("expected Agent token event stream not to create deprecated agent_online, got %#v", bootstrap)
+	}
+
+	cancelAgent()
+	waitForEventStreamDone(t, agentDone)
+}
+
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
 	t.Helper()
 	req := jsonRequest(t, path, body)

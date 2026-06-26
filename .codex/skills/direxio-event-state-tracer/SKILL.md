@@ -1,6 +1,6 @@
 ---
 name: direxio-event-state-tracer
-description: Trace Direxio server behavior through Matrix events, state, membership, profile data, redactions, sync output, federation, product policy, transport writes, consumers, and projected read models. Use before changing event-driven behavior in roomserver, clientapi, federationapi, syncapi, userapi, appservice, internal/productpolicy, p2p transport/projector/consumer, or multi-node flows.
+description: Trace Direxio behavior through Matrix events, state, membership, profile data, redactions, sync output, federation, product policy, transport writes, consumers, projected read models, and multi-node flows.
 ---
 
 # Direxio Event State Tracer
@@ -9,43 +9,39 @@ Use this skill when correctness depends on Matrix events or state becoming visib
 
 ## Trace Paths
 
-For user/API-originated writes:
+For user/API-originated writes, trace the relevant path:
 
-1. HTTP route or action handler.
-2. Authorization and product policy.
+1. HTTP route or product action handler.
+2. Authorization and `internal/productpolicy`.
 3. Matrix write path: Client-Server route or `p2p.Transport`.
 4. Roomserver input and output event.
 5. Consumers in `syncapi`, `federationapi`, `userapi`, `appservice`, and Direxio projection.
 6. Persistent stores and read models.
 7. Client-visible read path: `/sync`, history, search, federation response, Direxio action read, or `/_p2p/events`.
 
-For inbound or federated behavior, start at the roomserver/federation output and trace consumers forward to visible state.
+For inbound or federated behavior, start at roomserver/federation output and trace consumers forward to visible state.
 
 ## State Rules
 
-- Product room type lives in `m.room.create.content.type` with Direxio room types for direct, group, and channel rooms.
+- Product room type lives in `m.room.create.content.type` with Direxio direct, group, and channel room types.
 - Product metadata uses `io.direxio.room.profile`.
 - Member policy uses `io.direxio.member.policy`.
 - Public channel approval uses `io.direxio.join_request`.
 - Matrix `m.room.member membership=join` is the joined fact. Approval state is not joined state.
-- New group rooms and chat/text channel rooms must create `m.room.history_visibility` as `joined`; post channels (`channel_type=post`) must write `m.room.history_visibility` as `shared` on creation and existing-room binding, because members need access to existing channel posts and comments. Channel type is immutable after creation; `channels.update` must ignore `channel_type` for old-client compatibility. Do not rely on sync-layer hard filtering to hide pre-join ordinary timeline history.
+- New group rooms and chat/text channel rooms write `m.room.history_visibility=joined`. Post channels (`channel_type=post`) write `m.room.history_visibility=shared` on creation and existing-room binding. Channel type is immutable; `channels.update` ignores `channel_type` for old-client compatibility. Do not change existing rooms retroactively unless explicitly requested.
 - Malformed optional product metadata must not block unrelated later projection events.
 - Non-product Matrix rooms must not pollute Direxio product lists unless the bridge is intentional.
 - Profile changes must keep Matrix-facing profile storage and Direxio profile/member views aligned when both are read.
 
-## Behavior Checks
+## Direxio Checks
 
-- For membership and invitations, verify owner, requester, local user, remote user, leave/kick/ban, deleted direct-contact recovery, and already-applied idempotent paths. Deleted direct contacts keep the old direct room for recovery, but a peer re-request must stay pending until the deleting side explicitly accepts.
-- For redaction, distinguish local hiding from Matrix redaction. Local delete hides for one user; recall/redaction propagates as Matrix redaction.
-- For ordinary timeline messages, do not create a second product message source of truth.
-- For channel posts, comments, and reactions, verify Matrix event content, projection rows, redaction behavior, and owner history.
-- For public channel join, remote approval callbacks must not report joined until the requester node performs the Matrix join successfully.
-- For federation, use real users from the compose topology. Do not fabricate remote Matrix users in multi-node tests.
+- Membership and invitation flows must cover owner, requester, local user, remote user, leave/kick/ban, deleted direct-contact recovery, and idempotent already-applied paths.
+- Deleted direct contacts keep the old direct room for recovery. A peer re-request stays pending until the deleting side explicitly accepts.
+- Local delete hides for one user; recall/redaction propagates as Matrix redaction.
+- Ordinary timeline messages must not create a second product message source of truth.
+- Channel posts, comments, and reactions are product projections backed by Matrix events and redactions.
+- Agent online state is native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, content field `online`. Do not mirror it through `sync.bootstrap.agent_online`, `agent.presence` SSE, Matrix `m.presence`, or agent-token `/_p2p/events` stream lifetime.
+- Public channel remote approval must not report joined until the requester node performs the Matrix join successfully.
+- Federation tests must use real compose users such as `@owner:dendrite-a:8448` and `@owner:dendrite-b:8448`, not fabricated remote Matrix users.
 
-## Test Strategy
-
-- Use unit tests close to the changed consumer, projector, policy, storage, route, or transport path.
-- Use `scripts/p2p-three-node-regression.py` for changed cross-node lookup, federation, public join request, remote room join, profile/member propagation, redaction, or projection behavior.
-- Inspect Docker logs and mounted runtime files before assuming a code bug when behavior only fails in a running stack.
-
-After editing, run `direxio-targeted-verification`.
+Use `direxio-targeted-verification` to choose package, Docker, and multi-node checks for the traced surface.

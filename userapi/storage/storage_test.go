@@ -447,17 +447,18 @@ func Test_Pusher(t *testing.T) {
 			// check it was actually persisted
 			gotPushers, err = db.GetPushers(ctx, aliceLocalpart, aliceDomain)
 			assert.NoError(t, err, "unable to get pushers")
-			assert.Equal(t, i+1, len(gotPushers))
-			assert.Equal(t, wantPusher, gotPushers[i])
+			assert.Equal(t, 1, len(gotPushers))
+			assert.Equal(t, wantPusher, gotPushers[0])
 			pushKeys = append(pushKeys, pushKey)
 		}
 
-		// remove single pusher
+		// Removing a stale pushkey must not remove the latest pusher for this user.
 		err = db.RemovePusher(ctx, appID, pushKeys[0], aliceLocalpart, aliceDomain)
 		assert.NoError(t, err, "unable to remove pusher")
 		gotPushers, err := db.GetPushers(ctx, aliceLocalpart, aliceDomain)
 		assert.NoError(t, err, "unable to get pushers")
 		assert.Equal(t, 1, len(gotPushers))
+		assert.Equal(t, pushKeys[1], gotPushers[0].PushKey)
 
 		// remove last pusher
 		err = db.RemovePushers(ctx, appID, pushKeys[1])

@@ -1,38 +1,38 @@
 ---
 name: direxio-targeted-verification
-description: Choose focused verification for Direxio Message Server repository changes. Use after modifying Go code, routes, contracts, docs, Postman JSON, Docker/compose files, scripts, storage migrations, event/state flows, setup/config, or project-local skills.
+description: Choose focused Direxio Message Server verification after modifying Go code, routes, contracts, docs, Postman JSON, Docker/compose files, scripts, storage migrations, event/state flows, setup/config, or project-local skills.
 ---
 
 # Direxio Targeted Verification
 
-Use this skill to validate enough for the touched surface without defaulting to an expensive full suite.
+Use this skill to select project-specific checks for the touched surface without defaulting to an expensive full suite.
 
-Run commands from the repository root in the shell that matches the current environment. Use PowerShell syntax on Windows, and Bash syntax on Linux, macOS, or WSL.
+Run commands from the repository root in the shell that matches the current environment. Use PowerShell syntax on Windows and Bash syntax on Linux, macOS, or WSL.
 
-## Always Consider
+## Baseline Checks
 
-- Run `gofmt -w` on touched Go files. Use `goimports` only if already installed.
-- If `gopls` is installed and Go files changed, run `gopls check <touched-go-files>` as a quick semantic signal.
-- Run `git diff --check`.
-- Validate changed JSON with `python3 -m json.tool <file> >/dev/null`.
-- Validate changed skills with:
+- Go files changed: `gofmt -w <touched go files>` and, if installed, `gopls check <touched-go-files>`.
+- Any change: `git diff --check`.
+- Changed JSON: `python -m json.tool <file> > $null` on PowerShell, or `python3 -m json.tool <file> >/dev/null` on Bash.
+- Changed project skills:
+  - PowerShell: `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" <skill-dir>`
+  - Bash: `python3 "$HOME/.codex/skills/.system/skill-creator/scripts/quick_validate.py" <skill-dir>`
 
-```bash
-python3 /mnt/c/Users/84960/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-dir>
-```
-
-## Pick Checks by Surface
+## Pick by Surface
 
 - Product actions, transport, projection, product policy, or product storage: `go test ./p2p ./internal/productpolicy -count=1`.
 - Route auth, HTTP helpers, setup, monolith wiring, or config: `go test ./internal/httputil ./setup -count=1`.
 - Client API behavior: focused `go test ./clientapi/... -run <TestName> -count=1`, then broaden only when shared routing/auth behavior changed.
-- Roomserver, sync, user, federation, media, relay, or appservice behavior: test the owning package and direct consumer package touched by the impact map.
-- Removed first-party CLI modules must not be referenced by verification commands.
+- Roomserver, sync, user, federation, media, relay, or appservice behavior: test the owning package and direct consumer package from the impact map.
 - Startup, build tags, command wiring, or broad package contracts: `go build ./cmd/direxio-message-server`.
 - Storage migrations or SQL helpers: owning package storage tests plus `go test ./internal/sqlutil -count=1` when helper behavior changed.
-- Postman collection: `python3 -m json.tool docs/postman/direxio-message-server.postman_collection.json >/dev/null`.
+- Postman collection: validate `docs/postman/direxio-message-server.postman_collection.json` with `json.tool`.
 - Docker compose: `docker compose -f docker-compose.p2p.yml config` or `docker compose -f docker-compose.p2p-dual.yml config`.
-- Multi-node remote lookup, federation, public join, profile/member propagation, message/redaction projection, or restart behavior across nodes:
+- Docs/skills/Postman-only changes: run skill validation, JSON validation if Postman changed, regression `rg` for removed/current-forbidden text, and `git diff --check`; skip Go tests unless contracts or code behavior changed.
+
+## Multi-Node Regression
+
+Run the three-node regression for changed remote lookup, federation, public join, profile/member propagation, message/redaction projection, or restart behavior across nodes.
 
 PowerShell:
 
@@ -50,10 +50,6 @@ docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a 
 python3 scripts/p2p-three-node-regression.py
 ```
 
-## Lint
-
-Run `golangci-lint run` only when installed and the change is broad enough to justify it. If unavailable, say so and rely on formatting, `gopls check` when available, targeted tests, build, JSON validation, compose validation, and `git diff --check`.
-
 ## Reporting
 
-In the final response, list commands run and results. Also list important checks not run and why, especially Docker, multi-node regression, full `go test ./...`, and lint.
+Report commands run and results. Also report important checks not run and why, especially Docker, multi-node regression, full `go test ./...`, and lint.

@@ -27,7 +27,6 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"sync.read_marker":             s.updateReadMarker,
 		"agent.config.get":             s.getAgentConfigAction,
 		"agent.config.update":          s.updateAgentConfigAction,
-		"agent.status":                 s.agentStatusAction,
 		"follows.list":                 s.followListAction,
 		"follows.add":                  s.followAdd,
 		"follows.remove":               s.followRemove,
@@ -134,12 +133,8 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 	return s.getAgentConfig(), nil
 }
 
-func (s *Service) updateAgentConfigAction(_ context.Context, params map[string]any) (any, *apiError) {
-	return s.updateAgentConfig(params), nil
-}
-
-func (s *Service) agentStatusAction(context.Context, map[string]any) (any, *apiError) {
-	return s.agentStatus(), nil
+func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
+	return s.updateAgentConfig(ctx, params)
 }
 
 func (s *Service) followListAction(ctx context.Context, _ map[string]any) (any, *apiError) {

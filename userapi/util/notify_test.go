@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	direxioIOSAppID        = "io.direxio.app.ios"
-	direxioAndroidAppID    = "io.direxio.app.android"
+	direxioIOSAppID        = "com.direxio.app"
+	direxioAndroidAppID    = "com.direxio.ai"
 	direxioPushGatewayURL  = "https://push.direxio.ai/_matrix/push/v1/notify"
 	direxioAPNsPushKey     = "apns-device-token"
 	direxioFCMPushKey      = "fcm-device-token"
@@ -328,7 +328,7 @@ func TestNotifyUserCountsAsyncRemovesRejectedPusher(t *testing.T) {
 	})
 }
 
-func TestNotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID(t *testing.T) {
+func TestNotifyUserCountsAsyncSendsLatestDirexioPusherOnly(t *testing.T) {
 	alice := test.NewUser(t)
 	aliceLocalpart, serverName, err := gomatrixserverlib.SplitID('@', alice.ID)
 	if err != nil {
@@ -340,7 +340,6 @@ func TestNotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID(t
 	dummyEvent := room.Events()[len(room.Events())-1]
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		receivedIOSRequest := make(chan bool, 1)
 		receivedAndroidRequest := make(chan bool, 1)
 		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var data pushgateway.NotifyRequest
@@ -351,39 +350,19 @@ func TestNotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID(t
 				t.Fatalf("expected one device per push gateway request, got %d", len(data.Notification.Devices))
 			}
 			device := data.Notification.Devices[0]
-			if device.AppID == direxioIOSAppID {
-				if device.PushKey != direxioAPNsPushKey {
-					t.Fatalf("unexpected iOS APNs pushkey: %q", device.PushKey)
-				}
-				wantData := map[string]interface{}{
-					direxioPusherFormatKey: "event_id_only",
-					"provider":             "apns",
-					"platform":             "ios",
-				}
-				if !reflect.DeepEqual(device.Data, wantData) {
-					t.Fatalf("unexpected iOS push gateway data:\n got: %#v\nwant: %#v", device.Data, wantData)
-				}
-				w.Header().Set("Content-Type", "application/json")
-				if err := json.NewEncoder(w).Encode(pushgateway.NotifyResponse{Rejected: []string{direxioAPNsPushKey}}); err != nil {
-					t.Error(err)
-				}
-				close(receivedIOSRequest)
-				return
+			if device.AppID != direxioAndroidAppID {
+				t.Fatalf("unexpected app_id: %q", device.AppID)
 			}
-			if device.AppID == direxioAndroidAppID {
-				if device.PushKey != direxioFCMPushKey {
-					t.Fatalf("unexpected Android FCM pushkey: %q", device.PushKey)
-				}
-				if device.Data["provider"] != "fcm" || device.Data["platform"] != "android" {
-					t.Fatalf("unexpected Android push gateway data: %#v", device.Data)
-				}
-				if _, err := w.Write([]byte("{}")); err != nil {
-					t.Error(err)
-				}
-				close(receivedAndroidRequest)
-				return
+			if device.PushKey != direxioFCMPushKey {
+				t.Fatalf("unexpected Android FCM pushkey: %q", device.PushKey)
 			}
-			t.Fatalf("unexpected app_id: %q", device.AppID)
+			if device.Data["provider"] != "fcm" || device.Data["platform"] != "android" {
+				t.Fatalf("unexpected Android push gateway data: %#v", device.Data)
+			}
+			if _, err := w.Write([]byte("{}")); err != nil {
+				t.Error(err)
+			}
+			close(receivedAndroidRequest)
 		}))
 		defer srv.Close()
 
@@ -436,33 +415,18 @@ func TestNotifyUserCountsAsyncSendsDirexioIOSAPNsPusherAndRemovesRejectedAppID(t
 		if err := userUtil.NotifyUserCountsAsync(ctx, pushgateway.NewHTTPClient(true), aliceLocalpart, serverName, db); err != nil {
 			t.Error(err)
 		}
-		for _, received := range []struct {
-			name string
-			ch   <-chan bool
-		}{
-			{name: "iOS", ch: receivedIOSRequest},
-			{name: "Android", ch: receivedAndroidRequest},
-		} {
-			select {
-			case <-time.After(time.Second * 5):
-				t.Fatalf("timed out waiting for %s push gateway request", received.name)
-			case <-received.ch:
-			}
+		select {
+		case <-time.After(time.Second * 5):
+			t.Fatal("timed out waiting for Android push gateway request")
+		case <-receivedAndroidRequest:
 		}
 
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			pushers, err := db.GetPushers(ctx, aliceLocalpart, serverName)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(pushers) == 1 && pushers[0].AppID == direxioAndroidAppID && pushers[0].PushKey == direxioFCMPushKey {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("expected rejected iOS pusher to be removed and Android pusher to remain, got %#v", pushers)
-			}
-			time.Sleep(10 * time.Millisecond)
+		pushers, err := db.GetPushers(ctx, aliceLocalpart, serverName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pushers) != 1 || pushers[0].AppID != direxioAndroidAppID || pushers[0].PushKey != direxioFCMPushKey {
+			t.Fatalf("expected latest Android pusher to remain, got %#v", pushers)
 		}
 	})
 }

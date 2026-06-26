@@ -115,6 +115,11 @@ P2P action 生命周期：
 8. `/_p2p/events` 发送产品投影事件；agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
 
+同步策略：
+
+- `sync.bootstrap` 是冷启动、登录后恢复、本地缓存不可用或事件缺口兜底用的基线快照；不要在每个事件后全量刷新。
+- 日常弱网/断线恢复优先用 `GET /_p2p/events?since=<last_seq>` 增量追平。客户端必须持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才重新拉 `sync.bootstrap`。
+
 Matrix Client-Server 写入生命周期：
 
 1. 客户端调用 Matrix send/state/member/redaction API。
@@ -168,7 +173,7 @@ Portal/Profile：
 - 默认启动时自动初始化 portal owner、owner token、agent token、默认密码和 owner profile。
 - `P2P_PORTAL_PASSWORD` 可覆盖默认密码。
 - `P2P_PORTAL_CREDENTIALS_FILE` 用于启动、密码变更和 session token 变更后的 credential JSON 写出。
-- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 owner-token 内部辅助 action，不删除用户手机 device。
+- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 owner-token 内部辅助 action，返回本地 `@agent:<server>` 的 Matrix session，不删除用户手机 device。
 - profile update 同步 P2P profile/member projection，并写入 Matrix-facing profile storage。
 
 Contacts：
@@ -211,6 +216,8 @@ Calls/Favorites/Follows/Reports：
 Agent/API：
 
 - Agent token 不再有动态权限表，只能访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events` 供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。
+- `agent.matrix_session.create` 使用 owner `access_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
+- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；`GET /_p2p/events` 不再发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 
@@ -301,8 +308,8 @@ docker compose -f docker-compose.p2p-dual.yml config
 - public channel membership 不得在 Matrix join 前标记为 joined。
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - Postman JSON 必须保持可导入。
-- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是 `direxio-change-orchestrator`、`direxio-contract-sync`、`direxio-event-state-tracer`、`direxio-storage-migration-guard` 和 `direxio-targeted-verification`。
+- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Direxio 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
+- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是：`direxio-change-orchestrator`（全链路影响图）、`direxio-contract-sync`（合同/示例同步）、`direxio-event-state-tracer`（Matrix 事件状态规则）、`direxio-storage-migration-guard`（持久化和 migration 规则）和 `direxio-targeted-verification`（本仓库验证命令选择）。
 
 ## 10. 文档规则
 

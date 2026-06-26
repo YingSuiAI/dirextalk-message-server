@@ -29,11 +29,13 @@ func mustCreateUserDatabase(t *testing.T, dbType test.DBType) (storage.UserDatab
 	return db, closeDB
 }
 
-func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
+func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 	ctx := context.Background()
 	localpart := "alice"
+	otherLocalpart := "bob"
 	serverName := spec.ServerName("localhost")
-	appID := "com.direxio.ai"
+	androidAppID := "com.direxio.ai"
+	iosAppID := "com.direxio.app"
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		db, closeDB := mustCreateUserDatabase(t, dbType)
@@ -45,7 +47,7 @@ func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
 				Pusher: api.Pusher{
 					PushKey:           pushKey,
 					Kind:              api.HTTPKind,
-					AppID:             appID,
+					AppID:             androidAppID,
 					AppDisplayName:    "Direxio",
 					DeviceDisplayName: "Android",
 					Language:          "zh-CN",
@@ -64,11 +66,11 @@ func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
 
 		err := userAPI.PerformPusherSet(ctx, &api.PerformPusherSetRequest{
 			Pusher: api.Pusher{
-				PushKey:           "web-token",
+				PushKey:           "ios-token",
 				Kind:              api.HTTPKind,
-				AppID:             "io.direxio.app.web",
+				AppID:             iosAppID,
 				AppDisplayName:    "Direxio",
-				DeviceDisplayName: "Web",
+				DeviceDisplayName: "iPhone",
 				Language:          "zh-CN",
 				Data: map[string]interface{}{
 					"format": "event_id_only",
@@ -82,35 +84,56 @@ func TestPerformPusherSetReplacesSameUserAppID(t *testing.T) {
 			t.Fatalf("PerformPusherSet returned error for other app: %v", err)
 		}
 
+		err = userAPI.PerformPusherSet(ctx, &api.PerformPusherSetRequest{
+			Pusher: api.Pusher{
+				PushKey:           "bob-token",
+				Kind:              api.HTTPKind,
+				AppID:             androidAppID,
+				AppDisplayName:    "Direxio",
+				DeviceDisplayName: "Android",
+				Language:          "zh-CN",
+				Data: map[string]interface{}{
+					"format": "event_id_only",
+					"url":    "https://push.direxio.ai/_matrix/push/v1/notify",
+				},
+			},
+			Localpart:  otherLocalpart,
+			ServerName: serverName,
+		}, &struct{}{})
+		if err != nil {
+			t.Fatalf("PerformPusherSet returned error for other user: %v", err)
+		}
+
 		pushers, err := db.GetPushers(ctx, localpart, serverName)
 		if err != nil {
 			t.Fatalf("GetPushers returned error: %v", err)
 		}
-		if len(pushers) != 2 {
-			t.Fatalf("expected 2 pushers, got %d: %+v", len(pushers), pushers)
+		if len(pushers) != 1 {
+			t.Fatalf("expected 1 pusher, got %d: %+v", len(pushers), pushers)
 		}
 
-		seen := map[string]string{}
-		for _, pusher := range pushers {
-			seen[pusher.AppID] = pusher.PushKey
+		if pushers[0].AppID != iosAppID || pushers[0].PushKey != "ios-token" {
+			t.Fatalf("expected latest iOS pusher only, got %+v", pushers[0])
 		}
-		if seen[appID] != "new-token" {
-			t.Fatalf("expected Android pusher to use new-token, got %q", seen[appID])
+
+		otherPushers, err := db.GetPushers(ctx, otherLocalpart, serverName)
+		if err != nil {
+			t.Fatalf("GetPushers returned error for other user: %v", err)
 		}
-		if seen["io.direxio.app.web"] != "web-token" {
-			t.Fatalf("expected other app pusher to remain, got %q", seen["io.direxio.app.web"])
+		if len(otherPushers) != 1 || otherPushers[0].PushKey != "bob-token" {
+			t.Fatalf("expected other user's pusher to remain, got %+v", otherPushers)
 		}
 	})
 }
 
-func TestPerformPusherSetStoresDirexioIOSAPNsPusherAndKeepsAndroidPusher(t *testing.T) {
+func TestPerformPusherSetStoresLatestDirexioPusherData(t *testing.T) {
 	ctx := context.Background()
 	localpart := "alice"
 	serverName := spec.ServerName("localhost")
 
 	const (
-		iosAppID       = "io.direxio.app.ios"
-		androidAppID   = "io.direxio.app.android"
+		iosAppID       = "com.direxio.app"
+		androidAppID   = "com.direxio.ai"
 		gatewayURL     = "https://push.direxio.ai/_matrix/push/v1/notify"
 		oldAPNsToken   = "old-apns-device-token"
 		newAPNsToken   = "new-apns-device-token"
@@ -173,29 +196,19 @@ func TestPerformPusherSetStoresDirexioIOSAPNsPusherAndKeepsAndroidPusher(t *test
 		if err != nil {
 			t.Fatalf("GetPushers returned error: %v", err)
 		}
-		if len(pushers) != 2 {
-			t.Fatalf("expected 2 pushers, got %d: %+v", len(pushers), pushers)
+		if len(pushers) != 1 {
+			t.Fatalf("expected 1 pusher, got %d: %+v", len(pushers), pushers)
 		}
 
-		byAppID := map[string]api.Pusher{}
-		for _, pusher := range pushers {
-			byAppID[pusher.AppID] = pusher
+		latestPusher := pushers[0]
+		if latestPusher.AppID != androidAppID || latestPusher.PushKey != androidFCMKey {
+			t.Fatalf("expected latest Android pusher only, got %+v", latestPusher)
 		}
-
-		iosPusher := byAppID[iosAppID]
-		if iosPusher.PushKey != newAPNsToken {
-			t.Fatalf("expected iOS APNs pusher to rotate to %q, got %q", newAPNsToken, iosPusher.PushKey)
-		}
-		if iosPusher.Data["url"] != gatewayURL ||
-			iosPusher.Data["format"] != expectedFormat ||
-			iosPusher.Data["provider"] != "apns" ||
-			iosPusher.Data["platform"] != "ios" {
-			t.Fatalf("unexpected iOS APNs pusher data: %#v", iosPusher.Data)
-		}
-
-		androidPusher := byAppID[androidAppID]
-		if androidPusher.PushKey != androidFCMKey {
-			t.Fatalf("expected Android pusher to remain, got %q", androidPusher.PushKey)
+		if latestPusher.Data["url"] != gatewayURL ||
+			latestPusher.Data["format"] != expectedFormat ||
+			latestPusher.Data["provider"] != "fcm" ||
+			latestPusher.Data["platform"] != "android" {
+			t.Fatalf("unexpected latest pusher data: %#v", latestPusher.Data)
 		}
 	})
 }
