@@ -229,6 +229,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 		Topic:              "Direxio agents room",
 		Visibility:         "private",
 		InviteMXIDs:        []string{agentMXID},
+		InitialState:       []RoomStateEvent{agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID)},
 	})
 	if err != nil {
 		return false, err

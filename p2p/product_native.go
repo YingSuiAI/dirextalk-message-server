@@ -80,6 +80,37 @@ func agentStatusStateEvent(agentMXID string, online bool) RoomStateEvent {
 	}
 }
 
+func agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID string) RoomStateEvent {
+	return RoomStateEvent{
+		Type:     spec.MRoomPowerLevels,
+		StateKey: "",
+		Content: map[string]any{
+			"users": map[string]any{
+				strings.TrimSpace(ownerMXID): 100,
+				strings.TrimSpace(agentMXID): 50,
+			},
+			"users_default":  0,
+			"events_default": 0,
+			"state_default":  50,
+			"ban":            50,
+			"kick":           50,
+			"redact":         50,
+			"invite":         0,
+			"events": map[string]any{
+				spec.MRoomName:              50,
+				spec.MRoomTopic:             50,
+				spec.MRoomPowerLevels:       100,
+				spec.MRoomHistoryVisibility: 100,
+				spec.MRoomCanonicalAlias:    50,
+				spec.MRoomAvatar:            50,
+				spec.MRoomEncryption:        100,
+				"m.room.server_acl":         100,
+				DirexioAgentStatusEventType: 50,
+			},
+		},
+	}
+}
+
 func roomProfileForDirect(name, requesterMXID, targetMXID, requesterDisplayName, requesterAvatarURL, remark string, dissolved bool) RoomStateEvent {
 	return RoomStateEvent{
 		Type:     DirexioRoomProfileEventType,

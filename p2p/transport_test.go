@@ -153,6 +153,27 @@ func agentStatusOnlineUpdate(req SendStateEventRequest, roomID, senderMXID, agen
 	return agentStatusOnlineState(req.Event, agentMXID)
 }
 
+func initialPowerLevelForUser(states []RoomStateEvent, userMXID string) (int, bool) {
+	state, ok := initialStateOfType(states, spec.MRoomPowerLevels)
+	if !ok {
+		return 0, false
+	}
+	users, ok := state.Content["users"].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	switch level := users[userMXID].(type) {
+	case int:
+		return level, true
+	case int64:
+		return int(level), true
+	case float64:
+		return int(level), true
+	default:
+		return 0, false
+	}
+}
+
 func initialStateOfType(states []RoomStateEvent, eventType string) (RoomStateEvent, bool) {
 	for _, state := range states {
 		if state.Type == eventType {
@@ -185,6 +206,9 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	}
 	if len(req.InviteMXIDs) != 1 || req.InviteMXIDs[0] != "@agent:example.com" {
 		t.Fatalf("expected agent invite on room create, got %#v", req.InviteMXIDs)
+	}
+	if level, ok := initialPowerLevelForUser(req.InitialState, "@agent:example.com"); !ok || level < 50 {
+		t.Fatalf("expected created agent room to grant @agent state power, level=%d ok=%v state=%#v", level, ok, req.InitialState)
 	}
 	if statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType); ok {
 		t.Fatalf("agent status state must be sent by @agent after join, not as owner-created initial state: %#v", statusState)
