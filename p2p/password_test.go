@@ -12,6 +12,9 @@ import (
 type recordingMatrixSessionIssuer struct {
 	deviceID              string
 	revokeExistingDevices bool
+	sessionUser           string
+	sessionName           string
+	sessionURL            string
 	profileUser           string
 	profileName           string
 	profileURL            string
@@ -20,6 +23,9 @@ type recordingMatrixSessionIssuer struct {
 func (i *recordingMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string, revokeExistingDevices bool) (string, error) {
 	i.deviceID = deviceID
 	i.revokeExistingDevices = revokeExistingDevices
+	i.sessionUser = userID
+	i.sessionName = displayName
+	i.sessionURL = avatarURL
 	return "matrix-token-for-" + deviceID, nil
 }
 
@@ -106,10 +112,13 @@ func TestPortalAuthUsesRequestedMatrixDeviceID(t *testing.T) {
 	}
 }
 
-func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {
+func TestAgentMatrixSessionCreateUsesAgentIdentity(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	issuer := &recordingMatrixSessionIssuer{}
 	service.SetMatrixSessionIssuer(issuer)
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"display_name": "Direxio Agent",
+	})
 
 	session := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
 		"device_id": "DIREXIO_CLI",
@@ -121,14 +130,23 @@ func TestAgentMatrixSessionCreateUsesAgentDeviceAndOwnerProfile(t *testing.T) {
 	if issuer.revokeExistingDevices {
 		t.Fatalf("agent Matrix sessions must not revoke the portal user's devices")
 	}
+	if issuer.sessionUser != "@agent:example.com" {
+		t.Fatalf("expected Matrix issuer to create an agent session, got user %q", issuer.sessionUser)
+	}
+	if issuer.sessionName != "Direxio Agent" {
+		t.Fatalf("expected Matrix issuer to use agent display name, got %q", issuer.sessionName)
+	}
+	if issuer.sessionURL != "" {
+		t.Fatalf("expected agent Matrix session avatar to be empty by default, got %q", issuer.sessionURL)
+	}
 	if session["device_id"] != "DIREXIO_CLI" {
 		t.Fatalf("expected session device id to be DIREXIO_CLI, got %#v", session)
 	}
 	if session["access_token"] != "matrix-token-for-DIREXIO_CLI" {
 		t.Fatalf("expected Matrix access token in internal session response, got %#v", session)
 	}
-	if session["user_id"] != "@owner:example.com" {
-		t.Fatalf("expected portal owner user id, got %#v", session)
+	if session["user_id"] != "@agent:example.com" {
+		t.Fatalf("expected local agent user id, got %#v", session)
 	}
 	if _, ok := session["password"]; ok {
 		t.Fatalf("agent Matrix session must not expose portal password: %#v", session)

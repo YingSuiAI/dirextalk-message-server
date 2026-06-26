@@ -154,7 +154,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "为本地 Agent 网关或工具创建内部 Matrix 会话。\n\nCreate an internal Matrix session for local Agent gateway or tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
+                "description": "为本地 Agent 网关或工具创建本地 @agent:<server> 用户的内部 Matrix 会话。\n\nCreate an internal Matrix session for the local @agent:<server> user used by local Agent gateway or tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.matrix_session.create\",\n  \"params\": {\n    \"device_id\": \"DIREXIO_AGENT_GATEWAY\"\n  }\n}",

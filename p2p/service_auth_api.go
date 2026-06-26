@@ -98,9 +98,8 @@ func (s *Service) createAgentMatrixSession(ctx context.Context, params map[strin
 	requestedDeviceID := requestedMatrixDeviceID(params)
 	s.mu.Lock()
 	issuer := s.sessions
-	userID := s.profile.UserID
-	displayName := s.profile.DisplayName
-	avatarURL := s.profile.AvatarURL
+	userID := s.agentMXIDLocked()
+	displayName := s.agentDisplayNameLocked()
 	homeserver := s.homeserver
 	s.mu.Unlock()
 	session := map[string]any{
@@ -111,7 +110,7 @@ func (s *Service) createAgentMatrixSession(ctx context.Context, params map[strin
 	if issuer == nil {
 		return session, nil
 	}
-	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, avatarURL, requestedDeviceID, false)
+	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, "", requestedDeviceID, false)
 	if err != nil {
 		return nil, internalError(err)
 	}

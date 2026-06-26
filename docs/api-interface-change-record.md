@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-26
 
+## 2026-06-26 Agent Matrix Session Identity
+
+`agent.matrix_session.create` still requires the owner `access_token`, but it now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID.
+
+The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or local gateway Matrix session does not evict the portal owner's phone or browser sessions.
+
 ## 2026-06-26 Agent Status Connection Semantics
 
 `agent.status.connected` now reports whether at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`. Owner `access_token` event streams do not mark the agent connected.
@@ -38,7 +44,7 @@ Post channels (`io.direxio.room.profile.channel_type=post`) are not sent to HTTP
 
 `portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
 
-`agent.matrix_session.create` remains an owner-token internal Matrix session helper and does not evict the portal user's phone session.
+`agent.matrix_session.create` remains an owner-token internal Matrix session helper and does not evict the portal user's phone session. As of 2026-06-26, it returns a session for the local `@agent:<server>` user.
 
 ## 2026-06-24 User Public Channel Lookup
 
