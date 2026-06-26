@@ -202,11 +202,11 @@ dendrite_config:
       endpoint: https://matrix.org/report-usage-stats/push
 
     presence:
-      # -- Controls whether we receive presence events from other servers
-      enable_inbound: true
-      # -- Controls whether we send presence events for our local users to other servers.
-      # (_May increase CPU/memory usage_)
-      enable_outbound: true
+        # -- Controls whether we receive presence events from other servers
+        enable_inbound: false
+        # -- Controls whether we send presence events for our local users to other servers.
+        # (_May increase CPU/memory usage_)
+        enable_outbound: false
 
     server_notices:
       # -- Server notices allows server admins to send messages to all users on the server.

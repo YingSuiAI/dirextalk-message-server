@@ -217,7 +217,7 @@ Agent/API：
 
 - Agent token 不再有动态权限表，只能访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events` 供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。
 - `agent.matrix_session.create` 使用 owner `access_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
-- Agent 在线状态对 owner 客户端只暴露一个显示字段：`sync.bootstrap.agent_online` 提供首屏快照，`agent.presence` SSE 事件 payload 只包含 `online`。该值来自本地 `@agent:<server>` 的 Matrix presence；`online=true` 表示 Agent 已启用且 Matrix presence 为 `online`，agent-token `/_p2p/events` 订阅不再影响在线状态。Direxio monolith 启动会开启该路径所需的 Matrix outbound presence。`agent.status`/`agents.status` 已删除，客户端不得再调用。
+- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；`GET /_p2p/events` 不再发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 

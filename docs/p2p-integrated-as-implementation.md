@@ -273,7 +273,7 @@ Contact, group/channel invite, and member mutation actions return `operation` an
 
 Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only fixed `mcp.*` actions and subscribe to `GET /_p2p/events` for passive gateway listening. Dynamic Agent permission endpoints are removed.
 
-Owner clients read Agent bridge online state from `sync.bootstrap.agent_online` and live `agent.presence` events on `GET /_p2p/events`. The owner-facing payload contains only `online`; the value is derived from the local `@agent:<server>` Matrix presence, so agent-token event-stream connections are passive listeners and do not mark the Agent online. Direxio monolith startup enables Matrix outbound presence for this path even if an old generated config disabled it. `agent.status`/`agents.status` are removed; configuration details stay under `agent.config.get`.
+Owner clients read Agent bridge online state from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. The server writes this state when it creates or repairs the agents room and when `agent.config.update` changes `enabled`. `sync.bootstrap` only returns `agent_room_id`; it does not mirror the online bit, and `GET /_p2p/events` does not emit `agent.presence`. `agent.status`/`agents.status` are removed; configuration details stay under `agent.config.get`.
 
 ## Verification
 

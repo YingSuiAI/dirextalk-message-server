@@ -21,7 +21,7 @@ const (
 	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
 
 	AgentRoomMessageEventType    = "agent_room.message"
-	AgentPresenceEventType       = "agent.presence"
+	DirexioAgentStatusEventType  = "io.direxio.agent.status"
 	AgentGatewayContentKey       = "io.direxio.agent_gateway"
 	AgentGatewaySourceContentKey = "io.direxio.gateway_source"
 )
@@ -67,6 +67,16 @@ func channelHistoryVisibilityStateEvent(channelType string) (RoomStateEvent, boo
 		return sharedHistoryVisibilityStateEvent(), true
 	default:
 		return RoomStateEvent{}, false
+	}
+}
+
+func agentStatusStateEvent(agentMXID string, online bool) RoomStateEvent {
+	return RoomStateEvent{
+		Type:     DirexioAgentStatusEventType,
+		StateKey: strings.TrimSpace(agentMXID),
+		Content: map[string]any{
+			"online": online,
+		},
 	}
 }
 

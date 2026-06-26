@@ -138,6 +138,21 @@ func updateStateHistoryVisibility(req SendStateEventRequest) (string, bool) {
 	return value, true
 }
 
+func agentStatusOnlineState(state RoomStateEvent, agentMXID string) (bool, bool) {
+	if state.Type != DirexioAgentStatusEventType || state.StateKey != agentMXID {
+		return false, false
+	}
+	online, ok := state.Content["online"].(bool)
+	return online, ok
+}
+
+func agentStatusOnlineUpdate(req SendStateEventRequest, roomID, senderMXID, agentMXID string) (bool, bool) {
+	if req.RoomID != roomID || req.SenderMXID != senderMXID {
+		return false, false
+	}
+	return agentStatusOnlineState(req.Event, agentMXID)
+}
+
 func initialStateOfType(states []RoomStateEvent, eventType string) (RoomStateEvent, bool) {
 	for _, state := range states {
 		if state.Type == eventType {
@@ -171,6 +186,10 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	if len(req.InviteMXIDs) != 1 || req.InviteMXIDs[0] != "@agent:example.com" {
 		t.Fatalf("expected agent invite on room create, got %#v", req.InviteMXIDs)
 	}
+	statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType)
+	if online, valid := agentStatusOnlineState(statusState, "@agent:example.com"); !ok || !valid || !online {
+		t.Fatalf("expected created agent room to carry online Matrix state, got %#v", req.InitialState)
+	}
 	if len(transport.joinRequests) != 1 || transport.joinRequests[0].UserMXID != "@agent:example.com" || transport.joinRequests[0].DisplayName != "Agent" {
 		t.Fatalf("expected agent to join created room, got %#v", transport.joinRequests)
 	}
@@ -201,6 +220,12 @@ func TestEnsureAgentRoomJoinsAgentAndOwnerForExistingRealRoom(t *testing.T) {
 	if transport.joinRequests[1].UserMXID != "@owner:example.com" {
 		t.Fatalf("expected owner to join existing room, got %#v", transport.joinRequests)
 	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected existing agent room to publish status state, got %#v", transport.stateEvents)
+	}
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@owner:example.com", "@agent:example.com"); !ok || !online {
+		t.Fatalf("expected existing agent room online status state, got %#v", transport.stateEvents[0])
+	}
 }
 
 func TestEnsureAgentRoomInvitesOwnerFromAgentWhenOwnerJoinRequiresInvite(t *testing.T) {
@@ -223,6 +248,9 @@ func TestEnsureAgentRoomInvitesOwnerFromAgentWhenOwnerJoinRequiresInvite(t *test
 		transport.inviteRequests[0].InviteeMXID != "@owner:example.com" {
 		t.Fatalf("expected agent to invite owner back into agents room, got %#v", transport.inviteRequests)
 	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected repaired agent room to publish status state, got %#v", transport.stateEvents)
+	}
 }
 
 func TestSyncBootstrapIncludesAgentRoomID(t *testing.T) {
@@ -233,6 +261,27 @@ func TestSyncBootstrapIncludesAgentRoomID(t *testing.T) {
 	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
 	if bootstrap["agent_room_id"] != "!agents-real:example.com" {
 		t.Fatalf("expected sync.bootstrap agent_room_id, got %#v", bootstrap)
+	}
+}
+
+func TestAgentConfigUpdatePublishesAgentRoomStatusState(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.agentRoomID = "!agents-real:example.com"
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"enabled": false,
+	})
+
+	if result["enabled"] != false {
+		t.Fatalf("expected disabled agent config response, got %#v", result)
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected one agent status state update, got %#v", transport.stateEvents)
+	}
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@owner:example.com", "@agent:example.com"); !ok || online {
+		t.Fatalf("expected disabled agent status state, got %#v", transport.stateEvents[0])
 	}
 }
 

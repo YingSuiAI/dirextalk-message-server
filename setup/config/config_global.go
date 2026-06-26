@@ -104,8 +104,8 @@ func (c *Global) Defaults(opts DefaultOpts) {
 	c.JetStream.Defaults(opts)
 	c.Metrics.Defaults(opts)
 	c.Presence = PresenceOptions{
-		EnableInbound:  true,
-		EnableOutbound: true,
+		EnableInbound:  false,
+		EnableOutbound: false,
 	}
 	c.DNSCache.Defaults()
 	c.Sentry.Defaults()

@@ -178,8 +178,8 @@ func (s *Service) getAgentConfig() any {
 	return agentConfigToMap(s.agentConfig)
 }
 
-func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) any {
-	presenceMayChange := false
+func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) (any, *apiError) {
+	statusMayChange := false
 	s.mu.Lock()
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
@@ -189,7 +189,7 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	}
 	if _, ok := params["enabled"]; ok {
 		s.agentConfig.Enabled = boolParam(params["enabled"])
-		presenceMayChange = true
+		statusMayChange = true
 	}
 	if model := trimString(params["model"]); model != "" {
 		s.agentConfig.Model = model
@@ -199,10 +199,12 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	}
 	result := agentConfigToMap(s.agentConfig)
 	s.mu.Unlock()
-	if presenceMayChange {
-		_ = s.appendAgentPresenceEvent(ctx)
+	if statusMayChange {
+		if err := s.publishCurrentAgentStatusState(ctx); err != nil {
+			return nil, transportWriteError(err)
+		}
 	}
-	return result
+	return result, nil
 }
 
 func agentConfigToMap(cfg agentConfig) map[string]any {

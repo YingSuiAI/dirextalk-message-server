@@ -51,7 +51,6 @@ type Service struct {
 	transport          Transport
 	sessions           MatrixSessionIssuer
 	matrixMessages     matrixMessageReader
-	matrixPresence     matrixPresenceReader
 	remoteHTTPClient   *http.Client
 	remoteAllowPrivate bool
 	storeMode          string
@@ -134,10 +133,6 @@ type Store interface {
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
 }
 
-type matrixPresenceReader interface {
-	UserOnline(ctx context.Context, userID string) (bool, error)
-}
-
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
 type agentConfig = domain.AgentConfig
@@ -207,6 +202,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	ownerAvatarURL := s.profile.AvatarURL
 	agentMXID := s.agentMXIDLocked()
 	agentDisplayName := s.agentDisplayNameLocked()
+	agentOnline := s.agentConfig.Enabled
 	s.mu.Unlock()
 	if s.transport == nil {
 		return false, nil
@@ -217,6 +213,9 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 				return false, err
 			}
 			if err := s.ensureAgentRoomOwnerMember(ctx, currentRoomID, ownerMXID, ownerDisplayName, agentMXID); err != nil {
+				return false, err
+			}
+			if err := s.publishAgentStatusState(ctx, currentRoomID, ownerMXID, agentMXID, agentOnline); err != nil {
 				return false, err
 			}
 		}
@@ -230,6 +229,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 		Topic:              "Direxio agents room",
 		Visibility:         "private",
 		InviteMXIDs:        []string{agentMXID},
+		InitialState:       []RoomStateEvent{agentStatusStateEvent(agentMXID, agentOnline)},
 	})
 	if err != nil {
 		return false, err
@@ -345,12 +345,6 @@ func (s *Service) SetMatrixMessageReader(reader matrixMessageReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.matrixMessages = reader
-}
-
-func (s *Service) SetMatrixPresenceReader(reader matrixPresenceReader) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.matrixPresence = reader
 }
 
 func (s *Service) SetProjectorStarted(started bool) {
@@ -511,54 +505,25 @@ func (s *Service) authorizeEventStream(token string) bool {
 	return token == s.agentToken
 }
 
-func (s *Service) agentOnline(ctx context.Context) bool {
-	s.mu.Lock()
-	enabled := s.agentConfig.Enabled
-	reader := s.matrixPresence
-	agentMXID := s.agentMXIDLocked()
-	s.mu.Unlock()
-	if !enabled || reader == nil {
-		return false
-	}
-	online, err := reader.UserOnline(ctx, agentMXID)
-	if err != nil {
-		return false
-	}
-	return online
-}
-
-func agentPresencePayload(online bool) map[string]any {
-	return map[string]any{
-		"online": online,
-	}
-}
-
-func (s *Service) appendAgentPresenceEvent(ctx context.Context) error {
-	online := s.agentOnline(ctx)
-	return s.appendAgentPresenceEventWithOnline(ctx, online)
-}
-
-func (s *Service) appendAgentPresenceEventWithOnline(ctx context.Context, online bool) error {
+func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
+	ownerMXID := s.ownerMXID
+	agentMXID := s.agentMXIDLocked()
+	online := s.agentConfig.Enabled
 	s.mu.Unlock()
-	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    AgentPresenceEventType,
-		RoomID:  roomID,
-		Payload: agentPresencePayload(online),
-	})
+	return s.publishAgentStatusState(ctx, roomID, ownerMXID, agentMXID, online)
 }
 
-func (s *Service) ProjectAgentPresence(ctx context.Context, userID, presence string) error {
-	s.mu.Lock()
-	agentMXID := s.agentMXIDLocked()
-	enabled := s.agentConfig.Enabled
-	s.mu.Unlock()
-	if !strings.EqualFold(strings.TrimSpace(userID), agentMXID) {
+func (s *Service) publishAgentStatusState(ctx context.Context, roomID, senderMXID, agentMXID string, online bool) error {
+	if s.transport == nil || strings.TrimSpace(roomID) == "" || strings.TrimSpace(senderMXID) == "" {
 		return nil
 	}
-	online := enabled && strings.EqualFold(strings.TrimSpace(presence), "online")
-	return s.appendAgentPresenceEventWithOnline(ctx, online)
+	return s.transport.SendStateEvent(ctx, SendStateEventRequest{
+		RoomID:     strings.TrimSpace(roomID),
+		SenderMXID: strings.TrimSpace(senderMXID),
+		Event:      agentStatusStateEvent(agentMXID, online),
+	})
 }
 
 func publicAction(action string) bool {

@@ -16,7 +16,7 @@ Use this skill when a change can affect clients, agents, external nodes, operato
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - `channels.public.join_result` is an internal node-to-node callback, not a normal client workflow entry.
 - Dynamic Agent permission actions are removed. Do not reintroduce Agent-token action management unless the product contract changes explicitly.
-- Owner-visible Agent online state comes from local `@agent:<server>` Matrix presence via `sync.bootstrap.agent_online` and `agent.presence`; agent-token `GET /_p2p/events` streams are passive listeners and must not drive online state. Direxio monolith startup must keep Matrix outbound presence enabled for this contract.
+- Owner-visible Agent online state comes from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. `sync.bootstrap` only returns `agent_room_id`; do not add `agent_online` back, do not emit `agent.presence`, and do not drive this state from Matrix `m.presence` or agent-token `GET /_p2p/events` stream lifetime.
 - Ordinary send, history, unread, search, and redaction use Matrix Client-Server APIs. Local history hiding uses `POST /_matrix/client/v1/io.direxio/rooms/{roomID}/local_delete`.
 
 ## Sync Targets

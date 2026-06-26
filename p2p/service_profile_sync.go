@@ -142,7 +142,6 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	userID := s.ownerMXID
 	agentRoomID := s.agentRoomID
 	s.mu.Unlock()
-	agentOnline := s.agentOnline(ctx)
 	members, err := s.membersForUser(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)
@@ -151,7 +150,6 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 		"synced_at":     time.Now().UTC().Format(time.RFC3339Nano),
 		"user":          map[string]any{"user_id": userID},
 		"agent_room_id": agentRoomID,
-		"agent_online":  agentOnline,
 		"contacts":      contacts,
 		"groups":        visibleGroups,
 		"channels":      visibleChannels,

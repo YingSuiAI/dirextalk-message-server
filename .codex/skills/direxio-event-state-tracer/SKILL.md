@@ -40,7 +40,7 @@ For inbound or federated behavior, start at roomserver/federation output and tra
 - Local delete hides for one user; recall/redaction propagates as Matrix redaction.
 - Ordinary timeline messages must not create a second product message source of truth.
 - Channel posts, comments, and reactions are product projections backed by Matrix events and redactions.
-- Agent online state is a projection of local `@agent:<server>` Matrix presence into `sync.bootstrap.agent_online` and `agent.presence`; do not use agent-token `/_p2p/events` stream lifetime as presence state.
+- Agent online state is native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, content field `online`. Do not mirror it through `sync.bootstrap.agent_online`, `agent.presence` SSE, Matrix `m.presence`, or agent-token `/_p2p/events` stream lifetime.
 - Public channel remote approval must not report joined until the requester node performs the Matrix join successfully.
 - Federation tests must use real compose users such as `@owner:dendrite-a:8448` and `@owner:dendrite-b:8448`, not fabricated remote Matrix users.
 

@@ -8,13 +8,13 @@ Last updated: 2026-06-26
 
 The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or local gateway Matrix session does not evict the portal owner's phone or browser sessions.
 
-## 2026-06-26 Agent Matrix Presence Event Stream
+## 2026-06-26 Agent Matrix Room State Status
 
-Owner clients now receive live Agent bridge online state through `sync.bootstrap.agent_online` and `agent.presence` SSE events from `GET /_p2p/events`.
+Owner clients now receive Agent bridge online state from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`.
 
-The owner-facing presence event payload is intentionally lean and contains only `online`. `online=true` means the Agent config is enabled and the local `@agent:<server>` Matrix user currently reports `m.presence=online`. Agent-token `GET /_p2p/events` streams remain passive gateway event readers and do not mark the Agent online. `agent.status` and `agents.status` are removed.
+The server writes this state when creating or repairing the agents room and when `agent.config.update` changes `enabled`. `sync.bootstrap` still returns the real `agent_room_id` so clients can locate the room, but it no longer returns `agent_online` or any `agent_presence` mirror. `GET /_p2p/events` no longer emits `agent.presence`; Agent-token event streams remain passive gateway event readers. `agent.status` and `agents.status` are removed.
 
-Direxio monolith startup enables Matrix outbound presence for this Agent status path even when an older generated config has `global.presence.enable_outbound: false`. New generated, sample, and Helm configs default both inbound and outbound presence to `true`.
+Matrix `m.presence` is not part of the Agent online contract, and Direxio monolith startup no longer enables Matrix outbound presence for this path. New generated, sample, and Helm configs default both inbound and outbound presence to `false`.
 
 ## 2026-06-25 Agent Token Event Stream Access
 
