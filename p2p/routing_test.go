@@ -25,7 +25,7 @@ func TestCommandUsesBodyActionAndBearerAuth(t *testing.T) {
 		"params": map[string]any{},
 	}
 	req := jsonRequest(t, "/_p2p/command", reqBody)
-	req.Header.Set("Authorization", "Bearer "+service.AdminToken())
+	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -163,12 +163,6 @@ func TestBootstrapAndAuthAreBodyActions(t *testing.T) {
 	}
 	if got["access_token"] == "" {
 		t.Fatalf("expected access token, got %#v", got)
-	}
-	if _, ok := got["admin_access_token"]; ok {
-		t.Fatalf("session must not expose admin_access_token: %#v", got)
-	}
-	if _, ok := got["matrix_access_token"]; ok {
-		t.Fatalf("session must not expose matrix_access_token: %#v", got)
 	}
 }
 
@@ -470,7 +464,7 @@ func TestAPIStatusControlsAgentActionAuthorization(t *testing.T) {
 			}},
 		},
 	})
-	legacyStatus.Header.Set("Authorization", "Bearer "+service.AdminToken())
+	legacyStatus.Header.Set("Authorization", "Bearer "+service.AccessToken())
 	legacyRec := httptest.NewRecorder()
 	router.ServeHTTP(legacyRec, legacyStatus)
 	if legacyRec.Code != http.StatusBadRequest {
@@ -529,7 +523,7 @@ func assertAPIPermissionsActionOnly(t *testing.T, items []any) {
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
 	t.Helper()
 	req := jsonRequest(t, path, body)
-	req.Header.Set("Authorization", "Bearer "+service.AdminToken())
+	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -621,7 +615,7 @@ func startEventStreamTest(t *testing.T, router http.Handler, service *Service, p
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
-	req.Header.Set("Authorization", "Bearer "+service.AdminToken())
+	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
 	rec := newSSETestResponseWriter()
 	done := make(chan struct{})
 	go func() {

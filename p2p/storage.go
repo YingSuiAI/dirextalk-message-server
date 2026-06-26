@@ -39,14 +39,13 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 		Up: func(ctx context.Context, txn *sql.Tx) error {
 			return execMigrationStatements(ctx, txn, []string{
 				`CREATE TABLE IF NOT EXISTS p2p_portal (
-					id TEXT PRIMARY KEY NOT NULL,
-					initialized BIGINT NOT NULL,
-					password TEXT NOT NULL,
-					admin_token TEXT NOT NULL,
-					matrix_token TEXT NOT NULL,
-					agent_token TEXT NOT NULL,
-					owner_mxid TEXT NOT NULL,
-					agent_room_id TEXT NOT NULL,
+						id TEXT PRIMARY KEY NOT NULL,
+						initialized BIGINT NOT NULL,
+						password TEXT NOT NULL,
+						access_token TEXT NOT NULL,
+						agent_token TEXT NOT NULL,
+						owner_mxid TEXT NOT NULL,
+						agent_room_id TEXT NOT NULL,
 					user_id TEXT NOT NULL,
 					display_name TEXT NOT NULL,
 					domain TEXT NOT NULL,
@@ -238,16 +237,6 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 		},
 	})
 	m.AddMigrations(sqlutil.Migration{
-		Version: "p2p: integrated appservice tables v8 portal profile initialized",
-		Up: func(ctx context.Context, txn *sql.Tx) error {
-			if _, err := txn.ExecContext(ctx, `ALTER TABLE p2p_portal ADD COLUMN profile_initialized BIGINT NOT NULL DEFAULT 0`); err != nil {
-				return err
-			}
-			_, err := txn.ExecContext(ctx, `UPDATE p2p_portal SET profile_initialized = 1 WHERE TRIM(display_name) <> ''`)
-			return err
-		},
-	})
-	m.AddMigrations(sqlutil.Migration{
 		Version: "p2p: integrated appservice tables v9 reports",
 		Up: func(ctx context.Context, txn *sql.Tx) error {
 			return execMigrationStatements(ctx, txn, []string{
@@ -263,16 +252,6 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 				`CREATE INDEX IF NOT EXISTS p2p_reports_reported_idx ON p2p_reports(reported_domain, target_type, created_at)`,
 				`CREATE INDEX IF NOT EXISTS p2p_reports_reporter_idx ON p2p_reports(reporter_domain, created_at)`,
 			})
-		},
-	})
-	m.AddMigrations(sqlutil.Migration{
-		Version: "p2p: integrated appservice tables v10 portal password initialized",
-		Up: func(ctx context.Context, txn *sql.Tx) error {
-			if _, err := txn.ExecContext(ctx, `ALTER TABLE p2p_portal ADD COLUMN password_initialized BIGINT NOT NULL DEFAULT 0`); err != nil {
-				return err
-			}
-			_, err := txn.ExecContext(ctx, `UPDATE p2p_portal SET password_initialized = 1 WHERE profile_initialized = 1`)
-			return err
 		},
 	})
 	m.AddMigrations(sqlutil.Migration{
@@ -528,15 +507,15 @@ func execMigrationStatements(ctx context.Context, txn *sql.Tx, statements []stri
 
 func (s *DatabaseStore) LoadPortal(ctx context.Context) (portalState, bool, error) {
 	var state portalState
-	var initialized, passwordInitialized, profileInitialized int64
+	var initialized int64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT initialized, password, admin_token, matrix_token, matrix_device_id, agent_token,
-			owner_mxid, agent_room_id, password_initialized, profile_initialized, user_id, display_name, domain,
+		SELECT initialized, password, access_token, matrix_device_id, agent_token,
+			owner_mxid, agent_room_id, user_id, display_name, domain,
 			avatar_url, gender, birthday, phone, email
 		FROM p2p_portal WHERE id = $1
 	`, "owner").Scan(
-		&initialized, &state.Password, &state.AdminToken, &state.MatrixToken, &state.MatrixDeviceID, &state.AgentToken,
-		&state.OwnerMXID, &state.AgentRoomID, &passwordInitialized, &profileInitialized, &state.Profile.UserID, &state.Profile.DisplayName, &state.Profile.Domain,
+		&initialized, &state.Password, &state.AccessToken, &state.MatrixDeviceID, &state.AgentToken,
+		&state.OwnerMXID, &state.AgentRoomID, &state.Profile.UserID, &state.Profile.DisplayName, &state.Profile.Domain,
 		&state.Profile.AvatarURL, &state.Profile.Gender, &state.Profile.Birthday, &state.Profile.Phone, &state.Profile.Email,
 	)
 	if err == sql.ErrNoRows {
@@ -546,8 +525,6 @@ func (s *DatabaseStore) LoadPortal(ctx context.Context) (portalState, bool, erro
 		return portalState{}, false, err
 	}
 	state.Initialized = initialized == 1
-	state.PasswordInitialized = passwordInitialized == 1
-	state.ProfileInitialized = profileInitialized == 1
 	return state, true, nil
 }
 
@@ -555,21 +532,18 @@ func (s *DatabaseStore) SavePortal(ctx context.Context, state portalState) error
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_portal (
-				id, initialized, password, admin_token, matrix_token, matrix_device_id, agent_token,
-				owner_mxid, agent_room_id, password_initialized, profile_initialized, user_id, display_name, domain,
+				id, initialized, password, access_token, matrix_device_id, agent_token,
+				owner_mxid, agent_room_id, user_id, display_name, domain,
 				avatar_url, gender, birthday, phone, email
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			ON CONFLICT(id) DO UPDATE SET
 				initialized = EXCLUDED.initialized,
 				password = EXCLUDED.password,
-				admin_token = EXCLUDED.admin_token,
-				matrix_token = EXCLUDED.matrix_token,
+				access_token = EXCLUDED.access_token,
 				matrix_device_id = EXCLUDED.matrix_device_id,
 				agent_token = EXCLUDED.agent_token,
 				owner_mxid = EXCLUDED.owner_mxid,
 				agent_room_id = EXCLUDED.agent_room_id,
-				password_initialized = EXCLUDED.password_initialized,
-				profile_initialized = EXCLUDED.profile_initialized,
 				user_id = EXCLUDED.user_id,
 				display_name = EXCLUDED.display_name,
 				domain = EXCLUDED.domain,
@@ -578,8 +552,8 @@ func (s *DatabaseStore) SavePortal(ctx context.Context, state portalState) error
 				birthday = EXCLUDED.birthday,
 				phone = EXCLUDED.phone,
 				email = EXCLUDED.email
-		`, "owner", boolInt(state.Initialized), state.Password, state.AdminToken, state.MatrixToken, state.MatrixDeviceID, state.AgentToken,
-			state.OwnerMXID, state.AgentRoomID, boolInt(state.PasswordInitialized), boolInt(state.ProfileInitialized), state.Profile.UserID, state.Profile.DisplayName, state.Profile.Domain,
+		`, "owner", boolInt(state.Initialized), state.Password, state.AccessToken, state.MatrixDeviceID, state.AgentToken,
+			state.OwnerMXID, state.AgentRoomID, state.Profile.UserID, state.Profile.DisplayName, state.Profile.Domain,
 			state.Profile.AvatarURL, state.Profile.Gender, state.Profile.Birthday, state.Profile.Phone, state.Profile.Email)
 		return err
 	})

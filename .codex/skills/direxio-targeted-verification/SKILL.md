@@ -7,6 +7,8 @@ description: Choose focused verification for Direxio Message Server repository c
 
 Use this skill to validate enough for the touched surface without defaulting to an expensive full suite.
 
+Run commands from the repository root in the shell that matches the current environment. Use PowerShell syntax on Windows, and Bash syntax on Linux, macOS, or WSL.
+
 ## Always Consider
 
 - Run `gofmt -w` on touched Go files. Use `goimports` only if already installed.
@@ -31,6 +33,16 @@ python3 /mnt/c/Users/84960/.codex/skills/.system/skill-creator/scripts/quick_val
 - Postman collection: `python3 -m json.tool docs/postman/direxio-message-server.postman_collection.json >/dev/null`.
 - Docker compose: `docker compose -f docker-compose.p2p.yml config` or `docker compose -f docker-compose.p2p-dual.yml config`.
 - Multi-node remote lookup, federation, public join, profile/member propagation, message/redaction projection, or restart behavior across nodes:
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"

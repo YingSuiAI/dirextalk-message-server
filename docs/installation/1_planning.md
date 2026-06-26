@@ -59,9 +59,7 @@ In order to install Direxio Message Server, you will need to satisfy the followi
 
 ### Go
 
-At this time, Direxio Message Server supports being built with Go 1.21 or later. We do not support building
-Direxio Message Server with older versions of Go than this. If you are installing Go using a package manager,
-you should check (by running `go version`) that you are using a suitable version before you start.
+At this time, Direxio Message Server is developed and tested with Go 1.26.4. If you are installing Go using a package manager, check `go version` before you start and keep the local toolchain aligned with `go.mod`.
 
 ### PostgreSQL
 
@@ -82,5 +80,4 @@ for [Caddy](https://github.com/YingSuiAI/direxio-message-server/blob/main/docs/c
 
 ### Windows
 
-Finally, if you want to build Direxio Message Server on Windows, you will need `gcc` in the path. The best
-way to achieve this is by installing and building Direxio Message Server under [MinGW-w64](https://www.mingw-w64.org/).
+Finally, if you want to build Direxio Message Server on Windows, you will need `gcc` in the path for CGO-backed dependencies. Install a current MinGW-w64 toolchain and run the Go commands from PowerShell, or use WSL when you intentionally want a Linux build.

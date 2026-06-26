@@ -54,6 +54,8 @@ Protected action 需要 `Authorization: Bearer <access_token>`，或启用对应
 - `channels.public.join_result`
 - `users.public_channels`
 
+`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。
+
 `channels.public.join_result` 是节点间审批结果回调，不是客户端常规入口。
 
 ## 3. 运行时结构
@@ -165,6 +167,7 @@ Portal/Profile：
 - 默认启动时自动初始化 portal owner、owner token、agent token、默认密码和 owner profile。
 - `P2P_PORTAL_PASSWORD` 可覆盖默认密码。
 - `P2P_PORTAL_CREDENTIALS_FILE` 用于启动、密码变更和 session token 变更后的 credential JSON 写出。
+- `portal.bootstrap`、`portal.auth`、`portal.password` 创建新的 portal owner Matrix session 后，会删除该 owner 的其他 Matrix devices，只保留本次登录 device；旧设备后续 Matrix 请求应收到 `M_UNKNOWN_TOKEN` 并回到手动登录。`agent.matrix_session.create` 是 Agent/CLI 内部会话，不删除用户手机 device。
 - profile update 同步 P2P profile/member projection，并写入 Matrix-facing profile storage。
 
 Contacts：
@@ -180,6 +183,7 @@ Groups：
 - group create 写 Matrix room type 与 `io.direxio.room.profile`。
 - invite/join/leave/remove/mute/unmute/dissolve 通过 `p2p.Transport` 与 native state 进入 Matrix。
 - member list 来自 P2P projection，但最终事实是 Matrix membership。
+- 群聊和频道只有 `owner` 与 `member` 两种产品角色。
 
 Channels：
 
@@ -188,6 +192,7 @@ Channels：
 - invite grant 用于私有或分享卡片加入。
 - public join request 使用上面的申请审批自动 join 生命周期。
 - channel member、mute、read marker、dissolve 都保持 Matrix-first。
+- 频道 `is_owned`、管理能力和发帖能力只来自 `owner` 角色。
 
 Channel posts/comments/reactions：
 
@@ -210,10 +215,16 @@ Agent/API permissions：
 Multi-node：
 
 - 房间、成员、消息、redaction、state 通过 Matrix federation。
-- public channel discovery 和 join request 使用 `remote_node_base_url` 显式指定频道主节点 P2P base URL。
+- public channel discovery、user public channels 和 join request 使用 `remote_node_base_url` 显式指定目标 owner 节点 P2P base URL。
 - 后端校验远端 URL；本地自签名双节点开发可用 `P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY=true`。
 
 ## 8. 配置与开发命令
+
+当前工具链：
+
+- Go 1.26.4。
+- 命令从仓库根目录执行。
+- Windows 使用 PowerShell；Linux、macOS 或 WSL 使用 Bash/Zsh。文档命令应按当前环境给出，不应强制限定为 WSL。
 
 单节点 Docker：
 
@@ -222,13 +233,47 @@ docker compose -f docker-compose.p2p.yml up --build
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-WSL2 多节点 regression：
+多节点 regression。
+
+PowerShell：
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash：
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
 docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
 python3 scripts/p2p-three-node-regression.py
 ```
+
+本机 PostgreSQL 测试环境变量：
+
+PowerShell：
+
+```powershell
+$env:POSTGRES_USER = "postgres"
+$env:POSTGRES_PASSWORD = "123789"
+$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_PORT = "5432"
+$env:POSTGRES_DB = "postgres"
+```
+
+Bash：
+
+```bash
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=123789
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=postgres
+```
+
+测试 helper 会创建相互隔离的 `dendrite_test_*` 数据库，并在对应测试结束后删除创建的测试库。
 
 常用验证：
 

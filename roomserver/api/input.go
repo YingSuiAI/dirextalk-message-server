@@ -8,7 +8,7 @@
 package api
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -111,5 +111,5 @@ func (r *InputRoomEventsResponse) Err() error {
 			Message: r.ErrMsg,
 		}
 	}
-	return fmt.Errorf(r.ErrMsg)
+	return errors.New(r.ErrMsg)
 }

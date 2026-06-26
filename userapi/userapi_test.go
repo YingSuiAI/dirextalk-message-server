@@ -52,7 +52,7 @@ func (d *dummyProducer) PublishMsg(msg *nats.Msg, opts ...nats.PubOpt) (*nats.Pu
 	if loaded {
 		c, ok := count.(int)
 		if !ok {
-			d.t.Fatalf("unexpected type: %T with value %q", c, c)
+			d.t.Fatalf("unexpected type: %T with value %v", count, count)
 		}
 		d.callCount.Store(msg.Subject, c+1)
 		d.t.Logf("Incrementing call counter for %s", msg.Subject)

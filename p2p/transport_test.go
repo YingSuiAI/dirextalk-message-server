@@ -1447,6 +1447,77 @@ func TestJoinRefreshesCurrentRoomMembersFromTransport(t *testing.T) {
 	}
 }
 
+func TestGroupJoinDoesNotBackfillRoomAsChannel(t *testing.T) {
+	transport := &recordingTransport{
+		roomID:      "!group:example.com",
+		roomChannel: channel{ChannelID: "ghost_channel", RoomID: "!group:example.com", Name: "Group with A, B", ChannelType: "chat"},
+		roomMembers: []memberRecord{
+			{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner", Membership: "join", Role: "owner"},
+			{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice", Membership: "join", Role: "member"},
+		},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Group with A, B",
+	})
+
+	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id": group.RoomID,
+		"user_id": "@alice:remote.example",
+	})
+
+	channels, err := service.listChannels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(channels) != 0 {
+		t.Fatalf("expected group join not to create channel records, got %#v", channels)
+	}
+	groups := mustHandle[map[string]any](t, service, "groups.list", nil)["groups"].([]groupRecord)
+	if len(groups) != 1 || groups[0].RoomID != group.RoomID {
+		t.Fatalf("expected group list to keep the joined group only, got %#v", groups)
+	}
+}
+
+func TestGroupJoinDoesNotCopyStaleChannelIDToMembers(t *testing.T) {
+	transport := &recordingTransport{
+		roomID: "!group:example.com",
+		roomMembers: []memberRecord{
+			{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner", Membership: "join", Role: "owner"},
+			{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice", Membership: "join", Role: "member"},
+		},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Group with A, B",
+	})
+	service.mu.Lock()
+	service.channels["ghost_channel"] = channel{
+		ChannelID: "ghost_channel",
+		RoomID:    group.RoomID,
+		Name:      "Stale channel projection",
+	}
+	service.mu.Unlock()
+
+	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id": group.RoomID,
+		"user_id": "@alice:remote.example",
+	})
+
+	members := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": group.RoomID})["members"].([]memberRecord)
+	alice := findMember(members, "@alice:remote.example")
+	if alice.UserID == "" {
+		t.Fatalf("expected joined group member, got %#v", members)
+	}
+	if alice.ChannelID != "" {
+		t.Fatalf("expected group member channel_id to stay empty, got %#v", alice)
+	}
+}
+
 func TestJoinRefreshPreservesExistingSparseRoomStateFields(t *testing.T) {
 	transport := &recordingTransport{
 		roomID:      "!channel:example.com",
@@ -1633,6 +1704,70 @@ func TestRemotePublicChannelGetUsesClientProvidedOwnerNodeBaseURL(t *testing.T) 
 	}
 	if calls != 1 {
 		t.Fatalf("expected one remote owner node call, got %d", calls)
+	}
+}
+
+func TestUserPublicChannelsForwardsToOwnerNodeBaseURL(t *testing.T) {
+	calls := 0
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/_p2p/query" {
+			t.Fatalf("expected remote public query path, got %s", r.URL.Path)
+		}
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode remote request: %v", err)
+		}
+		if req.Action != "users.public_channels" ||
+			trimString(req.Params["user_id"]) != "@owner:remote.example" ||
+			trimString(req.Params["remote_node_base_url"]) != "" {
+			t.Fatalf("unexpected remote request %#v", req)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"user_id": "@owner:remote.example",
+			"channels": []channel{{
+				ChannelID:   "remote_owned",
+				RoomID:      "!remote-owned:remote.example",
+				Name:        "Remote Owned",
+				Visibility:  "public",
+				JoinPolicy:  "open",
+				ChannelType: "chat",
+			}},
+		})
+	}))
+	defer remote.Close()
+
+	service := NewService(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	})
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{
+		"user_id":              "@owner:remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+	channels := result["channels"].([]channel)
+	if len(channels) != 1 || channels[0].ChannelID != "remote_owned" {
+		t.Fatalf("expected remote owner public channels, got %#v", result)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one remote owner node call, got %d", calls)
+	}
+}
+
+func TestUserPublicChannelsRemoteLookupRequiresValidUserID(t *testing.T) {
+	service := NewService(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	})
+	bootstrapService(t, service)
+
+	if _, apiErr := service.Handle(context.Background(), "users.public_channels", map[string]any{
+		"user_id":              "owner",
+		"remote_node_base_url": "https://remote.example/_p2p",
+	}); apiErr == nil || apiErr.Status != http.StatusBadRequest || apiErr.Error != "valid user_id is required" {
+		t.Fatalf("expected invalid remote user id to return targeted 400, got %#v", apiErr)
 	}
 }
 
@@ -2016,9 +2151,9 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	if err := service.saveMember(context.Background(), memberRecord{
 		RoomID:     ch.RoomID,
 		ChannelID:  ch.ChannelID,
-		UserID:     "@admin:example.com",
+		UserID:     "@bob:example.com",
 		Membership: "join",
-		Role:       "admin",
+		Role:       "member",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2029,12 +2164,18 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	})
 
 	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
-	if len(memberPolicyStates) != 1 {
-		t.Fatalf("expected one member policy state event for non-privileged member, got %#v", memberPolicyStates)
+	if len(memberPolicyStates) != 2 {
+		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}
-	state := memberPolicyStates[0]
-	if state.Event.StateKey != productpolicy.UserStateKey("@alice:example.com") || state.Event.Content["role"] != "member" || state.Event.Content["muted"] != true {
-		t.Fatalf("expected muted member policy state for regular member, got %#v", state)
+	mutedByUser := map[string]RoomStateEvent{}
+	for _, state := range memberPolicyStates {
+		mutedByUser[state.Event.StateKey] = state.Event
+	}
+	for _, userID := range []string{"@alice:example.com", "@bob:example.com"} {
+		state, ok := mutedByUser[productpolicy.UserStateKey(userID)]
+		if !ok || state.Content["role"] != "member" || state.Content["muted"] != true {
+			t.Fatalf("expected muted member policy state for %s as regular member, got %#v", userID, state)
+		}
 	}
 }
 
@@ -2104,9 +2245,9 @@ func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	}
 	if err := service.saveMember(context.Background(), memberRecord{
 		RoomID:     group.RoomID,
-		UserID:     "@admin:example.com",
+		UserID:     "@bob:example.com",
 		Membership: "join",
-		Role:       "admin",
+		Role:       "member",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2116,12 +2257,18 @@ func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	})
 
 	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
-	if len(memberPolicyStates) != 1 {
-		t.Fatalf("expected one member policy state event for non-privileged member, got %#v", memberPolicyStates)
+	if len(memberPolicyStates) != 2 {
+		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}
-	state := memberPolicyStates[0]
-	if state.Event.StateKey != productpolicy.UserStateKey("@alice:example.com") || state.Event.Content["role"] != "member" || state.Event.Content["muted"] != true {
-		t.Fatalf("expected muted member policy state for regular member, got %#v", state)
+	mutedByUser := map[string]RoomStateEvent{}
+	for _, state := range memberPolicyStates {
+		mutedByUser[state.Event.StateKey] = state.Event
+	}
+	for _, userID := range []string{"@alice:example.com", "@bob:example.com"} {
+		state, ok := mutedByUser[productpolicy.UserStateKey(userID)]
+		if !ok || state.Content["role"] != "member" || state.Content["muted"] != true {
+			t.Fatalf("expected muted member policy state for %s as regular member, got %#v", userID, state)
+		}
 	}
 }
 

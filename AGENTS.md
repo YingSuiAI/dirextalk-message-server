@@ -57,6 +57,7 @@ Rules:
 - Matrix `m.room.member membership=join` is the final joined fact.
 - New group rooms and chat/text channel rooms must set `m.room.history_visibility` to `joined` at creation so later members only receive ordinary timeline events from their own join point. Do not apply this retroactively to existing rooms unless explicitly requested.
 - Product read models are projections unless a domain rule explicitly makes a table source-of-truth state.
+- Product group/channel roles are `owner` or `member` only. Do not add or document additional product roles.
 - Ordinary Matrix timeline messages are not copied into a second P2P ordinary-message store. Ordinary send, history, search, unread, and redaction use Matrix Client-Server APIs.
 - Deleted direct contacts keep the old direct room identity for recovery. The side that deleted the contact may intentionally restore the old room without peer approval when the peer still retains the accepted relationship. A peer re-request after the relationship is deleted must remain `pending_*` in the old room until the deleting side explicitly accepts; it must not silently rejoin or restore chat.
 - The configured agents room is the narrow gateway exception: backend startup must create and persist a real private Matrix room id for `agent_room_id`, join both owner and local `@agent:<server>` to that room, and ordinary messages in that room may emit `agent_room.message` SSE events for local agent gateways. Gateway replies must be sent by `@agent:<server>`, not owner. Do not use legacy pseudo ids such as `!agent:<domain>`.
@@ -65,7 +66,9 @@ Rules:
 
 ## Business Scenarios
 
-- Portal/auth: bootstrap, password login, password rotation, Matrix device session creation, credentials file refresh.
+- Portal/auth: bootstrap, password login, password rotation, Matrix device session creation, credentials file refresh. Portal login/password/bootstrap Matrix sessions are single-device for the portal owner: creating a new portal session deletes the owner's other Matrix devices so old phones receive `M_UNKNOWN_TOKEN`; `agent.matrix_session.create` is the exception and must not evict the user's phone session.
+  - Login/session responses expose only `access_token` and one setup flag, `initialized`.
+  - `initialized` means the generated initial password has been changed through `portal.password`; profile completion must not affect it.
 - Profile: owner profile read/update, Matrix-facing profile storage, member profile propagation.
 - Contacts: direct room invite, inbound/outbound request projection, accept/reject/delete/reactivate, remark update.
 - Rooms/messages: ordinary text/media send, history, search, local hiding, and redaction through Matrix APIs.
@@ -79,7 +82,7 @@ Rules:
 
 ## Development Workflow
 
-Use Bash from the repository root in WSL2/Linux.
+Run commands from the repository root in the shell that matches the current environment. PowerShell is acceptable on Windows; Bash is acceptable on Linux, macOS, or WSL. Prefer the platform-native command form instead of forcing WSL-only instructions.
 
 Recommended discovery and diagnostics:
 
@@ -106,13 +109,25 @@ docker compose -f docker-compose.p2p.yml up --build
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-Run the WSL-compatible multi-node regression:
+Run the multi-node regression.
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
 docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
 python3 scripts/p2p-three-node-regression.py
 ```
+
+Run local PostgreSQL-backed tests by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, and `POSTGRES_DB`. The default local password used by this workspace is `123789`. Tests create isolated `dendrite_test_*` databases and must drop those test databases when each test finishes.
 
 Use `docs/postman/direxio-message-server.postman_collection.json` for manual API checks. Import it into Postman, set `baseUrl`, then call `portal.auth` to obtain `access_token` and `agent_token`.
 
@@ -161,7 +176,7 @@ When project rules, contracts, event/state behavior, validation expectations, or
 - Verify malformed optional product metadata cannot block later projection events.
 - Verify restart recovery from PostgreSQL when durable state changes.
 - Verify owner profile changes propagate through `m.room.member` projection when profile behavior changes.
-- Verify WSL-compatible multi-node regression coverage exists for changed cross-node flows.
+- Verify multi-node regression coverage exists for changed cross-node flows on the current platform.
 
 ## Documentation Rules
 

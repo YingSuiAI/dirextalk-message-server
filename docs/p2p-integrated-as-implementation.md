@@ -98,7 +98,7 @@ Services:
 - `dendrite-init`: one-shot initializer that creates `/etc/direxio-message-server/matrix_key.pem` and `/etc/direxio-message-server/message-server.yaml` if they do not already exist.
 - `dendrite`: local image built from this fork's root `Dockerfile`, persisted config/data volumes, HTTP exposed on host port `8008`, and `P2P_PORTAL_CREDENTIALS_FILE=/var/direxio-message-server/p2p/bootstrap.json`.
 
-Read the generated local login/admin credentials from the running container:
+Read the generated local login credentials from the running container:
 
 ```bash
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
@@ -157,7 +157,7 @@ Matrix transport integration:
 - Channel public join requests use a Matrix-first application lifecycle: approval channels store `pending` and write `io.direxio.join_request`; open public requests and approved requests write approved state and then call `Transport.JoinRoom` locally or call the requester node through `channels.public.join_result`. Final `join` is recorded only after Matrix join succeeds. If approval reaches `join_failed` because the requester-node callback temporarily failed, `channels.join_request.approve` can be called again to retry. `channels.join_request.reject` records `reject` locally, writes rejected join-request state, calls the requester node for remote users, and keeps the rejected requester out of normal member lists.
 - Main group/channel list payloads are joined-only. `sync.bootstrap.groups`, `sync.bootstrap.channels`, `groups.list`, and `channels.list` only return rooms where the local owner has true Matrix-projected `membership=join`; `invite` and `pending` records are reserved for `pending.group_invites` and `pending.channel_notices`.
 - Channel invite-card sharing uses `channels.invite_grant.create`. The action persists a room-scoped grant in `p2p_channel_invite_grants`, requires the owner to be joined to the share room and owner of the target channel, then Matrix-invites current joined non-owner members of the share room to the channel. `channels.join` accepts `grant_id` plus `share_room_id`/`via_room_id` so private or shared channel cards can join without public lookup; public search still uses `channels.public.join_request`.
-- `ProductPolicy` is shared by Matrix Client-Server routes and `p2p.DendriteTransport` for product room messages, reactions, redactions, joins, invites, leaves, kicks, and bans. In channel rooms, `p2p_kind=channel_post` requires owner/admin, `p2p_kind=channel_comment` and `m.reaction` obey `comments_enabled`, and plain `m.room.message` is not blocked solely by disabled comments. Sender mute enforcement reads `io.direxio.member.policy`; any room-profile `muted` field is projection/UI metadata, not the sender mute authority. P2P transition facade writes map ProductPolicy transport errors back to their policy status, and local message/reaction/post/comment projections are written or removed only after the Matrix write/redaction succeeds. Non-product Matrix rooms continue through Matrix-native authorization.
+- `ProductPolicy` is shared by Matrix Client-Server routes and `p2p.DendriteTransport` for product room messages, reactions, redactions, joins, invites, leaves, kicks, and bans. In group/channel rooms, ProductCore roles are owner/member only. In channel rooms, `p2p_kind=channel_post` requires owner, `p2p_kind=channel_comment` and `m.reaction` obey `comments_enabled`, and plain `m.room.message` is not blocked solely by disabled comments. Sender mute enforcement reads `io.direxio.member.policy`; any room-profile `muted` field is projection/UI metadata, not the sender mute authority. P2P transition facade writes map ProductPolicy transport errors back to their policy status, and local message/reaction/post/comment projections are written or removed only after the Matrix write/redaction succeeds. Non-product Matrix rooms continue through Matrix-native authorization.
 - The current policy index mode is `matrix_state`: ProductPolicy reads Direxio Message Server roomserver current state directly instead of trusting P2P projection tables. `portal.status.policy_index_ready` is true only when Matrix transport is wired; no-transport fallback mode reports `policy_index_mode=unavailable`.
 - With Matrix transport enabled, channel post/comment recall authorization is delegated to `DendriteTransport.RedactEvent` and ProductPolicy/Matrix authorization; local `p2p_members` owner-role projection is only a no-transport fallback.
 - When no transport is configured, the service keeps the local deterministic fallback used by unit tests and degraded startup.
@@ -167,8 +167,8 @@ Inbound projector integration:
 - `p2p.OutputRoomEventConsumer` consumes the Direxio Message Server roomserver output stream with its own durable consumer.
 - `p2p.Service.ProjectOutputEvent()` handles `OutputTypeNewRoomEvent`.
 - Ordinary `m.room.message` events are not projected into P2P message storage. They remain in Matrix and are read through Matrix `/sync`, `/rooms/{roomID}/messages`, and `/search`.
-- Messages with `p2p_kind = channel_post` are projected into `p2p_channel_posts`; Matrix SDK senders must be owner/admin for ProductPolicy to accept the write.
-- Messages with `p2p_kind = channel_comment` are projected into `p2p_channel_comments`; ProductPolicy rejects these and `m.reaction` when channel comments are disabled for non-owner/admin senders.
+- Messages with `p2p_kind = channel_post` are projected into `p2p_channel_posts`; Matrix SDK senders must be owner for ProductPolicy to accept the write.
+- Messages with `p2p_kind = channel_comment` are projected into `p2p_channel_comments`; ProductPolicy rejects these and `m.reaction` when channel comments are disabled for ordinary members.
 - Native `io.direxio.room.profile` state is projected into `p2p_channels` and `p2p_groups`, and direct-room profile stripped state projects inbound contact requests. Removed legacy product state is ignored by current projectors.
 - `io.direxio.member.policy` state projects member `role`/`muted` policy into `p2p_members`, while `m.room.member` remains the membership source of truth.
 - `io.direxio.join_request` state projects pending/approved/rejected channel join-request status into `p2p_members` and emits `channel.join_request.changed` outbox notifications.
@@ -220,7 +220,7 @@ Public actions currently allowed without bearer:
 
 Startup now performs default portal initialization. When no `p2p_portal` row exists, the integrated service creates owner/agent tokens, owner profile metadata, and a default password automatically, then persists that state to PostgreSQL when a store is available. `P2P_PORTAL_PASSWORD` can override the default password; otherwise a new portal starts with a random 8-digit numeric password and writes it to the credentials file. `P2P_PORTAL_CREDENTIALS_FILE` writes the current credential JSON after startup and after password/session token changes.
 
-The login/password response includes `initialization_completed`, `already_initialized`, `setup_completed`, `account_initialized`, and `profile_initialized`. `profile_initialized` means the user has set a non-empty display name at least once. `initialization_completed`/`already_initialized`/`setup_completed`/`account_initialized` become true only after the user has both changed the initial password and set a non-empty display name. The client trusts these login/password response flags instead of inferring initialization from `profile.get`; a missing, failed, or empty profile response must not send an already initialized user back through first-time setup.
+The login/password response exposes one setup flag: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` successfully changes that password. Profile completion is not part of setup state; Direxio Flutter stores `access_token` and routes by `initialized` only.
 
 ## Frontend Migration Target
 
@@ -287,7 +287,7 @@ This includes route-envelope tests, `TestDatabaseStoreRestoresPortalAndBusinessS
 
 Additional targeted regression checks cover default portal initialization, setup-free startup, credential JSON writing and password-rotation refresh, password rotation, Agent password/config/status actions, Agent API permission enable/disable enforcement, contact list/request deletion, favorite batch deletion, owner channel comment history, Matrix-only ordinary message handling, and syncapi local hidden-event filtering.
 
-Group and channel moderation actions now persist product-level `muted` state and update ordinary joined members in the target room. Owner/admin members are excluded from whole-room mute toggles. `groups.invite_policy.update` persists `invite_policy` and survives PostgreSQL-backed service reloads.
+Group and channel moderation actions now persist product-level `muted` state and update ordinary joined members in the target room. Owners are excluded from whole-room mute toggles. `groups.invite_policy.update` persists `invite_policy` and survives PostgreSQL-backed service reloads.
 
 Product metadata updates are field-preserving: `groups.update` and `channels.update` first load the current record and only overwrite fields present in the action params. Public channel detail lookup is read-only and returns `404` for missing or private channels instead of creating placeholder records.
 
@@ -295,7 +295,7 @@ Public profile/channel lookup behavior:
 
 - `channels.public.get` is read-only and returns `404` for private channels.
 - `channels.public.join_request` can be called without bearer. Approval-policy channels store a local `pending` member record; open channels and owner approval write approved state and then trigger Matrix join locally or through requester-node `channels.public.join_result`.
-- `users.public_channels` can be called without bearer and returns only channels where the target user has owner membership and the channel visibility is `public`. The response includes `avatar_url`, `name`, `room_id`, `channel_id`, `member_count`, and the normal channel metadata consumed by the client.
+- `users.public_channels` can be called without bearer and returns only channels where the target user has owner membership and the channel visibility is `public`. When `remote_node_base_url` is present, the local node forwards the public query to that owner node. The response includes `avatar_url`, `name`, `room_id`, `channel_id`, `member_count`, and the normal channel metadata consumed by the client.
 
 Group/channel member behavior:
 
@@ -398,7 +398,17 @@ The audit covers the user's 11 explicit acceptance areas as follows:
 
 One intentional correction from this audit was test-only: `channel owner does not see report action from role` now asserts the current title text `频道信息(2)` instead of the stale text `产品公告（2）`; the business assertions that owners do not see report/leave actions remain unchanged.
 
-WSL2 multi-node regression:
+Multi-node regression:
+
+PowerShell:
+
+```powershell
+$env:P2P_DUAL_PUBLIC_HOST = if ($env:P2P_DUAL_PUBLIC_HOST) { $env:P2P_DUAL_PUBLIC_HOST } else { "host.docker.internal" }
+docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a dendrite-b dendrite-c
+python scripts/p2p-three-node-regression.py
+```
+
+Bash:
 
 ```bash
 export P2P_DUAL_PUBLIC_HOST="${P2P_DUAL_PUBLIC_HOST:-host.docker.internal}"
@@ -406,9 +416,9 @@ docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a 
 python3 scripts/p2p-three-node-regression.py
 ```
 
-The WSL-compatible Python regression authenticates local nodes from `/var/direxio-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
+The Python regression authenticates local nodes from `/var/direxio-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
 
-The legacy Windows-only `scripts/p2p-dual-smoke.ps1` previously carried broader static action coverage for all 93 P2P actions and 86 permission-controlled API actions. Do not use it as the default Codex path in WSL2; port any required missing coverage to the Python or shell regression before relying on it for current validation. Invite and join-approval paths must use real portal owners from the compose topology; fabricated MXIDs are not valid Matrix users and can make federation resolve an invalid destination.
+The legacy `scripts/p2p-dual-smoke.ps1` previously carried broader static action coverage for all 93 P2P actions and 86 permission-controlled API actions. Do not use it as the default validation path; port any required missing coverage to the Python regression before relying on it for current validation. Invite and join-approval paths must use real portal owners from the compose topology; fabricated MXIDs are not valid Matrix users and can make federation resolve an invalid destination.
 
 Latest legacy full-smoke image:
 

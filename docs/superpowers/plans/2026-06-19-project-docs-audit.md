@@ -6,7 +6,7 @@
 
 **Architecture:** This is a documentation and audit pass over the existing Dendrite-based Matrix/P2P monolith. The source of truth is route registration, `p2p.Service.Handle`, persistence migrations, Matrix transport, projector code, and dual-node smoke coverage.
 
-**Tech Stack:** Go 1.23/toolchain 1.24.3, gorilla/mux, Matrix Dendrite components, PostgreSQL 18, JetStream/NATS, Docker Compose, PowerShell smoke tests, Postman collection v2.1.
+**Tech Stack:** Go 1.26.4, gorilla/mux, Matrix Dendrite components, PostgreSQL 18, JetStream/NATS, Docker Compose, cross-platform PowerShell/Bash validation, Postman collection v2.1.
 
 ---
 

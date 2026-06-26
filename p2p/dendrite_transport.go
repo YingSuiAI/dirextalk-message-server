@@ -528,12 +528,12 @@ func (t *DendriteTransport) GetRoomChannel(ctx context.Context, roomID string) (
 		if err := json.Unmarshal(event.Content(), &content); err != nil {
 			return channel{}, false, err
 		}
-		if trimString(content["room_type"]) != "" && trimString(content["room_type"]) != DirexioRoomTypeChannel {
+		if trimString(content["room_type"]) != DirexioRoomTypeChannel {
 			return channel{}, false, nil
 		}
 		channelID := trimString(content["channel_id"])
-		if channelID == "" {
-			channelID = roomID
+		if channelID == "" || channelID == roomID || strings.HasPrefix(channelID, "!") {
+			return channel{}, false, nil
 		}
 		return channel{
 			ChannelID:        channelID,

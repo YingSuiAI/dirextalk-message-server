@@ -110,7 +110,7 @@ func ApplyHistoryVisibilityFilter(
 	start := time.Now()
 
 	// try to get the current membership of the user
-	membershipCurrent, _, err := syncDB.SelectMembershipForUser(ctx, events[0].RoomID().String(), userID.String(), math.MaxInt64)
+	membershipCurrent, membershipCurrentTopologicalPos, err := syncDB.SelectMembershipForUser(ctx, events[0].RoomID().String(), userID.String(), math.MaxInt64)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +173,15 @@ func ApplyHistoryVisibilityFilter(
 		}
 		// do the actual check
 		allowed := evVis.allowed()
+		if !allowed && membershipCurrent == spec.Join &&
+			membershipCurrentTopologicalPos > 0 &&
+			ev.Depth() >= membershipCurrentTopologicalPos &&
+			evVis.visibility == gomatrixserverlib.HistoryVisibilityJoined {
+			// Federated joins can leave membership-at-event state unavailable
+			// locally. Current membership plus join depth still lets us keep
+			// post-join events visible without exposing pre-join history.
+			allowed = true
+		}
 		if allowed {
 			eventsFiltered = append(eventsFiltered, ev)
 		}

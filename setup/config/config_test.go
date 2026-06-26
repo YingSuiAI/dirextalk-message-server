@@ -8,6 +8,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -18,14 +19,15 @@ import (
 )
 
 func TestLoadConfigRelative(t *testing.T) {
-	cfg, err := loadConfig("/my/config/dir", []byte(testConfig),
+	configDir := t.TempDir()
+	cfg, err := loadConfig(configDir, []byte(testConfig),
 		mockReadFile{
-			"/my/config/dir/matrix_key.pem": testKey,
-			"/my/config/dir/tls_cert.pem":   testCert,
+			filepath.Join(configDir, "matrix_key.pem"): testKey,
+			filepath.Join(configDir, "tls_cert.pem"):   testCert,
 		}.readFile,
 	)
 	if err != nil {
-		t.Error("failed to load config:", err)
+		t.Fatal("failed to load config:", err)
 	}
 
 	configErrors := &ConfigErrors{}

@@ -117,24 +117,39 @@ comment. Please avoid doing this if you can.
 
 ## Unit tests
 
+Run tests from the repository root with the shell that matches the current platform. PowerShell is acceptable on Windows; Bash is acceptable on Linux, macOS, or WSL.
+
 We also have unit tests which we run via:
 
 ```bash
-DENDRITE_TEST_SKIP_NODB=1 go test --race ./...
+go test ./...
 ```
 
-This only runs SQLite database tests. If you wish to execute Postgres tests as well, you'll either need to
-have Postgres installed locally (`createdb` will be used) or have a remote/containerized Postgres instance
-available.
+The test helper uses PostgreSQL by default. You need a local, remote, or containerized PostgreSQL instance available. Tests create isolated `dendrite_test_*` databases and drop those databases when each test finishes.
 
-To configure the connection to a remote Postgres, you can use the following enviroment variables:
+To configure the connection to Postgres, use these environment variables.
+
+PowerShell:
+
+```powershell
+$env:POSTGRES_USER = "postgres"
+$env:POSTGRES_PASSWORD = "123789"
+$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_PORT = "5432"
+$env:POSTGRES_DB = "postgres"
+```
+
+Bash:
 
 ```bash
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=yourPostgresPassword
-POSTGRES_HOST=localhost
-POSTGRES_DB=postgres # the superuser database to use
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=123789
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=postgres
 ```
+
+`POSTGRES_DB` is the administration database used to create and drop package-scoped test databases.
 
 In general, we like submissions that come with tests. Anything that proves that the
 code is functioning as intended is great, and to ensure that we will find out quickly

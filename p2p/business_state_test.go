@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,10 +30,23 @@ func TestReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch",
+		"room_id":      "!channel:example.com",
+		"name":         "Public Posts",
+		"avatar_url":   "mxc://example.com/channel-avatar",
+		"channel_type": "post",
+	})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"body":         "image caption",
+		"message_type": "m.image",
+		"media_json":   `{"url":"mxc://example.com/post-image"}`,
+	})
 
 	first := mustHandle[map[string]any](t, service, "channels.post_reaction.toggle", map[string]any{
-		"channel_id": "ch",
-		"post_id":    "post_1",
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
 		"reaction":   "like",
 	})
 	if first["active"] != true || int64Param(first["reaction_count"]) != 1 {
@@ -49,14 +63,26 @@ func TestReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	reactions := mustHandle[map[string]any](t, reloaded, "channels.my_reactions", nil)
-	got, ok := reactions["reactions"].([]reactionRecord)
-	if !ok || len(got) != 1 || got[0].PostID != "post_1" || !got[0].Active {
+	got := reactionHistoryPayloads(t, reactions)
+	if len(got) != 1 {
 		t.Fatalf("expected active reaction after reload, got %#v", reactions)
+	}
+	reaction := mapValue(t, got[0], "reaction")
+	channelSnapshot := mapValue(t, got[0], "channel")
+	postSnapshot := mapValue(t, got[0], "post")
+	if reaction["post_id"] != post.PostID || reaction["active"] != true {
+		t.Fatalf("expected active reaction record after reload, got %#v", got[0])
+	}
+	if channelSnapshot["name"] != "Public Posts" || channelSnapshot["avatar_url"] != "mxc://example.com/channel-avatar" || channelSnapshot["channel_type"] != "post" {
+		t.Fatalf("expected channel snapshot in reaction history, got %#v", got[0])
+	}
+	if postSnapshot["post_id"] != post.PostID || postSnapshot["message_type"] != "m.image" || postSnapshot["body"] != "image caption" || postSnapshot["reaction_count"] != float64(1) || postSnapshot["reacted_by_me"] != true {
+		t.Fatalf("expected post snapshot in reaction history, got %#v", got[0])
 	}
 
 	second := mustHandle[map[string]any](t, reloaded, "channels.post_reaction.toggle", map[string]any{
-		"channel_id": "ch",
-		"post_id":    "post_1",
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
 		"reaction":   "like",
 	})
 	if second["active"] != false || int64Param(second["reaction_count"]) != 0 {
@@ -79,18 +105,25 @@ func TestCommentReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch",
+		"room_id":      "!channel:example.com",
+		"name":         "Public Posts",
+		"avatar_url":   "mxc://example.com/channel-avatar",
+		"channel_type": "post",
+	})
 	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
-		"channel_id": "ch",
-		"body":       "post",
+		"channel_id": ch.ChannelID,
+		"body":       "post body",
 	})
 	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
-		"channel_id": "ch",
+		"channel_id": ch.ChannelID,
 		"post_id":    post.PostID,
 		"body":       "comment",
 	})
 
 	first := mustHandle[map[string]any](t, service, "channels.comment_reaction.toggle", map[string]any{
-		"channel_id": "ch",
+		"channel_id": ch.ChannelID,
 		"post_id":    post.PostID,
 		"comment_id": comment.CommentID,
 		"reaction":   "like",
@@ -109,13 +142,29 @@ func TestCommentReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	reactions := mustHandle[map[string]any](t, reloaded, "channels.my_reactions", nil)
-	got, ok := reactions["reactions"].([]reactionRecord)
-	if !ok || len(got) != 1 || got[0].TargetType != "comment" || got[0].CommentID != comment.CommentID || !got[0].Active {
+	got := reactionHistoryPayloads(t, reactions)
+	if len(got) != 1 {
 		t.Fatalf("expected active comment reaction after reload, got %#v", reactions)
+	}
+	reaction := mapValue(t, got[0], "reaction")
+	channelSnapshot := mapValue(t, got[0], "channel")
+	postSnapshot := mapValue(t, got[0], "post")
+	commentSnapshot := mapValue(t, got[0], "comment")
+	if reaction["target_type"] != "comment" || reaction["comment_id"] != comment.CommentID || reaction["active"] != true {
+		t.Fatalf("expected active comment reaction after reload, got %#v", got[0])
+	}
+	if channelSnapshot["name"] != "Public Posts" || channelSnapshot["avatar_url"] != "mxc://example.com/channel-avatar" {
+		t.Fatalf("expected channel snapshot in comment reaction history, got %#v", got[0])
+	}
+	if postSnapshot["post_id"] != post.PostID || postSnapshot["body"] != "post body" {
+		t.Fatalf("expected parent post snapshot in comment reaction history, got %#v", got[0])
+	}
+	if commentSnapshot["comment_id"] != comment.CommentID || commentSnapshot["body"] != "comment" || commentSnapshot["reaction_count"] != float64(1) || commentSnapshot["reacted_by_me"] != true {
+		t.Fatalf("expected comment snapshot in reaction history, got %#v", got[0])
 	}
 
 	second := mustHandle[map[string]any](t, reloaded, "channels.comment_reaction.toggle", map[string]any{
-		"channel_id": "ch",
+		"channel_id": ch.ChannelID,
 		"post_id":    post.PostID,
 		"comment_id": comment.CommentID,
 		"reaction":   "like",
@@ -123,6 +172,28 @@ func TestCommentReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
 	if second["active"] != false || int64Param(second["reaction_count"]) != 0 {
 		t.Fatalf("expected second comment toggle to deactivate reaction, got %#v", second)
 	}
+}
+
+func reactionHistoryPayloads(t *testing.T, payload map[string]any) []map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(payload["reactions"])
+	if err != nil {
+		t.Fatalf("marshal reactions: %v", err)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatalf("unmarshal reactions: %v", err)
+	}
+	return items
+}
+
+func mapValue(t *testing.T, payload map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := payload[key].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s object in %#v", key, payload)
+	}
+	return value
 }
 
 func TestChannelPostAndCommentListsExposeCountsMediaAndReactionState(t *testing.T) {
@@ -159,6 +230,36 @@ func TestChannelPostAndCommentListsExposeCountsMediaAndReactionState(t *testing.
 	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{"post_id": post.PostID})["comments"].([]channelCommentRecord)
 	if len(comments) != 1 || comments[0].ReactionCount != 1 || !comments[0].ReactedByMe || !strings.Contains(comments[0].MediaJSON, "mxc://example.com/comment") {
 		t.Fatalf("expected comment list reaction state and media, got %#v", comments)
+	}
+}
+
+func TestPublicChannelReadsRefreshMemberCountFromMembership(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "ch_public",
+		"room_id":    "!public:example.com",
+		"name":       "Public",
+		"visibility": "public",
+	})
+	ch.MemberCount = 0
+	service.mu.Lock()
+	service.channels[ch.ChannelID] = ch
+	service.mu.Unlock()
+
+	detail := mustHandle[channel](t, service, "channels.public.get", map[string]any{
+		"channel_id": ch.ChannelID,
+	})
+	if detail.MemberCount != 1 {
+		t.Fatalf("expected public detail member_count to refresh from joined members, got %#v", detail)
+	}
+
+	list := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{
+		"user_id": "@owner:example.com",
+	})
+	channels := list["channels"].([]channel)
+	if len(channels) != 1 || channels[0].MemberCount != 1 {
+		t.Fatalf("expected users.public_channels member_count to match public detail, got %#v", list)
 	}
 }
 
@@ -1961,36 +2062,44 @@ func TestPortalStatusReportsStorageAndProjectorMode(t *testing.T) {
 	}
 }
 
+func assertSingleInitializedFlag(t *testing.T, payload map[string]any, initialized bool) {
+	t.Helper()
+	if payload["initialized"] != initialized {
+		t.Fatalf("expected initialized=%v, got %#v", initialized, payload)
+	}
+	allowed := map[string]bool{
+		"access_token":       true,
+		"device_id":          true,
+		"agent_token":        true,
+		"user_id":            true,
+		"homeserver":         true,
+		"agent_room_id":      true,
+		"password":           true,
+		"initialized":        true,
+		"store_mode":         true,
+		"projector_started":  true,
+		"policy_index_mode":  true,
+		"policy_index_ready": true,
+		"event_stream_ready": true,
+	}
+	for field := range payload {
+		if !allowed[field] {
+			t.Fatalf("session exposed unexpected initialization field %s: %#v", field, payload)
+		}
+	}
+}
+
 func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	status := mustHandle[map[string]any](t, service, "portal.status", nil)
-	if status["initialized"] != true {
-		t.Fatalf("expected default initialized portal, got %#v", status)
-	}
+	assertSingleInitializedFlag(t, status, false)
 	requireEightDigitPassword(t, service.password)
 	auth := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{"password": service.password})
 	authDeviceID, _ := auth["device_id"].(string)
 	if !strings.HasPrefix(authDeviceID, "PORTALIM") {
 		t.Fatalf("expected auth session without requested device_id to expose generated Matrix device id, got %#v", auth)
 	}
-	if auth["profile_initialized"] != false {
-		t.Fatalf("expected default owner profile to require first-time setup, got %#v", auth)
-	}
-	if auth["account_initialized"] != false {
-		t.Fatalf("expected default auth to expose incomplete account initialization, got %#v", auth)
-	}
-	if auth["setup_completed"] != false {
-		t.Fatalf("expected default auth to expose incomplete setup status, got %#v", auth)
-	}
-	if auth["already_initialized"] != false {
-		t.Fatalf("expected default auth to expose incomplete already initialized status, got %#v", auth)
-	}
-	if auth["initialization_completed"] != false {
-		t.Fatalf("expected default auth to expose incomplete initialization completion, got %#v", auth)
-	}
-	if auth["initialized"] != true || auth["password_initialized"] != false {
-		t.Fatalf("expected default auth to expose initialization flags, got %#v", auth)
-	}
+	assertSingleInitializedFlag(t, auth, false)
 	profile := mustHandle[ownerProfile](t, service, "profile.get", nil)
 	if profile.DisplayName != "" {
 		t.Fatalf("expected default owner display name to be empty, got %#v", profile)
@@ -1999,24 +2108,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	defaultPassword := service.password
 	bootstrap := bootstrapService(t, service)
 	oldAccessToken := bootstrap["access_token"].(string)
-	if bootstrap["initialized"] != true || bootstrap["password_initialized"] != false || bootstrap["profile_initialized"] != false {
-		t.Fatalf("expected bootstrap to expose first-time initialization flags, got %#v", bootstrap)
-	}
-	if _, ok := bootstrap["admin_access_token"]; ok {
-		t.Fatalf("bootstrap must not expose admin_access_token: %#v", bootstrap)
-	}
-	if _, ok := bootstrap["matrix_access_token"]; ok {
-		t.Fatalf("bootstrap must not expose matrix_access_token: %#v", bootstrap)
-	}
-	if bootstrap["account_initialized"] != false {
-		t.Fatalf("expected bootstrap to expose incomplete account initialization, got %#v", bootstrap)
-	}
-	if bootstrap["setup_completed"] != false {
-		t.Fatalf("expected bootstrap to expose incomplete setup status, got %#v", bootstrap)
-	}
-	if bootstrap["already_initialized"] != false {
-		t.Fatalf("expected bootstrap to expose incomplete already initialized status, got %#v", bootstrap)
-	}
+	assertSingleInitializedFlag(t, bootstrap, false)
 
 	if _, apiErr := service.Handle(context.Background(), "portal.setup", nil); apiErr == nil || apiErr.Status != http.StatusBadRequest {
 		t.Fatalf("expected portal.setup compatibility action to be removed, got %#v", apiErr)
@@ -2026,12 +2118,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 		"display_name": "Alice",
 	})
 	profileOnlyAuth := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{"password": defaultPassword})
-	if profileOnlyAuth["profile_initialized"] != true {
-		t.Fatalf("expected display name setup to be exposed before password change, got %#v", profileOnlyAuth)
-	}
-	if profileOnlyAuth["account_initialized"] != false || profileOnlyAuth["initialization_completed"] != false {
-		t.Fatalf("expected account initialization to still require password change, got %#v", profileOnlyAuth)
-	}
+	assertSingleInitializedFlag(t, profileOnlyAuth, false)
 	password := mustHandle[map[string]any](t, service, "portal.password", map[string]any{
 		"old_password": defaultPassword,
 		"new_password": "new-secret",
@@ -2039,30 +2126,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	if password["access_token"] == "" {
 		t.Fatalf("expected refreshed access token after password change, got %#v", password)
 	}
-	if _, ok := password["admin_access_token"]; ok {
-		t.Fatalf("password response must not expose admin_access_token: %#v", password)
-	}
-	if _, ok := password["matrix_access_token"]; ok {
-		t.Fatalf("password response must not expose matrix_access_token: %#v", password)
-	}
-	if password["profile_initialized"] != true {
-		t.Fatalf("expected password change after display name setup to complete profile initialization, got %#v", password)
-	}
-	if password["account_initialized"] != true {
-		t.Fatalf("expected password change after display name setup to complete account initialization, got %#v", password)
-	}
-	if password["setup_completed"] != true {
-		t.Fatalf("expected password change after display name setup to complete setup, got %#v", password)
-	}
-	if password["already_initialized"] != true {
-		t.Fatalf("expected password change after display name setup to expose already initialized, got %#v", password)
-	}
-	if password["initialization_completed"] != true {
-		t.Fatalf("expected password change after display name setup to expose completed initialization, got %#v", password)
-	}
-	if password["initialized"] != true || password["password_initialized"] != true {
-		t.Fatalf("expected password change to expose completed initialization flags, got %#v", password)
-	}
+	assertSingleInitializedFlag(t, password, true)
 	passwordDeviceID, _ := password["device_id"].(string)
 	if !strings.HasPrefix(passwordDeviceID, "PORTALIM") {
 		t.Fatalf("expected password session without requested device_id to expose generated Matrix device id, got %#v", password)
@@ -2071,24 +2135,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 		t.Fatalf("expected old password to fail after password change")
 	}
 	nextAuth := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{"password": "new-secret"})
-	if nextAuth["profile_initialized"] != true {
-		t.Fatalf("expected profile initialization flag to persist into auth, got %#v", nextAuth)
-	}
-	if nextAuth["account_initialized"] != true {
-		t.Fatalf("expected account initialization flag to persist into auth, got %#v", nextAuth)
-	}
-	if nextAuth["setup_completed"] != true {
-		t.Fatalf("expected setup completion flag to persist into auth, got %#v", nextAuth)
-	}
-	if nextAuth["already_initialized"] != true {
-		t.Fatalf("expected already initialized flag to persist into auth, got %#v", nextAuth)
-	}
-	if nextAuth["initialization_completed"] != true {
-		t.Fatalf("expected initialization completed flag to persist into auth, got %#v", nextAuth)
-	}
-	if nextAuth["initialized"] != true || nextAuth["password_initialized"] != true {
-		t.Fatalf("expected completed initialization flags to persist into auth, got %#v", nextAuth)
-	}
+	assertSingleInitializedFlag(t, nextAuth, true)
 
 	agentPassword := mustHandle[map[string]any](t, service, "agent.password", nil)
 	if agentPassword["password"] != "new-secret" {
@@ -2099,7 +2146,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	}
 }
 
-func TestPortalProfileInitializationCompletesWhenPasswordChangesBeforeName(t *testing.T) {
+func TestPortalInitializedDependsOnlyOnPasswordChange(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	defaultPassword := service.password
 
@@ -2107,41 +2154,13 @@ func TestPortalProfileInitializationCompletesWhenPasswordChangesBeforeName(t *te
 		"old_password": defaultPassword,
 		"new_password": "new-secret",
 	})
-	if password["profile_initialized"] != false {
-		t.Fatalf("expected password-only setup to still require profile name, got %#v", password)
-	}
-	if password["account_initialized"] != false {
-		t.Fatalf("expected password-only setup to keep account initialization incomplete, got %#v", password)
-	}
-	if password["setup_completed"] != false {
-		t.Fatalf("expected password-only setup to keep setup incomplete, got %#v", password)
-	}
-	if password["already_initialized"] != false {
-		t.Fatalf("expected password-only setup to keep already initialized incomplete, got %#v", password)
-	}
-	if password["initialization_completed"] != false {
-		t.Fatalf("expected password-only setup to keep initialization incomplete, got %#v", password)
-	}
+	assertSingleInitializedFlag(t, password, true)
 
 	mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
 		"display_name": "Alice",
 	})
 	auth := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{"password": "new-secret"})
-	if auth["profile_initialized"] != true {
-		t.Fatalf("expected profile initialization after password and display name setup, got %#v", auth)
-	}
-	if auth["account_initialized"] != true {
-		t.Fatalf("expected account initialization after password and display name setup, got %#v", auth)
-	}
-	if auth["setup_completed"] != true {
-		t.Fatalf("expected setup completion after password and display name setup, got %#v", auth)
-	}
-	if auth["already_initialized"] != true {
-		t.Fatalf("expected already initialized after password and display name setup, got %#v", auth)
-	}
-	if auth["initialization_completed"] != true {
-		t.Fatalf("expected initialization completed after password and display name setup, got %#v", auth)
-	}
+	assertSingleInitializedFlag(t, auth, true)
 }
 
 func TestContactRequestPreservesPeerDomainWithPort(t *testing.T) {
@@ -2439,6 +2458,32 @@ func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
 	}
 }
 
+func TestMemberListsPinOwnerBeforeJoinOrder(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	for _, member := range []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@alice:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
+		{RoomID: "!group:example.com", UserID: "@bob:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@carol:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
+		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@dave:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
+	} {
+		if err := service.saveMember(context.Background(), member); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	groupMembers := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": "!group:example.com"})["members"].([]memberRecord)
+	if got := []string{groupMembers[0].UserID, groupMembers[1].UserID, groupMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@alice:example.com", "@bob:example.com"}) {
+		t.Fatalf("expected group owner first, then members by join time, got %#v", groupMembers)
+	}
+
+	channelMembers := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": "ch_order"})["members"].([]memberRecord)
+	if got := []string{channelMembers[0].UserID, channelMembers[1].UserID, channelMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@carol:example.com", "@dave:example.com"}) {
+		t.Fatalf("expected channel owner first, then members by join time, got %#v", channelMembers)
+	}
+}
+
 func TestGroupJoinCreatesLocalGroupRecord(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	joined := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
@@ -2460,7 +2505,7 @@ func TestGroupJoinCreatesLocalGroupRecord(t *testing.T) {
 	}
 }
 
-func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
+func TestUserPublicChannelsReturnsOwnedPublicChannelsOnly(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	publicChannel := mustHandle[channel](t, service, "channels.create", map[string]any{
 		"channel_id":  "public_owned",
@@ -2480,6 +2525,12 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 		"channel_id": "member_only",
 		"room_id":    "!member-only:example.com",
 		"name":       "Member Only",
+		"visibility": "public",
+	})
+	legacyAdmin := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "legacy_admin",
+		"room_id":    "!legacy-admin:example.com",
+		"name":       "Legacy Admin",
 		"visibility": "public",
 	})
 	mustHandle[map[string]any](t, service, "channels.join", map[string]any{
@@ -2508,11 +2559,22 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:      legacyAdmin.RoomID,
+		ChannelID:   legacyAdmin.ChannelID,
+		UserID:      "@alice:example.com",
+		DisplayName: "Alice",
+		Domain:      "example.com",
+		Membership:  "join",
+		Role:        "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{"user_mxid": "@alice:example.com"})
 	channels := result["channels"].([]channel)
-	if len(channels) != 2 {
-		t.Fatalf("expected alice owned and joined public channels, got %#v", result)
+	if len(channels) != 1 {
+		t.Fatalf("expected alice owned public channels only, got %#v", result)
 	}
 	got := map[string]channel{}
 	for _, ch := range channels {
@@ -2521,8 +2583,11 @@ func TestUserPublicChannelsReturnsOwnedAndJoinedPublicChannels(t *testing.T) {
 	if ch := got[publicChannel.ChannelID]; ch.RoomID != publicChannel.RoomID || ch.AvatarURL != "mxc://example.com/public-owned" {
 		t.Fatalf("expected alice owned public channel with display fields, got %#v", result)
 	}
-	if ch := got[memberOnly.ChannelID]; ch.RoomID != memberOnly.RoomID {
-		t.Fatalf("expected alice joined public channel, got %#v", result)
+	if _, ok := got[memberOnly.ChannelID]; ok {
+		t.Fatalf("did not expect alice member-only public channel, got %#v", result)
+	}
+	if _, ok := got[legacyAdmin.ChannelID]; ok {
+		t.Fatalf("did not expect deprecated admin role to count as owned channel, got %#v", result)
 	}
 	if _, ok := got[privateChannel.ChannelID]; ok {
 		t.Fatalf("expected private channel to be hidden, got %#v", result)

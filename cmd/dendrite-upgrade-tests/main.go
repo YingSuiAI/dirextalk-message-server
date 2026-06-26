@@ -59,7 +59,7 @@ var latest, _ = semver.NewVersion("v6.6.6") // Dummy version, used as "HEAD"
 // NOTE:
 // If you update this Dockerfile, ensure to sync your changes to the other
 // Dockerfiles in this repo (search *Dockerfile).
-const DockerfilePostgreSQL = `FROM golang:1.25-bookworm as build
+const DockerfilePostgreSQL = `FROM golang:1.26.4-bookworm as build
 RUN apt-get update && apt-get install -y postgresql
 WORKDIR /build
 ARG BINARY
@@ -103,7 +103,7 @@ ENV BINARY=dendrite
 EXPOSE 8008 8448
 CMD /build/run_dendrite.sh`
 
-const DockerfileSQLite = `FROM golang:1.24-bookworm as build
+const DockerfileSQLite = `FROM golang:1.26.4-bookworm as build
 RUN apt-get update && apt-get install -y postgresql
 WORKDIR /build
 ARG BINARY

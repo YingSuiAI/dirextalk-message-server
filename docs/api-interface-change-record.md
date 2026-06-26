@@ -1,6 +1,37 @@
 # API Interface Change Record
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
+
+## 2026-06-24 Portal Single-Device Login
+
+`portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
+
+`agent.matrix_session.create` remains an internal Agent/CLI Matrix session helper and does not evict the portal user's phone session.
+
+## 2026-06-24 User Public Channel Lookup
+
+`users.public_channels` now returns only public channels owned by the target user. Public channels where the target user is only a normal member are no longer included in the "user's channels" list.
+
+`users.public_channels` also accepts optional `remote_node_base_url` and forwards the public query to that owner node, matching remote public channel discovery flows. The forwarded request strips `remote_node_base_url` before reaching the target node.
+
+## 2026-06-24 Channel Room Projection Guard
+
+Matrix room state is now treated as a channel projection source only when `io.direxio.room.profile.room_type` is explicitly `io.direxio.room.channel` and `channel_id` is an explicit product channel id. Empty profiles, group/direct room profiles, missing `channel_id`, and Matrix-room-id-shaped `channel_id` values are ignored by channel refresh logic.
+
+`groups.join` no longer calls the channel room refresh path after Matrix join. Group member refresh still runs for the joined group, but it cannot create or update a `channels` read-model row. This prevents group chats with empty profile state from appearing in `channels.list` or `sync.bootstrap.channels`.
+
+## 2026-06-24 Channel Reaction History Snapshots
+
+`channels.my_reactions` still returns `{ "reactions": [...] }`, but each item is now a display history snapshot object instead of a bare reaction row. The item contains:
+
+- `reaction`: the original reaction record with `target_type`, `target_id`, `channel_id`, `post_id`, `comment_id`, `reaction`, `user_id`, `active`, and `created_at`.
+- `channel`: the current channel snapshot when available, including `name`, `avatar_url`, `channel_type`, `member_count`, and normal channel metadata.
+- `post`: the parent post snapshot when available, enriched with comment/reaction counts and `reacted_by_me`.
+- `comment`: the comment snapshot for comment reactions when available, enriched with reaction count and `reacted_by_me`.
+
+Clients must not synthesize fake channel/post display data from a bare reaction row. If a snapshot is missing, show an unavailable or syncing state instead of fallback labels such as `频道`, `文字`, or `频道帖子`.
+
+`channels.public.get`, `channels.public.search`, and `users.public_channels` refresh public channel `member_count`/`pending_join_count` from persisted ProductCore membership before returning a channel when membership rows are available. This keeps public detail and public list views aligned with the owner node's joined member facts.
 
 ## 2026-06-23 Realtime Call Lifecycle
 
@@ -55,6 +86,7 @@ Breaking removals and contract changes:
 - Public channel join response status is one of `pending`, `rejected`, `approved`, `joining`, `joined`, or `join_failed`.
 - `apis.list` and `apis.status` Agent permission items are action-only. Response items contain `action`, `description`, and `enabled`; `method` and `path` are removed. `apis.status` updates must send `action` and `enabled`, and no longer accept `method`/`path` lookup compatibility.
 - Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It requires a bearer access token or an enabled Agent token and returns the Matrix Client-Server session needed by trusted CLI tooling: `access_token`, `device_id`, `user_id`, and `homeserver`. The response is for internal CLI use and must not be displayed by normal CLI workflows.
+- `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
 The live P2P body-action count is 86. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
@@ -127,7 +159,7 @@ Channel post/comment product content still uses Matrix events, but carries produ
 
 - `p2p_kind=channel_post` projects to `p2p_channel_posts`.
 - `p2p_kind=channel_comment` projects to `p2p_channel_comments`.
-- Matrix ProductPolicy enforces channel owner/admin/comment rules before write.
+- Matrix ProductPolicy enforces channel owner/comment rules before write. ProductCore group/channel roles are owner/member only.
 - Channel post/comment recall uses Matrix redaction and removes the product projection.
 
 Ordinary `m.room.message` events without channel post/comment product markers are not mirrored into P2P message tables and do not emit P2P ordinary-message SSE events.
@@ -170,7 +202,7 @@ This pass adds hydrated membership and relationship fields to the conversation v
 - `role`: current owner role in the conversation, for example `member` or `owner`.
 - `hydration_state`: `ready` when ProductCore has enough state to open the conversation, otherwise `pending`, `conflict`, or `failed`.
 - `hydration_reason`: machine-readable reason when hydration is not ready, for example `owner_membership_missing`.
-- `capabilities`: server-derived operation flags. Current keys are `open`, `send`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, and `delete`.
+- `capabilities`: server-derived operation flags. Current keys are `open`, `send`, `send_media`, `call`, `invite`, `manage_members`, `rename`, `remove_members`, `leave`, `delete`, `post_create`, `comment_create`, `reaction_toggle`, `post_recall`, `comment_recall`, and `comments_enabled`. Group/channel management and post capabilities are true only when the current owner is joined with role `owner`.
 
 Clients should use these ProductCore fields instead of inferring room type or owner membership from Matrix timeline shape, display names, or member-count text.
 
@@ -207,7 +239,7 @@ Contact mutation responses now include a ProductCore `operation` object and atta
 
 `groups.invite.reject` records the current local user's pending group invite as `membership: "reject"` and returns `{status: "rejected", member}`. Rejected group invites are hidden from `groups.members` and `groups.list`, matching the first-version ProductCore rule that hidden memberships (`leave`, `remove`, `reject`, `ban`) are not ordinary visible members.
 
-Group and channel member mutations now load the existing ProductCore member record before applying leave/remove/mute/unmute/reject transitions. Owner/admin protection is therefore based on persisted `role` and `membership`, including after a service reload backed by PostgreSQL, instead of relying on an in-memory default member record.
+Group and channel member mutations now load the existing ProductCore member record before applying leave/remove/mute/unmute/reject transitions. Owner protection is therefore based on persisted `role` and `membership`, including after a service reload backed by PostgreSQL, instead of relying on an in-memory default member record. ProductCore group/channel roles are owner/member only.
 
 Group/channel invite and member mutation responses now include a ProductCore `operation` object and attach the hydrated `conversation` when the mutated room has a `p2p_conversations` record. This applies to `groups.invite`, `groups.invite.reject`, `groups.leave`, `groups.member.remove`, `groups.member.mute`, `groups.member.unmute`, `channels.invite`, `channels.leave`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`, `channels.join_request.approve`, and `channels.join_request.reject`.
 

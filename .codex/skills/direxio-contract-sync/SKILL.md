@@ -30,7 +30,7 @@ Use this skill when a change can affect clients, agents, external nodes, operato
 4. If CLI behavior changes, update `cmd/direxio-cli`, `internal/agentclient`, CLI tests, and `docs/agent-skills/*` when examples or output shape change.
 5. If Postman examples change, keep `docs/postman/direxio-message-server.postman_collection.json` importable JSON.
 6. If docs describe current behavior, update `docs/current-project-documentation.md`, `AGENTS.md`, and affected `.codex/skills/*/SKILL.md` together.
-7. If cross-node behavior changes, update WSL-compatible multi-node regression coverage in `scripts/p2p-three-node-regression.py` when practical.
+7. If cross-node behavior changes, update multi-node regression coverage in `scripts/p2p-three-node-regression.py` when practical, using the command syntax for the current platform.
 
 ## Field Rules
 
