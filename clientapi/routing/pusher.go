@@ -23,12 +23,6 @@ const (
 	direxioIOSPusherAppID     = "com.direxio.app"
 )
 
-var retiredDirexioPusherAppIDs = map[string]struct{}{
-	"io.direxio.app.android": {},
-	"io.direxio.app.ios":     {},
-	"io.direxio.mobile":      {},
-}
-
 // GetPushers handles /_matrix/client/r0/pushers
 func GetPushers(
 	req *http.Request, device *userapi.Device,
@@ -89,7 +83,7 @@ func SetPusher(
 		return invalidParam("length of pushkey must be no more than 512 bytes")
 	}
 	if body.Kind == userapi.HTTPKind &&
-		requiresDirexioHTTPPusherAppID(body.AppID, body.Data) &&
+		requiresDirexioHTTPPusherAppID(body.Data) &&
 		!isDirexioHTTPPusherAppID(body.AppID) {
 		return invalidParam("unsupported Direxio push app_id")
 	}
@@ -140,11 +134,7 @@ func isDirexioHTTPPusherAppID(appID string) bool {
 	return appID == direxioAndroidPusherAppID || appID == direxioIOSPusherAppID
 }
 
-func requiresDirexioHTTPPusherAppID(appID string, data map[string]interface{}) bool {
-	if _, retired := retiredDirexioPusherAppIDs[appID]; retired {
-		return true
-	}
-
+func requiresDirexioHTTPPusherAppID(data map[string]interface{}) bool {
 	rawURL, ok := data["url"].(string)
 	if !ok {
 		return false
