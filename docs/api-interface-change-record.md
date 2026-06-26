@@ -10,11 +10,9 @@ The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or
 
 ## 2026-06-26 Agent Presence Event Stream
 
-Owner clients now receive live Agent bridge presence through `sync.bootstrap.agent_presence` and `agent.presence` SSE events from `GET /_p2p/events`.
+Owner clients now receive live Agent bridge online state through `sync.bootstrap.agent_online` and `agent.presence` SSE events from `GET /_p2p/events`.
 
-The presence payload includes `online`, `connected`, `configured`, `enabled`, `display_name`, and `agent_room_id`. `connected` means at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`; owner `access_token` event streams do not mark the agent connected. `online` means the Agent config is enabled and connected.
-
-`agent.status` remains as an owner-token legacy diagnostic compatibility action that returns the same snapshot, but clients should not use it as the default online/offline state source.
+The owner-facing presence event payload is intentionally lean and contains only `online`. `online=true` means the Agent config is enabled and at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`; owner `access_token` event streams do not mark the Agent online. `agent.status` and `agents.status` are removed.
 
 ## 2026-06-25 Agent Token Event Stream Access
 

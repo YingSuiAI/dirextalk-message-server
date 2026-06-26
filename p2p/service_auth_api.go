@@ -183,7 +183,6 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	s.mu.Lock()
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
-		presenceMayChange = true
 	}
 	if contextWindow := int64Param(params["context_window"]); contextWindow > 0 {
 		s.agentConfig.ContextWindow = contextWindow
@@ -204,12 +203,6 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 		_ = s.appendAgentPresenceEvent(ctx)
 	}
 	return result
-}
-
-func (s *Service) agentStatus() any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.agentPresenceSnapshotLocked()
 }
 
 func agentConfigToMap(cfg agentConfig) map[string]any {

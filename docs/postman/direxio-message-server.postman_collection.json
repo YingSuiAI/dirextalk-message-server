@@ -26,7 +26,7 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/events?since=0",
-            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room and `agent.presence` for owner-readable Agent bridge online/offline snapshots. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
+            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room and `agent.presence` for owner-readable Agent bridge online/offline snapshots. `agent.presence` payload contains only `online`. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
           }
         }
       ]
@@ -165,41 +165,9 @@
                   }
                 }
               }
-            },
-            {
-              "name": "agent.status（读取智能体状态）",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}",
-                    "type": "text"
-                  }
-                ],
-                "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 legacy Agent 状态诊断。客户端默认在线/离线状态应使用 `sync.bootstrap.agent_presence` 和 `agent.presence` SSE 事件；本 action 仅保留兼容诊断。\n\nRead legacy Agent status diagnostics. Client online/offline UI should use `sync.bootstrap.agent_presence` and `agent.presence` SSE events; this action remains for compatibility diagnostics only.\n\nAction: `agent.status`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"action\": \"agent.status\",\n  \"params\": {}\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              }
             }
           ],
-          "description": "智能体配置、状态、密码和内部 Matrix 会话相关接口。"
+          "description": "智能体配置、密码和内部 Matrix 会话相关接口。"
         },
         {
           "name": "calls（通话）",
@@ -2904,7 +2872,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id` 和当前 `agent_presence` 快照，客户端可用它在重启后恢复 Agent 会话与在线状态。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id` and `agent_presence` snapshot, which clients can cache to restore the Agent conversation and online state after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
+                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id` 和当前 `agent_online` 快照，客户端可用它在重启后恢复 Agent 会话与在线状态。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id` and `agent_online` snapshot, which clients can cache to restore the Agent conversation and online state after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"sync.bootstrap\",\n  \"params\": {}\n}",

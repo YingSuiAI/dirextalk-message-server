@@ -449,45 +449,13 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	}
 }
 
-func TestAgentStatusConnectedReflectsAgentEventStream(t *testing.T) {
+func TestAgentStatusActionRemoved(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	status := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if status["connected"] != false || status["online"] != false {
-		t.Fatalf("expected disconnected agent before SSE subscription, got %#v", status)
-	}
-
-	ownerRec, cancelOwner, ownerDone := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
-	defer cancelOwner()
-	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if status["connected"] != false || status["online"] != false {
-		t.Fatalf("expected owner event stream not to mark agent connected, got %#v body=%s", status, ownerRec.BodyString())
-	}
-	cancelOwner()
-	waitForEventStreamDone(t, ownerDone)
-
-	agentRec, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
-	defer cancelAgent()
-	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if status["connected"] != true || status["online"] != true {
-		t.Fatalf("expected agent token event stream to mark agent connected, got %#v body=%s", status, agentRec.BodyString())
-	}
-
-	_ = mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "agent.config.update",
-		"params": map[string]any{"enabled": false},
-	})
-	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if status["connected"] != true || status["online"] != false {
-		t.Fatalf("expected disabled agent to stay connected but not online, got %#v", status)
-	}
-
-	cancelAgent()
-	waitForEventStreamDone(t, agentDone)
-	status = mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if status["connected"] != false || status["online"] != false {
-		t.Fatalf("expected agent disconnect after SSE closes, got %#v", status)
+	err := mustRouteError(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
+	if err.Status != http.StatusBadRequest {
+		t.Fatalf("expected removed agent.status action to be unknown, got %#v", err)
 	}
 }
 
@@ -501,6 +469,9 @@ func TestAgentPresenceStreamsToOwnerEvents(t *testing.T) {
 	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
 	waitForEventStreamBody(t, ownerRec, "event: agent.presence")
 	waitForEventStreamBody(t, ownerRec, `"online":true`)
+	if strings.Contains(ownerRec.BodyString(), `"connected"`) || strings.Contains(ownerRec.BodyString(), `"configured"`) {
+		t.Fatalf("expected lean owner presence payload with only online, got %s", ownerRec.BodyString())
+	}
 
 	cancelAgent()
 	waitForEventStreamDone(t, agentDone)
@@ -510,7 +481,7 @@ func TestAgentPresenceStreamsToOwnerEvents(t *testing.T) {
 	waitForEventStreamDone(t, ownerDone)
 }
 
-func TestSyncBootstrapIncludesAgentPresenceSnapshot(t *testing.T) {
+func TestSyncBootstrapIncludesAgentOnline(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
@@ -518,15 +489,11 @@ func TestSyncBootstrapIncludesAgentPresenceSnapshot(t *testing.T) {
 	defer cancelAgent()
 
 	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
-	presence, ok := bootstrap["agent_presence"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected sync.bootstrap agent_presence map, got %#v", bootstrap["agent_presence"])
+	if bootstrap["agent_online"] != true {
+		t.Fatalf("expected active agent_online in sync.bootstrap, got %#v", bootstrap)
 	}
-	if presence["connected"] != true || presence["online"] != true {
-		t.Fatalf("expected active agent presence in sync.bootstrap, got %#v", presence)
-	}
-	if presence["agent_room_id"] != service.agentRoomID {
-		t.Fatalf("expected agent room id in presence, got %#v", presence)
+	if _, ok := bootstrap["agent_presence"]; ok {
+		t.Fatalf("expected sync.bootstrap to omit heavy agent_presence map, got %#v", bootstrap["agent_presence"])
 	}
 
 	cancelAgent()

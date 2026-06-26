@@ -517,25 +517,20 @@ func (s *Service) registerAgentEventStream() func() {
 	}
 }
 
-func (s *Service) agentPresenceSnapshotLocked() map[string]any {
-	connected := s.agentStreams > 0
-	configured := strings.TrimSpace(s.agentRoomID) != "" &&
-		strings.TrimSpace(s.ownerMXID) != "" &&
-		strings.TrimSpace(s.agentConfig.DisplayName) != ""
+func (s *Service) agentOnlineLocked() bool {
+	return s.agentConfig.Enabled && s.agentStreams > 0
+}
+
+func (s *Service) agentPresencePayloadLocked() map[string]any {
 	return map[string]any{
-		"online":        s.agentConfig.Enabled && connected,
-		"connected":     connected,
-		"configured":    configured,
-		"enabled":       s.agentConfig.Enabled,
-		"display_name":  s.agentConfig.DisplayName,
-		"agent_room_id": s.agentRoomID,
+		"online": s.agentOnlineLocked(),
 	}
 }
 
 func (s *Service) appendAgentPresenceEvent(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
-	payload := s.agentPresenceSnapshotLocked()
+	payload := s.agentPresencePayloadLocked()
 	s.mu.Unlock()
 	return s.appendP2PEvent(ctx, p2pEvent{
 		Type:    AgentPresenceEventType,
