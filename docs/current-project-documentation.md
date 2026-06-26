@@ -212,7 +212,7 @@ Agent/API：
 
 - Agent token 不再有动态权限表，只能访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events` 供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。
 - `agent.matrix_session.create` 使用 owner `access_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
-- `agent.status.connected` 表示至少一个使用 `agent_token` 的 `GET /_p2p/events` SSE 长连接当前仍然存活；owner `access_token` 订阅 events 不会让 Agent 变成 connected。`agent.status.online` 表示 Agent 配置已启用且真实 connected。
+- Agent 在线状态对 owner 客户端通过 `sync.bootstrap.agent_presence` 和 `agent.presence` SSE 事件暴露。presence 负载包含 `online`、`connected`、`configured`、`enabled`、`display_name`、`agent_room_id`；客户端 UI 必须用 `online` 显示在线/离线，`connected` 仅表示当前至少一个使用 `agent_token` 的 `GET /_p2p/events` 长连接存活。`agent.status` 只保留为 owner-token legacy 诊断兼容，不是默认客户端状态源。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 

@@ -134,8 +134,8 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 	return s.getAgentConfig(), nil
 }
 
-func (s *Service) updateAgentConfigAction(_ context.Context, params map[string]any) (any, *apiError) {
-	return s.updateAgentConfig(params), nil
+func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
+	return s.updateAgentConfig(ctx, params), nil
 }
 
 func (s *Service) agentStatusAction(context.Context, map[string]any) (any, *apiError) {

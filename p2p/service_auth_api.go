@@ -1,9 +1,6 @@
 package p2p
 
-import (
-	"context"
-	"strings"
-)
+import "context"
 
 func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *apiError) {
 	password := trimString(params["password"])
@@ -181,17 +178,19 @@ func (s *Service) getAgentConfig() any {
 	return agentConfigToMap(s.agentConfig)
 }
 
-func (s *Service) updateAgentConfig(params map[string]any) any {
+func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) any {
+	presenceMayChange := false
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
+		presenceMayChange = true
 	}
 	if contextWindow := int64Param(params["context_window"]); contextWindow > 0 {
 		s.agentConfig.ContextWindow = contextWindow
 	}
 	if _, ok := params["enabled"]; ok {
 		s.agentConfig.Enabled = boolParam(params["enabled"])
+		presenceMayChange = true
 	}
 	if model := trimString(params["model"]); model != "" {
 		s.agentConfig.Model = model
@@ -199,23 +198,18 @@ func (s *Service) updateAgentConfig(params map[string]any) any {
 	if systemPrompt := trimString(params["system_prompt"]); systemPrompt != "" {
 		s.agentConfig.SystemPrompt = systemPrompt
 	}
-	return agentConfigToMap(s.agentConfig)
+	result := agentConfigToMap(s.agentConfig)
+	s.mu.Unlock()
+	if presenceMayChange {
+		_ = s.appendAgentPresenceEvent(ctx)
+	}
+	return result
 }
 
 func (s *Service) agentStatus() any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	connected := s.agentStreams > 0
-	configured := strings.TrimSpace(s.agentRoomID) != "" &&
-		strings.TrimSpace(s.ownerMXID) != "" &&
-		strings.TrimSpace(s.agentConfig.DisplayName) != ""
-	return map[string]any{
-		"online":        s.agentConfig.Enabled && connected,
-		"connected":     connected,
-		"configured":    configured,
-		"display_name":  s.agentConfig.DisplayName,
-		"agent_room_id": s.agentRoomID,
-	}
+	return s.agentPresenceSnapshotLocked()
 }
 
 func agentConfigToMap(cfg agentConfig) map[string]any {

@@ -8,11 +8,13 @@ Last updated: 2026-06-26
 
 The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or local gateway Matrix session does not evict the portal owner's phone or browser sessions.
 
-## 2026-06-26 Agent Status Connection Semantics
+## 2026-06-26 Agent Presence Event Stream
 
-`agent.status.connected` now reports whether at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`. Owner `access_token` event streams do not mark the agent connected.
+Owner clients now receive live Agent bridge presence through `sync.bootstrap.agent_presence` and `agent.presence` SSE events from `GET /_p2p/events`.
 
-`agent.status.online` now reports `enabled && connected`, so a disabled but still connected gateway remains `connected: true` and `online: false`.
+The presence payload includes `online`, `connected`, `configured`, `enabled`, `display_name`, and `agent_room_id`. `connected` means at least one active `GET /_p2p/events` stream is connected with bearer `agent_token`; owner `access_token` event streams do not mark the agent connected. `online` means the Agent config is enabled and connected.
+
+`agent.status` remains as an owner-token legacy diagnostic compatibility action that returns the same snapshot, but clients should not use it as the default online/offline state source.
 
 ## 2026-06-25 Agent Token Event Stream Access
 

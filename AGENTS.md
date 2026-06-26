@@ -76,7 +76,7 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows/reports: favorite add/list/delete/batch delete, follow add/list/remove, report submission.
-- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. `agent.status.connected` reflects active agent-token event-stream presence, not the Agent enabled config flag.
+- Agent/API: Agent config/status/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. Owner clients must read live bridge presence from `sync.bootstrap.agent_presence` and `agent.presence` SSE events. `agent.status` is legacy diagnostic compatibility only; do not use it as the default client online/offline source.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow

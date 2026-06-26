@@ -491,6 +491,48 @@ func TestAgentStatusConnectedReflectsAgentEventStream(t *testing.T) {
 	}
 }
 
+func TestAgentPresenceStreamsToOwnerEvents(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	ownerRec, cancelOwner, ownerDone := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
+	defer cancelOwner()
+
+	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	waitForEventStreamBody(t, ownerRec, "event: agent.presence")
+	waitForEventStreamBody(t, ownerRec, `"online":true`)
+
+	cancelAgent()
+	waitForEventStreamDone(t, agentDone)
+	waitForEventStreamBody(t, ownerRec, `"online":false`)
+
+	cancelOwner()
+	waitForEventStreamDone(t, ownerDone)
+}
+
+func TestSyncBootstrapIncludesAgentPresenceSnapshot(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	defer cancelAgent()
+
+	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
+	presence, ok := bootstrap["agent_presence"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sync.bootstrap agent_presence map, got %#v", bootstrap["agent_presence"])
+	}
+	if presence["connected"] != true || presence["online"] != true {
+		t.Fatalf("expected active agent presence in sync.bootstrap, got %#v", presence)
+	}
+	if presence["agent_room_id"] != service.agentRoomID {
+		t.Fatalf("expected agent room id in presence, got %#v", presence)
+	}
+
+	cancelAgent()
+	waitForEventStreamDone(t, agentDone)
+}
+
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
 	t.Helper()
 	req := jsonRequest(t, path, body)
