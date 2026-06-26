@@ -466,16 +466,38 @@ func TestAgentPresenceStreamsToOwnerEvents(t *testing.T) {
 	ownerRec, cancelOwner, ownerDone := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
 	defer cancelOwner()
 
-	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	if err := service.ProjectAgentPresence(context.Background(), "@agent:example.com", "online"); err != nil {
+		t.Fatal(err)
+	}
 	waitForEventStreamBody(t, ownerRec, "event: agent.presence")
 	waitForEventStreamBody(t, ownerRec, `"online":true`)
 	if strings.Contains(ownerRec.BodyString(), `"connected"`) || strings.Contains(ownerRec.BodyString(), `"configured"`) {
 		t.Fatalf("expected lean owner presence payload with only online, got %s", ownerRec.BodyString())
 	}
 
-	cancelAgent()
-	waitForEventStreamDone(t, agentDone)
+	if err := service.ProjectAgentPresence(context.Background(), "@agent:example.com", "offline"); err != nil {
+		t.Fatal(err)
+	}
 	waitForEventStreamBody(t, ownerRec, `"online":false`)
+
+	cancelOwner()
+	waitForEventStreamDone(t, ownerDone)
+}
+
+func TestAgentPresenceIgnoresNonAgentMatrixUsers(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	ownerRec, cancelOwner, ownerDone := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
+	defer cancelOwner()
+
+	if err := service.ProjectAgentPresence(context.Background(), "@owner:example.com", "online"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if strings.Contains(ownerRec.BodyString(), "event: agent.presence") {
+		t.Fatalf("expected non-agent presence to be ignored, got %s", ownerRec.BodyString())
+	}
 
 	cancelOwner()
 	waitForEventStreamDone(t, ownerDone)
@@ -485,8 +507,7 @@ func TestSyncBootstrapIncludesAgentOnline(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
-	defer cancelAgent()
+	service.SetMatrixPresenceReader(staticMatrixPresenceReader{online: true})
 
 	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
 	if bootstrap["agent_online"] != true {
@@ -495,9 +516,30 @@ func TestSyncBootstrapIncludesAgentOnline(t *testing.T) {
 	if _, ok := bootstrap["agent_presence"]; ok {
 		t.Fatalf("expected sync.bootstrap to omit heavy agent_presence map, got %#v", bootstrap["agent_presence"])
 	}
+}
+
+func TestAgentTokenEventStreamDoesNotMarkAgentOnline(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
+	defer cancelAgent()
+
+	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
+	if bootstrap["agent_online"] != false {
+		t.Fatalf("expected Agent token event stream not to mark agent online, got %#v", bootstrap)
+	}
 
 	cancelAgent()
 	waitForEventStreamDone(t, agentDone)
+}
+
+type staticMatrixPresenceReader struct {
+	online bool
+}
+
+func (r staticMatrixPresenceReader) UserOnline(_ context.Context, _ string) (bool, error) {
+	return r.online, nil
 }
 
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {

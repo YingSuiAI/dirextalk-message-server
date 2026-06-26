@@ -90,8 +90,8 @@ global:
   # presence events from other servers, outbound controls whether we send presence
   # events for our local users to other servers.
   presence:
-    enable_inbound: false
-    enable_outbound: false
+    enable_inbound: true
+    enable_outbound: true
 
   # Configures phone-home statistics reporting. These statistics contain the server
   # name, number of active users and some information on your deployment config.

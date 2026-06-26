@@ -50,3 +50,39 @@ func (c *OutputRoomEventConsumer) onMessage(ctx context.Context, msgs []*nats.Ms
 	}
 	return true
 }
+
+type OutputPresenceEventConsumer struct {
+	ctx       context.Context
+	jetstream nats.JetStreamContext
+	topic     string
+	durable   string
+	service   *Service
+}
+
+func NewOutputPresenceEventConsumer(process *process.ProcessContext, cfg *config.JetStream, js nats.JetStreamContext, service *Service) *OutputPresenceEventConsumer {
+	return &OutputPresenceEventConsumer{
+		ctx:       process.Context(),
+		jetstream: js,
+		topic:     cfg.Prefixed(jetstream.OutputPresenceEvent),
+		durable:   cfg.Durable("P2POutputPresenceEventConsumer"),
+		service:   service,
+	}
+}
+
+func (c *OutputPresenceEventConsumer) Start() error {
+	return jetstream.JetStreamConsumer(
+		c.ctx, c.jetstream, c.topic, c.durable, 1,
+		c.onMessage, nats.DeliverNew(), nats.ManualAck(), nats.HeadersOnly(),
+	)
+}
+
+func (c *OutputPresenceEventConsumer) onMessage(ctx context.Context, msgs []*nats.Msg) bool {
+	msg := msgs[0]
+	userID := msg.Header.Get(jetstream.UserID)
+	presence := msg.Header.Get("presence")
+	if err := c.service.ProjectAgentPresence(ctx, userID, presence); err != nil {
+		logrus.WithError(err).Warn("P2P projector failed to process Matrix presence event")
+		return false
+	}
+	return true
+}

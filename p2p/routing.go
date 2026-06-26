@@ -51,7 +51,7 @@ func eventsHandler(service *Service) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		authorized, agentStream := service.authorizeEventStream(bearerToken(r.Header.Get("Authorization")))
+		authorized := service.authorizeEventStream(bearerToken(r.Header.Get("Authorization")))
 		if !authorized {
 			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
 			return
@@ -90,10 +90,6 @@ func eventsHandler(service *Service) http.HandlerFunc {
 		if !ok {
 			writeError(w, internalError(errors.New("response writer does not support streaming")))
 			return
-		}
-		if agentStream {
-			unregisterAgentEventStream := service.registerAgentEventStream()
-			defer unregisterAgentEventStream()
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")

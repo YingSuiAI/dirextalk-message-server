@@ -26,7 +26,7 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/events?since=0",
-            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room and `agent.presence` for owner-readable Agent bridge online/offline snapshots. `agent.presence` payload contains only `online`. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
+            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room and `agent.presence` for owner-readable Agent bridge online/offline snapshots derived from the local `@agent:<server>` Matrix presence. `agent.presence` payload contains only `online`. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting."
           }
         }
       ]
@@ -2872,7 +2872,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id` 和当前 `agent_online` 快照，客户端可用它在重启后恢复 Agent 会话与在线状态。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id` and `agent_online` snapshot, which clients can cache to restore the Agent conversation and online state after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
+                "description": "读取首屏元数据，响应包含当前真实 agents Matrix 房间 `agent_room_id` 和当前 `agent_online` 快照，客户端可用它在重启后恢复 Agent 会话与在线状态。\n\nRead first-screen metadata. The response includes the current real agents Matrix room `agent_room_id` and `agent_online` snapshot from the local `@agent:<server>` Matrix presence, which clients can cache to restore the Agent conversation and online state after restart.\n\nAction: `sync.bootstrap`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"sync.bootstrap\",\n  \"params\": {}\n}",

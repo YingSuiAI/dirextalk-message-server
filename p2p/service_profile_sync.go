@@ -141,8 +141,8 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	s.mu.Lock()
 	userID := s.ownerMXID
 	agentRoomID := s.agentRoomID
-	agentOnline := s.agentOnlineLocked()
 	s.mu.Unlock()
+	agentOnline := s.agentOnline(ctx)
 	members, err := s.membersForUser(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)

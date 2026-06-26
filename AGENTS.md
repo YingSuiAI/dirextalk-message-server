@@ -76,7 +76,7 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows/reports: favorite add/list/delete/batch delete, follow add/list/remove, report submission.
-- Agent/API: Agent config/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. Owner clients must read bridge online state from `sync.bootstrap.agent_online` and `agent.presence` SSE payload field `online`. `agent.status`/`agents.status` are removed and must not be used.
+- Agent/API: Agent config/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. Owner clients must read bridge online state from `sync.bootstrap.agent_online` and `agent.presence` SSE payload field `online`; that value is derived from the local `@agent:<server>` Matrix presence, not from agent-token `_p2p/events` connections. Direxio monolith startup must keep Matrix outbound presence enabled for this status path. `agent.status`/`agents.status` are removed and must not be used.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow

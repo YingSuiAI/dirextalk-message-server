@@ -26,3 +26,13 @@ func TestP2PDatabaseOptionsFallbackToRoomserverDatabase(t *testing.T) {
 		t.Fatalf("expected roomserver database fallback, got %q", got.ConnectionString)
 	}
 }
+
+func TestEnsureDirexioMatrixPresenceEnablesOutboundPresence(t *testing.T) {
+	cfg := &config.Dendrite{}
+
+	ensureDirexioMatrixPresence(cfg)
+
+	if !cfg.Global.Presence.EnableOutbound {
+		t.Fatal("expected outbound Matrix presence to be enabled for Agent online state")
+	}
+}

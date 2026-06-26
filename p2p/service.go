@@ -51,6 +51,7 @@ type Service struct {
 	transport          Transport
 	sessions           MatrixSessionIssuer
 	matrixMessages     matrixMessageReader
+	matrixPresence     matrixPresenceReader
 	remoteHTTPClient   *http.Client
 	remoteAllowPrivate bool
 	storeMode          string
@@ -65,7 +66,6 @@ type Service struct {
 	agentRoomID    string
 	profile        ownerProfile
 	agentConfig    agentConfig
-	agentStreams   int
 	actions        map[string]actionHandler
 
 	readMarkers   map[string]readMarker
@@ -132,6 +132,10 @@ type Store interface {
 	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
 	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
+}
+
+type matrixPresenceReader interface {
+	UserOnline(ctx context.Context, userID string) (bool, error)
 }
 
 type portalState = domain.PortalState
@@ -343,6 +347,12 @@ func (s *Service) SetMatrixMessageReader(reader matrixMessageReader) {
 	s.matrixMessages = reader
 }
 
+func (s *Service) SetMatrixPresenceReader(reader matrixPresenceReader) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.matrixPresence = reader
+}
+
 func (s *Service) SetProjectorStarted(started bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -486,57 +496,69 @@ func (s *Service) Authorize(token, action string) bool {
 }
 
 func (s *Service) AuthorizeEventStream(token string) bool {
-	authorized, _ := s.authorizeEventStream(token)
-	return authorized
+	return s.authorizeEventStream(token)
 }
 
-func (s *Service) authorizeEventStream(token string) (bool, bool) {
+func (s *Service) authorizeEventStream(token string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if token == "" {
-		return false, false
+		return false
 	}
 	if token == s.accessToken {
-		return true, false
+		return true
 	}
-	return token == s.agentToken, token == s.agentToken
+	return token == s.agentToken
 }
 
-func (s *Service) registerAgentEventStream() func() {
+func (s *Service) agentOnline(ctx context.Context) bool {
 	s.mu.Lock()
-	s.agentStreams++
+	enabled := s.agentConfig.Enabled
+	reader := s.matrixPresence
+	agentMXID := s.agentMXIDLocked()
 	s.mu.Unlock()
-	_ = s.appendAgentPresenceEvent(context.Background())
-	return func() {
-		s.mu.Lock()
-		if s.agentStreams > 0 {
-			s.agentStreams--
-		}
-		s.mu.Unlock()
-		_ = s.appendAgentPresenceEvent(context.Background())
+	if !enabled || reader == nil {
+		return false
 	}
+	online, err := reader.UserOnline(ctx, agentMXID)
+	if err != nil {
+		return false
+	}
+	return online
 }
 
-func (s *Service) agentOnlineLocked() bool {
-	return s.agentConfig.Enabled && s.agentStreams > 0
-}
-
-func (s *Service) agentPresencePayloadLocked() map[string]any {
+func agentPresencePayload(online bool) map[string]any {
 	return map[string]any{
-		"online": s.agentOnlineLocked(),
+		"online": online,
 	}
 }
 
 func (s *Service) appendAgentPresenceEvent(ctx context.Context) error {
+	online := s.agentOnline(ctx)
+	return s.appendAgentPresenceEventWithOnline(ctx, online)
+}
+
+func (s *Service) appendAgentPresenceEventWithOnline(ctx context.Context, online bool) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
-	payload := s.agentPresencePayloadLocked()
 	s.mu.Unlock()
 	return s.appendP2PEvent(ctx, p2pEvent{
 		Type:    AgentPresenceEventType,
 		RoomID:  roomID,
-		Payload: payload,
+		Payload: agentPresencePayload(online),
 	})
+}
+
+func (s *Service) ProjectAgentPresence(ctx context.Context, userID, presence string) error {
+	s.mu.Lock()
+	agentMXID := s.agentMXIDLocked()
+	enabled := s.agentConfig.Enabled
+	s.mu.Unlock()
+	if !strings.EqualFold(strings.TrimSpace(userID), agentMXID) {
+		return nil
+	}
+	online := enabled && strings.EqualFold(strings.TrimSpace(presence), "online")
+	return s.appendAgentPresenceEventWithOnline(ctx, online)
 }
 
 func publicAction(action string) bool {

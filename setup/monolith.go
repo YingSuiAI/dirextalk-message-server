@@ -7,6 +7,7 @@
 package setup
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
 	"github.com/YingSuiAI/direxio-message-server/setup/process"
 	"github.com/YingSuiAI/direxio-message-server/syncapi"
+	syncstorage "github.com/YingSuiAI/direxio-message-server/syncapi/storage"
 	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
@@ -68,6 +70,7 @@ func (m *Monolith) AddAllPublicRoutes(
 	if userDirectoryProvider == nil {
 		userDirectoryProvider = m.UserAPI
 	}
+	ensureDirexioMatrixPresence(cfg)
 	clientapi.AddPublicRoutes(
 		processCtx, routers, cfg, natsInstance, m.FedClient, m.RoomserverAPI, m.AppserviceAPI, transactions.New(),
 		m.FederationAPI, m.UserAPI, userDirectoryProvider,
@@ -99,12 +102,20 @@ func (m *Monolith) AddAllPublicRoutes(
 		service.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil))
 		p2pService = service
 	}
+	if syncPresenceDB, err := syncstorage.NewSyncServerDatasource(processCtx.Context(), cm, &cfg.SyncAPI.Database); err != nil {
+		logrus.WithError(err).Warn("P2P integrated AS Matrix presence reader unavailable")
+	} else {
+		p2pService.SetMatrixPresenceReader(syncAgentPresenceReader{db: syncPresenceDB})
+	}
 	if natsInstance != nil {
 		js, _ := natsInstance.Prepare(processCtx, &cfg.Global.JetStream)
 		if err := p2p.NewOutputRoomEventConsumer(processCtx, &cfg.Global.JetStream, js, p2pService).Start(); err != nil {
 			logrus.WithError(err).Warn("P2P integrated AS projector unavailable")
 		} else {
 			p2pService.SetProjectorStarted(true)
+		}
+		if err := p2p.NewOutputPresenceEventConsumer(processCtx, &cfg.Global.JetStream, js, p2pService).Start(); err != nil {
+			logrus.WithError(err).Warn("P2P integrated AS Matrix presence projector unavailable")
 		}
 	}
 	p2p.Register(routers.P2P, p2pService)
@@ -122,6 +133,10 @@ func p2pDatabaseOptions(cfg *config.Dendrite) *config.DatabaseOptions {
 	return &cfg.RoomServer.Database
 }
 
+func ensureDirexioMatrixPresence(cfg *config.Dendrite) {
+	cfg.Global.Presence.EnableOutbound = true
+}
+
 func matrixHistoryReaderBaseURL(configured string) string {
 	configured = strings.TrimSpace(configured)
 	if configured == "" ||
@@ -131,6 +146,31 @@ func matrixHistoryReaderBaseURL(configured string) string {
 		return "http://127.0.0.1:8008"
 	}
 	return configured
+}
+
+type syncAgentPresenceReader struct {
+	db syncstorage.Presence
+}
+
+func (r syncAgentPresenceReader) UserOnline(ctx context.Context, userID string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" || r.db == nil {
+		return false, nil
+	}
+	presences, err := r.db.GetPresences(ctx, []string{userID})
+	if err != nil {
+		return false, err
+	}
+	for _, presence := range presences {
+		if presence == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(presence.UserID), userID) &&
+			strings.EqualFold(strings.TrimSpace(presence.ClientFields.Presence), "online") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func p2pRemoteNodeInsecureSkipTLSVerifyFromEnv() bool {
