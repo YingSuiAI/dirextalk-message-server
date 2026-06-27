@@ -21,8 +21,6 @@ type mcpPostSummary = mcp.PostSummary
 type mcpCommentSummary = mcp.CommentSummary
 type matrixMessageReader = mcp.MessageReader
 
-const matrixHistoryDeviceID = "DIREXIO_MATRIX_HISTORY"
-
 func mcpLimit(params map[string]any) int {
 	limit := int(int64Param(params["limit"]))
 	if limit <= 0 {
@@ -317,13 +315,10 @@ func (s *Service) MatrixHistoryAccessToken(ctx context.Context) (string, error) 
 	return s.matrixHistoryAccessToken(ctx)
 }
 
-func (s *Service) matrixHistoryAccessToken(ctx context.Context) (string, error) {
-	session, apiErr := s.agentMatrixSession(ctx, map[string]any{"device_id": matrixHistoryDeviceID})
-	if apiErr != nil {
-		return "", errors.New(apiErr.Error)
-	}
-	payload := session.(map[string]any)
-	token := trimString(payload["access_token"])
+func (s *Service) matrixHistoryAccessToken(_ context.Context) (string, error) {
+	s.mu.Lock()
+	token := trimString(s.accessToken)
+	s.mu.Unlock()
 	if token == "" {
 		return "", errors.New("matrix access token is unavailable")
 	}

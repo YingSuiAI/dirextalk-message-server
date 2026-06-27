@@ -1,6 +1,12 @@
 # API Interface Change Record
 
-Last updated: 2026-06-26
+Last updated: 2026-06-27
+
+## 2026-06-27 MCP Owner-Scoped Message History
+
+MCP actions remain a fixed `agent_token` allowlist, but their product behavior is owner-scoped: room search, default ordinary message send, ordinary message list, channel post/comment list, and channel comment create operate from the portal owner view instead of exposing the local Agent Matrix account as an independent product user.
+
+`mcp.messages.list` now reuses the current owner `access_token` for Matrix history reads. It does not call `agent.matrix_session.create`, does not create a `DIREXIO_MATRIX_HISTORY` device, and does not refresh the portal owner's Matrix session, so MCP history reads cannot evict the owner's phone or browser session.
 
 ## 2026-06-26 Agent Matrix Session Identity
 

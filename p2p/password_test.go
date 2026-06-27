@@ -18,9 +18,11 @@ type recordingMatrixSessionIssuer struct {
 	profileUser           string
 	profileName           string
 	profileURL            string
+	calls                 int
 }
 
 func (i *recordingMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, deviceID string, revokeExistingDevices bool) (string, error) {
+	i.calls++
 	i.deviceID = deviceID
 	i.revokeExistingDevices = revokeExistingDevices
 	i.sessionUser = userID
@@ -181,6 +183,33 @@ func TestAgentMatrixSessionDoesNotReplacePortalAccessToken(t *testing.T) {
 	}
 	if !service.Authorize(portalToken, "channels.list") {
 		t.Fatalf("existing portal token must remain valid after agent Matrix session creation")
+	}
+}
+
+func TestMatrixHistoryAccessTokenUsesCurrentOwnerTokenWithoutRefreshingSession(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	issuer := &recordingMatrixSessionIssuer{}
+	service.SetMatrixSessionIssuer(issuer)
+
+	portalSession := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{
+		"password":  service.password,
+		"device_id": "OWNER_PHONE",
+	})
+	portalToken := portalSession["access_token"].(string)
+	callsAfterPortalAuth := issuer.calls
+
+	token, err := service.MatrixHistoryAccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("MatrixHistoryAccessToken failed: %v", err)
+	}
+	if token != portalToken {
+		t.Fatalf("expected Matrix history to reuse current owner token, got %q want %q", token, portalToken)
+	}
+	if issuer.calls != callsAfterPortalAuth {
+		t.Fatalf("Matrix history token lookup must not create or refresh Matrix sessions, calls=%d want %d", issuer.calls, callsAfterPortalAuth)
+	}
+	if issuer.deviceID != "OWNER_PHONE" {
+		t.Fatalf("Matrix history token lookup must not request a new device, got %q", issuer.deviceID)
 	}
 }
 

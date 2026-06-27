@@ -68,6 +68,9 @@ func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	if len(transport.messages) != 1 {
 		t.Fatalf("expected one Matrix message, got %#v", transport.messages)
 	}
+	if transport.messages[0].SenderMXID != "@owner:example.com" {
+		t.Fatalf("expected ordinary MCP send to proxy owner, got %#v", transport.messages[0])
+	}
 	content := transport.messages[0].Content
 	if content["body"] != "hello" || content["msgtype"] != "m.text" {
 		t.Fatalf("expected text Matrix message content, got %#v", content)

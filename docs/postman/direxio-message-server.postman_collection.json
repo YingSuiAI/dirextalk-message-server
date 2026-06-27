@@ -2426,7 +2426,7 @@
         },
         {
           "name": "MCP（智能体接口）",
-          "description": "Direxio Local MCP 相关接口，面向本地 Agent/工具调用。可使用 `agent_token` 或 owner `access_token` 鉴权。",
+          "description": "Direxio Local MCP 相关接口，面向本地 Agent/工具调用。可使用 `agent_token` 或 owner `access_token` 鉴权；MCP action 按 portal owner 视角代理操作，不暴露 owner token。",
           "item": [
             {
               "name": "mcp.rooms.search（搜索房间）",
@@ -2448,7 +2448,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "搜索 Direxio Local MCP 使用的联系人、群组和频道摘要。\n\nSearch concise contact, group, and channel room summaries for Direxio Local MCP.\n\nAction: `mcp.rooms.search`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "按 portal owner 视角搜索 Direxio Local MCP 使用的联系人、群组和频道摘要。\n\nSearch concise contact, group, and channel room summaries for Direxio Local MCP from the portal owner view.\n\nAction: `mcp.rooms.search`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.rooms.search\",\n  \"params\": {\n    \"query\": \"Alice\",\n    \"type\": \"all\",\n    \"limit\": 50\n  }\n}",
@@ -2480,7 +2480,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "通过 MCP action 发送普通 Matrix 房间文本消息。\n\nSend a plain ordinary Matrix room message through the protected MCP action.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "通过 MCP action 默认以 portal owner 视角发送普通 Matrix 房间文本消息。\n\nSend a plain ordinary Matrix room message through the protected MCP action from the portal owner view by default.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.send\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"msg\": \"hello\"\n  }\n}",
@@ -2512,7 +2512,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询指定房间的普通消息摘要；不包含频道帖子和评论。\n\nList concise ordinary message summaries for a room. Channel posts and comments are excluded.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "按 portal owner 视角查询指定房间的普通消息摘要；不包含频道帖子和评论。服务端复用当前 owner access_token 读取 Matrix history，不创建或刷新 Matrix session。\n\nList concise ordinary message summaries for a room from the portal owner view. Channel posts and comments are excluded. The server reuses the current owner access_token for Matrix history and does not create or refresh Matrix sessions.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.list\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"from_ts\": 1710000000000,\n    \"to_ts\": 1710086400000,\n    \"limit\": 50\n  }\n}",
