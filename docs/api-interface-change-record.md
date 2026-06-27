@@ -8,6 +8,8 @@ MCP actions remain a fixed `agent_token` allowlist, but their product behavior i
 
 `mcp.messages.list` now reuses the current owner `access_token` for Matrix history reads. It does not call `agent.matrix_session.create`, does not create a `DIREXIO_MATRIX_HISTORY` device, and does not refresh the portal owner's Matrix session, so MCP history reads cannot evict the owner's phone or browser session.
 
+Default owner-scoped `mcp.messages.send` now rejects the configured `agent_room_id`. Agent-room replies remain supported only through the internal gateway marker path (`agent_gateway=true` or `gateway_source`), where the local `@agent:<server>` user sends the reply and marks the event to prevent gateway loops.
+
 ## 2026-06-26 Agent Matrix Session Identity
 
 `agent.matrix_session.create` still requires the owner `access_token`, but it now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID.

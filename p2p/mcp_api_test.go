@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +84,7 @@ func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 func TestMCPMessagesSendMarksGatewayReplies(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.agentRoomID = "!agents:example.com"
 
 	mustHandle[map[string]any](t, service, "mcp.messages.send", map[string]any{
 		"room_id":        "!agents:example.com",
@@ -99,6 +101,23 @@ func TestMCPMessagesSendMarksGatewayReplies(t *testing.T) {
 	content := transport.messages[0].Content
 	if content[AgentGatewayContentKey] != true || content[AgentGatewaySourceContentKey] != "codex-cli" {
 		t.Fatalf("expected gateway marker content, got %#v", content)
+	}
+}
+
+func TestMCPMessagesSendRejectsOwnerSendToAgentRoom(t *testing.T) {
+	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.agentRoomID = "!agents:example.com"
+
+	_, apiErr := service.Handle(context.Background(), "mcp.messages.send", map[string]any{
+		"room_id": "!agents:example.com",
+		"msg":     "hello agent room",
+	})
+	if apiErr == nil || apiErr.Status != 400 || !strings.Contains(apiErr.Error, "agent room") {
+		t.Fatalf("expected agent room send to fail with bad request, got %#v", apiErr)
+	}
+	if len(transport.messages) != 0 {
+		t.Fatalf("owner MCP send to agent room must not write Matrix messages, got %#v", transport.messages)
 	}
 }
 

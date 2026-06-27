@@ -2480,7 +2480,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "通过 MCP action 默认以 portal owner 视角发送普通 Matrix 房间文本消息。\n\nSend a plain ordinary Matrix room message through the protected MCP action from the portal owner view by default.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "通过 MCP action 默认以 portal owner 视角发送普通 Matrix 房间文本消息。普通 owner 代发不能发送到配置的 agent_room_id；agent room 回复只由内部 gateway 标记路径处理。\n\nSend a plain ordinary Matrix room message through the protected MCP action from the portal owner view by default. Default owner sends cannot target the configured agent_room_id; agent-room replies are reserved for the internal gateway marker path.\n\nAction: `mcp.messages.send`\nEndpoint: `POST /_p2p/command`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.send\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"msg\": \"hello\"\n  }\n}",

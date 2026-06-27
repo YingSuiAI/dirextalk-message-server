@@ -91,11 +91,15 @@ func (s *Service) mcpMessagesSend(ctx context.Context, params map[string]any) (a
 	}
 	gatewayMarked := mcpGatewayMarked(params)
 	s.mu.Lock()
+	agentRoomID := strings.TrimSpace(s.agentRoomID)
 	senderMXID := s.ownerMXID
 	if gatewayMarked {
 		senderMXID = s.agentMXIDLocked()
 	}
 	s.mu.Unlock()
+	if !gatewayMarked && agentRoomID != "" && roomID == agentRoomID {
+		return nil, badRequest("mcp.messages.send cannot send owner messages to the agent room; use the Matrix agent gateway")
+	}
 	if s.transport == nil {
 		return nil, internalError(errors.New("matrix transport is unavailable"))
 	}
