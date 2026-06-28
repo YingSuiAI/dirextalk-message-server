@@ -194,12 +194,20 @@ func (s *Service) enrichMCPMessageSenders(ctx context.Context, roomID string, me
 		return messages
 	}
 	displayNames := s.mcpSenderDisplayNames(ctx, roomID)
+	profileResolver := s.currentMatrixProfileResolver()
+	profileCache := map[string]matrixUserProfile{}
 	for i := range messages {
 		mxid := strings.TrimSpace(messages[i].SenderMXID)
 		if mxid == "" {
 			continue
 		}
 		displayName := displayNames[mxid]
+		if mcpNeedsProfileDisplayName(mxid, displayName) {
+			if profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, mxid); ok && strings.TrimSpace(profile.DisplayName) != "" {
+				displayName = profile.DisplayName
+				displayNames[mxid] = displayName
+			}
+		}
 		if displayName == "" {
 			continue
 		}
@@ -249,6 +257,17 @@ func (s *Service) mcpSenderDisplayNames(ctx context.Context, roomID string) map[
 	if members, err := s.mcpMatrixRoomMembers(ctx, roomID); err == nil {
 		for _, member := range members {
 			setName(member.UserID, member.DisplayName)
+		}
+	}
+	if profileResolver := s.currentMatrixProfileResolver(); profileResolver != nil {
+		profileCache := map[string]matrixUserProfile{}
+		for userID, displayName := range names {
+			if !mcpNeedsProfileDisplayName(userID, displayName) {
+				continue
+			}
+			if profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, userID); ok {
+				setName(userID, profile.DisplayName)
+			}
 		}
 	}
 
@@ -307,6 +326,7 @@ func (s *Service) mcpRoomMembersList(ctx context.Context, params map[string]any)
 			name = fallbackString(directName, name)
 		}
 	}
+	summaries = s.enrichMCPMemberSummariesWithProfiles(ctx, summaries)
 	limit := mcpLimit(params)
 	if len(summaries) > limit {
 		summaries = summaries[:limit]
@@ -331,6 +351,70 @@ func (s *Service) mcpMatrixRoomMembers(ctx context.Context, roomID string) ([]me
 		return nil, nil
 	}
 	return transport.ListRoomMembers(ctx, roomID)
+}
+
+func (s *Service) currentMatrixProfileResolver() matrixProfileResolver {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.matrixProfiles
+}
+
+func (s *Service) enrichMCPMemberSummariesWithProfiles(ctx context.Context, summaries []mcpMemberSummary) []mcpMemberSummary {
+	if len(summaries) == 0 {
+		return summaries
+	}
+	profileResolver := s.currentMatrixProfileResolver()
+	if profileResolver == nil {
+		return summaries
+	}
+	profileCache := map[string]matrixUserProfile{}
+	for i := range summaries {
+		userID := strings.TrimSpace(fallbackString(summaries[i].UserMXID, summaries[i].UserID))
+		if userID == "" {
+			continue
+		}
+		needsDisplayName := mcpNeedsProfileDisplayName(userID, summaries[i].DisplayName)
+		needsAvatar := strings.TrimSpace(summaries[i].AvatarURL) == ""
+		if !needsDisplayName && !needsAvatar {
+			continue
+		}
+		profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, userID)
+		if !ok {
+			continue
+		}
+		if needsDisplayName && strings.TrimSpace(profile.DisplayName) != "" {
+			summaries[i].DisplayName = profile.DisplayName
+		}
+		if needsAvatar && strings.TrimSpace(profile.AvatarURL) != "" {
+			summaries[i].AvatarURL = profile.AvatarURL
+		}
+	}
+	return summaries
+}
+
+func mcpResolveMatrixProfile(ctx context.Context, resolver matrixProfileResolver, cache map[string]matrixUserProfile, userID string) (matrixUserProfile, bool) {
+	if resolver == nil {
+		return matrixUserProfile{}, false
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return matrixUserProfile{}, false
+	}
+	if profile, ok := cache[userID]; ok {
+		return profile, strings.TrimSpace(profile.DisplayName) != "" || strings.TrimSpace(profile.AvatarURL) != ""
+	}
+	profile, err := resolver.ResolveMatrixProfile(ctx, userID)
+	if err != nil {
+		cache[userID] = matrixUserProfile{}
+		return matrixUserProfile{}, false
+	}
+	cache[userID] = profile
+	return profile, strings.TrimSpace(profile.DisplayName) != "" || strings.TrimSpace(profile.AvatarURL) != ""
+}
+
+func mcpNeedsProfileDisplayName(userID, displayName string) bool {
+	displayName = strings.TrimSpace(displayName)
+	return displayName == "" || strings.EqualFold(displayName, displayNameFromMXID(userID))
 }
 
 func mergeMCPMemberSummaries(existing []mcpMemberSummary, matrixMembers []memberRecord) []mcpMemberSummary {

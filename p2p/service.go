@@ -51,6 +51,7 @@ type Service struct {
 	transport          Transport
 	sessions           MatrixSessionIssuer
 	matrixMessages     matrixMessageReader
+	matrixProfiles     matrixProfileResolver
 	remoteHTTPClient   *http.Client
 	remoteAllowPrivate bool
 	storeMode          string
@@ -348,6 +349,12 @@ func (s *Service) SetMatrixMessageReader(reader matrixMessageReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.matrixMessages = reader
+}
+
+func (s *Service) SetMatrixProfileResolver(resolver matrixProfileResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.matrixProfiles = resolver
 }
 
 func (s *Service) SetProjectorStarted(started bool) {
