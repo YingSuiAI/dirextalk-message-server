@@ -57,6 +57,7 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 			return nil, internalError(err)
 		}
 		summary := mcpRoomSummaryFromConversation(view)
+		summary = s.enrichMCPRoomSummaryWithMatrixMemberCount(ctx, summary)
 		if summary.RoomID == "" {
 			continue
 		}
@@ -79,6 +80,27 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		rooms = rooms[:limit]
 	}
 	return map[string]any{"rooms": rooms}, nil
+}
+
+func (s *Service) enrichMCPRoomSummaryWithMatrixMemberCount(ctx context.Context, summary mcpRoomSummary) mcpRoomSummary {
+	if summary.RoomID == "" || (summary.Type != "group" && summary.Type != "channel") {
+		return summary
+	}
+	members, err := s.mcpMatrixRoomMembers(ctx, summary.RoomID)
+	if err != nil || len(members) == 0 {
+		return summary
+	}
+	var count int64
+	for _, member := range members {
+		if memberHidden(member.Membership) {
+			continue
+		}
+		count++
+	}
+	if count > 0 {
+		summary.Subtitle = mcpFormatMemberCount(count)
+	}
+	return summary
 }
 
 func (s *Service) mcpMessagesSend(ctx context.Context, params map[string]any) (any, *apiError) {

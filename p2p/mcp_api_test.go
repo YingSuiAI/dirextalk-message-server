@@ -55,6 +55,28 @@ func TestMCPSearchRoomsEmptyQueryListsByType(t *testing.T) {
 	}
 }
 
+func TestMCPSearchRoomsUsesMatrixMemberCountWhenProductCountIsStale(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@owner:t7.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+		"type":  "group",
+		"query": "Design",
+	})
+	rooms := result["rooms"].([]mcpRoomSummary)
+	if len(rooms) != 1 || rooms[0].Subtitle != "3 members" {
+		t.Fatalf("expected Matrix-backed member count, got %#v", rooms)
+	}
+}
+
 func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
