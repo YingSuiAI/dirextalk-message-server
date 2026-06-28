@@ -6,12 +6,13 @@ import (
 )
 
 type MessageSummary struct {
-	TS              int64  `json:"ts"`
-	Sender          string `json:"sender"`
-	SenderMXID      string `json:"sender_mxid,omitempty"`
-	SenderDomain    string `json:"sender_domain,omitempty"`
-	SenderLocalpart string `json:"sender_localpart,omitempty"`
-	Msg             string `json:"msg"`
+	TS                int64  `json:"ts"`
+	Sender            string `json:"sender"`
+	SenderMXID        string `json:"sender_mxid,omitempty"`
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	SenderDomain      string `json:"sender_domain,omitempty"`
+	SenderLocalpart   string `json:"sender_localpart,omitempty"`
+	Msg               string `json:"msg"`
 }
 
 type Event struct {

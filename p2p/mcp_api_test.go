@@ -191,6 +191,53 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	}
 }
 
+func TestMCPMessagesListEnrichesSenderDisplayNamesFromRoomMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+		{
+			TS:              1710000100000,
+			Sender:          "alice",
+			SenderMXID:      "@alice:remote.example",
+			SenderDomain:    "remote.example",
+			SenderLocalpart: "alice",
+			Msg:             "hello from alice",
+		},
+	}})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+		"room_id": "!group:example.com",
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Messages []struct {
+			Sender            string `json:"sender"`
+			SenderMXID        string `json:"sender_mxid"`
+			SenderDisplayName string `json:"sender_display_name"`
+			Msg               string `json:"msg"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Messages) != 1 ||
+		decoded.Messages[0].Sender != "Alice Remote" ||
+		decoded.Messages[0].SenderDisplayName != "Alice Remote" ||
+		decoded.Messages[0].SenderMXID != "@alice:remote.example" {
+		t.Fatalf("expected message JSON to expose readable sender display name, got %s", string(payload))
+	}
+}
+
 func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
@@ -239,6 +286,44 @@ func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 		decoded.Members[1].DisplayName != "Alice Remote" ||
 		decoded.Members[1].Membership != "join" {
 		t.Fatalf("expected member JSON to expose Matrix identity, got %s", string(payload))
+	}
+}
+
+func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Members []struct {
+			UserMXID    string `json:"user_mxid"`
+			DisplayName string `json:"display_name"`
+			Membership  string `json:"membership"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Members) != 2 {
+		t.Fatalf("expected owner plus Matrix room member, got %s", string(payload))
+	}
+	if decoded.Members[1].UserMXID != "@alice:remote.example" ||
+		decoded.Members[1].DisplayName != "Alice Remote" ||
+		decoded.Members[1].Membership != "join" {
+		t.Fatalf("expected Matrix room state member identity, got %s", string(payload))
 	}
 }
 
