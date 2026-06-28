@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -141,8 +142,8 @@ func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID 
 func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1710000000000, Sender: "Alice", Msg: "old"},
-		{TS: 1710000100000, Sender: "Alice", Msg: "inside"},
+		{TS: 1710000000000, Sender: "Alice", Msg: "old", SenderMXID: "@alice:remote.example"},
+		{TS: 1710000100000, Sender: "Alice", Msg: "inside", SenderMXID: "@alice:remote.example", SenderDomain: "remote.example", SenderLocalpart: "alice"},
 	}})
 	if err := service.saveConversation(context.Background(), conversationRecord{
 		MatrixRoomID: "!room:example.com",
@@ -164,6 +165,80 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	messages := result["messages"].([]mcpMessageSummary)
 	if len(messages) != 1 || messages[0].Msg != "inside" {
 		t.Fatalf("unexpected message summaries: %#v", messages)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Messages []struct {
+			Sender          string `json:"sender"`
+			SenderMXID      string `json:"sender_mxid"`
+			SenderDomain    string `json:"sender_domain"`
+			SenderLocalpart string `json:"sender_localpart"`
+			Msg             string `json:"msg"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Messages) != 1 ||
+		decoded.Messages[0].Sender != "Alice" ||
+		decoded.Messages[0].SenderMXID != "@alice:remote.example" ||
+		decoded.Messages[0].SenderDomain != "remote.example" ||
+		decoded.Messages[0].SenderLocalpart != "alice" {
+		t.Fatalf("expected message JSON to expose sender identity, got %s", string(payload))
+	}
+}
+
+func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id":      group.RoomID,
+		"user_mxid":    "@alice:remote.example",
+		"display_name": "Alice Remote",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		RoomID  string `json:"room_id"`
+		Name    string `json:"name"`
+		Members []struct {
+			UserID      string `json:"user_id"`
+			UserMXID    string `json:"user_mxid"`
+			Localpart   string `json:"localpart"`
+			Domain      string `json:"domain"`
+			DisplayName string `json:"display_name"`
+			Role        string `json:"role"`
+			Membership  string `json:"membership"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RoomID != group.RoomID || decoded.Name != "Design Group" {
+		t.Fatalf("unexpected room member envelope: %s", string(payload))
+	}
+	if len(decoded.Members) != 2 {
+		t.Fatalf("expected owner plus alice, got %s", string(payload))
+	}
+	if decoded.Members[1].UserID != "@alice:remote.example" ||
+		decoded.Members[1].UserMXID != "@alice:remote.example" ||
+		decoded.Members[1].Localpart != "alice" ||
+		decoded.Members[1].Domain != "remote.example" ||
+		decoded.Members[1].DisplayName != "Alice Remote" ||
+		decoded.Members[1].Membership != "join" {
+		t.Fatalf("expected member JSON to expose Matrix identity, got %s", string(payload))
 	}
 }
 

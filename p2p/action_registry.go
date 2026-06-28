@@ -21,6 +21,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"mcp.rooms.search":             s.mcpRoomsSearch,
 		"mcp.messages.send":            s.mcpMessagesSend,
 		"mcp.messages.list":            s.mcpMessagesList,
+		"mcp.room_members.list":        s.mcpRoomMembersList,
 		"mcp.channel_posts.list":       s.mcpChannelPostsList,
 		"mcp.channel_comments.list":    s.mcpChannelCommentsList,
 		"mcp.channel_comments.create":  s.mcpChannelCommentCreate,

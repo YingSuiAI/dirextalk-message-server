@@ -48,11 +48,14 @@ func (r *HTTPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID str
 		if body == "" {
 			continue
 		}
+		localpart, domain := splitMXID(event.Sender)
 		messages = append(messages, MessageSummary{
-			TS:         event.OriginServerTS,
-			Sender:     displayNameFromMXID(event.Sender),
-			Msg:        body,
-			SenderMXID: event.Sender,
+			TS:              event.OriginServerTS,
+			Sender:          displayNameFromMXID(event.Sender),
+			SenderMXID:      event.Sender,
+			SenderDomain:    domain,
+			SenderLocalpart: localpart,
+			Msg:             body,
 		})
 		if len(messages) >= limit {
 			break
