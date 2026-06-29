@@ -217,7 +217,7 @@ Calls/Favorites/Follows：
 Push：
 
 - 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。
-- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端必须通过全局 Matrix account data `io.direxio.push.context` 上报生命周期状态：`{"foreground":true,"expires_at_ms":<future unix ms>}`。前台默认每 30 秒刷新一次，`expires_at_ms` 建议设置为当前时间后约 60 秒；进入后台时立即写 `{"foreground":false}`。该状态未过期时服务端不新增 unread notification，也不调用 HTTP push gateway；缺失、格式错误、过期或 `foreground=false` 时继续按后台推送处理。
+- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端必须通过全局 Matrix account data `io.direxio.push.context` 上报生命周期状态：前台写 `{"foreground":true}` 并默认每 30 秒刷新一次；进入后台时立即写 `{"foreground":false}`。服务端收到前台写入时按服务端时间保存 60 秒过期时间；该状态未过期时服务端不新增 unread notification，也不调用 HTTP push gateway；缺失、格式错误、过期或 `foreground=false` 时继续按后台推送处理。
 
 Agent/API：
 

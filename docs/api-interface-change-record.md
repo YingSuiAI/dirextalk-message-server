@@ -8,14 +8,13 @@ Direxio clients may now suppress foreground system pushes by writing global Matr
 
 ```json
 {
-  "foreground": true,
-  "expires_at_ms": 4102444800000
+  "foreground": true
 }
 ```
 
-When `foreground=true` and `expires_at_ms` is in the future, the userapi roomserver consumer does not create an unread notification row and does not call the HTTP push gateway for matching Matrix push-rule notifications. Missing, malformed, expired, or `foreground=false` context fails open and keeps normal background push behavior. This is a first-step app lifecycle contract only; the server does not infer foreground/background from `/sync`, read receipts, or pusher registration.
+The Matrix account data write path stamps foreground writes with a server-clock 60-second expiry. While the stamped foreground state is fresh, the userapi roomserver consumer does not create an unread notification row and does not call the HTTP push gateway for matching Matrix push-rule notifications. Missing, malformed, expired, or `foreground=false` context fails open and keeps normal background push behavior. This is a first-step app lifecycle contract only; the server does not infer foreground/background from `/sync`, read receipts, or pusher registration.
 
-Clients must implement the lifecycle write. Foreground clients should refresh this account data every 30 seconds and set `expires_at_ms` about 60 seconds in the future to tolerate network jitter. When entering background, clients should immediately write `{"foreground": false}`; if that write is missed, the previous foreground state naturally expires.
+Clients must implement the lifecycle write. Foreground clients should refresh this account data every 30 seconds with `{"foreground": true}`. When entering background, clients should immediately write `{"foreground": false}`; if that write is missed, the previous foreground state naturally expires after the server-stamped 60 seconds.
 
 Backend startup now also ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, so new or repaired agents rooms default to no system push. Existing explicit room push rules for the same room are preserved.
 

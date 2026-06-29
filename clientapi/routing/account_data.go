@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
 	"github.com/YingSuiAI/direxio-message-server/clientapi/producers"
@@ -21,6 +22,16 @@ import (
 
 	"github.com/matrix-org/util"
 )
+
+const (
+	direxioPushContextAccountDataType = "io.direxio.push.context"
+	direxioPushContextExpiry          = time.Minute
+)
+
+type direxioPushContextAccountData struct {
+	Foreground  bool  `json:"foreground"`
+	ExpiresAtMS int64 `json:"expires_at_ms,omitempty"`
+}
 
 // GetAccountData implements GET /user/{userId}/[rooms/{roomid}/]account_data/{type}
 func GetAccountData(
@@ -108,6 +119,13 @@ func SaveAccountData(
 			JSON: spec.BadJSON("Bad JSON content"),
 		}
 	}
+	body, err = normalizeDirexioPushContextAccountData(roomID, dataType, body, time.Now())
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
+	}
 
 	dataReq := api.InputAccountDataRequest{
 		UserID:      userID,
@@ -125,6 +143,23 @@ func SaveAccountData(
 		Code: http.StatusOK,
 		JSON: struct{}{},
 	}
+}
+
+func normalizeDirexioPushContextAccountData(roomID, dataType string, body []byte, now time.Time) ([]byte, error) {
+	if roomID != "" || dataType != direxioPushContextAccountDataType {
+		return body, nil
+	}
+	var pushContext direxioPushContextAccountData
+	if err := json.Unmarshal(body, &pushContext); err != nil {
+		return body, nil
+	}
+	if !pushContext.Foreground {
+		return json.Marshal(direxioPushContextAccountData{Foreground: false})
+	}
+	return json.Marshal(direxioPushContextAccountData{
+		Foreground:  true,
+		ExpiresAtMS: now.Add(direxioPushContextExpiry).UnixMilli(),
+	})
 }
 
 type fullyReadEvent struct {
