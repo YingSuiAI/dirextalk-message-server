@@ -218,18 +218,38 @@ func scanMembers(rows *sql.Rows) ([]memberRecord, error) {
 	return members, rows.Err()
 }
 
-func (s *DatabaseStore) DeleteChannelPost(ctx context.Context, postID string) error {
-	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM p2p_channel_posts WHERE post_id = $1 OR event_id = $1`, postID)
-		return err
+func (s *DatabaseStore) DeleteChannelPost(ctx context.Context, postID string) (bool, error) {
+	var deleted bool
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `DELETE FROM p2p_channel_posts WHERE post_id = $1 OR event_id = $1`, postID)
+		if err != nil {
+			return err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = affected > 0
+		return nil
 	})
+	return deleted, err
 }
 
-func (s *DatabaseStore) DeleteChannelComment(ctx context.Context, commentID string) error {
-	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM p2p_channel_comments WHERE comment_id = $1 OR event_id = $1`, commentID)
-		return err
+func (s *DatabaseStore) DeleteChannelComment(ctx context.Context, commentID string) (bool, error) {
+	var deleted bool
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `DELETE FROM p2p_channel_comments WHERE comment_id = $1 OR event_id = $1`, commentID)
+		if err != nil {
+			return err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = affected > 0
+		return nil
 	})
+	return deleted, err
 }
 
 func (s *DatabaseStore) InsertEvent(ctx context.Context, event p2pEvent) error {

@@ -34,17 +34,15 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 	s.comments = comments
 	s.mu.Unlock()
 	if s.store != nil {
-		storeRemoved, err := s.storeHasChannelContentEvent(ctx, eventID)
+		postRemoved, err := s.store.DeleteChannelPost(ctx, eventID)
 		if err != nil {
 			return err
 		}
-		removed = removed || storeRemoved
-		if err := s.store.DeleteChannelPost(ctx, eventID); err != nil {
+		commentRemoved, err := s.store.DeleteChannelComment(ctx, eventID)
+		if err != nil {
 			return err
 		}
-		if err := s.store.DeleteChannelComment(ctx, eventID); err != nil {
-			return err
-		}
+		removed = removed || postRemoved || commentRemoved
 	}
 	if !removed {
 		return nil
@@ -54,28 +52,6 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 		EventID: eventID,
 		Payload: map[string]any{"redacted_event_id": eventID},
 	})
-}
-
-func (s *Service) storeHasChannelContentEvent(ctx context.Context, eventID string) (bool, error) {
-	posts, err := s.store.ListChannelPosts(ctx, "")
-	if err != nil {
-		return false, err
-	}
-	for _, post := range posts {
-		if post.EventID == eventID {
-			return true, nil
-		}
-	}
-	comments, err := s.store.ListChannelComments(ctx, "")
-	if err != nil {
-		return false, err
-	}
-	for _, comment := range comments {
-		if comment.EventID == eventID {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func eventTime(event *types.HeaderedEvent) time.Time {

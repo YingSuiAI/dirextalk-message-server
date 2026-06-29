@@ -419,7 +419,7 @@ func (s *Service) recallChannelContent(ctx context.Context, action string, param
 		s.posts = filtered
 		s.mu.Unlock()
 		if s.store != nil {
-			if err := s.store.DeleteChannelPost(ctx, postID); err != nil {
+			if _, err := s.store.DeleteChannelPost(ctx, postID); err != nil {
 				return nil, internalError(err)
 			}
 		}
@@ -464,7 +464,7 @@ func (s *Service) recallChannelContent(ctx context.Context, action string, param
 	s.comments = filtered
 	s.mu.Unlock()
 	if s.store != nil {
-		if err := s.store.DeleteChannelComment(ctx, commentID); err != nil {
+		if _, err := s.store.DeleteChannelComment(ctx, commentID); err != nil {
 			return nil, internalError(err)
 		}
 	}

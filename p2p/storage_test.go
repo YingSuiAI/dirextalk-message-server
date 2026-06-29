@@ -447,6 +447,69 @@ func TestServicePrunesP2PEventsWhenRetentionMaxRowsIsConfigured(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreDeleteChannelContentReportsDeletedRows(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.InsertChannelPost(ctx, channelPostRecord{
+		PostID:         "post_1",
+		ChannelID:      "ch_1",
+		RoomID:         "!room:example.com",
+		EventID:        "$post-event",
+		AuthorMXID:     "@owner:example.com",
+		OriginServerTS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	postDeleted, err := store.DeleteChannelPost(ctx, "$post-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !postDeleted {
+		t.Fatalf("expected post delete by event id to report a deleted row")
+	}
+	postDeletedAgain, err := store.DeleteChannelPost(ctx, "$post-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if postDeletedAgain {
+		t.Fatalf("expected second post delete to report no deleted row")
+	}
+
+	if err := store.InsertChannelComment(ctx, channelCommentRecord{
+		CommentID:      "comment_1",
+		PostID:         "post_1",
+		ChannelID:      "ch_1",
+		EventID:        "$comment-event",
+		AuthorMXID:     "@owner:example.com",
+		OriginServerTS: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commentDeleted, err := store.DeleteChannelComment(ctx, "$comment-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commentDeleted {
+		t.Fatalf("expected comment delete by event id to report a deleted row")
+	}
+	commentDeletedAgain, err := store.DeleteChannelComment(ctx, "$comment-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commentDeletedAgain {
+		t.Fatalf("expected second comment delete to report no deleted row")
+	}
+}
+
 func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
