@@ -145,7 +145,7 @@ type Store interface {
 	DeleteConversationByRoomID(ctx context.Context, matrixRoomID string) error
 	DeleteChannelPost(ctx context.Context, postID string) (bool, error)
 	DeleteChannelComment(ctx context.Context, commentID string) (bool, error)
-	InsertEvent(ctx context.Context, event p2pEvent) error
+	InsertEvent(ctx context.Context, event p2pEvent) (bool, error)
 	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
 	EventBounds(ctx context.Context) (eventBounds, error)
 	PruneEventsBefore(ctx context.Context, beforeSeq int64) (int64, error)

@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/direxio-message-server/setup/config"
 	"github.com/YingSuiAI/direxio-message-server/test"
 )
 
@@ -970,6 +972,44 @@ func TestProjectMemberUsesKnownChannelForRoom(t *testing.T) {
 	gotMembers, ok := members["members"].([]memberRecord)
 	if !ok || len(gotMembers) != 1 || gotMembers[0].UserID != remote.ID || gotMembers[0].ChannelID != "ch_remote" || gotMembers[0].AvatarURL != "mxc://test/avatar" {
 		t.Fatalf("expected projected channel member, got %#v", members)
+	}
+}
+
+func TestProjectMemberEventDeduplicatesP2PDelta(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "test"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := room.CreateAndInsert(t, user, "m.room.member", map[string]any{
+		"membership":  "join",
+		"displayname": "Deduped Member",
+	}, test.WithStateKey(user.ID))
+
+	if err := service.ProjectRoomEvent(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ProjectRoomEvent(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	events, err := service.listP2PEvents(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != "room.member.projected" {
+		t.Fatalf("expected one deduplicated member delta event, got %#v", events)
 	}
 }
 

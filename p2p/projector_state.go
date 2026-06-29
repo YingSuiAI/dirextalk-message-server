@@ -44,9 +44,11 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 		return err
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "profile.changed",
-		RoomID:  roomID,
-		Payload: map[string]any{"room_type": DirexioRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
+		Type:      "profile.changed",
+		RoomID:    roomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), roomID),
+		Payload:   map[string]any{"room_type": DirexioRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
 	})
 }
 
@@ -74,9 +76,11 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 		}
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "profile.changed",
-		RoomID:  ch.RoomID,
-		Payload: map[string]any{"room_type": DirexioRoomTypeChannel, "channel_id": ch.ChannelID, "dissolved": false},
+		Type:      "profile.changed",
+		RoomID:    ch.RoomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), ch.ChannelID),
+		Payload:   map[string]any{"room_type": DirexioRoomTypeChannel, "channel_id": ch.ChannelID, "dissolved": false},
 	})
 }
 
@@ -91,9 +95,11 @@ func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.H
 		return err
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "profile.changed",
-		RoomID:  group.RoomID,
-		Payload: map[string]any{"room_type": DirexioRoomTypeGroup, "dissolved": false},
+		Type:      "profile.changed",
+		RoomID:    group.RoomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), group.RoomID),
+		Payload:   map[string]any{"room_type": DirexioRoomTypeGroup, "dissolved": false},
 	})
 }
 
@@ -118,9 +124,11 @@ func (s *Service) projectMemberPolicyState(ctx context.Context, event *types.Hea
 		return err
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "room.member_policy.projected",
-		RoomID:  member.RoomID,
-		Payload: map[string]any{"user_id": member.UserID, "role": member.Role, "muted": member.Muted},
+		Type:      "room.member_policy.projected",
+		RoomID:    member.RoomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("room.member_policy.projected", event.EventID(), member.UserID),
+		Payload:   map[string]any{"user_id": member.UserID, "role": member.Role, "muted": member.Muted},
 	})
 }
 
@@ -152,10 +160,11 @@ func (s *Service) projectJoinRequestState(ctx context.Context, event *types.Head
 		return err
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "channel.join_request.changed",
-		RoomID:  roomID,
-		EventID: event.EventID(),
-		Payload: map[string]any{"user_id": userID, "status": trimString(content["status"])},
+		Type:      "channel.join_request.changed",
+		RoomID:    roomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("channel.join_request.changed", event.EventID(), userID),
+		Payload:   map[string]any{"user_id": userID, "status": trimString(content["status"])},
 	})
 }
 

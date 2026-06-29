@@ -165,9 +165,11 @@ func (s *Service) projectMember(ctx context.Context, event *types.HeaderedEvent)
 		return err
 	}
 	_ = s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "room.member.projected",
-		RoomID:  member.RoomID,
-		Payload: map[string]any{"user_id": member.UserID, "membership": member.Membership, "channel_id": member.ChannelID},
+		Type:      "room.member.projected",
+		RoomID:    member.RoomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey("room.member.projected", event.EventID(), member.UserID),
+		Payload:   map[string]any{"user_id": member.UserID, "membership": member.Membership, "channel_id": member.ChannelID},
 	})
 	if strings.EqualFold(member.Membership, "invite") &&
 		!boolParam(content["is_direct"]) &&

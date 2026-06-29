@@ -176,7 +176,16 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 	if event.CreatedAt == "" {
 		event.CreatedAt = now.Format(time.RFC3339Nano)
 	}
+	event.DedupeKey = strings.TrimSpace(event.DedupeKey)
 	s.mu.Lock()
+	if event.DedupeKey != "" {
+		for _, existing := range s.events {
+			if existing.DedupeKey == event.DedupeKey {
+				s.mu.Unlock()
+				return nil
+			}
+		}
+	}
 	if event.Seq <= 0 || event.Seq <= s.nextEventSeq {
 		event.Seq = now.UnixNano()
 		if event.Seq <= s.nextEventSeq {
@@ -184,16 +193,25 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 		}
 	}
 	s.nextEventSeq = event.Seq
-	s.events = append(s.events, event)
 	s.mu.Unlock()
 	if s.store != nil {
-		if err := s.store.InsertEvent(ctx, event); err != nil {
+		inserted, err := s.store.InsertEvent(ctx, event)
+		if err != nil {
 			return err
 		}
+		if !inserted {
+			return nil
+		}
+		s.mu.Lock()
+		s.events = append(s.events, event)
+		s.mu.Unlock()
 		if err := s.pruneP2PEventsAfterAppend(ctx); err != nil {
 			return err
 		}
 	} else {
+		s.mu.Lock()
+		s.events = append(s.events, event)
+		s.mu.Unlock()
 		s.pruneMemoryP2PEventsAfterAppend()
 	}
 	s.notifyP2PEventWaiters()

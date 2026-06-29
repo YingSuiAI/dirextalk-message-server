@@ -59,9 +59,10 @@ func (s *Service) projectAgentRoomMessage(ctx context.Context, event *types.Head
 		msgType = "m.text"
 	}
 	return true, s.appendP2PEvent(ctx, p2pEvent{
-		Type:    AgentRoomMessageEventType,
-		RoomID:  roomID,
-		EventID: event.EventID(),
+		Type:      AgentRoomMessageEventType,
+		RoomID:    roomID,
+		EventID:   event.EventID(),
+		DedupeKey: projectedEventDedupeKey(AgentRoomMessageEventType, event.EventID(), ""),
 		Payload: map[string]any{
 			"room_id":          roomID,
 			"event_id":         event.EventID(),

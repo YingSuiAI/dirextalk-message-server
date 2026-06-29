@@ -252,28 +252,33 @@ func (s *DatabaseStore) DeleteChannelComment(ctx context.Context, commentID stri
 	return deleted, err
 }
 
-func (s *DatabaseStore) InsertEvent(ctx context.Context, event p2pEvent) error {
+func (s *DatabaseStore) InsertEvent(ctx context.Context, event p2pEvent) (bool, error) {
 	payload := event.Payload
 	if payload == nil {
 		payload = map[string]any{}
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
-		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO p2p_events (seq, type, room_id, event_id, payload_json, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT(seq) DO UPDATE SET
-				type = EXCLUDED.type,
-				room_id = EXCLUDED.room_id,
-				event_id = EXCLUDED.event_id,
-				payload_json = EXCLUDED.payload_json,
-				created_at = EXCLUDED.created_at
-		`, event.Seq, event.Type, event.RoomID, event.EventID, string(payloadJSON), event.CreatedAt)
-		return err
+	var inserted bool
+	err = s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_events (seq, type, room_id, event_id, dedupe_key, payload_json, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT DO NOTHING
+		`, event.Seq, event.Type, event.RoomID, event.EventID, event.DedupeKey, string(payloadJSON), event.CreatedAt)
+		if err != nil {
+			return err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		inserted = affected > 0
+		return nil
 	})
+	return inserted, err
 }
 
 func (s *DatabaseStore) ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error) {
@@ -281,7 +286,7 @@ func (s *DatabaseStore) ListEvents(ctx context.Context, since int64, limit int) 
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT seq, type, room_id, event_id, payload_json, created_at
+		SELECT seq, type, room_id, event_id, dedupe_key, payload_json, created_at
 		FROM p2p_events
 		WHERE seq > $1
 		ORDER BY seq ASC
@@ -295,7 +300,7 @@ func (s *DatabaseStore) ListEvents(ctx context.Context, since int64, limit int) 
 	for rows.Next() {
 		var event p2pEvent
 		var payloadJSON string
-		if err := rows.Scan(&event.Seq, &event.Type, &event.RoomID, &event.EventID, &payloadJSON, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.Seq, &event.Type, &event.RoomID, &event.EventID, &event.DedupeKey, &payloadJSON, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(payloadJSON) != "" {

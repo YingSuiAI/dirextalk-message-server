@@ -48,9 +48,10 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 		return nil
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
-		Type:    "room.redaction.projected",
-		EventID: eventID,
-		Payload: map[string]any{"redacted_event_id": eventID},
+		Type:      "room.redaction.projected",
+		EventID:   eventID,
+		DedupeKey: projectedEventDedupeKey("room.redaction.projected", eventID, ""),
+		Payload:   map[string]any{"redacted_event_id": eventID},
 	})
 }
 

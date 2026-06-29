@@ -375,7 +375,7 @@ func TestDatabaseStorePrunesP2PEventsBeforeSeq(t *testing.T) {
 	defer store.Close()
 
 	for seq := int64(1); seq <= 5; seq++ {
-		if err := store.InsertEvent(ctx, p2pEvent{
+		if _, err := store.InsertEvent(ctx, p2pEvent{
 			Seq:       seq,
 			Type:      "test.event",
 			RoomID:    "!room:example.com",
@@ -405,6 +405,55 @@ func TestDatabaseStorePrunesP2PEventsBeforeSeq(t *testing.T) {
 	}
 	if len(remaining) != 2 || remaining[0].Seq != 4 || remaining[1].Seq != 5 {
 		t.Fatalf("expected events 4 and 5 after prune, got %#v", remaining)
+	}
+}
+
+func TestDatabaseStoreSkipsDuplicateP2PEventsByDedupeKey(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	inserted, err := store.InsertEvent(ctx, p2pEvent{
+		Seq:       1,
+		Type:      "room.member.projected",
+		RoomID:    "!room:example.com",
+		EventID:   "$event",
+		DedupeKey: "room.member.projected:$event:@owner:example.com",
+		CreatedAt: "2026-06-29T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inserted {
+		t.Fatalf("expected first event insert to report inserted")
+	}
+	inserted, err = store.InsertEvent(ctx, p2pEvent{
+		Seq:       2,
+		Type:      "room.member.projected",
+		RoomID:    "!room:example.com",
+		EventID:   "$event",
+		DedupeKey: "room.member.projected:$event:@owner:example.com",
+		CreatedAt: "2026-06-29T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inserted {
+		t.Fatalf("expected duplicate dedupe key to be skipped")
+	}
+	events, err := store.ListEvents(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Seq != 1 {
+		t.Fatalf("expected only first deduped event, got %#v", events)
 	}
 }
 

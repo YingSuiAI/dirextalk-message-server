@@ -256,11 +256,13 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 					type TEXT NOT NULL,
 					room_id TEXT NOT NULL,
 					event_id TEXT NOT NULL,
+					dedupe_key TEXT NOT NULL DEFAULT '',
 					payload_json TEXT NOT NULL,
 					created_at TEXT NOT NULL
 				)`,
 				`CREATE INDEX IF NOT EXISTS p2p_events_room_idx ON p2p_events(room_id, seq)`,
 				`CREATE INDEX IF NOT EXISTS p2p_events_type_idx ON p2p_events(type, seq)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_events_dedupe_key_idx ON p2p_events(dedupe_key) WHERE dedupe_key <> ''`,
 			})
 		},
 	})
@@ -496,6 +498,22 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			}
 			_, err = txn.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS p2p_channels_visibility_idx ON p2p_channels(visibility, channel_id)`)
 			return err
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: event dedupe key v27",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_events")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return nil
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_events ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT ''`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_events_dedupe_key_idx ON p2p_events(dedupe_key) WHERE dedupe_key <> ''`,
+			})
 		},
 	})
 	return m.Up(ctx)

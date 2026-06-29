@@ -220,6 +220,7 @@ type Event struct {
 	Type      string         `json:"type"`
 	RoomID    string         `json:"room_id,omitempty"`
 	EventID   string         `json:"event_id,omitempty"`
+	DedupeKey string         `json:"-"`
 	Payload   map[string]any `json:"payload,omitempty"`
 	CreatedAt string         `json:"created_at"`
 }
