@@ -117,6 +117,16 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 }
 
 func (s *Service) channelList(ctx context.Context) any {
+	if s.store != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		s.mu.Unlock()
+		channels, err := s.store.ListJoinedChannelsForUser(ctx, ownerMXID)
+		if err != nil {
+			return map[string]any{"channels": []channel{}}
+		}
+		return map[string]any{"channels": channels}
+	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
 		return map[string]any{"channels": []channel{}}
@@ -206,6 +216,20 @@ func (s *Service) channelPublicSearch(ctx context.Context, params map[string]any
 		}
 		return map[string]any{"channels": []channel{channelResult}, "results": []channel{channelResult}}, nil
 	}
+	if s.store != nil {
+		results, err := s.store.SearchPublicChannels(ctx, query, limit)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for i := range results {
+			ch, err := s.channelWithCurrentCounts(ctx, results[i])
+			if err != nil {
+				return nil, internalError(err)
+			}
+			results[i] = ch
+		}
+		return map[string]any{"channels": results, "results": results}, nil
+	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
 		return nil, internalError(err)
@@ -261,6 +285,20 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 			channels = remote.Results
 		}
 		return map[string]any{"user_id": fallbackString(remote.UserID, userID), "channels": channels, "results": channels}, nil
+	}
+	if s.store != nil {
+		publicChannels, err := s.store.ListPublicChannelsForOwner(ctx, userID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		for i := range publicChannels {
+			ch, err := s.channelWithCurrentCounts(ctx, publicChannels[i])
+			if err != nil {
+				return nil, internalError(err)
+			}
+			publicChannels[i] = ch
+		}
+		return map[string]any{"user_id": userID, "channels": publicChannels}, nil
 	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
@@ -487,6 +525,9 @@ func (s *Service) dissolveChannel(ctx context.Context, params map[string]any) (a
 }
 
 func (s *Service) channelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error) {
+	if s.store != nil {
+		return s.store.GetChannelByIDOrRoom(ctx, channelID, roomID)
+	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
 		return channel{}, false, err
@@ -508,13 +549,9 @@ func (s *Service) channelSnapshot(ctx context.Context, channelID string) channel
 		return channel{}
 	}
 	if s.store != nil {
-		channels, err := s.store.ListChannels(ctx)
-		if err == nil {
-			for _, ch := range channels {
-				if ch.ChannelID == channelID {
-					return ch
-				}
-			}
+		ch, ok, err := s.store.GetChannelByIDOrRoom(ctx, channelID, "")
+		if err == nil && ok {
+			return ch
 		}
 	}
 	s.mu.Lock()
@@ -526,23 +563,33 @@ func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (cha
 	if strings.TrimSpace(ch.ChannelID) == "" {
 		return ch, nil
 	}
-	var members []memberRecord
-	var err error
 	if s.store != nil {
-		members, err = s.store.ListMembers(ctx, "", ch.ChannelID)
+		memberCount, pendingJoinCount, err := s.store.CountProductMembers(ctx, ch.RoomID, ch.ChannelID)
 		if err != nil {
 			return channel{}, err
 		}
-	} else {
-		s.mu.Lock()
-		members = make([]memberRecord, 0, len(s.members))
-		for _, member := range s.members {
-			if member.ChannelID == ch.ChannelID {
-				members = append(members, member)
-			}
+		if memberCount == 0 && pendingJoinCount == 0 {
+			return ch, nil
 		}
-		s.mu.Unlock()
+		if ch.MemberCount == memberCount && ch.PendingJoinCount == pendingJoinCount {
+			return ch, nil
+		}
+		ch.MemberCount = memberCount
+		ch.PendingJoinCount = pendingJoinCount
+		if err := s.saveChannel(ctx, ch); err != nil {
+			return channel{}, err
+		}
+		return ch, nil
 	}
+	var members []memberRecord
+	s.mu.Lock()
+	members = make([]memberRecord, 0, len(s.members))
+	for _, member := range s.members {
+		if member.ChannelID == ch.ChannelID {
+			members = append(members, member)
+		}
+	}
+	s.mu.Unlock()
 	if len(members) == 0 {
 		return ch, nil
 	}
@@ -563,25 +610,19 @@ func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID stri
 	if s.store == nil || channelID == "" {
 		return nil
 	}
-	channels, err := s.store.ListChannels(ctx)
+	target, ok, err := s.store.GetChannelByIDOrRoom(ctx, channelID, "")
 	if err != nil {
 		return err
 	}
-	var target channel
-	for _, ch := range channels {
-		if ch.ChannelID == channelID {
-			target = ch
-			break
-		}
-	}
-	if target.ChannelID == "" {
+	if !ok {
 		return nil
 	}
-	members, err := s.store.ListMembers(ctx, "", channelID)
+	memberCount, pendingJoinCount, err := s.store.CountProductMembers(ctx, target.RoomID, channelID)
 	if err != nil {
 		return err
 	}
-	target.MemberCount, target.PendingJoinCount = memberCounts(members)
+	target.MemberCount = memberCount
+	target.PendingJoinCount = pendingJoinCount
 	return s.store.UpsertChannel(ctx, target)
 }
 
@@ -590,25 +631,18 @@ func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) e
 	if s.store == nil || roomID == "" {
 		return nil
 	}
-	groups, err := s.store.ListGroups(ctx)
+	target, ok, err := s.store.GetGroupByRoom(ctx, roomID)
 	if err != nil {
 		return err
 	}
-	var target groupRecord
-	for _, group := range groups {
-		if group.RoomID == roomID {
-			target = group
-			break
-		}
-	}
-	if target.RoomID == "" {
+	if !ok {
 		return nil
 	}
-	members, err := s.store.ListMembers(ctx, roomID, "")
+	memberCount, _, err := s.store.CountProductMembers(ctx, roomID, "")
 	if err != nil {
 		return err
 	}
-	target.MemberCount, _ = memberCounts(members)
+	target.MemberCount = memberCount
 	return s.store.UpsertGroup(ctx, target)
 }
 

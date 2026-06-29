@@ -40,6 +40,21 @@ func TestLoadConfigRelative(t *testing.T) {
 	}
 }
 
+func TestGlobalDefaultsFitSmallInstanceBudget(t *testing.T) {
+	var cfg Dendrite
+	cfg.Defaults(DefaultOpts{SingleDatabase: true})
+
+	if got := cfg.Global.DatabaseOptions.MaxOpenConnections; got != 30 {
+		t.Fatalf("expected single-database max_open_conns default 30, got %d", got)
+	}
+	if got := cfg.Global.DatabaseOptions.MaxIdleConnections; got != 5 {
+		t.Fatalf("expected single-database max_idle_conns default 5, got %d", got)
+	}
+	if got := cfg.Global.Cache.EstimatedMaxSize; got != 384*1024*1024 {
+		t.Fatalf("expected cache max_size_estimated default 384MiB, got %d", got)
+	}
+}
+
 const testConfig = `
 version: 2
 global:

@@ -93,6 +93,48 @@ func (s *DatabaseStore) ListGroups(ctx context.Context) ([]groupRecord, error) {
 	return groups, rows.Err()
 }
 
+func (s *DatabaseStore) GetGroupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
+	if roomID == "" {
+		return groupRecord{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT room_id, name, topic, avatar_url, member_count, invite_policy, muted FROM p2p_groups WHERE room_id = $1`, roomID)
+	var group groupRecord
+	var muted int64
+	if err := row.Scan(&group.RoomID, &group.Name, &group.Topic, &group.AvatarURL, &group.MemberCount, &group.InvitePolicy, &muted); err != nil {
+		if err == sql.ErrNoRows {
+			return groupRecord{}, false, nil
+		}
+		return groupRecord{}, false, err
+	}
+	group.Muted = muted == 1
+	return group, true, nil
+}
+
+func (s *DatabaseStore) ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT g.room_id, g.name, g.topic, g.avatar_url, g.member_count, g.invite_policy, g.muted
+		FROM p2p_groups g
+		INNER JOIN p2p_members m ON m.room_id = g.room_id
+		WHERE m.user_id = $1 AND m.channel_id = '' AND m.membership = 'join'
+		ORDER BY g.name ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var groups []groupRecord
+	for rows.Next() {
+		var group groupRecord
+		var muted int64
+		if err := rows.Scan(&group.RoomID, &group.Name, &group.Topic, &group.AvatarURL, &group.MemberCount, &group.InvitePolicy, &muted); err != nil {
+			return nil, err
+		}
+		group.Muted = muted == 1
+		groups = append(groups, group)
+	}
+	return groups, rows.Err()
+}
+
 func (s *DatabaseStore) UpsertCall(ctx context.Context, call callRecord) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `

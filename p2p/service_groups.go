@@ -159,6 +159,16 @@ func (s *Service) groupUpdate(ctx context.Context, params map[string]any) (any, 
 }
 
 func (s *Service) groupList(ctx context.Context) any {
+	if s.store != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		s.mu.Unlock()
+		groups, err := s.store.ListJoinedGroupsForUser(ctx, ownerMXID)
+		if err != nil {
+			return map[string]any{"groups": []groupRecord{}}
+		}
+		return map[string]any{"groups": groups}
+	}
 	groups, err := s.listGroups(ctx)
 	if err != nil {
 		return map[string]any{"groups": []groupRecord{}}
@@ -278,6 +288,9 @@ func (s *Service) dissolveGroup(ctx context.Context, params map[string]any) (any
 }
 
 func (s *Service) groupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
+	if s.store != nil {
+		return s.store.GetGroupByRoom(ctx, roomID)
+	}
 	groups, err := s.listGroups(ctx)
 	if err != nil {
 		return groupRecord{}, false, err

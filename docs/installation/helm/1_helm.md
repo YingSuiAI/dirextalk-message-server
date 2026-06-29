@@ -33,7 +33,7 @@ dendrite_config:
   global:
     database:
       connection_string: "postgresql://PostgresUser:PostgresPassword@PostgresHostName/DendriteDatabaseName"
-      max_open_conns: 90
+      max_open_conns: 30
       max_idle_conns: 5
       conn_max_lifetime: -1
 ```

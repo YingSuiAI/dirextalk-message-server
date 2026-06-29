@@ -30,6 +30,7 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	expected := []string{
 		"p2p_channels_room_idx",
 		"p2p_channels_type_visibility_idx",
+		"p2p_channels_visibility_idx",
 		"p2p_channel_posts_channel_idx",
 		"p2p_channel_posts_event_idx",
 		"p2p_channel_posts_author_idx",
@@ -49,6 +50,8 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_members_user_idx",
 		"p2p_members_room_joined_idx",
 		"p2p_members_channel_joined_idx",
+		"p2p_members_user_room_idx",
+		"p2p_members_user_channel_idx",
 		"p2p_events_room_idx",
 		"p2p_events_type_idx",
 	}
@@ -122,6 +125,240 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 		VALUES ($1, $2, $3, $4, $5)
 	`, "!third:example.com", "@alice:remote.example", "Alice Duplicate", "remote.example", "pending_outbound"); err == nil {
 		t.Fatalf("expected raw duplicate contact insert to fail unique peer constraint")
+	}
+}
+
+func TestDatabaseStoreListsJoinedGroupsAndChannelsForUser(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	ownerMXID := "@owner:example.com"
+	otherMXID := "@other:example.com"
+	groups := []groupRecord{
+		{RoomID: "!group-owner:example.com", Name: "Owner Group", InvitePolicy: "owner"},
+		{RoomID: "!group-pending:example.com", Name: "Pending Group", InvitePolicy: "owner"},
+		{RoomID: "!group-other:example.com", Name: "Other Group", InvitePolicy: "owner"},
+	}
+	for _, group := range groups {
+		if err := store.UpsertGroup(ctx, group); err != nil {
+			t.Fatal(err)
+		}
+	}
+	channels := []channel{
+		{ChannelID: "owner_channel", RoomID: "!channel-owner:example.com", Name: "Owner Channel", Visibility: "public", JoinPolicy: "open", ChannelType: "chat"},
+		{ChannelID: "left_channel", RoomID: "!channel-left:example.com", Name: "Left Channel", Visibility: "public", JoinPolicy: "open", ChannelType: "chat"},
+		{ChannelID: "other_channel", RoomID: "!channel-other:example.com", Name: "Other Channel", Visibility: "public", JoinPolicy: "open", ChannelType: "chat"},
+	}
+	for _, ch := range channels {
+		if err := store.UpsertChannel(ctx, ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	members := []memberRecord{
+		{RoomID: "!group-owner:example.com", UserID: ownerMXID, Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 10},
+		{RoomID: "!group-pending:example.com", UserID: ownerMXID, Domain: "example.com", Membership: "pending", Role: "member", JoinedAt: 20},
+		{RoomID: "!group-other:example.com", UserID: otherMXID, Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 30},
+		{RoomID: "!channel-owner:example.com", ChannelID: "owner_channel", UserID: ownerMXID, Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 40},
+		{RoomID: "!channel-left:example.com", ChannelID: "left_channel", UserID: ownerMXID, Domain: "example.com", Membership: "leave", Role: "member", JoinedAt: 50},
+		{RoomID: "!channel-other:example.com", ChannelID: "other_channel", UserID: otherMXID, Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 60},
+	}
+	for _, member := range members {
+		if err := store.UpsertMember(ctx, member); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	joinedGroups, err := store.ListJoinedGroupsForUser(ctx, ownerMXID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joinedGroups) != 1 || joinedGroups[0].RoomID != "!group-owner:example.com" {
+		t.Fatalf("expected only owner joined group, got %#v", joinedGroups)
+	}
+	joinedChannels, err := store.ListJoinedChannelsForUser(ctx, ownerMXID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joinedChannels) != 1 || joinedChannels[0].ChannelID != "owner_channel" || !joinedChannels[0].IsOwned || joinedChannels[0].Role != "owner" || joinedChannels[0].MemberStatus != "join" {
+		t.Fatalf("expected only owner joined channel with membership fields, got %#v", joinedChannels)
+	}
+	ownerMembers, err := store.ListMembersForUser(ctx, ownerMXID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownerMembers) != 3 {
+		t.Fatalf("expected owner visible memberships only, got %#v", ownerMembers)
+	}
+	for _, member := range ownerMembers {
+		if member.UserID != ownerMXID || member.Membership == "leave" {
+			t.Fatalf("expected owner non-left membership, got %#v", member)
+		}
+	}
+}
+
+func TestDatabaseStoreLooksUpGroupAndChannelWithoutFullList(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	group := groupRecord{RoomID: "!group:example.com", Name: "Group", Topic: "topic", InvitePolicy: "owner"}
+	if err := store.UpsertGroup(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	ch := channel{ChannelID: "channel_1", RoomID: "!channel:example.com", Name: "Channel", Visibility: "public", JoinPolicy: "open", ChannelType: "post", CommentsEnabled: true}
+	if err := store.UpsertChannel(ctx, ch); err != nil {
+		t.Fatal(err)
+	}
+
+	gotGroup, ok, err := store.GetGroupByRoom(ctx, group.RoomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotGroup.RoomID != group.RoomID || gotGroup.Name != group.Name {
+		t.Fatalf("expected group lookup by room, got ok=%v group=%#v", ok, gotGroup)
+	}
+	gotByID, ok, err := store.GetChannelByIDOrRoom(ctx, ch.ChannelID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotByID.ChannelID != ch.ChannelID || !gotByID.CommentsEnabled {
+		t.Fatalf("expected channel lookup by id, got ok=%v channel=%#v", ok, gotByID)
+	}
+	gotByRoom, ok, err := store.GetChannelByIDOrRoom(ctx, "", ch.RoomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotByRoom.ChannelID != ch.ChannelID {
+		t.Fatalf("expected channel lookup by room, got ok=%v channel=%#v", ok, gotByRoom)
+	}
+	missing, ok, err := store.GetChannelByIDOrRoom(ctx, "missing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || missing.ChannelID != "" {
+		t.Fatalf("expected missing channel lookup, got ok=%v channel=%#v", ok, missing)
+	}
+}
+
+func TestDatabaseStoreCountsJoinedMembers(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	members := []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:example.com", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@left:example.com", Membership: "leave", Role: "member"},
+		{RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: "@owner:example.com", Membership: "join", Role: "owner"},
+		{RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: "@bob:example.com", Membership: "join", Role: "member"},
+		{RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: "@pending:example.com", Membership: "pending", Role: "member"},
+	}
+	for _, member := range members {
+		if err := store.UpsertMember(ctx, member); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	groupCount, err := store.CountJoinedMembers(ctx, "!group:example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if groupCount != 2 {
+		t.Fatalf("expected 2 joined group members, got %d", groupCount)
+	}
+	channelCount, err := store.CountJoinedMembers(ctx, "!channel:example.com", "channel_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channelCount != 2 {
+		t.Fatalf("expected 2 joined channel members, got %d", channelCount)
+	}
+	joined, pending, err := store.CountProductMembers(ctx, "!channel:example.com", "channel_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joined != 2 || pending != 1 {
+		t.Fatalf("expected channel joined=2 pending=1, got joined=%d pending=%d", joined, pending)
+	}
+}
+
+func TestDatabaseStoreSearchesPublicChannelsAndListsOwnerPublicChannels(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	ownerMXID := "@owner:example.com"
+	channels := []channel{
+		{ChannelID: "public_news", RoomID: "!public-news:example.com", Name: "Public News", Description: "daily updates", Visibility: "public", JoinPolicy: "open", ChannelType: "post"},
+		{ChannelID: "public_other", RoomID: "!public-other:example.com", Name: "Public Other", Visibility: "public", JoinPolicy: "open", ChannelType: "chat"},
+		{ChannelID: "private_news", RoomID: "!private-news:example.com", Name: "Private News", Visibility: "private", JoinPolicy: "invite", ChannelType: "chat"},
+	}
+	for _, ch := range channels {
+		if err := store.UpsertChannel(ctx, ch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	members := []memberRecord{
+		{RoomID: "!public-news:example.com", ChannelID: "public_news", UserID: ownerMXID, Membership: "join", Role: "owner"},
+		{RoomID: "!public-news:example.com", ChannelID: "public_news", UserID: "@alice:example.com", Membership: "join", Role: "member"},
+		{RoomID: "!public-other:example.com", ChannelID: "public_other", UserID: "@other:example.com", Membership: "join", Role: "owner"},
+		{RoomID: "!private-news:example.com", ChannelID: "private_news", UserID: ownerMXID, Membership: "join", Role: "owner"},
+	}
+	for _, member := range members {
+		if err := store.UpsertMember(ctx, member); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, err := store.SearchPublicChannels(ctx, "news", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ChannelID != "public_news" {
+		t.Fatalf("expected public news search result only, got %#v", results)
+	}
+	limited, err := store.SearchPublicChannels(ctx, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("expected search limit to apply, got %#v", limited)
+	}
+	owned, err := store.ListPublicChannelsForOwner(ctx, ownerMXID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owned) != 1 || owned[0].ChannelID != "public_news" {
+		t.Fatalf("expected owner public channel only, got %#v", owned)
 	}
 }
 

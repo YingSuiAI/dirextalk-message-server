@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 func (s *DatabaseStore) UpsertChannel(ctx context.Context, ch channel) error {
@@ -60,6 +61,157 @@ func (s *DatabaseStore) ListChannels(ctx context.Context) ([]channel, error) {
 		channels = append(channels, ch)
 	}
 	return channels, rows.Err()
+}
+
+func (s *DatabaseStore) GetChannelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error) {
+	if channelID == "" && roomID == "" {
+		return channel{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT channel_id, room_id, name, description, avatar_url, visibility,
+			join_policy, channel_type, comments_enabled, muted, member_count, pending_join_count
+		FROM p2p_channels
+		WHERE ($1 <> '' AND channel_id = $1) OR ($2 <> '' AND room_id = $2)
+		ORDER BY CASE WHEN channel_id = $1 THEN 0 ELSE 1 END
+		LIMIT 1
+	`, channelID, roomID)
+	ch, err := scanChannel(row)
+	if err == sql.ErrNoRows {
+		return channel{}, false, nil
+	}
+	if err != nil {
+		return channel{}, false, err
+	}
+	return ch, true, nil
+}
+
+func (s *DatabaseStore) ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT * FROM (
+			SELECT c.channel_id, c.room_id, c.name, c.description, c.avatar_url, c.visibility,
+				c.join_policy, c.channel_type, c.comments_enabled, c.muted, c.member_count, c.pending_join_count,
+				m.role, m.membership
+			FROM p2p_channels c
+			INNER JOIN p2p_members m ON m.channel_id = c.channel_id
+			WHERE m.user_id = $1 AND m.membership = 'join' AND m.channel_id <> ''
+			UNION ALL
+			SELECT c.channel_id, c.room_id, c.name, c.description, c.avatar_url, c.visibility,
+				c.join_policy, c.channel_type, c.comments_enabled, c.muted, c.member_count, c.pending_join_count,
+				m.role, m.membership
+			FROM p2p_channels c
+			INNER JOIN p2p_members m ON m.room_id = c.room_id
+			WHERE m.user_id = $1 AND m.membership = 'join' AND m.channel_id = ''
+		) joined_channels
+		ORDER BY channel_id ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	var channels []channel
+	for rows.Next() {
+		var ch channel
+		var commentsEnabled, muted int64
+		if err := rows.Scan(&ch.ChannelID, &ch.RoomID, &ch.Name, &ch.Description, &ch.AvatarURL, &ch.Visibility,
+			&ch.JoinPolicy, &ch.ChannelType, &commentsEnabled, &muted, &ch.MemberCount, &ch.PendingJoinCount,
+			&ch.Role, &ch.MemberStatus); err != nil {
+			return nil, err
+		}
+		ch.CommentsEnabled = commentsEnabled == 1
+		ch.Muted = muted == 1
+		ch.Role = normalizeStoredProductMemberRole(ch.Role)
+		ch.MemberStatus = "join"
+		ch.IsOwned = strings.EqualFold(ch.Role, "owner")
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
+
+func (s *DatabaseStore) SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	var rows *sql.Rows
+	var err error
+	if query == "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT channel_id, room_id, name, description, avatar_url, visibility,
+				join_policy, channel_type, comments_enabled, muted, member_count, pending_join_count
+			FROM p2p_channels
+			WHERE visibility = 'public'
+			ORDER BY channel_id ASC
+			LIMIT $1
+		`, limit)
+	} else {
+		pattern := "%" + query + "%"
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT channel_id, room_id, name, description, avatar_url, visibility,
+				join_policy, channel_type, comments_enabled, muted, member_count, pending_join_count
+			FROM p2p_channels
+			WHERE visibility = 'public'
+				AND LOWER(channel_id || ' ' || room_id || ' ' || name || ' ' || description) LIKE $1
+			ORDER BY channel_id ASC
+			LIMIT $2
+		`, pattern, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	return scanChannels(rows)
+}
+
+func (s *DatabaseStore) ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT * FROM (
+			SELECT c.channel_id, c.room_id, c.name, c.description, c.avatar_url, c.visibility,
+				c.join_policy, c.channel_type, c.comments_enabled, c.muted, c.member_count, c.pending_join_count
+			FROM p2p_channels c
+			INNER JOIN p2p_members m ON m.channel_id = c.channel_id
+			WHERE m.user_id = $1 AND m.role = 'owner' AND m.membership = 'join' AND m.channel_id <> '' AND c.visibility = 'public'
+			UNION ALL
+			SELECT c.channel_id, c.room_id, c.name, c.description, c.avatar_url, c.visibility,
+				c.join_policy, c.channel_type, c.comments_enabled, c.muted, c.member_count, c.pending_join_count
+			FROM p2p_channels c
+			INNER JOIN p2p_members m ON m.room_id = c.room_id
+			WHERE m.user_id = $1 AND m.role = 'owner' AND m.membership = 'join' AND m.channel_id = '' AND c.visibility = 'public'
+		) public_owner_channels
+		ORDER BY name ASC, channel_id ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	return scanChannels(rows)
+}
+
+type channelScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanChannels(rows *sql.Rows) ([]channel, error) {
+	var channels []channel
+	for rows.Next() {
+		ch, err := scanChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
+
+func scanChannel(row channelScanner) (channel, error) {
+	var ch channel
+	var commentsEnabled, muted int64
+	if err := row.Scan(&ch.ChannelID, &ch.RoomID, &ch.Name, &ch.Description, &ch.AvatarURL, &ch.Visibility,
+		&ch.JoinPolicy, &ch.ChannelType, &commentsEnabled, &muted, &ch.MemberCount, &ch.PendingJoinCount); err != nil {
+		return channel{}, err
+	}
+	ch.CommentsEnabled = commentsEnabled == 1
+	ch.Muted = muted == 1
+	return ch, nil
 }
 
 func (s *DatabaseStore) UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error {

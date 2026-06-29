@@ -89,7 +89,7 @@ global:
   # ...
   database:
     connection_string: postgres://user:pass@hostname/database?sslmode=disable
-    max_open_conns: 90
+    max_open_conns: 30
     max_idle_conns: 5
     conn_max_lifetime: -1
 ```

@@ -468,6 +468,36 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return err
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: owner scoped member indexes v25",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_members")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return nil
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE INDEX IF NOT EXISTS p2p_members_user_room_idx ON p2p_members(user_id, membership, room_id)`,
+				`CREATE INDEX IF NOT EXISTS p2p_members_user_channel_idx ON p2p_members(user_id, membership, channel_id)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: public channel visibility index v26",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_channels")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return nil
+			}
+			_, err = txn.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS p2p_channels_visibility_idx ON p2p_channels(visibility, channel_id)`)
+			return err
+		},
+	})
 	return m.Up(ctx)
 }
 

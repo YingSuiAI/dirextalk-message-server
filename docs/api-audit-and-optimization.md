@@ -1,6 +1,6 @@
 # API Audit And Optimization Notes
 
-Last updated: 2026-06-20
+Last updated: 2026-06-29
 
 ## Scope
 
@@ -34,6 +34,53 @@ Generated/maintained outputs:
 - The P2P store has concrete PostgreSQL/SQLite-compatible migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, reports, and follows. Ordinary messages use Matrix/syncapi storage only.
 - Multi-node communication is implemented through Matrix federation for room/member/message/redaction/state events and a narrow unauthenticated public-action proxy for public channel discovery and join requests. Product projections cover group/channel lifecycle and channel post/comment state; ordinary message history remains Matrix-native.
 - Runtime behavior changes were made for security and consistency; see `docs/api-interface-change-record.md`.
+
+## Capacity Optimization Roadmap
+
+This section is the tracking source for the active 2c2g capacity and availability optimization goal. Keep it updated during long-running work so context compaction does not lose priority, scope, or completion state.
+
+Goal for this server-side pass:
+
+- Improve backend read paths, storage indexes, and operational safety without requiring immediate client changes.
+- Keep existing product action request and response shapes compatible for the current clients.
+- Record client-side changes separately so they can be implemented after the service-side pass.
+
+Current assumptions:
+
+- Target small deployment is one 2 CPU / 2 GB instance running the Direxio Message Server monolith plus PostgreSQL and embedded JetStream.
+- PostgreSQL is the intended production store; SQLite remains a development fallback.
+- Product room membership remains Matrix-backed and projected into P2P read models.
+
+### Server-Side Optimization Checklist
+
+- [x] Replace full group/channel/member scans in owner-visible read paths with owner-scoped SQL queries.
+- [x] Replace single group/channel lookup paths that currently read full lists with direct SQL lookup methods.
+- [x] Add indexes for owner-scoped member queries used by `groups.list`, `channels.list`, `sync.bootstrap`, profile propagation, and conversation hydration.
+- [x] Review conversation list hydration for remaining N+1 member-count lookups and add count-oriented queries where response behavior can remain unchanged.
+- [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
+- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior.
+- [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
+- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly.
+- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements.
+- [ ] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, sync, DB, memory, and projector-lag metrics.
+
+### Deferred Client Optimization Checklist
+
+These items are intentionally not implemented in this server-side pass. They require client request or state-management changes after the backend is ready.
+
+- [ ] Stop using `sync.bootstrap` as a frequent foreground refresh; use it only for cold start or old event cursor recovery.
+- [ ] Consume `GET /_p2p/events` as the normal product delta stream and persist the latest event `seq`.
+- [ ] Add cursor/limit params to product list calls: groups, channels, conversations, posts, comments, calls, favorites, follows, public search, and user public channels.
+- [ ] Use Matrix `/sync` filters with low timeline limit and lazy-loaded members for mobile and small-instance deployments.
+- [ ] Page long channel post/comment histories instead of expecting complete arrays.
+- [ ] Add client recovery behavior for old/expired P2P event cursors: clear local product cache, call bootstrap once, then resume deltas.
+- [ ] Add user-facing handling for server backpressure/rate-limit responses when room creation, message sends, or public search are throttled.
+
+### Completion Rules
+
+- Mark a checkbox complete only after code, docs, focused tests, and `git diff --check` pass for that item.
+- If an item changes a public action shape, update `docs/api-interface-change-record.md`, current docs, and Postman in the same commit.
+- Commit after each verified optimization batch so the roadmap can be trusted after context compaction.
 
 ## Confirmed Implemented Feature Areas
 

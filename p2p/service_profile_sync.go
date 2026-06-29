@@ -94,17 +94,7 @@ func (s *Service) membersForUser(ctx context.Context, userID string) ([]memberRe
 		return nil, nil
 	}
 	if s.store != nil {
-		members, err := s.store.ListMembers(ctx, "", "")
-		if err != nil {
-			return nil, err
-		}
-		filtered := make([]memberRecord, 0, len(members))
-		for _, member := range members {
-			if member.UserID == userID {
-				filtered = append(filtered, member)
-			}
-		}
-		return filtered, nil
+		return s.store.ListMembersForUser(ctx, userID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -122,29 +112,58 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	if err != nil {
 		return nil, internalError(err)
 	}
-	groups, err := s.listGroups(ctx)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	channels, err := s.listChannels(ctx)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	visibleGroups, err := s.joinedGroupsForOwner(ctx, groups)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	visibleChannels, err := s.joinedChannelsForOwner(ctx, channels)
-	if err != nil {
-		return nil, internalError(err)
-	}
 	s.mu.Lock()
 	userID := s.ownerMXID
 	agentRoomID := s.agentRoomID
 	s.mu.Unlock()
+	var groups []groupRecord
+	var channels []channel
+	var visibleGroups []groupRecord
+	var visibleChannels []channel
+	if s.store != nil {
+		visibleGroups, err = s.store.ListJoinedGroupsForUser(ctx, userID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		visibleChannels, err = s.store.ListJoinedChannelsForUser(ctx, userID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		groups = visibleGroups
+		channels = visibleChannels
+	} else {
+		groups, err = s.listGroups(ctx)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		channels, err = s.listChannels(ctx)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		visibleGroups, err = s.joinedGroupsForOwner(ctx, groups)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		visibleChannels, err = s.joinedChannelsForOwner(ctx, channels)
+		if err != nil {
+			return nil, internalError(err)
+		}
+	}
 	members, err := s.membersForUser(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)
+	}
+	if s.store != nil && hasPendingGroupInvite(members) {
+		groups, err = s.listGroups(ctx)
+		if err != nil {
+			return nil, internalError(err)
+		}
+	}
+	if s.store != nil && hasPendingChannelInvite(members) {
+		channels, err = s.listChannels(ctx)
+		if err != nil {
+			return nil, internalError(err)
+		}
 	}
 	return map[string]any{
 		"synced_at":     time.Now().UTC().Format(time.RFC3339Nano),
@@ -159,6 +178,24 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 			"channel_notices": pendingChannelInvitesFromMembers(members, channels),
 		},
 	}, nil
+}
+
+func hasPendingGroupInvite(members []memberRecord) bool {
+	for _, member := range members {
+		if member.ChannelID == "" && strings.EqualFold(strings.TrimSpace(member.Membership), "invite") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPendingChannelInvite(members []memberRecord) bool {
+	for _, member := range members {
+		if member.ChannelID != "" && strings.EqualFold(strings.TrimSpace(member.Membership), "invite") {
+			return true
+		}
+	}
+	return false
 }
 
 func pendingFriendRequestsFromContacts(contacts []contactRecord) []map[string]any {

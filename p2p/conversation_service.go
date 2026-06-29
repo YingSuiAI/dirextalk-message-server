@@ -240,12 +240,22 @@ func (s *Service) channelConversationView(ctx context.Context, view conversation
 }
 
 func (s *Service) hydrateConversationMembership(ctx context.Context, view conversationView, channelID string) (conversationView, error) {
-	members, err := s.membersForProduct(ctx, view.MatrixRoomID, channelID)
-	if err != nil {
-		return view, err
-	}
-	if joined, _ := memberCounts(members); joined > 0 {
-		view.MemberCount = joined
+	if s.store != nil {
+		joined, err := s.store.CountJoinedMembers(ctx, view.MatrixRoomID, channelID)
+		if err != nil {
+			return view, err
+		}
+		if joined > 0 {
+			view.MemberCount = joined
+		}
+	} else {
+		members, err := s.membersForProduct(ctx, view.MatrixRoomID, channelID)
+		if err != nil {
+			return view, err
+		}
+		if joined, _ := memberCounts(members); joined > 0 {
+			view.MemberCount = joined
+		}
 	}
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID

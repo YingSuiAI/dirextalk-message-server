@@ -94,6 +94,10 @@ type Store interface {
 	UpsertChannel(ctx context.Context, ch channel) error
 	DeleteChannel(ctx context.Context, channelID string) error
 	ListChannels(ctx context.Context) ([]channel, error)
+	GetChannelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error)
+	ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error)
+	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
+	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
 	InsertChannelPost(ctx context.Context, post channelPostRecord) error
 	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error)
 	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
@@ -104,6 +108,8 @@ type Store interface {
 	UpsertGroup(ctx context.Context, group groupRecord) error
 	DeleteGroup(ctx context.Context, roomID string) error
 	ListGroups(ctx context.Context) ([]groupRecord, error)
+	GetGroupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error)
+	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupRecord, error)
 	UpsertCall(ctx context.Context, call callRecord) error
 	ListCalls(ctx context.Context, roomID string, activeOnly bool) ([]callRecord, error)
 	UpsertFavorite(ctx context.Context, favorite favoriteRecord) error
@@ -121,6 +127,9 @@ type Store interface {
 	UpsertMember(ctx context.Context, member memberRecord) error
 	LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error)
 	ListMembers(ctx context.Context, roomID, channelID string) ([]memberRecord, error)
+	ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error)
+	CountProductMembers(ctx context.Context, roomID, channelID string) (joined, pending int64, err error)
+	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
 	UpsertConversation(ctx context.Context, record conversationRecord) error
 	GetConversationByID(ctx context.Context, conversationID string) (conversationRecord, bool, error)
 	GetConversationByRoomID(ctx context.Context, matrixRoomID string) (conversationRecord, bool, error)

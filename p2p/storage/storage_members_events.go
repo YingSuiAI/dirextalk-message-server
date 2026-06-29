@@ -131,6 +131,62 @@ func (s *DatabaseStore) ListMembers(ctx context.Context, roomID, channelID strin
 	return members, rows.Err()
 }
 
+func (s *DatabaseStore) ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error) {
+	rows, err := s.db.QueryContext(ctx, listMembersSelect+visibleMembersWhere+` AND user_id = $1 ORDER BY joined_at ASC, room_id ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rows)
+	return scanMembers(rows)
+}
+
+func (s *DatabaseStore) CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error) {
+	joined, _, err := s.CountProductMembers(ctx, roomID, channelID)
+	return joined, err
+}
+
+func (s *DatabaseStore) CountProductMembers(ctx context.Context, roomID, channelID string) (int64, int64, error) {
+	var joined, pending int64
+	var rows *sql.Rows
+	var err error
+	switch {
+	case channelID != "":
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT membership, COUNT(*)
+			FROM p2p_members
+			WHERE channel_id = $1 AND membership IN ('join', 'pending')
+			GROUP BY membership
+		`, channelID)
+	case roomID != "":
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT membership, COUNT(*)
+			FROM p2p_members
+			WHERE room_id = $1 AND channel_id = '' AND membership IN ('join', 'pending')
+			GROUP BY membership
+		`, roomID)
+	default:
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	defer closeResource(rows)
+	for rows.Next() {
+		var membership string
+		var count int64
+		if err := rows.Scan(&membership, &count); err != nil {
+			return 0, 0, err
+		}
+		switch membership {
+		case "join":
+			joined = count
+		case "pending":
+			pending = count
+		}
+	}
+	return joined, pending, rows.Err()
+}
+
 func (s *DatabaseStore) LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error) {
 	row := s.db.QueryRowContext(ctx, listMembersSelect+` WHERE room_id = $1 AND user_id = $2`, roomID, userID)
 	var member memberRecord
@@ -147,6 +203,20 @@ func (s *DatabaseStore) LookupMember(ctx context.Context, roomID, userID string)
 
 const listMembersSelect = `SELECT room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url FROM p2p_members`
 const visibleMembersWhere = ` WHERE membership NOT IN ('leave', 'left', 'remove', 'removed', 'reject', 'rejected', 'ban', 'banned')`
+
+func scanMembers(rows *sql.Rows) ([]memberRecord, error) {
+	var members []memberRecord
+	for rows.Next() {
+		var member memberRecord
+		var muted int64
+		if err := rows.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL); err != nil {
+			return nil, err
+		}
+		member.Muted = muted == 1
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
 
 func (s *DatabaseStore) DeleteChannelPost(ctx context.Context, postID string) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {

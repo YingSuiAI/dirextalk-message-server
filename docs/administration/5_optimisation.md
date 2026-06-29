@@ -36,6 +36,10 @@ connections it will open to the database.
 **If you are using the `global` database pool** then you only need to configure the
 `max_open_conns` setting once in the `global` section.
 
+The generated single-database default is `max_open_conns: 30`, which is intended to fit small
+2 CPU / 2 GB deployments better than a high-concurrency default. Increase it only after checking
+PostgreSQL capacity, memory headroom, and query latency under load.
+
 You may wish to raise the `max_connections` limit on your PostgreSQL server to accommodate
 additional connections, in which case you should also update the `max_open_conns` in your
 Direxio Message Server configuration accordingly. However be aware that this is only advisable on particularly

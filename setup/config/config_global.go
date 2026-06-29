@@ -99,7 +99,8 @@ func (c *Global) Defaults(opts DefaultOpts) {
 	}
 	c.KeyValidityPeriod = time.Hour * 24 * 7
 	if opts.SingleDatabase {
-		c.DatabaseOptions.Defaults(90)
+		c.DatabaseOptions.Defaults(30)
+		c.DatabaseOptions.MaxIdleConnections = 5
 	}
 	c.JetStream.Defaults(opts)
 	c.Metrics.Defaults(opts)
@@ -315,7 +316,7 @@ type Cache struct {
 }
 
 func (c *Cache) Defaults() {
-	c.EstimatedMaxSize = 1024 * 1024 * 1024 // 1GB
+	c.EstimatedMaxSize = 384 * 1024 * 1024 // 384MiB
 	c.MaxAge = time.Hour
 }
 
