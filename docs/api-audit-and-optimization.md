@@ -58,7 +58,7 @@ Current assumptions:
 - [x] Add indexes for owner-scoped member queries used by `groups.list`, `channels.list`, `sync.bootstrap`, profile propagation, and conversation hydration.
 - [x] Review conversation list hydration for remaining N+1 member-count lookups and add count-oriented queries where response behavior can remain unchanged.
 - [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
-- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: not enabled in this server-only pass because pruning before client old-cursor recovery can silently drop product deltas.
+- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; old-cursor reset/recovery remains deferred until client support.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
 - [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; EXPLAIN-based measurement still pending.
 - [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: pending review of durable consumer ordering and duplicate-projection safety.
@@ -77,6 +77,13 @@ python scripts/p2p-capacity-smoke.py \
 ```
 
 The script creates test groups/channels/posts using a unique prefix, then prints JSON metrics for create actions, `sync.bootstrap`, `groups.list`, `channels.list`, `channels.public.search`, and optional Matrix `/sync`. Use a disposable test node or a clearly named prefix because the script intentionally writes product data.
+
+P2P event retention controls:
+
+- `P2P_EVENT_RETENTION_MAX_ROWS`: maximum number of rows to retain in `p2p_events`. Empty, zero, or invalid values disable pruning.
+- `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`: when `true`, prune after appending a P2P event. Empty or invalid values keep pruning disabled.
+
+Keep these controls disabled for normal clients until old/expired cursor recovery is implemented. Enabling pruning before clients can reset local product cache and bootstrap after an old cursor may silently drop product deltas.
 
 ### Deferred Client Optimization Checklist
 

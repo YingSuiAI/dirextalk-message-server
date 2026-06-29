@@ -223,3 +223,9 @@ type Event struct {
 	Payload   map[string]any `json:"payload,omitempty"`
 	CreatedAt string         `json:"created_at"`
 }
+
+type EventBounds struct {
+	MinSeq int64 `json:"min_seq"`
+	MaxSeq int64 `json:"max_seq"`
+	Count  int64 `json:"count"`
+}

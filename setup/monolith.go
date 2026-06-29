@@ -84,6 +84,8 @@ func (m *Monolith) AddAllPublicRoutes(
 		Homeserver:                      cfg.Global.WellKnownClientName,
 		RemoteNodeInsecureSkipTLSVerify: remoteNodeInsecureSkipTLSVerify,
 		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
+		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
+		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
@@ -144,6 +146,32 @@ func p2pRemoteNodeInsecureSkipTLSVerifyFromEnv() bool {
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		logrus.WithField("value", value).Warn("Ignoring invalid P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY value")
+		return false
+	}
+	return parsed
+}
+
+func p2pEventRetentionMaxRowsFromEnv() int64 {
+	value := strings.TrimSpace(os.Getenv("P2P_EVENT_RETENTION_MAX_ROWS"))
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		logrus.WithField("value", value).Warn("Ignoring invalid P2P_EVENT_RETENTION_MAX_ROWS value")
+		return 0
+	}
+	return parsed
+}
+
+func p2pEventRetentionPruneOnWriteFromEnv() bool {
+	value := strings.TrimSpace(os.Getenv("P2P_EVENT_RETENTION_PRUNE_ON_WRITE"))
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		logrus.WithField("value", value).Warn("Ignoring invalid P2P_EVENT_RETENTION_PRUNE_ON_WRITE value")
 		return false
 	}
 	return parsed

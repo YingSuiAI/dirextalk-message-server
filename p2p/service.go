@@ -18,6 +18,8 @@ type Config struct {
 	Homeserver                      string
 	RemoteNodeInsecureSkipTLSVerify bool
 	RemoteNodeAllowPrivateBaseURLs  bool
+	P2PEventRetentionMaxRows        int64
+	P2PEventRetentionPruneOnWrite   bool
 }
 
 const (
@@ -45,17 +47,19 @@ type Service struct {
 	mu              sync.Mutex
 	matrixSessionMu sync.Mutex
 
-	serverName         string
-	homeserver         string
-	store              Store
-	transport          Transport
-	sessions           MatrixSessionIssuer
-	matrixMessages     matrixMessageReader
-	matrixProfiles     matrixProfileResolver
-	remoteHTTPClient   *http.Client
-	remoteAllowPrivate bool
-	storeMode          string
-	projectorStarted   bool
+	serverName                 string
+	homeserver                 string
+	store                      Store
+	transport                  Transport
+	sessions                   MatrixSessionIssuer
+	matrixMessages             matrixMessageReader
+	matrixProfiles             matrixProfileResolver
+	remoteHTTPClient           *http.Client
+	remoteAllowPrivate         bool
+	storeMode                  string
+	projectorStarted           bool
+	eventRetentionMaxRows      int64
+	eventRetentionPruneOnWrite bool
 
 	initialized    bool
 	password       string
@@ -139,6 +143,9 @@ type Store interface {
 	DeleteChannelComment(ctx context.Context, commentID string) error
 	InsertEvent(ctx context.Context, event p2pEvent) error
 	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
+	EventBounds(ctx context.Context) (eventBounds, error)
+	PruneEventsBefore(ctx context.Context, beforeSeq int64) (int64, error)
+	PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error)
 	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
 }
@@ -163,6 +170,7 @@ type followRecord = domain.FollowRecord
 type reactionRecord = domain.ReactionRecord
 type channelReactionHistory = domain.ChannelReactionHistory
 type memberRecord = domain.MemberRecord
+type eventBounds = domain.EventBounds
 
 func NewService(cfg Config) *Service {
 	return newService(cfg, nil, nil, portalState{}, false)
@@ -431,21 +439,23 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		state.Profile.Domain = serverName
 	}
 	service := &Service{
-		serverName:         serverName,
-		homeserver:         homeserver,
-		store:              store,
-		transport:          transport,
-		remoteHTTPClient:   newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
-		remoteAllowPrivate: cfg.RemoteNodeAllowPrivateBaseURLs,
-		storeMode:          storeMode(store),
-		initialized:        state.Initialized,
-		password:           state.Password,
-		accessToken:        state.AccessToken,
-		matrixDeviceID:     state.MatrixDeviceID,
-		agentToken:         state.AgentToken,
-		ownerMXID:          state.OwnerMXID,
-		agentRoomID:        state.AgentRoomID,
-		profile:            state.Profile,
+		serverName:                 serverName,
+		homeserver:                 homeserver,
+		store:                      store,
+		transport:                  transport,
+		remoteHTTPClient:           newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
+		remoteAllowPrivate:         cfg.RemoteNodeAllowPrivateBaseURLs,
+		storeMode:                  storeMode(store),
+		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
+		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
+		initialized:                state.Initialized,
+		password:                   state.Password,
+		accessToken:                state.AccessToken,
+		matrixDeviceID:             state.MatrixDeviceID,
+		agentToken:                 state.AgentToken,
+		ownerMXID:                  state.OwnerMXID,
+		agentRoomID:                state.AgentRoomID,
+		profile:                    state.Profile,
 		agentConfig: agentConfig{
 			DisplayName:   "Agent",
 			ContextWindow: 30,

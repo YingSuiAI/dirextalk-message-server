@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -189,9 +190,43 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 		if err := s.store.InsertEvent(ctx, event); err != nil {
 			return err
 		}
+		if err := s.pruneP2PEventsAfterAppend(ctx); err != nil {
+			return err
+		}
+	} else {
+		s.pruneMemoryP2PEventsAfterAppend()
 	}
 	s.notifyP2PEventWaiters()
 	return nil
+}
+
+func (s *Service) pruneP2PEventsAfterAppend(ctx context.Context) error {
+	s.mu.Lock()
+	enabled := s.eventRetentionPruneOnWrite
+	maxRows := s.eventRetentionMaxRows
+	s.mu.Unlock()
+	if !enabled || maxRows <= 0 || s.store == nil {
+		return nil
+	}
+	_, err := s.store.PruneEventsToMaxRows(ctx, maxRows)
+	return err
+}
+
+func (s *Service) pruneMemoryP2PEventsAfterAppend() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.eventRetentionPruneOnWrite || s.eventRetentionMaxRows <= 0 {
+		return
+	}
+	maxRows := int(s.eventRetentionMaxRows)
+	if len(s.events) <= maxRows {
+		return
+	}
+	events := append([]p2pEvent(nil), s.events...)
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Seq < events[j].Seq
+	})
+	s.events = append([]p2pEvent(nil), events[len(events)-maxRows:]...)
 }
 
 func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error) {

@@ -289,3 +289,60 @@ func (s *DatabaseStore) ListEvents(ctx context.Context, since int64, limit int) 
 	}
 	return events, rows.Err()
 }
+
+func (s *DatabaseStore) EventBounds(ctx context.Context) (eventBounds, error) {
+	var bounds eventBounds
+	var minSeq, maxSeq sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT MIN(seq), MAX(seq), COUNT(*)
+		FROM p2p_events
+	`).Scan(&minSeq, &maxSeq, &bounds.Count); err != nil {
+		return eventBounds{}, err
+	}
+	if minSeq.Valid {
+		bounds.MinSeq = minSeq.Int64
+	}
+	if maxSeq.Valid {
+		bounds.MaxSeq = maxSeq.Int64
+	}
+	return bounds, nil
+}
+
+func (s *DatabaseStore) PruneEventsBefore(ctx context.Context, beforeSeq int64) (int64, error) {
+	if beforeSeq <= 0 {
+		return 0, nil
+	}
+	var deleted int64
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `DELETE FROM p2p_events WHERE seq < $1`, beforeSeq)
+		if err != nil {
+			return err
+		}
+		deleted, err = result.RowsAffected()
+		return err
+	})
+	return deleted, err
+}
+
+func (s *DatabaseStore) PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error) {
+	if maxRows <= 0 {
+		return 0, nil
+	}
+	var deleted int64
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			DELETE FROM p2p_events
+			WHERE seq NOT IN (
+				SELECT seq FROM p2p_events
+				ORDER BY seq DESC
+				LIMIT $1
+			)
+		`, maxRows)
+		if err != nil {
+			return err
+		}
+		deleted, err = result.RowsAffected()
+		return err
+	})
+	return deleted, err
+}

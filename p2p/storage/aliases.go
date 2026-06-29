@@ -17,6 +17,7 @@ type followRecord = domain.FollowRecord
 type reactionRecord = domain.ReactionRecord
 type memberRecord = domain.MemberRecord
 type p2pEvent = domain.Event
+type eventBounds = domain.EventBounds
 type conversationKind = domain.ConversationKind
 type conversationRecord = domain.ConversationRecord
 

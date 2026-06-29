@@ -362,6 +362,91 @@ func TestDatabaseStoreSearchesPublicChannelsAndListsOwnerPublicChannels(t *testi
 	}
 }
 
+func TestDatabaseStorePrunesP2PEventsBeforeSeq(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	for seq := int64(1); seq <= 5; seq++ {
+		if err := store.InsertEvent(ctx, p2pEvent{
+			Seq:       seq,
+			Type:      "test.event",
+			RoomID:    "!room:example.com",
+			EventID:   "$event",
+			CreatedAt: "2026-06-29T00:00:00Z",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bounds, err := store.EventBounds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bounds.MinSeq != 1 || bounds.MaxSeq != 5 || bounds.Count != 5 {
+		t.Fatalf("expected initial event bounds 1..5 count 5, got %#v", bounds)
+	}
+	deleted, err := store.PruneEventsBefore(ctx, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 3 {
+		t.Fatalf("expected 3 deleted events, got %d", deleted)
+	}
+	remaining, err := store.ListEvents(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 2 || remaining[0].Seq != 4 || remaining[1].Seq != 5 {
+		t.Fatalf("expected events 4 and 5 after prune, got %#v", remaining)
+	}
+}
+
+func TestServicePrunesP2PEventsWhenRetentionMaxRowsIsConfigured(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{
+		ServerName:                    "example.com",
+		P2PEventRetentionMaxRows:      3,
+		P2PEventRetentionPruneOnWrite: true,
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for seq := int64(1); seq <= 5; seq++ {
+		if err := service.appendP2PEvent(ctx, p2pEvent{
+			Seq:     seq,
+			Type:    "test.event",
+			RoomID:  "!room:example.com",
+			EventID: "$event",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	remaining, err := store.ListEvents(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 3 || remaining[0].Seq != 3 || remaining[2].Seq != 5 {
+		t.Fatalf("expected retained events 3..5, got %#v", remaining)
+	}
+}
+
 func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
