@@ -234,6 +234,9 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 			if err := s.ensureAgentRoomOwnerMember(ctx, currentRoomID, ownerMXID, ownerDisplayName, agentMXID); err != nil {
 				return false, err
 			}
+			if err := s.ensureAgentRoomPowerLevels(ctx, currentRoomID, ownerMXID, agentMXID); err != nil {
+				return false, err
+			}
 			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, agentOnline); err != nil {
 				return false, err
 			}
@@ -267,6 +270,17 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return roomID != currentRoomID, nil
+}
+
+func (s *Service) ensureAgentRoomPowerLevels(ctx context.Context, roomID, ownerMXID, agentMXID string) error {
+	if s.transport == nil || strings.TrimSpace(roomID) == "" || strings.TrimSpace(ownerMXID) == "" {
+		return nil
+	}
+	return s.transport.SendStateEvent(ctx, SendStateEventRequest{
+		RoomID:     strings.TrimSpace(roomID),
+		SenderMXID: strings.TrimSpace(ownerMXID),
+		Event:      agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID),
+	})
 }
 
 func (s *Service) ensureAgentRoomAgentMember(ctx context.Context, roomID, ownerMXID, agentMXID, agentDisplayName string) error {

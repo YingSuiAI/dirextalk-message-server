@@ -211,7 +211,7 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 		t.Fatalf("expected created agent room to grant @agent state power, level=%d ok=%v state=%#v", level, ok, req.InitialState)
 	}
 	if statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType); ok {
-		t.Fatalf("agent status state must be sent by @agent after join, not as owner-created initial state: %#v", statusState)
+		t.Fatalf("agent status state must be sent after join, not as owner-created initial state: %#v", statusState)
 	}
 	if len(transport.joinRequests) != 1 || transport.joinRequests[0].UserMXID != "@agent:example.com" || transport.joinRequests[0].DisplayName != "Agent" {
 		t.Fatalf("expected agent to join created room, got %#v", transport.joinRequests)
@@ -220,7 +220,7 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 		t.Fatalf("expected agent to publish status after joining created room, got %#v", transport.stateEvents)
 	}
 	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
-		t.Fatalf("expected @agent to publish online status after join, got %#v", transport.stateEvents[0])
+		t.Fatalf("expected agent to publish online status after join, got %#v", transport.stateEvents[0])
 	}
 }
 
@@ -249,11 +249,19 @@ func TestEnsureAgentRoomJoinsAgentAndOwnerForExistingRealRoom(t *testing.T) {
 	if transport.joinRequests[1].UserMXID != "@owner:example.com" {
 		t.Fatalf("expected owner to join existing room, got %#v", transport.joinRequests)
 	}
-	if len(transport.stateEvents) != 1 {
-		t.Fatalf("expected existing agent room to publish status state, got %#v", transport.stateEvents)
+	if len(transport.stateEvents) != 2 {
+		t.Fatalf("expected existing agent room to repair power levels and publish status state, got %#v", transport.stateEvents)
 	}
-	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
-		t.Fatalf("expected existing agent room online status state, got %#v", transport.stateEvents[0])
+	if transport.stateEvents[0].RoomID != "!agents-real:example.com" ||
+		transport.stateEvents[0].SenderMXID != "@owner:example.com" ||
+		transport.stateEvents[0].Event.Type != spec.MRoomPowerLevels {
+		t.Fatalf("expected owner to repair agent room power levels first, got %#v", transport.stateEvents[0])
+	}
+	if level, ok := initialPowerLevelForUser([]RoomStateEvent{transport.stateEvents[0].Event}, "@agent:example.com"); !ok || level < 50 {
+		t.Fatalf("expected repaired power levels to grant @agent state power, level=%d ok=%v state=%#v", level, ok, transport.stateEvents[0])
+	}
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[1], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
+		t.Fatalf("expected existing agent room online status state, got %#v", transport.stateEvents[1])
 	}
 }
 
@@ -277,8 +285,8 @@ func TestEnsureAgentRoomInvitesOwnerFromAgentWhenOwnerJoinRequiresInvite(t *test
 		transport.inviteRequests[0].InviteeMXID != "@owner:example.com" {
 		t.Fatalf("expected agent to invite owner back into agents room, got %#v", transport.inviteRequests)
 	}
-	if len(transport.stateEvents) != 1 {
-		t.Fatalf("expected repaired agent room to publish status state, got %#v", transport.stateEvents)
+	if len(transport.stateEvents) != 2 {
+		t.Fatalf("expected repaired agent room to repair power levels and publish status state, got %#v", transport.stateEvents)
 	}
 }
 
