@@ -494,16 +494,7 @@ func (s *Service) redactEvent(ctx context.Context, roomID, eventID, reason strin
 
 func (s *Service) channelPostByID(ctx context.Context, postID, channelID string) (channelPostRecord, bool, error) {
 	if s.store != nil {
-		posts, err := s.store.ListChannelPosts(ctx, channelID)
-		if err != nil {
-			return channelPostRecord{}, false, err
-		}
-		for _, post := range posts {
-			if post.PostID == postID {
-				return post, true, nil
-			}
-		}
-		return channelPostRecord{}, false, nil
+		return s.store.GetChannelPostByID(ctx, postID, channelID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -521,16 +512,7 @@ func (s *Service) channelPostByEventID(ctx context.Context, eventID, channelID s
 		return channelPostRecord{}, false, nil
 	}
 	if s.store != nil {
-		posts, err := s.store.ListChannelPosts(ctx, channelID)
-		if err != nil {
-			return channelPostRecord{}, false, err
-		}
-		for _, post := range posts {
-			if post.EventID == eventID {
-				return post, true, nil
-			}
-		}
-		return channelPostRecord{}, false, nil
+		return s.store.GetChannelPostByEventID(ctx, eventID, channelID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -544,16 +526,7 @@ func (s *Service) channelPostByEventID(ctx context.Context, eventID, channelID s
 
 func (s *Service) channelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error) {
 	if s.store != nil {
-		comments, err := s.store.ListChannelComments(ctx, postID)
-		if err != nil {
-			return channelCommentRecord{}, false, err
-		}
-		for _, comment := range comments {
-			if comment.CommentID == commentID {
-				return comment, true, nil
-			}
-		}
-		return channelCommentRecord{}, false, nil
+		return s.store.GetChannelCommentByID(ctx, commentID, postID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -571,16 +544,7 @@ func (s *Service) channelCommentByEventID(ctx context.Context, eventID, channelI
 		return channelCommentRecord{}, false, nil
 	}
 	if s.store != nil {
-		comments, err := s.store.ListChannelComments(ctx, "")
-		if err != nil {
-			return channelCommentRecord{}, false, err
-		}
-		for _, comment := range comments {
-			if comment.EventID == eventID && (channelID == "" || comment.ChannelID == channelID) {
-				return comment, true, nil
-			}
-		}
-		return channelCommentRecord{}, false, nil
+		return s.store.GetChannelCommentByEventID(ctx, eventID, channelID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

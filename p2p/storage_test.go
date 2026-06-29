@@ -510,6 +510,81 @@ func TestDatabaseStoreDeleteChannelContentReportsDeletedRows(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreGetsChannelContentByIDAndEventID(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.InsertChannelPost(ctx, channelPostRecord{
+		PostID:         "post_lookup",
+		ChannelID:      "ch_lookup",
+		RoomID:         "!room:example.com",
+		EventID:        "$post-lookup-event",
+		AuthorMXID:     "@owner:example.com",
+		Body:           "post lookup",
+		OriginServerTS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	postByID, ok, err := store.GetChannelPostByID(ctx, "post_lookup", "ch_lookup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || postByID.EventID != "$post-lookup-event" {
+		t.Fatalf("expected post lookup by id, got ok=%v post=%#v", ok, postByID)
+	}
+	if _, ok, err = store.GetChannelPostByID(ctx, "post_lookup", "other_channel"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("expected channel-scoped post lookup to reject another channel")
+	}
+	postByEvent, ok, err := store.GetChannelPostByEventID(ctx, "$post-lookup-event", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || postByEvent.PostID != "post_lookup" {
+		t.Fatalf("expected post lookup by event id, got ok=%v post=%#v", ok, postByEvent)
+	}
+
+	if err := store.InsertChannelComment(ctx, channelCommentRecord{
+		CommentID:      "comment_lookup",
+		PostID:         "post_lookup",
+		ChannelID:      "ch_lookup",
+		EventID:        "$comment-lookup-event",
+		AuthorMXID:     "@owner:example.com",
+		Body:           "comment lookup",
+		OriginServerTS: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commentByID, ok, err := store.GetChannelCommentByID(ctx, "comment_lookup", "post_lookup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || commentByID.EventID != "$comment-lookup-event" {
+		t.Fatalf("expected comment lookup by id, got ok=%v comment=%#v", ok, commentByID)
+	}
+	if _, ok, err = store.GetChannelCommentByID(ctx, "comment_lookup", "other_post"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("expected post-scoped comment lookup to reject another post")
+	}
+	commentByEvent, ok, err := store.GetChannelCommentByEventID(ctx, "$comment-lookup-event", "ch_lookup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || commentByEvent.CommentID != "comment_lookup" {
+		t.Fatalf("expected comment lookup by event id, got ok=%v comment=%#v", ok, commentByEvent)
+	}
+}
+
 func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

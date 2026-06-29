@@ -103,8 +103,12 @@ type Store interface {
 	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
 	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
 	InsertChannelPost(ctx context.Context, post channelPostRecord) error
+	GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostRecord, bool, error)
+	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostRecord, bool, error)
 	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error)
 	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
+	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error)
+	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
 	ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error)
 	UpsertContact(ctx context.Context, contact contactRecord) error
 	ListContacts(ctx context.Context) ([]contactRecord, error)

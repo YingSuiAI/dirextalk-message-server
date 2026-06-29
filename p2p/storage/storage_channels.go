@@ -274,6 +274,42 @@ func (s *DatabaseStore) InsertChannelPost(ctx context.Context, post channelPostR
 	})
 }
 
+func (s *DatabaseStore) GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostRecord, bool, error) {
+	if postID == "" {
+		return channelPostRecord{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, listPostsSelect+`
+		WHERE post_id = $1 AND ($2 = '' OR channel_id = $2)
+		LIMIT 1
+	`, postID, channelID)
+	post, err := scanChannelPost(row)
+	if err == sql.ErrNoRows {
+		return channelPostRecord{}, false, nil
+	}
+	if err != nil {
+		return channelPostRecord{}, false, err
+	}
+	return post, true, nil
+}
+
+func (s *DatabaseStore) GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostRecord, bool, error) {
+	if eventID == "" {
+		return channelPostRecord{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, listPostsSelect+`
+		WHERE event_id = $1 AND ($2 = '' OR channel_id = $2)
+		LIMIT 1
+	`, eventID, channelID)
+	post, err := scanChannelPost(row)
+	if err == sql.ErrNoRows {
+		return channelPostRecord{}, false, nil
+	}
+	if err != nil {
+		return channelPostRecord{}, false, err
+	}
+	return post, true, nil
+}
+
 func (s *DatabaseStore) ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error) {
 	var rows *sql.Rows
 	var err error
@@ -288,9 +324,8 @@ func (s *DatabaseStore) ListChannelPosts(ctx context.Context, channelID string) 
 	defer closeResource(rows)
 	var posts []channelPostRecord
 	for rows.Next() {
-		var post channelPostRecord
-		if err := rows.Scan(&post.PostID, &post.ChannelID, &post.RoomID, &post.EventID, &post.AuthorMXID, &post.AuthorName,
-			&post.Body, &post.MessageType, &post.MediaJSON, &post.OriginServerTS, &post.CommentCount); err != nil {
+		post, err := scanChannelPost(rows)
+		if err != nil {
 			return nil, err
 		}
 		posts = append(posts, post)
@@ -299,6 +334,15 @@ func (s *DatabaseStore) ListChannelPosts(ctx context.Context, channelID string) 
 }
 
 const listPostsSelect = `SELECT post_id, channel_id, room_id, event_id, author_mxid, author_name, body, message_type, media_json, origin_server_ts, comment_count FROM p2p_channel_posts`
+
+func scanChannelPost(row channelScanner) (channelPostRecord, error) {
+	var post channelPostRecord
+	if err := row.Scan(&post.PostID, &post.ChannelID, &post.RoomID, &post.EventID, &post.AuthorMXID, &post.AuthorName,
+		&post.Body, &post.MessageType, &post.MediaJSON, &post.OriginServerTS, &post.CommentCount); err != nil {
+		return channelPostRecord{}, err
+	}
+	return post, nil
+}
 
 func (s *DatabaseStore) InsertChannelComment(ctx context.Context, comment channelCommentRecord) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
@@ -330,6 +374,42 @@ func (s *DatabaseStore) InsertChannelComment(ctx context.Context, comment channe
 	})
 }
 
+func (s *DatabaseStore) GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error) {
+	if commentID == "" {
+		return channelCommentRecord{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, listCommentsSelect+`
+		WHERE comment_id = $1 AND ($2 = '' OR post_id = $2)
+		LIMIT 1
+	`, commentID, postID)
+	comment, err := scanChannelComment(row)
+	if err == sql.ErrNoRows {
+		return channelCommentRecord{}, false, nil
+	}
+	if err != nil {
+		return channelCommentRecord{}, false, err
+	}
+	return comment, true, nil
+}
+
+func (s *DatabaseStore) GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error) {
+	if eventID == "" {
+		return channelCommentRecord{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, listCommentsSelect+`
+		WHERE event_id = $1 AND ($2 = '' OR channel_id = $2)
+		LIMIT 1
+	`, eventID, channelID)
+	comment, err := scanChannelComment(row)
+	if err == sql.ErrNoRows {
+		return channelCommentRecord{}, false, nil
+	}
+	if err != nil {
+		return channelCommentRecord{}, false, err
+	}
+	return comment, true, nil
+}
+
 func (s *DatabaseStore) ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error) {
 	var rows *sql.Rows
 	var err error
@@ -344,17 +424,25 @@ func (s *DatabaseStore) ListChannelComments(ctx context.Context, postID string) 
 	defer closeResource(rows)
 	var comments []channelCommentRecord
 	for rows.Next() {
-		var comment channelCommentRecord
-		var reacted int64
-		if err := rows.Scan(&comment.CommentID, &comment.PostID, &comment.ChannelID, &comment.EventID, &comment.AuthorMXID, &comment.AuthorName,
-			&comment.Body, &comment.MessageType, &comment.MediaJSON, &comment.ReplyToCommentID, &comment.ReplyToAuthorMXID, &comment.MentionsJSON,
-			&comment.OriginServerTS, &comment.ReactionCount, &reacted); err != nil {
+		comment, err := scanChannelComment(rows)
+		if err != nil {
 			return nil, err
 		}
-		comment.ReactedByMe = reacted == 1
 		comments = append(comments, comment)
 	}
 	return comments, rows.Err()
 }
 
 const listCommentsSelect = `SELECT comment_id, post_id, channel_id, event_id, author_mxid, author_name, body, message_type, media_json, reply_to_comment_id, reply_to_author_mxid, mentions_json, origin_server_ts, reaction_count, reacted_by_me FROM p2p_channel_comments`
+
+func scanChannelComment(row channelScanner) (channelCommentRecord, error) {
+	var comment channelCommentRecord
+	var reacted int64
+	if err := row.Scan(&comment.CommentID, &comment.PostID, &comment.ChannelID, &comment.EventID, &comment.AuthorMXID, &comment.AuthorName,
+		&comment.Body, &comment.MessageType, &comment.MediaJSON, &comment.ReplyToCommentID, &comment.ReplyToAuthorMXID, &comment.MentionsJSON,
+		&comment.OriginServerTS, &comment.ReactionCount, &reacted); err != nil {
+		return channelCommentRecord{}, err
+	}
+	comment.ReactedByMe = reacted == 1
+	return comment, nil
+}
