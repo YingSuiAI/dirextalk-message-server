@@ -2,6 +2,10 @@
 
 Last updated: 2026-06-29
 
+## 2026-06-29 P2P Reports Submit Removed
+
+Removed `reports.submit` from the message-server P2P action surface. User-facing report submission remains on the signed imadmin public API, so this server no longer registers the P2P report action or persists P2P report rows.
+
 ## 2026-06-29 P2P Event Cursor Reset Signal
 
 `GET /_p2p/events` now detects a non-zero `since` cursor that is older than the retained `p2p_events` window. The stream stays HTTP 200 and replays retained events, but it first emits an SSE control event `event: p2p.cursor_reset` without advancing the SSE event id.
@@ -153,11 +157,11 @@ Breaking removals and contract changes:
 - Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It requires bearer `access_token` and returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
-The live P2P body-action count is 86. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+The live P2P body-action count is 89. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 ## Current Pass
 
-This pass completes the Matrix-only ordinary message migration for Direxio product rooms. There is now one ordinary message source of truth: Matrix Client-Server event storage and timelines. P2P product APIs keep product metadata, contact/group/channel state, channel post/comment projections, calls, favorites, follows, reports, Agent configuration, and bootstrap metadata.
+This pass completes the Matrix-only ordinary message migration for Direxio product rooms. There is now one ordinary message source of truth: Matrix Client-Server event storage and timelines. P2P product APIs keep product metadata, contact/group/channel state, channel post/comment projections, calls, favorites, follows, Agent configuration, and bootstrap metadata.
 
 Breaking removals from the P2P body-action surface:
 

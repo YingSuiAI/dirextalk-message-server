@@ -18,7 +18,7 @@ Last updated: 2026-06-22
 | Public Channels | Public detail/search, remote room-id discovery, public join request forwarding, approval result callback, public channels by user. |
 | Channel Posts/Comments/Reactions | Post/comment create/list/recall, reply and mention metadata, like toggles, owner comment/reaction history. |
 | Calls | Create/incoming/get/list/active, persisted lifecycle timestamps, and realtime call state events. |
-| Favorites/Follows/Reports | Favorite lifecycle, followed domains, report submission. |
+| Favorites/Follows | Favorite lifecycle and followed domains. User-facing reports are handled by the signed imadmin public API, not the message-server P2P action surface. |
 | Agent/API Permissions | Agent config/status/password and per-action permission enable/disable. |
 | Conversations | ProductCore conversation list/get and operation summaries. |
 
@@ -55,6 +55,6 @@ Protected action groups:
 - Channels: `channels.create`, `channels.update`, `channels.invite`, `channels.invite_grant.create`, `channels.join`, `channels.list`, `channels.members`, `channels.leave`, `channels.dissolve`, `channels.mute`, `channels.unmute`, `channels.read_marker`, `channels.join_request.approve`, `channels.join_request.reject`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`
 - Channel posts/comments/reactions: `channels.posts.create`, `channels.posts.list`, `channels.posts.recall`, `channels.comments.create`, `channels.comments.list`, `channels.comments.recall`, `channels.post_reaction.toggle`, `channels.comment_reaction.toggle`, `channels.my_comments`, `channels.my_reactions`
 - Calls: `calls.create`, `calls.incoming`, `calls.get`, `calls.event`, `calls.active`, `calls.list`
-- Favorites/Follows/Reports: `favorites.add`, `favorites.list`, `favorites.delete`, `favorites.delete_batch`, `follows.add`, `follows.list`, `follows.remove`, `reports.submit`
+- Favorites/Follows: `favorites.add`, `favorites.list`, `favorites.delete`, `favorites.delete_batch`, `follows.add`, `follows.list`, `follows.remove`
 
 The importable examples for every action are maintained in `docs/postman/direxio-message-server.postman_collection.json`.

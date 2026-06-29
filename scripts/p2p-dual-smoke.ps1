@@ -934,14 +934,6 @@ $followRemove = P2P $ABase "command" $aAuth.access_token "follows.remove" @{
 }
 Assert ($followRemove.status -eq "ok") "follows.remove failed"
 
-$report = P2P $ABase "command" $aAuth.access_token "reports.submit" @{
-  reporter_domain = $AServerName
-  reported_domain = $BServerName
-  reason = "smoke report $suffix"
-  target_type = 1
-}
-Assert ($report.id) "reports.submit did not return report id"
-
 $group = P2P $ABase "command" $aAuth.access_token "groups.create" @{
   name = "Smoke Group $suffix"
   topic = "dual smoke group"

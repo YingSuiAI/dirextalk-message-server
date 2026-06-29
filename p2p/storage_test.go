@@ -720,7 +720,6 @@ func markP2PMigrationsBeforeContactPeerUnique(ctx context.Context, db *sql.DB) e
 		"p2p: integrated appservice tables v5 product mute state",
 		"p2p: integrated appservice tables v6 member join order",
 		"p2p: integrated appservice tables v7 portal matrix device",
-		"p2p: integrated appservice tables v9 reports",
 		"p2p: integrated appservice tables v11 channel comment replies",
 		"p2p: integrated appservice tables v12 channel comment media",
 		"p2p: integrated appservice tables v13 event outbox",

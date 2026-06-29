@@ -2844,44 +2844,6 @@
           "description": "门户 owner 个人资料读取和更新接口。"
         },
         {
-          "name": "reports（举报）",
-          "item": [
-            {
-              "name": "reports.submit（提交举报）",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}",
-                    "type": "text"
-                  }
-                ],
-                "url": "{{baseUrl}}/_p2p/command",
-                "description": "提交用户或频道举报。\n\nSubmit user or channel report\n\nAction: `reports.submit`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"action\": \"reports.submit\",\n  \"params\": {\n    \"reporter_domain\": \"{{serverName}}\",\n    \"reported_domain\": \"{{remoteDomain}}\",\n    \"reason\": \"spam or abuse report\",\n    \"target_type\": 1,\n    \"images\": []\n  }\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              }
-            }
-          ],
-          "description": "用户或频道举报提交接口。"
-        },
-        {
           "name": "sync（首屏同步）",
           "item": [
             {

@@ -12,7 +12,6 @@ type contactRecord = domain.ContactRecord
 type groupRecord = domain.GroupRecord
 type callRecord = domain.CallRecord
 type favoriteRecord = domain.FavoriteRecord
-type reportRecord = domain.ReportRecord
 type followRecord = domain.FollowRecord
 type reactionRecord = domain.ReactionRecord
 type memberRecord = domain.MemberRecord

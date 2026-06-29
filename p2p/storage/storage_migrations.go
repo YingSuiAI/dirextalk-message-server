@@ -212,24 +212,6 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 		},
 	})
 	m.AddMigrations(sqlutil.Migration{
-		Version: "p2p: integrated appservice tables v9 reports",
-		Up: func(ctx context.Context, txn *sql.Tx) error {
-			return execMigrationStatements(ctx, txn, []string{
-				`CREATE TABLE IF NOT EXISTS p2p_reports (
-					id TEXT PRIMARY KEY NOT NULL,
-					reporter_domain TEXT NOT NULL,
-					reported_domain TEXT NOT NULL,
-					target_type BIGINT NOT NULL,
-					reason TEXT NOT NULL,
-					images_json TEXT NOT NULL,
-					created_at TEXT NOT NULL
-				)`,
-				`CREATE INDEX IF NOT EXISTS p2p_reports_reported_idx ON p2p_reports(reported_domain, target_type, created_at)`,
-				`CREATE INDEX IF NOT EXISTS p2p_reports_reporter_idx ON p2p_reports(reporter_domain, created_at)`,
-			})
-		},
-	})
-	m.AddMigrations(sqlutil.Migration{
 		Version: "p2p: integrated appservice tables v11 channel comment replies",
 		Up: func(ctx context.Context, txn *sql.Tx) error {
 			return execMigrationStatements(ctx, txn, []string{

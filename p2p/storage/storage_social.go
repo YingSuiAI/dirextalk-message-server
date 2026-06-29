@@ -86,16 +86,6 @@ func (s *DatabaseStore) DeleteFavorite(ctx context.Context, id int64) error {
 	})
 }
 
-func (s *DatabaseStore) InsertReport(ctx context.Context, report reportRecord) error {
-	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
-		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO p2p_reports (id, reporter_domain, reported_domain, target_type, reason, images_json, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, report.ID, report.ReporterDomain, report.ReportedDomain, report.TargetType, report.Reason, report.ImagesJSON, report.CreatedAt)
-		return err
-	})
-}
-
 func (s *DatabaseStore) UpsertFollow(ctx context.Context, follow followRecord) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `

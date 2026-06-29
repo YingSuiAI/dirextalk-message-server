@@ -20,7 +20,7 @@ Direxio Message Server monolith
         - portal bootstrap/auth session envelope
         - owner profile projection
         - sync bootstrap product metadata and read markers
-        - contact/group/channel/call/favorites/follows/reports action catalog
+        - contact/group/channel/call/favorites/follows action catalog
         - Direxio Message Server-managed P2P database store for portal, profile,
           read markers, contacts, groups, channels, posts, comments,
           reactions, members, calls, favorites, and follows
@@ -247,7 +247,7 @@ Required client direction:
 - `defaultAdminBaseUri()` should point to `/_p2p` on the same browser-accessible homeserver origin. New code should not target `/_as` or URL-shaped product routes.
 - Ordinary room text, media, reaction, redaction, and Matrix membership operations should use Matrix SDK APIs. ProductPolicy now runs on those Matrix Client-Server writes for Direxio product rooms.
 - Channel post/comment Matrix sends must include `p2p_kind=channel_post` or `p2p_kind=channel_comment`; media events keep their Matrix `msgtype` such as `m.image`, `m.video`, `m.audio`, or `m.file`.
-- Product management and projection queries remain P2P body actions: portal/auth/status, contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, reports, Agent config/status/password, MCP actions, `sync.bootstrap`, and read markers.
+- Product management and projection queries remain P2P body actions: portal/auth/status, contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, Agent config/status/password, MCP actions, `sync.bootstrap`, and read markers. User-facing report submission remains on the signed imadmin public API instead of this message-server P2P surface.
 - `GET /_p2p/events?since=<seq>` is the primary lightweight realtime refresh path. Clients should use it with `Last-Event-ID` or `since` replay and then refresh details through Matrix sync or targeted P2P query calls. When a non-zero cursor is older than the retained event window, the stream emits `event: p2p.cursor_reset` and sets `X-Direxio-P2P-Events-Cursor-Reset: true`; clients should clear local product projections, call `sync.bootstrap` once, and then continue from the newest handled `seq`.
 - Ordinary chat/media history, unread counts, local hiding, search, and recall are Matrix responsibilities. Use Matrix send, `/sync`, `/rooms/{roomID}/messages`, `/search`, Matrix redaction, and Direxio Matrix `local_delete`.
 

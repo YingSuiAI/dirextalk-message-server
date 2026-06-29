@@ -209,10 +209,10 @@ Channel posts/comments/reactions：
 - 新成员加入 post channel 后，服务端会从 Matrix `/messages` 历史回填当前频道已有 posts/comments/reactions 到本节点 projection，客户端可通过 product list 接口和 Matrix history 同时看到入群前内容。
 - recall 通过 Matrix redaction。
 
-Calls/Favorites/Follows/Reports：
+Calls/Favorites/Follows：
 
 - calls 是产品会话 read model，支持 create/incoming/get/list/active/event，持久化接通/结束时间、结束方和原因，并通过 `call.changed` P2P event 推送实时状态。
-- favorites、follows、reports 是 P2P product state，使用 P2P store 持久化。
+- favorites 和 follows 是 P2P product state，使用 P2P store 持久化。用户举报提交保留在 signed imadmin public API，不再作为 message-server P2P action 维护。
 
 Agent/API：
 

@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 
-Scope: clean dual-node Docker rebuild plus full `scripts/p2p-dual-smoke.ps1` coverage for contacts, profile/search names, direct messages, groups, channels, moderation, deletion, reapply blocking, kicks, dissolves, posts/comments/reactions, favorites, follows, reports, calls, Agent/MCP auth, and full `p2p.Service.Handle` action coverage.
+Scope: clean dual-node Docker rebuild plus full `scripts/p2p-dual-smoke.ps1` coverage for contacts, profile/search names, direct messages, groups, channels, moderation, deletion, reapply blocking, kicks, dissolves, posts/comments/reactions, favorites, follows, calls, Agent/MCP auth, and full `p2p.Service.Handle` action coverage.
 
 ## Current Status
 
@@ -137,7 +137,7 @@ $env:P2P_DUAL_PUBLIC_HOST='host.docker.internal'; powershell -NoProfile -Executi
 - Remote channel join and Matrix message delivery reached.
 - Local delete and recall checks reached when search was enabled.
 - Channel posts/comments/reactions and sync projection reached.
-- Favorites, calls, follows, and reports reached.
+- Favorites, calls, and follows reached.
 - Group creation/update/invite/join/message reached.
 
 The final run completed through group/channel remove and dissolve, portal password rotation, Matrix key upload checks, and final all-action coverage assertion.

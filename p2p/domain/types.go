@@ -154,16 +154,6 @@ type FavoriteRecord struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-type ReportRecord struct {
-	ID             string `json:"id"`
-	ReporterDomain string `json:"reporter_domain"`
-	ReportedDomain string `json:"reported_domain"`
-	TargetType     int64  `json:"target_type"`
-	Reason         string `json:"reason"`
-	ImagesJSON     string `json:"images_json"`
-	CreatedAt      string `json:"created_at"`
-}
-
 type FollowRecord struct {
 	Domain    string `json:"domain"`
 	CreatedAt string `json:"created_at"`

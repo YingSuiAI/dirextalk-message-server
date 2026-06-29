@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"time"
 )
@@ -90,55 +89,6 @@ func (s *Service) favoriteList(ctx context.Context, params map[string]any) any {
 		}
 	}
 	return map[string]any{"favorites": favorites}
-}
-
-func (s *Service) reportSubmit(ctx context.Context, params map[string]any) (any, *apiError) {
-	reporterDomain := fallbackString(trimString(params["reporter_domain"]), trimString(params["reporterDomain"]))
-	reportedDomain := fallbackString(trimString(params["reported_domain"]), trimString(params["reportedDomain"]))
-	reason := trimString(params["reason"])
-	if reporterDomain == "" {
-		return nil, badRequest("reporter_domain is required")
-	}
-	if reportedDomain == "" {
-		return nil, badRequest("reported_domain is required")
-	}
-	if reason == "" {
-		return nil, badRequest("reason is required")
-	}
-	targetType := int64Param(params["target_type"])
-	if targetType == 0 {
-		targetType = int64Param(params["targetType"])
-	}
-	if targetType == 0 {
-		targetType = 1
-	}
-	imagesJSON := "[]"
-	if images := stringSliceParam(params["images"]); len(images) > 0 {
-		raw, err := json.Marshal(images)
-		if err != nil {
-			return nil, badRequest("images is invalid")
-		}
-		imagesJSON = string(raw)
-	}
-	now := time.Now().UTC()
-	report := reportRecord{
-		ID:             randomToken("report"),
-		ReporterDomain: reporterDomain,
-		ReportedDomain: reportedDomain,
-		TargetType:     targetType,
-		Reason:         reason,
-		ImagesJSON:     imagesJSON,
-		CreatedAt:      now.Format(time.RFC3339Nano),
-	}
-	s.mu.Lock()
-	s.reports[report.ID] = report
-	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.InsertReport(ctx, report); err != nil {
-			return nil, internalError(err)
-		}
-	}
-	return report, nil
 }
 
 func (s *Service) favoriteDelete(ctx context.Context, params map[string]any) (any, *apiError) {

@@ -80,7 +80,6 @@ type Service struct {
 	groups        map[string]groupRecord
 	calls         map[string]callRecord
 	favorites     map[int64]favoriteRecord
-	reports       map[string]reportRecord
 	follows       map[string]followRecord
 	reactions     map[string]reactionRecord
 	members       map[string]memberRecord
@@ -124,7 +123,6 @@ type Store interface {
 	FindFavoriteByEvent(ctx context.Context, eventID, roomID string) (favoriteRecord, bool, error)
 	ListFavorites(ctx context.Context, messageType string) ([]favoriteRecord, error)
 	DeleteFavorite(ctx context.Context, id int64) error
-	InsertReport(ctx context.Context, report reportRecord) error
 	UpsertFollow(ctx context.Context, follow followRecord) error
 	ListFollows(ctx context.Context) ([]followRecord, error)
 	DeleteFollow(ctx context.Context, domain string) error
@@ -169,7 +167,6 @@ type contactRecord = domain.ContactRecord
 type groupRecord = domain.GroupRecord
 type callRecord = domain.CallRecord
 type favoriteRecord = domain.FavoriteRecord
-type reportRecord = domain.ReportRecord
 type followRecord = domain.FollowRecord
 type reactionRecord = domain.ReactionRecord
 type channelReactionHistory = domain.ChannelReactionHistory
@@ -471,7 +468,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		groups:        map[string]groupRecord{},
 		calls:         map[string]callRecord{},
 		favorites:     map[int64]favoriteRecord{},
-		reports:       map[string]reportRecord{},
 		follows:       map[string]followRecord{},
 		reactions:     map[string]reactionRecord{},
 		members:       map[string]memberRecord{},

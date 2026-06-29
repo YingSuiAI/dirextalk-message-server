@@ -2261,15 +2261,13 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 		t.Fatalf("expected batch-deleted favorites gone, got %#v", favorites)
 	}
 
-	report := mustHandle[reportRecord](t, service, "reports.submit", map[string]any{
+	if _, apiErr := service.Handle(context.Background(), "reports.submit", map[string]any{
 		"reporterDomain": "alice.example",
 		"reportedDomain": "channel.example",
 		"targetType":     float64(2),
 		"reason":         "spam",
-		"images":         []any{"mxc://example/report"},
-	})
-	if report.ReporterDomain != "alice.example" || report.ReportedDomain != "channel.example" || report.TargetType != 2 || report.ImagesJSON != `["mxc://example/report"]` {
-		t.Fatalf("expected saved report with legacy-compatible params, got %#v", report)
+	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
+		t.Fatalf("expected removed reports.submit to be unknown, got %#v", apiErr)
 	}
 
 	if _, apiErr := service.Handle(context.Background(), "sync.messages", map[string]any{"room_id": "!room:example.com"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
