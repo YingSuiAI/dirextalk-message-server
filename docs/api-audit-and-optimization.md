@@ -60,7 +60,7 @@ Current assumptions:
 - [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
 - [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; old-cursor reset/recovery remains deferred until client support.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
-- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; EXPLAIN-based measurement still pending.
+- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement, but production-sized plan results are still pending.
 - [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: pending review of durable consumer ordering and duplicate-projection safety.
 - [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
 
@@ -77,6 +77,15 @@ python scripts/p2p-capacity-smoke.py \
 ```
 
 The script creates test groups/channels/posts using a unique prefix, then prints JSON metrics for create actions, `sync.bootstrap`, `groups.list`, `channels.list`, `channels.public.search`, and optional Matrix `/sync`. Use a disposable test node or a clearly named prefix because the script intentionally writes product data.
+
+Sync/history query-plan usage:
+
+```bash
+python scripts/p2p-sync-history-explain.py \
+  --database-url 'postgres://dendrite:password@localhost:5432/dendrite?sslmode=disable'
+```
+
+The script runs read-only `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` checks for sync recent events, history context before/after, topology back pagination, and stream-to-topology conversion. If `--room-id` is omitted, it measures the room with the most rows in `syncapi_output_room_events`.
 
 P2P event retention controls:
 
