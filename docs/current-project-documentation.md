@@ -269,7 +269,7 @@ PowerShell：
 ```powershell
 $env:POSTGRES_USER = "postgres"
 $env:POSTGRES_PASSWORD = "123789"
-$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_HOST = "127.0.0.1"
 $env:POSTGRES_PORT = "5432"
 $env:POSTGRES_DB = "postgres"
 ```
@@ -279,10 +279,12 @@ Bash：
 ```bash
 export POSTGRES_USER=postgres
 export POSTGRES_PASSWORD=123789
-export POSTGRES_HOST=localhost
+export POSTGRES_HOST=127.0.0.1
 export POSTGRES_PORT=5432
 export POSTGRES_DB=postgres
 ```
+
+Windows Docker Desktop users should prefer `127.0.0.1` over `localhost` for PostgreSQL ports published from containers. `localhost` may resolve to IPv6 `::1` first and wait for a failed connection before falling back to IPv4.
 
 测试 helper 会创建相互隔离的 `dendrite_test_*` 数据库，并在对应测试结束后删除创建的测试库。
 

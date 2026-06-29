@@ -134,7 +134,7 @@ PowerShell:
 ```powershell
 $env:POSTGRES_USER = "postgres"
 $env:POSTGRES_PASSWORD = "123789"
-$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_HOST = "127.0.0.1"
 $env:POSTGRES_PORT = "5432"
 $env:POSTGRES_DB = "postgres"
 ```
@@ -144,10 +144,12 @@ Bash:
 ```bash
 export POSTGRES_USER=postgres
 export POSTGRES_PASSWORD=123789
-export POSTGRES_HOST=localhost
+export POSTGRES_HOST=127.0.0.1
 export POSTGRES_PORT=5432
 export POSTGRES_DB=postgres
 ```
+
+On Windows with Docker Desktop, prefer `127.0.0.1` over `localhost` for published PostgreSQL ports. `localhost` can resolve to IPv6 `::1` first and wait for that connection to fail before libpq falls back to IPv4.
 
 `POSTGRES_DB` is the administration database used to create and drop package-scoped test databases.
 
