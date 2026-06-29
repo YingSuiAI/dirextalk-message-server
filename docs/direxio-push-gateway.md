@@ -67,6 +67,27 @@ Each Matrix user keeps only one active Direxio pusher. Registering a new Android
 
 Use a regional gateway URL when required, for example `https://push-eu.direxio.ai/_matrix/push/v1/notify` or `https://push-sea.direxio.ai/_matrix/push/v1/notify`.
 
+## Client Foreground State
+
+The homeserver cannot reliably infer whether a mobile app is foreground or background from `/sync`, read receipts, or pusher registration. Direxio clients should report app lifecycle state with global Matrix account data:
+
+```http
+PUT /_matrix/client/v3/user/{userId}/account_data/io.direxio.push.context
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "foreground": true,
+  "expires_at_ms": 4102444800000
+}
+```
+
+When `foreground=true` and `expires_at_ms` is in the future, the server suppresses Matrix push-rule notifications for that user: it does not create a new unread notification row and does not call the HTTP push gateway. Missing, malformed, expired, or `foreground=false` state keeps normal background push behavior. Foreground clients should refresh the account data with a short future expiry; background clients may either write `foreground=false` or let the previous foreground state expire.
+
+The configured agents room defaults to no system push. During startup or repair, the message server ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, while preserving any existing explicit rule for that room.
+
 ## Server Responsibilities
 
 - Ordinary chat messages remain Matrix-native. Do not add a second P2P message push path.

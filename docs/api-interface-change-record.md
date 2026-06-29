@@ -2,6 +2,21 @@
 
 Last updated: 2026-06-29
 
+## 2026-06-29 Foreground Push Context And Agent Room Defaults
+
+Direxio clients may now suppress foreground system pushes by writing global Matrix account data type `io.direxio.push.context` through the existing Matrix account data route. The expected body is:
+
+```json
+{
+  "foreground": true,
+  "expires_at_ms": 4102444800000
+}
+```
+
+When `foreground=true` and `expires_at_ms` is in the future, the userapi roomserver consumer does not create an unread notification row and does not call the HTTP push gateway for matching Matrix push-rule notifications. Missing, malformed, expired, or `foreground=false` context fails open and keeps normal background push behavior. This is a first-step app lifecycle contract only; the server does not infer foreground/background from `/sync`, read receipts, or pusher registration.
+
+Backend startup now also ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, so new or repaired agents rooms default to no system push. Existing explicit room push rules for the same room are preserved.
+
 ## 2026-06-29 P2P Reports Submit Removed
 
 Removed `reports.submit` from the message-server P2P action surface. User-facing report submission remains on the signed imadmin public API, so this server no longer registers the P2P report action or persists P2P report rows.

@@ -86,6 +86,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
 		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
 		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
+		PushRules:                       m.UserAPI,
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)

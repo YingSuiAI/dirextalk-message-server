@@ -551,6 +551,8 @@ const (
 	direxioRoomTypeGroup   = "io.direxio.room.group"
 	direxioRoomTypeChannel = "io.direxio.room.channel"
 
+	direxioPushContextAccountDataType = "io.direxio.push.context"
+
 	pushTypeMessage = "message"
 	pushTypeCall    = "call"
 )
@@ -689,6 +691,34 @@ func applyPushNotificationMetadata(notification *pushgateway.Notification, metad
 	}
 }
 
+type direxioPushContext struct {
+	Foreground  bool  `json:"foreground"`
+	ExpiresAtMS int64 `json:"expires_at_ms"`
+}
+
+func (s *OutputRoomEventConsumer) suppressPushForForegroundContext(ctx context.Context, event *rstypes.HeaderedEvent, mem *localMembership) (bool, error) {
+	data, err := s.db.GetAccountDataByType(ctx, mem.Localpart, mem.Domain, "", direxioPushContextAccountDataType)
+	if err != nil || len(data) == 0 {
+		return false, err
+	}
+	var pushContext direxioPushContext
+	if err := json.Unmarshal(data, &pushContext); err != nil {
+		return false, nil
+	}
+	if !pushContext.Foreground {
+		return false, nil
+	}
+	if pushContext.ExpiresAtMS <= time.Now().UnixMilli() {
+		return false, nil
+	}
+	log.WithFields(log.Fields{
+		"event_id":  event.EventID(),
+		"room_id":   event.RoomID().String(),
+		"localpart": mem.Localpart,
+	}).Trace("Suppressing push for fresh foreground app context")
+	return true, nil
+}
+
 // notifyLocal finds the right push actions for a local user, given an event.
 func (s *OutputRoomEventConsumer) notifyLocal(ctx context.Context, event *rstypes.HeaderedEvent, mem *localMembership, roomSize int, roomName string, streamPos uint64) error {
 	actions, err := s.evaluatePushRules(ctx, event, mem, roomSize)
@@ -706,6 +736,14 @@ func (s *OutputRoomEventConsumer) notifyLocal(ctx context.Context, event *rstype
 			"room_id":   event.RoomID().String(),
 			"localpart": mem.Localpart,
 		}).Tracef("Push rule evaluation rejected the event")
+		return nil
+	}
+
+	suppressPush, err := s.suppressPushForForegroundContext(ctx, event, mem)
+	if err != nil {
+		return fmt.Errorf("s.suppressPushForForegroundContext: %w", err)
+	}
+	if suppressPush {
 		return nil
 	}
 

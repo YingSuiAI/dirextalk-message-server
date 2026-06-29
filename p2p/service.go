@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
 	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
 	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 type Config struct {
@@ -20,6 +22,7 @@ type Config struct {
 	RemoteNodeAllowPrivateBaseURLs  bool
 	P2PEventRetentionMaxRows        int64
 	P2PEventRetentionPruneOnWrite   bool
+	PushRules                       PushRuleManager
 }
 
 const (
@@ -51,6 +54,7 @@ type Service struct {
 	homeserver                 string
 	store                      Store
 	transport                  Transport
+	pushRules                  PushRuleManager
 	sessions                   MatrixSessionIssuer
 	matrixMessages             matrixMessageReader
 	matrixProfiles             matrixProfileResolver
@@ -88,6 +92,11 @@ type Service struct {
 	events        []p2pEvent
 	nextEventSeq  int64
 	eventNotify   chan struct{}
+}
+
+type PushRuleManager interface {
+	QueryPushRules(ctx context.Context, userID string) (*pushrules.AccountRuleSets, error)
+	PerformPushRulesPut(ctx context.Context, userID string, ruleSets *pushrules.AccountRuleSets) error
 }
 
 type Store interface {
@@ -240,6 +249,9 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, agentOnline); err != nil {
 				return false, err
 			}
+			if err := s.ensureAgentRoomPushRule(ctx, currentRoomID, ownerMXID); err != nil {
+				return false, err
+			}
 		}
 		return false, nil
 	}
@@ -269,7 +281,44 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, agentOnline); err != nil {
 		return false, err
 	}
+	if err := s.ensureAgentRoomPushRule(ctx, roomID, ownerMXID); err != nil {
+		return false, err
+	}
 	return roomID != currentRoomID, nil
+}
+
+func (s *Service) ensureAgentRoomPushRule(ctx context.Context, roomID, ownerMXID string) error {
+	roomID = strings.TrimSpace(roomID)
+	ownerMXID = strings.TrimSpace(ownerMXID)
+	if roomID == "" || ownerMXID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	pushRulesAPI := s.pushRules
+	serverName := s.serverName
+	s.mu.Unlock()
+	if pushRulesAPI == nil {
+		return nil
+	}
+	ruleSets, err := pushRulesAPI.QueryPushRules(ctx, ownerMXID)
+	if err != nil {
+		return err
+	}
+	if ruleSets == nil {
+		ruleSets = pushrules.DefaultAccountRuleSets(ownerLocalpart, spec.ServerName(serverName))
+	}
+	for _, rule := range ruleSets.Global.Room {
+		if rule != nil && rule.RuleID == roomID {
+			return nil
+		}
+	}
+	ruleSets.Global.Room = append([]*pushrules.Rule{{
+		RuleID:  roomID,
+		Default: false,
+		Enabled: true,
+		Actions: []*pushrules.Action{},
+	}}, ruleSets.Global.Room...)
+	return pushRulesAPI.PerformPushRulesPut(ctx, ownerMXID, ruleSets)
 }
 
 func (s *Service) ensureAgentRoomPowerLevels(ctx context.Context, roomID, ownerMXID, agentMXID string) error {
@@ -377,6 +426,12 @@ func (s *Service) SetMatrixSessionIssuer(issuer MatrixSessionIssuer) {
 	s.sessions = issuer
 }
 
+func (s *Service) SetPushRuleManager(manager PushRuleManager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pushRules = manager
+}
+
 func (s *Service) SetMatrixMessageReader(reader matrixMessageReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -458,6 +513,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		homeserver:                 homeserver,
 		store:                      store,
 		transport:                  transport,
+		pushRules:                  cfg.PushRules,
 		remoteHTTPClient:           newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
 		remoteAllowPrivate:         cfg.RemoteNodeAllowPrivateBaseURLs,
 		storeMode:                  storeMode(store),

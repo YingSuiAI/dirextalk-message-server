@@ -3,6 +3,7 @@ package consumers
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"reflect"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/test/testrig"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
 
@@ -25,7 +27,9 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/setup/config"
 	"github.com/YingSuiAI/direxio-message-server/test"
 	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/direxio-message-server/userapi/producers"
 	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
 	userAPITypes "github.com/YingSuiAI/direxio-message-server/userapi/types"
 )
 
@@ -47,6 +51,12 @@ func (g *recordingPushGateway) Notify(ctx context.Context, url string, req *push
 	g.req = req
 	*resp = g.resp
 	return nil
+}
+
+type noopPublisher struct{}
+
+func (noopPublisher) PublishMsg(msg *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+	return &nats.PubAck{}, nil
 }
 
 type currentStateRoomserver struct {
@@ -282,6 +292,72 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	if len(rejected) != 1 || rejected[0].AppID != direxioIOSAppID || rejected[0].PushKey != direxioAPNsPushKey {
 		t.Fatalf("unexpected rejected devices: %#v", rejected)
 	}
+}
+
+func TestNotifyLocalOnlySuppressesFreshForegroundNotifications(t *testing.T) {
+	ctx := context.Background()
+	localpart := "test"
+	serverName := spec.ServerName("localhost")
+
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		db, close := mustCreateDatabase(t, dbType)
+		defer close()
+		consumer := OutputRoomEventConsumer{
+			db:           db,
+			rsAPI:        &currentStateRoomserver{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{}},
+			syncProducer: producers.NewSyncAPI(db, noopPublisher{}, "client_data", "notification_data"),
+		}
+		mem := &localMembership{
+			UserID:    "@test:localhost",
+			Localpart: localpart,
+			Domain:    serverName,
+		}
+		contextData := json.RawMessage(`{
+			"foreground": true,
+			"expires_at_ms": 4102444800000
+		}`)
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", contextData); err != nil {
+			t.Fatal(err)
+		}
+
+		foregroundEvent := mustCreateEvent(t, `{
+			"type":"m.room.message",
+			"room_id":"!foreground:example.com",
+			"sender":"@alice:example.com",
+			"content":{"body":"visible","msgtype":"m.text"}
+		}`)
+		if err := consumer.notifyLocal(ctx, foregroundEvent, mem, 2, "Foreground", 100); err != nil {
+			t.Fatalf("notifyLocal returned error for foreground app: %v", err)
+		}
+		count, err := db.GetNotificationCount(ctx, localpart, serverName, tables.AllNotifications)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("fresh foreground app context must not create unread notifications, got %d", count)
+		}
+
+		backgroundData := json.RawMessage(`{"foreground": false}`)
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", backgroundData); err != nil {
+			t.Fatal(err)
+		}
+		backgroundEvent := mustCreateEvent(t, `{
+			"type":"m.room.message",
+			"room_id":"!background:example.com",
+			"sender":"@alice:example.com",
+			"content":{"body":"background","msgtype":"m.text"}
+		}`)
+		if err := consumer.notifyLocal(ctx, backgroundEvent, mem, 2, "Background", 101); err != nil {
+			t.Fatalf("notifyLocal returned error for background app: %v", err)
+		}
+		count, err = db.GetNotificationCount(ctx, localpart, serverName, tables.AllNotifications)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("background app context must create a notification, got %d", count)
+		}
+	})
 }
 
 func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing.T) {

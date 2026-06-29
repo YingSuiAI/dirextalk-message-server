@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
 	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -222,6 +223,31 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
 		t.Fatalf("expected agent to publish online status after join, got %#v", transport.stateEvents[0])
 	}
+}
+
+func TestEnsureAgentRoomMutesOwnerPushRuleByDefault(t *testing.T) {
+	transport := &recordingTransport{roomID: "!agents-real:example.com"}
+	pushRules := &recordingPushRuleManager{
+		ruleSets: pushrules.DefaultAccountRuleSets(ownerLocalpart, "example.com"),
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetPushRuleManager(pushRules)
+
+	if _, err := service.ensureAgentRoom(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pushRules.putUserID != "@owner:example.com" {
+		t.Fatalf("expected owner push rules to be updated, got %q", pushRules.putUserID)
+	}
+	if pushRules.putRuleSets == nil {
+		t.Fatal("expected push rules to be saved")
+	}
+	for _, rule := range pushRules.putRuleSets.Global.Room {
+		if rule.RuleID == "!agents-real:example.com" && rule.Enabled && !rule.Default && len(rule.Actions) == 0 {
+			return
+		}
+	}
+	t.Fatalf("expected agent room to default to a room-level dont_notify push rule, got %#v", pushRules.putRuleSets.Global.Room)
 }
 
 func TestEnsureAgentRoomJoinsAgentAndOwnerForExistingRealRoom(t *testing.T) {
@@ -2794,6 +2820,25 @@ type recordingTransport struct {
 	inviteRequests   []InviteUserRequest
 	joinRequests     []JoinRoomRequest
 	stateEvents      []SendStateEventRequest
+}
+
+type recordingPushRuleManager struct {
+	ruleSets    *pushrules.AccountRuleSets
+	putUserID   string
+	putRuleSets *pushrules.AccountRuleSets
+}
+
+func (m *recordingPushRuleManager) QueryPushRules(ctx context.Context, userID string) (*pushrules.AccountRuleSets, error) {
+	if m.ruleSets == nil {
+		m.ruleSets = pushrules.DefaultAccountRuleSets(ownerLocalpart, "example.com")
+	}
+	return m.ruleSets, nil
+}
+
+func (m *recordingPushRuleManager) PerformPushRulesPut(ctx context.Context, userID string, ruleSets *pushrules.AccountRuleSets) error {
+	m.putUserID = userID
+	m.putRuleSets = ruleSets
+	return nil
 }
 
 type failingSendTransport struct {
