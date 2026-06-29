@@ -60,7 +60,7 @@ Current assumptions:
 - [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
 - [x] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; when a non-zero `since` is older than the retained event window, `GET /_p2p/events` marks the stream with cursor-reset headers and emits a `p2p.cursor_reset` SSE control event before replaying retained events.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
-- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement. Local Docker measurement on the current small 10-event database completed with sub-millisecond SQL execution when using `127.0.0.1`; production-sized plan results are still pending.
+- [x] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement. A synthetic 500-room / 500k-row PostgreSQL measurement showed interleaved history context reads scanning about 49,777 unrelated rows before returning 100 events; `syncapi_output_room_events_room_id_id_idx (room_id, id)` changed those paths to direct room-scoped index scans.
 - [x] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: `P2P_PROJECTOR_BATCH_SIZE` now enables sequential batch processing with default `1` and cap `100`; messages are still processed in stream order by one consumer goroutine, projected P2P deltas are deduplicated by source event/action, indexed post/comment lookups avoid content scans, and consumer retry/backoff visibility is exposed through Prometheus metrics.
 - [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
 
@@ -88,6 +88,12 @@ python scripts/p2p-sync-history-explain.py \
 The script runs read-only `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` checks for sync recent events, history context before/after, topology back pagination, and stream-to-topology conversion. If `--room-id` is omitted, it measures the room with the most rows in `syncapi_output_room_events`.
 
 On Windows with Docker Desktop, use `127.0.0.1` instead of `localhost` for host-to-container PostgreSQL connections. In this workspace, `localhost:15432` first attempted IPv6 `::1`, waited about 21 seconds, then fell back to IPv4; `127.0.0.1:15432` completed the same `SELECT 1` in roughly 0.04-0.18 seconds and the EXPLAIN script in under one second.
+
+Measured sync/history indexes:
+
+- `syncapi_output_room_events_recent_events_idx (room_id, exclude_from_sync, id, sender, type)` supports normal `/sync` recent-event reads that filter `exclude_from_sync=false`.
+- `syncapi_output_room_events_room_id_id_idx (room_id, id)` supports `/context` before/after and other room-scoped history reads that filter by `room_id` and page by stream `id` without an `exclude_from_sync` predicate. On a 500-room / 500k-row interleaved synthetic dataset, `history before` improved from a backward primary-key scan filtering 49,777 unrelated rows and executing in about 4.736 ms to a direct room-scoped index scan executing in about 0.123 ms; `history after` improved from bitmap scan plus sort at about 3.547 ms to direct index scan at about 0.441 ms.
+- `syncapi_event_topological_room_idx (room_id, topological_position, stream_position)` supports room-scoped topology pagination while preserving topological ordering.
 
 P2P event retention controls:
 
