@@ -67,9 +67,21 @@ Each Matrix user keeps only one active Direxio pusher. Registering a new Android
 
 Use a regional gateway URL when required, for example `https://push-eu.direxio.ai/_matrix/push/v1/notify` or `https://push-sea.direxio.ai/_matrix/push/v1/notify`.
 
-## Client Foreground State
+## Client Foreground And Focus State
 
-The homeserver cannot reliably infer whether a mobile app is foreground or background from `/sync`, read receipts, or pusher registration. Direxio clients should report app lifecycle state with global Matrix account data:
+The homeserver cannot reliably infer whether a mobile app is foreground or background from `/sync`, read receipts, or pusher registration. Current Direxio clients should report app lifecycle and focused room over `GET /_p2p/ws` after creating a `realtime.ws_ticket.create` ticket:
+
+```json
+{ "type": "client.lifecycle", "foreground": true }
+```
+
+```json
+{ "type": "client.focus", "room_id": "!room:server" }
+```
+
+A fresh foreground WS session suppresses Matrix push-rule notifications only for the same focused room: the server does not create a new unread notification row and does not call the HTTP push gateway for that room. Missing focus, different-room focus, background, disconnected, or expired session state keeps normal background push behavior. WS session freshness is stamped with server time and expires after 60 seconds.
+
+During migration, clients without a fresh WS session may still report a coarse foreground fallback with global Matrix account data:
 
 ```http
 PUT /_matrix/client/v3/user/{userId}/account_data/io.direxio.push.context
@@ -83,9 +95,9 @@ Content-Type: application/json
 }
 ```
 
-When `foreground=true` is written, the server stamps the account data with a 60-second expiry based on the server clock. While that stamped state is fresh, the server suppresses Matrix push-rule notifications for that user: it does not create a new unread notification row and does not call the HTTP push gateway. Missing, malformed, expired, or `foreground=false` state keeps normal background push behavior.
+When `foreground=true` is written and no fresh WS session exists for the user, the server stamps the account data with a 60-second expiry based on the server clock. While that stamped fallback is fresh, the server suppresses Matrix push-rule notifications for that user. Missing, malformed, expired, or `foreground=false` state keeps normal background push behavior.
 
-Mobile clients must implement this lifecycle write. While foreground, write `{"foreground": true}` immediately and refresh the account data every 30 seconds. When entering background, immediately write:
+Mobile clients should prefer WS lifecycle/focus reporting. During migration they may continue this lifecycle write: while foreground, write `{"foreground": true}` immediately and refresh the account data every 30 seconds. When entering background, immediately write:
 
 ```json
 {

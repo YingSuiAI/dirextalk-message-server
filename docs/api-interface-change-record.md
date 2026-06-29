@@ -2,9 +2,50 @@
 
 Last updated: 2026-06-29
 
-## 2026-06-29 Foreground Push Context And Agent Room Defaults
+## 2026-06-29 WebSocket Realtime Sync
 
-Direxio clients may now suppress foreground system pushes by writing global Matrix account data type `io.direxio.push.context` through the existing Matrix account data route. The expected body is:
+Added protected body action `realtime.ws_ticket.create`, normally sent to `POST /_p2p/query` with an empty `params` object:
+
+```json
+{
+  "action": "realtime.ws_ticket.create",
+  "params": {}
+}
+```
+
+The action accepts owner `access_token` and fixed gateway `agent_token`. It returns:
+
+```json
+{
+  "ticket": "ws_ticket_...",
+  "expires_in_ms": 30000
+}
+```
+
+The ticket is server-local, short-lived, and single-use. It is consumed by `GET /_p2p/ws?ticket=<ticket>`. The WS route does not accept bearer tokens directly.
+
+The first client text frame must be `client.hello` with optional `since`, `client`, and `platform` fields. Subsequent client frames are:
+
+- `client.lifecycle`: `{ "foreground": true|false }`
+- `client.focus`: `{ "room_id": "!room:server" }`, or empty `room_id` to clear focus
+- `client.ack`: `{ "seq": 123 }`
+- `client.ping`
+
+Server frames are:
+
+- `server.ready`
+- `server.event` with the existing P2P event payload in `event`
+- `server.cursor_reset` with the same recovery payload shape as the SSE `p2p.cursor_reset` event
+- `server.pong`
+- `server.error`
+
+Owner WS sessions receive the normal product event stream. Agent-token WS sessions receive only `agent_room.message`, matching the existing agent SSE visibility boundary. `GET /_p2p/events` remains available as the SSE fallback and keeps the same cursor/reset contract.
+
+Push suppression now prefers fresh WS session state. A connected foreground WS session suppresses unread notification insertion and HTTP push gateway delivery only when its focused room matches the room that produced the push candidate. Background, disconnected, expired, no-focus, or different-room state keeps normal background push behavior. The server timestamps and expires WS session state with server time; clients do not send expiry timestamps.
+
+## 2026-06-29 Matrix Account-Data Foreground Fallback And Agent Room Defaults
+
+Direxio clients that have not established a fresh WS session may still suppress foreground system pushes by writing global Matrix account data type `io.direxio.push.context` through the existing Matrix account data route. The expected body is:
 
 ```json
 {
@@ -12,9 +53,9 @@ Direxio clients may now suppress foreground system pushes by writing global Matr
 }
 ```
 
-The Matrix account data write path stamps foreground writes with a server-clock 60-second expiry. While the stamped foreground state is fresh, the userapi roomserver consumer does not create an unread notification row and does not call the HTTP push gateway for matching Matrix push-rule notifications. Missing, malformed, expired, or `foreground=false` context fails open and keeps normal background push behavior. This is a first-step app lifecycle contract only; the server does not infer foreground/background from `/sync`, read receipts, or pusher registration.
+The Matrix account data write path stamps foreground writes with a server-clock 60-second expiry. While the stamped foreground state is fresh and no fresh WS session exists for the user, the userapi roomserver consumer does not create an unread notification row and does not call the HTTP push gateway for matching Matrix push-rule notifications. Missing, malformed, expired, or `foreground=false` context fails open and keeps normal background push behavior. This is a migration fallback only; the server does not infer foreground/background from `/sync`, read receipts, or pusher registration.
 
-Clients must implement the lifecycle write. Foreground clients should refresh this account data every 30 seconds with `{"foreground": true}`. When entering background, clients should immediately write `{"foreground": false}`; if that write is missed, the previous foreground state naturally expires after the server-stamped 60 seconds.
+Clients should prefer WS `client.lifecycle` and `client.focus`. During migration, clients may continue refreshing this account data every 30 seconds with `{"foreground": true}` and write `{"foreground": false}` when entering background; if that write is missed, the previous foreground state naturally expires after the server-stamped 60 seconds.
 
 Backend startup now also ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, so new or repaired agents rooms default to no system push. Existing explicit room push rules for the same room are preserved.
 
@@ -28,7 +69,7 @@ Removed `reports.submit` from the message-server P2P action surface. User-facing
 
 The control payload contains `type`, `since`, `min_seq`, `max_seq`, `count`, and `recovery: "bootstrap_required"`. The response also sets `X-Direxio-P2P-Events-Cursor-Reset: true`, `X-Direxio-P2P-Events-Min-Seq`, `X-Direxio-P2P-Events-Max-Seq`, and `X-Direxio-P2P-Events-Count` before streaming begins.
 
-Clients should treat this as a product cache gap: clear local product projections, call `sync.bootstrap` once, persist the newest handled event `seq`, and then continue normal `GET /_p2p/events?since=<seq>` delta consumption.
+Clients should treat this as a product cache gap: clear local product projections, call `sync.bootstrap` once, persist the newest handled event `seq`, and then continue normal WS delta consumption. SSE fallback clients continue with `GET /_p2p/events?since=<seq>`.
 
 ## 2026-06-29 MCP Room Member Identities
 

@@ -10,14 +10,14 @@ Use this skill when a change can affect clients, agents, external nodes, operato
 ## Contract Surfaces
 
 - Matrix-compatible routes stay under `/_matrix/*`, `/_synapse/*`, `/_dendrite/*`, and `/.well-known/matrix/*`.
-- Direxio product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `GET /_p2p/events`, and `GET /.well-known/portal/owner.json`.
+- Direxio product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `GET /_p2p/events`, `GET /_p2p/ws`, and `GET /.well-known/portal/owner.json`.
 - Direxio action requests use `{ "action": "...", "params": { ... } }`.
-- Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions and `GET /_p2p/events`.
+- Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions, `GET /_p2p/events`, and `realtime.ws_ticket.create`; `GET /_p2p/ws` authenticates only short-lived single-use tickets.
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - `channels.public.join_result` is an internal node-to-node callback, not a normal client workflow entry.
 - Dynamic Agent permission actions are removed. Do not reintroduce Agent-token action management unless the product contract changes explicitly.
 - Owner-visible Agent online state comes from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. `sync.bootstrap` only returns `agent_room_id`; do not add `agent_online` back, do not emit `agent.presence`, and do not drive this state from Matrix `m.presence` or agent-token `GET /_p2p/events` stream lifetime.
-- Direxio app lifecycle state uses global Matrix account data `io.direxio.push.context`; foreground clients should write `{"foreground":true}` immediately and refresh it every 30 seconds, and write `{"foreground":false}` on background. The server stamps foreground writes with a server-clock 60-second expiry. Do not add a P2P action for foreground/background unless the product contract changes explicitly.
+- Direxio realtime sync uses `realtime.ws_ticket.create` plus `GET /_p2p/ws` as the primary product-event and session-state path. Clients send `client.lifecycle`, `client.focus`, and `client.ack`; the server timestamps session state with server time. A connected foreground WS session suppresses push only for the same focused room. Global Matrix account data `io.direxio.push.context` remains a 60-second server-clock fallback only when no fresh WS session exists. Do not add additional lifecycle/focus body actions unless the product contract changes explicitly.
 - The real `agent_room_id` defaults to no system push for the portal owner through a room-level Matrix push rule with empty actions; existing explicit same-room push rules are preserved.
 - Ordinary send, history, unread, search, and redaction use Matrix Client-Server APIs. Local history hiding uses `POST /_matrix/client/v1/io.direxio/rooms/{roomID}/local_delete`.
 

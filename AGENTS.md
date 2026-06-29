@@ -10,6 +10,7 @@ This repository is a Direxio fork of Element Dendrite. It is one Go monolith tha
   - `POST /_p2p/query`
   - `POST /_p2p/command`
   - `GET /_p2p/events`
+  - `GET /_p2p/ws`
   - `GET /.well-known/portal/owner.json`
 - Product action requests use this envelope:
 
@@ -23,7 +24,7 @@ This repository is a Direxio fork of Element Dendrite. It is one Go monolith tha
 }
 ```
 
-Protected product actions require `Authorization: Bearer <access_token>`. `agent_token` is accepted for fixed `mcp.*` actions and for `GET /_p2p/events` so agent gateways can passively receive `agent_room.message` events. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
+Protected product actions require `Authorization: Bearer <access_token>`. `agent_token` is accepted for fixed `mcp.*` actions, `GET /_p2p/events`, and `realtime.ws_ticket.create` so agent gateways can passively receive `agent_room.message` events over SSE or WS. `GET /_p2p/ws` authenticates only a short-lived single-use WS ticket, not a bearer token. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`. `channels.public.join_result` is an internal node-to-node approval callback, not a normal client workflow entry.
 
 ## Runtime Model
 
@@ -76,8 +77,8 @@ Rules:
 - Posts/comments/reactions: create/list/recall posts, create/list/recall comments, reply/mention metadata, like toggles, owner comment/reaction history.
 - Calls: create, incoming, get, list, active, and state events `connected`, `ended`, `missed`, `failed`.
 - Favorites/follows: favorite add/list/delete/batch delete, follow add/list/remove. User-facing report submission is owned by the signed imadmin public API, not this message-server P2P action surface.
-- Push: System pushes use Matrix Push Gateway after userapi push-rule evaluation. The server must not infer app foreground/background from `/sync`, read receipts, or pusher registration. Direxio clients report lifecycle state through global Matrix account data `io.direxio.push.context`; foreground clients write `{"foreground":true}` immediately and refresh it every 30 seconds, and write `{"foreground":false}` on background. The server stamps foreground writes with a server-clock 60-second expiry. A fresh foreground value suppresses unread notification insertion and HTTP push gateway delivery, while missing, malformed, expired, or `foreground=false` state keeps normal background push behavior.
-- Agent/API: Agent config/password are owner-token operations. Agent tokens may call only MCP actions and subscribe to `GET /_p2p/events` for passive gateway listening. Owner clients must read bridge online state from native Matrix room state in the real `agent_room_id`: `io.direxio.agent.status` with state key `@agent:<server>` and content field `online`. `sync.bootstrap` only returns `agent_room_id`; do not add `agent_online` back to bootstrap and do not emit `agent.presence` SSE events. `agent.status`/`agents.status` are removed and must not be used. The real `agent_room_id` defaults to no system push for the portal owner through a room-level Matrix push rule with empty actions; preserve an existing explicit rule for that room.
+- Push: System pushes use Matrix Push Gateway after userapi push-rule evaluation. The server must not infer app foreground/background from `/sync`, read receipts, or pusher registration. Current Direxio clients report lifecycle and focused room over `GET /_p2p/ws` frames after creating a `realtime.ws_ticket.create` ticket. A connected foreground WS session suppresses unread notification insertion and HTTP push gateway delivery only for the same focused room; background, disconnected, expired, or different-room state keeps normal push behavior. During migration, global Matrix account data `io.direxio.push.context` remains a server-clock 60-second fallback for clients without a fresh WS session.
+- Agent/API: Agent config/password are owner-token operations. Agent tokens may call only MCP actions, subscribe to `GET /_p2p/events`, and create realtime WS tickets for passive gateway listening. Agent WS/SSE streams expose only `agent_room.message`; owner clients must read bridge online state from native Matrix room state in the real `agent_room_id`: `io.direxio.agent.status` with state key `@agent:<server>` and content field `online`. `sync.bootstrap` only returns `agent_room_id`; do not add `agent_online` back to bootstrap and do not emit `agent.presence` SSE events. `agent.status`/`agents.status` are removed and must not be used. The real `agent_room_id` defaults to no system push for the portal owner through a room-level Matrix push rule with empty actions; preserve an existing explicit rule for that room.
 - Multi-node communication: Matrix federation plus remote public channel lookup and approval flows through explicit `remote_node_base_url`.
 
 ## Development Workflow

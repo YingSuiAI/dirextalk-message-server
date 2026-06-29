@@ -104,7 +104,7 @@ Read the generated local login credentials from the running container:
 docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
 ```
 
-The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P body actions and Matrix client calls use `access_token`; `agent_token` is accepted only for fixed `mcp.*` actions and `GET /_p2p/events`.
+The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; protected P2P body actions and Matrix client calls use `access_token`; `agent_token` is accepted only for fixed `mcp.*` actions, `GET /_p2p/events`, and `realtime.ws_ticket.create` for passive gateway realtime streams.
 
 Dual-instance federation test deployment:
 
@@ -188,6 +188,7 @@ The route contract is intentionally small:
 POST /_p2p/query
 POST /_p2p/command
 GET  /_p2p/events
+GET  /_p2p/ws
 GET  /_p2p/health
 ```
 
@@ -248,7 +249,8 @@ Required client direction:
 - Ordinary room text, media, reaction, redaction, and Matrix membership operations should use Matrix SDK APIs. ProductPolicy now runs on those Matrix Client-Server writes for Direxio product rooms.
 - Channel post/comment Matrix sends must include `p2p_kind=channel_post` or `p2p_kind=channel_comment`; media events keep their Matrix `msgtype` such as `m.image`, `m.video`, `m.audio`, or `m.file`.
 - Product management and projection queries remain P2P body actions: portal/auth/status, contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, Agent config/status/password, MCP actions, `sync.bootstrap`, and read markers. User-facing report submission remains on the signed imadmin public API instead of this message-server P2P surface.
-- `GET /_p2p/events?since=<seq>` is the primary lightweight realtime refresh path. Clients should use it with `Last-Event-ID` or `since` replay and then refresh details through Matrix sync or targeted P2P query calls. When a non-zero cursor is older than the retained event window, the stream emits `event: p2p.cursor_reset` and sets `X-Direxio-P2P-Events-Cursor-Reset: true`; clients should clear local product projections, call `sync.bootstrap` once, and then continue from the newest handled `seq`.
+- `GET /_p2p/ws` is the primary lightweight realtime refresh path. Clients create a short-lived ticket with `realtime.ws_ticket.create`, connect with `?ticket=...`, send `client.hello` with the persisted `since` cursor, and then ack handled events with `client.ack`. The existing `GET /_p2p/events?since=<seq>` SSE stream remains the fallback. When a non-zero cursor is older than the retained event window, WS emits `server.cursor_reset` and SSE emits `event: p2p.cursor_reset`; clients should clear local product projections, call `sync.bootstrap` once, and then continue from the newest handled `seq`.
+- Current clients report app lifecycle and focused room over WS using `client.lifecycle` and `client.focus`. The server uses this server-timestamped session state only to decide same-room foreground push suppression; it is not user-visible presence. Matrix global account data `io.direxio.push.context` remains a migration fallback when there is no fresh WS session.
 - Ordinary chat/media history, unread counts, local hiding, search, and recall are Matrix responsibilities. Use Matrix send, `/sync`, `/rooms/{roomID}/messages`, `/search`, Matrix redaction, and Direxio Matrix `local_delete`.
 
 User profile pages now call `getUserPublicChannels()` when opening a real contact/friend profile. The existing "她的频道" section is reused without layout changes and shows only public channels returned by the backend, including avatar, name, and `room_id`; private channels are filtered server-side.
@@ -263,7 +265,7 @@ The Web smoke path also keeps the existing pages intact:
 
 Backend product actions include:
 
-- Portal/profile/sync: `portal.bootstrap`, `portal.auth`, `portal.status`, `portal.password`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`
+- Portal/profile/sync/realtime: `portal.bootstrap`, `portal.auth`, `portal.status`, `portal.password`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`, `realtime.ws_ticket.create`
 - Contacts: `contacts.list`, `contacts.request`, `contacts.requests.accept`, `contacts.requests.reject`, `contacts.requests.delete`, `contacts.delete`
 - Groups: `groups.create`, `groups.update`, `groups.invite`, `groups.invite.reject`, `groups.members`, `groups.join`, `groups.leave`, `groups.mute`, `groups.unmute`, `groups.member.remove`, `groups.member.mute`, `groups.member.unmute`, `groups.invite_policy.update`
 - Channels/users: `channels.create`, `channels.list`, `channels.public.get`, `channels.public.join_request`, `users.public_channels`, `channels.join`, `channels.update`, `channels.invite`, `channels.invite_grant.create`, `channels.leave`, `channels.members`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`, `channels.join_request.approve`, `channels.join_request.reject`, `channels.posts.list`, `channels.posts.create`, `channels.posts.recall`, `channels.comments.list`, `channels.comments.create`, `channels.comments.recall`, `channels.post_reaction.toggle`, `channels.comment_reaction.toggle`, `channels.read_marker`, `channels.my_comments`, `channels.my_reactions`
@@ -271,7 +273,7 @@ Backend product actions include:
 
 Contact, group/channel invite, and member mutation actions return `operation` and, when a ProductCore conversation exists, the hydrated `conversation` so clients can refresh, open, or close the current route without reconstructing room state from names, member counts, or Matrix room metadata.
 
-Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only fixed `mcp.*` actions and subscribe to `GET /_p2p/events` for passive gateway listening. Dynamic Agent permission endpoints are removed.
+Agent authorization is fixed: owner `access_token` may call all protected actions, while `agent_token` may call only fixed `mcp.*` actions, subscribe to `GET /_p2p/events`, and create realtime WS tickets for passive gateway listening. Agent-token SSE/WS streams expose only `agent_room.message`. Dynamic Agent permission endpoints are removed.
 
 MCP actions are owner-scoped proxy operations. `agent_token` authorizes only the fixed MCP action set, and the handlers read/write product data from the portal owner view. Default owner-scoped `mcp.messages.send` rejects the configured `agent_room_id`; agent-room replies are reserved for the internal gateway marker path, which sends as `@agent:<server>` and marks the event to avoid gateway loops. Ordinary MCP history reads reuse the current owner `access_token` for Matrix Client-Server history and never create or refresh a Matrix session, so they cannot evict the owner's active clients. MCP message history exposes Matrix sender identity fields, and `mcp.room_members.list` returns member identities only for known Direxio product rooms or conversations, enriching stale projections from Matrix member/profile state without exposing arbitrary roomserver state.
 

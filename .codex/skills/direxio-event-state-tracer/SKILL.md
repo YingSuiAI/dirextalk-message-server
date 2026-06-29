@@ -17,7 +17,7 @@ For user/API-originated writes, trace the relevant path:
 4. Roomserver input and output event.
 5. Consumers in `syncapi`, `federationapi`, `userapi`, `appservice`, and Direxio projection.
 6. Persistent stores and read models.
-7. Client-visible read path: `/sync`, history, search, federation response, Direxio action read, or `/_p2p/events`.
+7. Client-visible read path: `/sync`, history, search, federation response, Direxio action read, `/_p2p/ws`, or `/_p2p/events`.
 
 For inbound or federated behavior, start at roomserver/federation output and trace consumers forward to visible state.
 
@@ -41,7 +41,7 @@ For inbound or federated behavior, start at roomserver/federation output and tra
 - Ordinary timeline messages must not create a second product message source of truth.
 - Channel posts, comments, and reactions are product projections backed by Matrix events and redactions.
 - Agent online state is native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, content field `online`. Do not mirror it through `sync.bootstrap.agent_online`, `agent.presence` SSE, Matrix `m.presence`, or agent-token `/_p2p/events` stream lifetime.
-- App foreground/background is not inferred from `/sync`, read receipts, or pusher registration. Direxio clients report lifecycle state through global Matrix account data `io.direxio.push.context`; foreground clients should write `{"foreground":true}` immediately and refresh it every 30 seconds, and write `{"foreground":false}` on background. The Matrix account-data write path stamps foreground writes with a server-clock 60-second expiry. Fresh foreground state suppresses userapi notification insertion and HTTP push gateway delivery, while missing, malformed, expired, or `foreground=false` state keeps normal background push behavior.
+- App foreground/background is not inferred from `/sync`, read receipts, or pusher registration. Current clients report lifecycle and focused room through `GET /_p2p/ws` using `client.lifecycle` and `client.focus`; session state is server-clocked and expires after 60 seconds. Fresh foreground WS state suppresses userapi notification insertion and HTTP push gateway delivery only for the same focused room, while background, disconnected, expired, no-focus, or different-room state keeps normal push behavior. Global Matrix account data `io.direxio.push.context` remains a fallback only when no fresh WS session exists.
 - The real `agent_room_id` defaults to no system push for the portal owner through a room-level Matrix push rule with empty actions. Preserve an existing explicit room push rule for that room.
 - Public channel remote approval must not report joined until the requester node performs the Matrix join successfully.
 - Federation tests must use real compose users such as `@owner:dendrite-a:8448` and `@owner:dendrite-b:8448`, not fabricated remote Matrix users.

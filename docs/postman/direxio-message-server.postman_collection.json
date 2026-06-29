@@ -32,8 +32,55 @@
       ]
     },
     {
+      "name": "P2P Realtime WebSocket（实时WebSocket）",
+      "description": "Realtime WS is the primary product-event stream and client session-state path. Create a short-lived ticket with `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. SSE `GET /_p2p/events` remains the fallback.",
+      "item": [
+        {
+          "name": "realtime.ws_ticket.create（创建WS票据）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/_p2p/query",
+            "description": "Create a short-lived single-use ticket for `GET /_p2p/ws?ticket=<ticket>`. Owner access_token may create an owner realtime stream; agent_token may create an agent stream that only receives `agent_room.message`.\n\nResponse shape:\n\n```json\n{\n  \"ticket\": \"ws_ticket_...\",\n  \"expires_in_ms\": 30000\n}\n```",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"realtime.ws_ticket.create\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ws.connect（WebSocket连接地址）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/_p2p/ws?ticket={{wsTicket}}",
+            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Server sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
+          }
+        }
+      ]
+    },
+    {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；MCP 类 action 和 `/_p2p/events` 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；MCP 类 action、`/_p2p/events` 和 `realtime.ws_ticket.create` 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -8557,10 +8604,13 @@
           "    return findSessionPayload(value.result) || findSessionPayload(value.data) || findSessionPayload(value.response);",
           "}",
           "",
+          "let responseJson = null;",
           "let sessionPayload = null;",
           "try {",
-          "    sessionPayload = findSessionPayload(pm.response.json());",
+          "    responseJson = pm.response.json();",
+          "    sessionPayload = findSessionPayload(responseJson);",
           "} catch (e) {",
+          "    responseJson = null;",
           "    sessionPayload = null;",
           "}",
           "",
@@ -8571,6 +8621,10 @@
           "    setPostmanVariable(\"homeserver\", sessionPayload.homeserver);",
           "    setPostmanVariable(\"agentRoomID\", sessionPayload.agent_room_id);",
           "    setPostmanVariable(\"deviceID\", sessionPayload.device_id);",
+          "}",
+          "",
+          "if (currentBodyAction() === \"realtime.ws_ticket.create\" && responseJson && responseJson.ticket) {",
+          "    setPostmanVariable(\"wsTicket\", responseJson.ticket);",
           "}"
         ]
       }
@@ -8595,6 +8649,10 @@
     },
     {
       "key": "agentToken",
+      "value": ""
+    },
+    {
+      "key": "wsTicket",
       "value": ""
     },
     {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
+	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
 	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
 	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -23,6 +24,7 @@ type Config struct {
 	P2PEventRetentionMaxRows        int64
 	P2PEventRetentionPruneOnWrite   bool
 	PushRules                       PushRuleManager
+	RealtimeSessions                *realtime.SessionStore
 }
 
 const (
@@ -64,6 +66,7 @@ type Service struct {
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
 	eventRetentionPruneOnWrite bool
+	realtimeSessions           *realtime.SessionStore
 
 	initialized    bool
 	password       string
@@ -92,6 +95,8 @@ type Service struct {
 	events        []p2pEvent
 	nextEventSeq  int64
 	eventNotify   chan struct{}
+
+	realtimeWSTickets map[string]realtimeWSTicket
 }
 
 type PushRuleManager interface {
@@ -508,6 +513,10 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if state.Profile.Domain == "" {
 		state.Profile.Domain = serverName
 	}
+	realtimeSessions := cfg.RealtimeSessions
+	if realtimeSessions == nil {
+		realtimeSessions = realtime.DefaultSessionStore
+	}
 	service := &Service{
 		serverName:                 serverName,
 		homeserver:                 homeserver,
@@ -519,6 +528,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		storeMode:                  storeMode(store),
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
+		realtimeSessions:           realtimeSessions,
 		initialized:                state.Initialized,
 		password:                   state.Password,
 		accessToken:                state.AccessToken,
@@ -544,6 +554,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		conversations: map[string]conversationRecord{},
 		inviteGrants:  map[string]channelInviteGrant{},
 		eventNotify:   make(chan struct{}),
+
+		realtimeWSTickets: map[string]realtimeWSTicket{},
 	}
 	service.actions = service.actionHandlers()
 	return service
@@ -584,6 +596,9 @@ func (s *Service) Authorize(token, action string) bool {
 	}
 	if token == s.accessToken {
 		return true
+	}
+	if action == realtimeWSTicketAction {
+		return token == s.agentToken
 	}
 	return token == s.agentToken && serviceapi.AgentAction(action)
 }

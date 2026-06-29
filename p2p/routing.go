@@ -41,6 +41,7 @@ func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/query", handle(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", handle(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/events", eventsHandler(service)).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r)
 		if r.Method == http.MethodOptions {
@@ -240,8 +241,18 @@ func handle(service *Service) http.HandlerFunc {
 			writeError(w, badRequest("action is required"))
 			return
 		}
-		if !publicAction(req.Action) && !service.Authorize(bearerToken(r.Header.Get("Authorization")), req.Action) {
+		token := bearerToken(r.Header.Get("Authorization"))
+		if !publicAction(req.Action) && !service.Authorize(token, req.Action) {
 			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
+			return
+		}
+		if req.Action == realtimeWSTicketAction {
+			response, err := service.createRealtimeWSTicketForToken(token)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, response)
 			return
 		}
 		response, err := service.Handle(r.Context(), req.Action, req.Params)

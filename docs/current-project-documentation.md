@@ -28,6 +28,7 @@ Direxio 产品 API 只暴露 body-action surface：
 - `POST /_p2p/query`
 - `POST /_p2p/command`
 - `GET /_p2p/events`
+- `GET /_p2p/ws`
 - `GET /.well-known/portal/owner.json`
 
 请求 envelope：
@@ -42,7 +43,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 需要 `Authorization: Bearer <access_token>`。`agent_token` 只允许访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events`，供 agent gateway 被动接收 `agent_room.message`。当前 public action 是：
+Protected action 需要 `Authorization: Bearer <access_token>`。`agent_token` 只允许访问固定 `mcp.*` action、`GET /_p2p/events` 和 `realtime.ws_ticket.create`，供 agent gateway 被动接收 `agent_room.message`。`GET /_p2p/ws` 只接受短期单次 WS ticket，不直接接受 bearer token。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -112,14 +113,14 @@ P2P action 生命周期：
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
 6. Direxio Message Server roomserver 产生 output event。
 7. `p2p.consumer` 调用 `ProjectRoomEvent` 更新 P2P read model。
-8. `/_p2p/events` 发送产品投影事件；agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。
+8. `/_p2p/ws` 默认发送产品投影事件，`/_p2p/events` 作为 SSE fallback；agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
 
 同步策略：
 
 - `sync.bootstrap` 是冷启动、登录后恢复、本地缓存不可用或事件缺口兜底用的基线快照；不要在每个事件后全量刷新。
-- 日常弱网/断线恢复优先用 `GET /_p2p/events?since=<last_seq>` 增量追平。客户端必须持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才重新拉 `sync.bootstrap`。
-- 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，`GET /_p2p/events` 会先发送 `event: p2p.cursor_reset` 控制事件，并设置 `X-Direxio-P2P-Events-Cursor-Reset: true`、`X-Direxio-P2P-Events-Min-Seq`、`X-Direxio-P2P-Events-Max-Seq`、`X-Direxio-P2P-Events-Count` 响应头。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存、调用一次 `sync.bootstrap`，再用最新 `seq` 继续订阅增量。
+- 日常弱网/断线恢复优先用 `GET /_p2p/ws` 增量追平。客户端先通过 `realtime.ws_ticket.create` 创建 ticket，连接后发送 `client.hello` 的 `since=<last_seq>`，并持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才重新拉 `sync.bootstrap`。`GET /_p2p/events?since=<last_seq>` 仍保留为 SSE fallback。
+- 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，WS 会先发送 `server.cursor_reset`，SSE fallback 会发送 `event: p2p.cursor_reset` 并设置 `X-Direxio-P2P-Events-Cursor-Reset: true`、`X-Direxio-P2P-Events-Min-Seq`、`X-Direxio-P2P-Events-Max-Seq`、`X-Direxio-P2P-Events-Count` 响应头。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存、调用一次 `sync.bootstrap`，再用最新 `seq` 继续订阅增量。
 
 Matrix Client-Server 写入生命周期：
 
@@ -217,11 +218,11 @@ Calls/Favorites/Follows：
 Push：
 
 - 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。
-- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端必须通过全局 Matrix account data `io.direxio.push.context` 上报生命周期状态：前台写 `{"foreground":true}` 并默认每 30 秒刷新一次；进入后台时立即写 `{"foreground":false}`。服务端收到前台写入时按服务端时间保存 60 秒过期时间；该状态未过期时服务端不新增 unread notification，也不调用 HTTP push gateway；缺失、格式错误、过期或 `foreground=false` 时继续按后台推送处理。
+- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：前台且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.direxio.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
 
 Agent/API：
 
-- Agent token 不再有动态权限表，只能访问固定 `mcp.*` action，并可订阅 `GET /_p2p/events` 供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。
+- Agent token 不再有动态权限表，只能访问固定 `mcp.*` action、订阅 `GET /_p2p/events`、以及调用 `realtime.ws_ticket.create` 后连接 `GET /_p2p/ws`，供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。Agent token 的 SSE/WS 可见事件仅限 `agent_room.message`。
 - MCP action 是 owner-scoped 代理能力：`agent_token` 只负责授权固定 MCP action，房间搜索、成员身份列表、普通消息默认发送/读取、频道帖子/评论读取和评论创建都按 portal owner 视角操作；普通 `mcp.messages.send` 不能发送到配置的 `agent_room_id`，agent room 回复只能由 gateway 使用 `agent_gateway`/`gateway_source` 标记路径以 `@agent:<server>` 发出；`mcp.messages.list` 复用当前 owner `access_token` 读取 Matrix history，不创建 `DIREXIO_MATRIX_HISTORY` 设备，也不刷新 Matrix session，因此不会导致 owner 手机/浏览器 session 被踢下线；`mcp.messages.list` 返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart`，`mcp.room_members.list` 只允许查询已知 Direxio 产品房间/会话，返回 Matrix 成员身份、角色、头像和 profile fallback 后的展示名。
 - `agent.matrix_session.create` 使用 owner `access_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
 - Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；`GET /_p2p/events` 不再发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
