@@ -121,6 +121,41 @@ func TestEventsEndpointStreamsAppendedEvents(t *testing.T) {
 	waitForEventStreamDone(t, done)
 }
 
+func TestEventsEndpointSignalsExpiredCursor(t *testing.T) {
+	service := NewService(Config{
+		ServerName:                    "example.com",
+		P2PEventRetentionMaxRows:      2,
+		P2PEventRetentionPruneOnWrite: true,
+	})
+	router := newP2PTestRouter(service)
+
+	for seq := int64(1); seq <= 4; seq++ {
+		if err := service.appendP2PEvent(context.Background(), p2pEvent{
+			Seq:     seq,
+			Type:    "test.event",
+			RoomID:  "!room:example.com",
+			EventID: "$event",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec, cancel, done := startEventStreamTest(t, router, service, "/_p2p/events?since=1")
+	defer cancel()
+
+	waitForEventStreamBody(t, rec, "event: p2p.cursor_reset")
+	if got := rec.Header().Get("X-Direxio-P2P-Events-Cursor-Reset"); got != "true" {
+		t.Fatalf("expected cursor reset header, got %q", got)
+	}
+	body := rec.BodyString()
+	if !strings.Contains(body, `"since":1`) || !strings.Contains(body, `"min_seq":3`) || !strings.Contains(body, `"max_seq":4`) {
+		t.Fatalf("expected cursor reset payload with since/min/max, body=%s", body)
+	}
+
+	cancel()
+	waitForEventStreamDone(t, done)
+}
+
 func TestBootstrapAndAuthAreBodyActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)

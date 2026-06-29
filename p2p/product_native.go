@@ -269,6 +269,42 @@ func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]
 	return events, nil
 }
 
+type p2pEventCursorStatus struct {
+	Expired bool
+	Since   int64
+	Bounds  eventBounds
+}
+
+func (s *Service) p2pEventCursorStatus(ctx context.Context, since int64) (p2pEventCursorStatus, error) {
+	status := p2pEventCursorStatus{Since: since}
+	if since <= 0 {
+		return status, nil
+	}
+	if s.store != nil {
+		bounds, err := s.store.EventBounds(ctx)
+		if err != nil {
+			return p2pEventCursorStatus{}, err
+		}
+		status.Bounds = bounds
+		status.Expired = bounds.Count > 0 && bounds.MinSeq > 0 && since < bounds.MinSeq
+		return status, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, event := range s.events {
+		if i == 0 || event.Seq < status.Bounds.MinSeq {
+			status.Bounds.MinSeq = event.Seq
+		}
+		if event.Seq > status.Bounds.MaxSeq {
+			status.Bounds.MaxSeq = event.Seq
+		}
+		status.Bounds.Count++
+	}
+	status.Expired = status.Bounds.Count > 0 && status.Bounds.MinSeq > 0 && since < status.Bounds.MinSeq
+	return status, nil
+}
+
 func (s *Service) p2pEventWaiter() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()

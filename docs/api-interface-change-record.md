@@ -2,6 +2,14 @@
 
 Last updated: 2026-06-29
 
+## 2026-06-29 P2P Event Cursor Reset Signal
+
+`GET /_p2p/events` now detects a non-zero `since` cursor that is older than the retained `p2p_events` window. The stream stays HTTP 200 and replays retained events, but it first emits an SSE control event `event: p2p.cursor_reset` without advancing the SSE event id.
+
+The control payload contains `type`, `since`, `min_seq`, `max_seq`, `count`, and `recovery: "bootstrap_required"`. The response also sets `X-Direxio-P2P-Events-Cursor-Reset: true`, `X-Direxio-P2P-Events-Min-Seq`, `X-Direxio-P2P-Events-Max-Seq`, and `X-Direxio-P2P-Events-Count` before streaming begins.
+
+Clients should treat this as a product cache gap: clear local product projections, call `sync.bootstrap` once, persist the newest handled event `seq`, and then continue normal `GET /_p2p/events?since=<seq>` delta consumption.
+
 ## 2026-06-29 MCP Room Member Identities
 
 Added protected MCP action `mcp.room_members.list` on `POST /_p2p/query`. Owner `access_token` and fixed MCP `agent_token` may call it. The action accepts `room_id` or `channel_id`, optional `status`/`membership`, optional `role`, and optional `limit`; it returns `room_id`, `name`, `count`, and concise member identities with `user_id`, `user_mxid`, `localpart`, `domain`, `display_name`, `avatar_url`, `membership`, `role`, and `joined_at`.

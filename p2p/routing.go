@@ -19,6 +19,14 @@ const (
 	eventStreamRetryMS   = 3000
 )
 
+const (
+	eventCursorResetType         = "p2p.cursor_reset"
+	eventCursorResetHeader       = "X-Direxio-P2P-Events-Cursor-Reset"
+	eventCursorResetMinSeqHeader = "X-Direxio-P2P-Events-Min-Seq"
+	eventCursorResetMaxSeqHeader = "X-Direxio-P2P-Events-Max-Seq"
+	eventCursorResetCountHeader  = "X-Direxio-P2P-Events-Count"
+)
+
 type envelope struct {
 	Action string         `json:"action"`
 	Params map[string]any `json:"params"`
@@ -81,6 +89,11 @@ func eventsHandler(service *Service) http.HandlerFunc {
 			}
 			limit = value
 		}
+		cursorStatus, err := service.p2pEventCursorStatus(r.Context(), since)
+		if err != nil {
+			writeError(w, internalError(err))
+			return
+		}
 		events, err := service.listP2PEvents(r.Context(), since, limit)
 		if err != nil {
 			writeError(w, internalError(err))
@@ -95,10 +108,21 @@ func eventsHandler(service *Service) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
 		w.Header().Set("X-Accel-Buffering", "no")
+		if cursorStatus.Expired {
+			w.Header().Set(eventCursorResetHeader, "true")
+			w.Header().Set(eventCursorResetMinSeqHeader, strconv.FormatInt(cursorStatus.Bounds.MinSeq, 10))
+			w.Header().Set(eventCursorResetMaxSeqHeader, strconv.FormatInt(cursorStatus.Bounds.MaxSeq, 10))
+			w.Header().Set(eventCursorResetCountHeader, strconv.FormatInt(cursorStatus.Bounds.Count, 10))
+		}
 		w.WriteHeader(http.StatusOK)
 		encoder := json.NewEncoder(w)
 		if _, err := w.Write([]byte("retry: " + strconv.Itoa(eventStreamRetryMS) + "\n\n")); err != nil {
 			return
+		}
+		if cursorStatus.Expired {
+			if err := writeSSECursorReset(w, encoder, cursorStatus); err != nil {
+				return
+			}
 		}
 		if len(events) == 0 {
 			if _, err := w.Write([]byte(": connected\n\n")); err != nil {
@@ -144,6 +168,27 @@ func eventsHandler(service *Service) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+func writeSSECursorReset(w http.ResponseWriter, encoder *json.Encoder, status p2pEventCursorStatus) error {
+	if _, err := w.Write([]byte("event: " + eventCursorResetType + "\n")); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if err := encoder.Encode(map[string]any{
+		"type":     eventCursorResetType,
+		"since":    status.Since,
+		"min_seq":  status.Bounds.MinSeq,
+		"max_seq":  status.Bounds.MaxSeq,
+		"count":    status.Bounds.Count,
+		"recovery": "bootstrap_required",
+	}); err != nil {
+		return err
+	}
+	_, err := w.Write([]byte("\n"))
+	return err
 }
 
 func writeSSEEvent(w http.ResponseWriter, encoder *json.Encoder, event p2pEvent) error {

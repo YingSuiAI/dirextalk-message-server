@@ -58,7 +58,7 @@ Current assumptions:
 - [x] Add indexes for owner-scoped member queries used by `groups.list`, `channels.list`, `sync.bootstrap`, profile propagation, and conversation hydration.
 - [x] Review conversation list hydration for remaining N+1 member-count lookups and add count-oriented queries where response behavior can remain unchanged.
 - [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
-- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; old-cursor reset/recovery remains deferred until client support.
+- [x] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; when a non-zero `since` is older than the retained event window, `GET /_p2p/events` marks the stream with cursor-reset headers and emits a `p2p.cursor_reset` SSE control event before replaying retained events.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
 - [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement, but production-sized plan results are still pending.
 - [x] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: `P2P_PROJECTOR_BATCH_SIZE` now enables sequential batch processing with default `1` and cap `100`; messages are still processed in stream order by one consumer goroutine, projected P2P deltas are deduplicated by source event/action, indexed post/comment lookups avoid content scans, and consumer retry/backoff visibility is exposed through Prometheus metrics.
@@ -91,8 +91,9 @@ P2P event retention controls:
 
 - `P2P_EVENT_RETENTION_MAX_ROWS`: maximum number of rows to retain in `p2p_events`. Empty, zero, or invalid values disable pruning.
 - `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`: when `true`, prune after appending a P2P event. Empty or invalid values keep pruning disabled.
+- `GET /_p2p/events` emits `event: p2p.cursor_reset` when the requested non-zero `since` is older than the current retained minimum sequence. The SSE payload includes `type`, `since`, `min_seq`, `max_seq`, `count`, and `recovery: "bootstrap_required"`. Response headers also include `X-Direxio-P2P-Events-Cursor-Reset: true`, `X-Direxio-P2P-Events-Min-Seq`, `X-Direxio-P2P-Events-Max-Seq`, and `X-Direxio-P2P-Events-Count`.
 
-Keep these controls disabled for normal clients until old/expired cursor recovery is implemented. Enabling pruning before clients can reset local product cache and bootstrap after an old cursor may silently drop product deltas.
+Keep pruning conservative for normal clients until client-side `p2p.cursor_reset` recovery is implemented. The server now marks expired cursors explicitly, but clients that ignore the control event may still miss product deltas after retention pruning.
 
 Projector batching/backpressure notes:
 
@@ -113,7 +114,7 @@ These items are intentionally not implemented in this server-side pass. They req
 - [ ] Add cursor/limit params to product list calls: groups, channels, conversations, posts, comments, calls, favorites, follows, public search, and user public channels.
 - [ ] Use Matrix `/sync` filters with low timeline limit and lazy-loaded members for mobile and small-instance deployments.
 - [ ] Page long channel post/comment histories instead of expecting complete arrays.
-- [ ] Add client recovery behavior for old/expired P2P event cursors: clear local product cache, call bootstrap once, then resume deltas.
+- [ ] Add client recovery behavior for old/expired P2P event cursors: on `p2p.cursor_reset` or `X-Direxio-P2P-Events-Cursor-Reset: true`, clear local product cache, call bootstrap once, then resume deltas.
 - [ ] Add user-facing handling for server backpressure/rate-limit responses when room creation, message sends, or public search are throttled.
 
 ### Completion Rules

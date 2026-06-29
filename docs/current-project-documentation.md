@@ -119,6 +119,7 @@ P2P action 生命周期：
 
 - `sync.bootstrap` 是冷启动、登录后恢复、本地缓存不可用或事件缺口兜底用的基线快照；不要在每个事件后全量刷新。
 - 日常弱网/断线恢复优先用 `GET /_p2p/events?since=<last_seq>` 增量追平。客户端必须持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才重新拉 `sync.bootstrap`。
+- 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，`GET /_p2p/events` 会先发送 `event: p2p.cursor_reset` 控制事件，并设置 `X-Direxio-P2P-Events-Cursor-Reset: true`、`X-Direxio-P2P-Events-Min-Seq`、`X-Direxio-P2P-Events-Max-Seq`、`X-Direxio-P2P-Events-Count` 响应头。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存、调用一次 `sync.bootstrap`，再用最新 `seq` 继续订阅增量。
 
 Matrix Client-Server 写入生命周期：
 
