@@ -58,10 +58,10 @@ Current assumptions:
 - [x] Add indexes for owner-scoped member queries used by `groups.list`, `channels.list`, `sync.bootstrap`, profile propagation, and conversation hydration.
 - [x] Review conversation list hydration for remaining N+1 member-count lookups and add count-oriented queries where response behavior can remain unchanged.
 - [x] Review public channel search/list paths for full scans and move search, visibility filters, and member counts into SQL without changing the public action contract.
-- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior.
+- [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: not enabled in this server-only pass because pruning before client old-cursor recovery can silently drop product deltas.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
-- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly.
-- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements.
+- [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; EXPLAIN-based measurement still pending.
+- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: pending review of durable consumer ordering and duplicate-projection safety.
 - [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
 
 Capacity smoke usage:
