@@ -61,7 +61,7 @@ Current assumptions:
 - [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; old-cursor reset/recovery remains deferred until client support.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
 - [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement, but production-sized plan results are still pending.
-- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: pending review of durable consumer ordering and duplicate-projection safety.
+- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: reviewed and intentionally deferred. The durable JetStream consumer currently processes one roomserver output at a time with manual ack/retry. Raising batch/concurrency is blocked until projected P2P delta events are deduplicated by source event/action, redaction projection avoids full post/comment scans, and per-room ordering requirements are preserved.
 - [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
 
 Capacity smoke usage:
@@ -93,6 +93,12 @@ P2P event retention controls:
 - `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`: when `true`, prune after appending a P2P event. Empty or invalid values keep pruning disabled.
 
 Keep these controls disabled for normal clients until old/expired cursor recovery is implemented. Enabling pruning before clients can reset local product cache and bootstrap after an old cursor may silently drop product deltas.
+
+Projector batching/backpressure notes:
+
+- Keep `P2POutputRoomEventConsumer` batch size at 1 until projection writes and generated P2P delta events are idempotent under duplicate JetStream delivery.
+- Do not process multiple events from the same room concurrently. Profile, member, message, reaction, and redaction projection can depend on previous room state and projected channel/post/comment records.
+- Before enabling batching, add source-event dedupe for generated `p2p_events`, replace redaction lookup scans with direct event-id storage queries, and add retry/backoff metrics around durable consumer lag.
 
 ### Deferred Client Optimization Checklist
 
