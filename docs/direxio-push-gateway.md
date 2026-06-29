@@ -84,7 +84,17 @@ Content-Type: application/json
 }
 ```
 
-When `foreground=true` and `expires_at_ms` is in the future, the server suppresses Matrix push-rule notifications for that user: it does not create a new unread notification row and does not call the HTTP push gateway. Missing, malformed, expired, or `foreground=false` state keeps normal background push behavior. Foreground clients should refresh the account data with a short future expiry; background clients may either write `foreground=false` or let the previous foreground state expire.
+When `foreground=true` and `expires_at_ms` is in the future, the server suppresses Matrix push-rule notifications for that user: it does not create a new unread notification row and does not call the HTTP push gateway. Missing, malformed, expired, or `foreground=false` state keeps normal background push behavior.
+
+Mobile clients must implement this lifecycle write. While foreground, refresh the account data every 30 seconds and set `expires_at_ms` about 60 seconds in the future to tolerate network jitter. When entering background, immediately write:
+
+```json
+{
+  "foreground": false
+}
+```
+
+If the background write is missed because the app is suspended, the previous foreground state naturally expires and pushes resume.
 
 The configured agents room defaults to no system push. During startup or repair, the message server ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, while preserving any existing explicit rule for that room.
 
