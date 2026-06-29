@@ -16,6 +16,7 @@ var agentActions = []string{
 	"mcp.rooms.search",
 	"mcp.messages.send",
 	"mcp.messages.list",
+	"mcp.room_members.list",
 	"mcp.channel_posts.list",
 	"mcp.channel_comments.list",
 	"mcp.channel_comments.create",

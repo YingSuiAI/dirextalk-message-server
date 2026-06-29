@@ -20,6 +20,18 @@ type RoomSummary struct {
 
 type MessageSummary = matrixhistory.MessageSummary
 
+type MemberSummary struct {
+	UserID      string `json:"user_id"`
+	UserMXID    string `json:"user_mxid"`
+	Localpart   string `json:"localpart,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	Membership  string `json:"membership,omitempty"`
+	Role        string `json:"role,omitempty"`
+	JoinedAt    int64  `json:"joined_at,omitempty"`
+}
+
 type PostSummary struct {
 	PostID       string `json:"post_id"`
 	TS           int64  `json:"ts"`

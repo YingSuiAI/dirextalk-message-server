@@ -86,10 +86,12 @@ func (m *Monolith) AddAllPublicRoutes(
 		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
+	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
 	p2pTransport := p2p.NewDendriteTransport(cfg.Global.ServerName, cfg.Global.KeyID, cfg.Global.PrivateKey, m.RoomserverAPI)
 	p2pService := p2p.NewServiceWithTransport(p2pConfig, p2pTransport)
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil))
+	p2pService.SetMatrixProfileResolver(matrixProfileResolver)
 	if store, err := p2p.NewDatabaseStore(processCtx.Context(), cm, p2pDatabaseOptions(cfg)); err != nil {
 		logrus.WithError(err).Warn("P2P integrated AS store unavailable; falling back to in-memory business state")
 	} else if service, err := p2p.NewServiceWithStoreAndTransport(processCtx.Context(), p2pConfig, store, p2pTransport); err != nil {
@@ -97,6 +99,7 @@ func (m *Monolith) AddAllPublicRoutes(
 	} else {
 		service.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 		service.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil))
+		service.SetMatrixProfileResolver(matrixProfileResolver)
 		p2pService = service
 	}
 	if natsInstance != nil {

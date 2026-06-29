@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,28 @@ func TestMCPSearchRoomsEmptyQueryListsByType(t *testing.T) {
 	rooms := result["rooms"].([]mcpRoomSummary)
 	if len(rooms) != 1 || rooms[0].Type != "group" || rooms[0].RoomID != "!group:example.com" {
 		t.Fatalf("expected group list from empty query, got %#v", rooms)
+	}
+}
+
+func TestMCPSearchRoomsUsesMatrixMemberCountWhenProductCountIsStale(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@owner:t7.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+		"type":  "group",
+		"query": "Design",
+	})
+	rooms := result["rooms"].([]mcpRoomSummary)
+	if len(rooms) != 1 || rooms[0].Subtitle != "3 members" {
+		t.Fatalf("expected Matrix-backed member count, got %#v", rooms)
 	}
 }
 
@@ -138,11 +161,19 @@ func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID 
 	return out, nil
 }
 
+type fakeMatrixProfileResolver struct {
+	profiles map[string]matrixUserProfile
+}
+
+func (r *fakeMatrixProfileResolver) ResolveMatrixProfile(ctx context.Context, userID string) (matrixUserProfile, error) {
+	return r.profiles[strings.TrimSpace(userID)], nil
+}
+
 func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1710000000000, Sender: "Alice", Msg: "old"},
-		{TS: 1710000100000, Sender: "Alice", Msg: "inside"},
+		{TS: 1710000000000, Sender: "Alice", Msg: "old", SenderMXID: "@alice:remote.example"},
+		{TS: 1710000100000, Sender: "Alice", Msg: "inside", SenderMXID: "@alice:remote.example", SenderDomain: "remote.example", SenderLocalpart: "alice"},
 	}})
 	if err := service.saveConversation(context.Background(), conversationRecord{
 		MatrixRoomID: "!room:example.com",
@@ -164,6 +195,281 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	messages := result["messages"].([]mcpMessageSummary)
 	if len(messages) != 1 || messages[0].Msg != "inside" {
 		t.Fatalf("unexpected message summaries: %#v", messages)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Messages []struct {
+			Sender          string `json:"sender"`
+			SenderMXID      string `json:"sender_mxid"`
+			SenderDomain    string `json:"sender_domain"`
+			SenderLocalpart string `json:"sender_localpart"`
+			Msg             string `json:"msg"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Messages) != 1 ||
+		decoded.Messages[0].Sender != "Alice" ||
+		decoded.Messages[0].SenderMXID != "@alice:remote.example" ||
+		decoded.Messages[0].SenderDomain != "remote.example" ||
+		decoded.Messages[0].SenderLocalpart != "alice" {
+		t.Fatalf("expected message JSON to expose sender identity, got %s", string(payload))
+	}
+}
+
+func TestMCPMessagesListEnrichesSenderDisplayNamesFromRoomMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+		{
+			TS:              1710000100000,
+			Sender:          "alice",
+			SenderMXID:      "@alice:remote.example",
+			SenderDomain:    "remote.example",
+			SenderLocalpart: "alice",
+			Msg:             "hello from alice",
+		},
+	}})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+		"room_id": "!group:example.com",
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Messages []struct {
+			Sender            string `json:"sender"`
+			SenderMXID        string `json:"sender_mxid"`
+			SenderDisplayName string `json:"sender_display_name"`
+			Msg               string `json:"msg"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Messages) != 1 ||
+		decoded.Messages[0].Sender != "Alice Remote" ||
+		decoded.Messages[0].SenderDisplayName != "Alice Remote" ||
+		decoded.Messages[0].SenderMXID != "@alice:remote.example" {
+		t.Fatalf("expected message JSON to expose readable sender display name, got %s", string(payload))
+	}
+}
+
+func TestMCPMessagesListEnrichesFallbackSenderNameFromMatrixProfile(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetMatrixProfileResolver(&fakeMatrixProfileResolver{profiles: map[string]matrixUserProfile{
+		"@owner:t8.direxio.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
+	}})
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+		{
+			TS:              1710000100000,
+			Sender:          "owner",
+			SenderMXID:      "@owner:t8.direxio.ai",
+			SenderDomain:    "t8.direxio.ai",
+			SenderLocalpart: "owner",
+			Msg:             "hello from t8",
+		},
+	}})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+		"room_id": "!group:example.com",
+	})
+	messages := result["messages"].([]mcpMessageSummary)
+	if len(messages) != 1 ||
+		messages[0].Sender != "liyanan8" ||
+		messages[0].SenderDisplayName != "liyanan8" {
+		t.Fatalf("expected profile display name for fallback sender, got %#v", messages)
+	}
+}
+
+func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id":      group.RoomID,
+		"user_mxid":    "@alice:remote.example",
+		"display_name": "Alice Remote",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		RoomID  string `json:"room_id"`
+		Name    string `json:"name"`
+		Members []struct {
+			UserID      string `json:"user_id"`
+			UserMXID    string `json:"user_mxid"`
+			Localpart   string `json:"localpart"`
+			Domain      string `json:"domain"`
+			DisplayName string `json:"display_name"`
+			Role        string `json:"role"`
+			Membership  string `json:"membership"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RoomID != group.RoomID || decoded.Name != "Design Group" {
+		t.Fatalf("unexpected room member envelope: %s", string(payload))
+	}
+	if len(decoded.Members) != 2 {
+		t.Fatalf("expected owner plus alice, got %s", string(payload))
+	}
+	if decoded.Members[1].UserID != "@alice:remote.example" ||
+		decoded.Members[1].UserMXID != "@alice:remote.example" ||
+		decoded.Members[1].Localpart != "alice" ||
+		decoded.Members[1].Domain != "remote.example" ||
+		decoded.Members[1].DisplayName != "Alice Remote" ||
+		decoded.Members[1].Membership != "join" {
+		t.Fatalf("expected member JSON to expose Matrix identity, got %s", string(payload))
+	}
+}
+
+func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Members []struct {
+			UserMXID    string `json:"user_mxid"`
+			DisplayName string `json:"display_name"`
+			Membership  string `json:"membership"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Members) != 2 {
+		t.Fatalf("expected owner plus Matrix room member, got %s", string(payload))
+	}
+	if decoded.Members[1].UserMXID != "@alice:remote.example" ||
+		decoded.Members[1].DisplayName != "Alice Remote" ||
+		decoded.Members[1].Membership != "join" {
+		t.Fatalf("expected Matrix room state member identity, got %s", string(payload))
+	}
+}
+
+func TestMCPRoomMembersListRejectsUnknownRoomsBeforeMatrixLookup(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!secret:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+
+	_, apiErr := service.Handle(context.Background(), "mcp.room_members.list", map[string]any{
+		"room_id": "!secret:example.com",
+	})
+	if apiErr == nil || apiErr.Status != 404 || !strings.Contains(apiErr.Error, "room not found") {
+		t.Fatalf("expected unknown room to be rejected, got %#v", apiErr)
+	}
+}
+
+func TestMCPRoomMembersListFiltersMergedMatrixMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+		"role":    "member",
+	})
+	members := result["members"].([]mcpMemberSummary)
+	if len(members) != 1 || members[0].UserMXID != "@alice:remote.example" || members[0].Role != "member" {
+		t.Fatalf("expected role filter to apply after Matrix member merge, got %#v", members)
+	}
+}
+
+func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@owner:t7.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetMatrixProfileResolver(&fakeMatrixProfileResolver{profiles: map[string]matrixUserProfile{
+		"@owner:t7.direxio.ai": {DisplayName: "liyanan7", AvatarURL: "mxc://t7/avatar"},
+		"@owner:t8.direxio.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
+	}})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Members []struct {
+			UserMXID    string `json:"user_mxid"`
+			DisplayName string `json:"display_name"`
+			AvatarURL   string `json:"avatar_url"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]string{}
+	avatars := map[string]string{}
+	for _, member := range decoded.Members {
+		names[member.UserMXID] = member.DisplayName
+		avatars[member.UserMXID] = member.AvatarURL
+	}
+	if names["@owner:t7.direxio.ai"] != "liyanan7" ||
+		names["@owner:t8.direxio.ai"] != "liyanan8" ||
+		avatars["@owner:t7.direxio.ai"] != "mxc://t7/avatar" {
+		t.Fatalf("expected profile-enriched member identities, got %s", string(payload))
 	}
 }
 

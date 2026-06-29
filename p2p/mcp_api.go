@@ -17,6 +17,7 @@ const maxMCPLimit = mcp.MaxLimit
 
 type mcpRoomSummary = mcp.RoomSummary
 type mcpMessageSummary = mcp.MessageSummary
+type mcpMemberSummary = mcp.MemberSummary
 type mcpPostSummary = mcp.PostSummary
 type mcpCommentSummary = mcp.CommentSummary
 type matrixMessageReader = mcp.MessageReader
@@ -56,6 +57,7 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 			return nil, internalError(err)
 		}
 		summary := mcpRoomSummaryFromConversation(view)
+		summary = s.enrichMCPRoomSummaryWithMatrixMemberCount(ctx, summary)
 		if summary.RoomID == "" {
 			continue
 		}
@@ -78,6 +80,27 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		rooms = rooms[:limit]
 	}
 	return map[string]any{"rooms": rooms}, nil
+}
+
+func (s *Service) enrichMCPRoomSummaryWithMatrixMemberCount(ctx context.Context, summary mcpRoomSummary) mcpRoomSummary {
+	if summary.RoomID == "" || (summary.Type != "group" && summary.Type != "channel") {
+		return summary
+	}
+	members, err := s.mcpMatrixRoomMembers(ctx, summary.RoomID)
+	if err != nil || len(members) == 0 {
+		return summary
+	}
+	var count int64
+	for _, member := range members {
+		if memberHidden(member.Membership) {
+			continue
+		}
+		count++
+	}
+	if count > 0 {
+		summary.Subtitle = mcpFormatMemberCount(count)
+	}
+	return summary
 }
 
 func (s *Service) mcpMessagesSend(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -165,7 +188,7 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	messages = s.normalizeMCPMessageSenders(roomID, messages)
+	messages = s.enrichMCPMessageSenders(ctx, roomID, messages)
 	return map[string]any{"room_id": roomID, "name": name, "messages": messages}, nil
 }
 
@@ -188,21 +211,384 @@ func (s *Service) mcpMessagesRoomName(ctx context.Context, roomID string) (strin
 	return roomID, nil
 }
 
-func (s *Service) normalizeMCPMessageSenders(roomID string, messages []mcpMessageSummary) []mcpMessageSummary {
+func (s *Service) enrichMCPMessageSenders(ctx context.Context, roomID string, messages []mcpMessageSummary) []mcpMessageSummary {
+	if roomID == "" || len(messages) == 0 {
+		return messages
+	}
+	displayNames := s.mcpSenderDisplayNames(ctx, roomID)
+	profileResolver := s.currentMatrixProfileResolver()
+	profileCache := map[string]matrixUserProfile{}
+	for i := range messages {
+		mxid := strings.TrimSpace(messages[i].SenderMXID)
+		if mxid == "" {
+			continue
+		}
+		displayName := displayNames[mxid]
+		if mcpNeedsProfileDisplayName(mxid, displayName) {
+			if profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, mxid); ok && strings.TrimSpace(profile.DisplayName) != "" {
+				displayName = profile.DisplayName
+				displayNames[mxid] = displayName
+			}
+		}
+		if displayName == "" {
+			continue
+		}
+		messages[i].SenderDisplayName = displayName
+		messages[i].Sender = displayName
+	}
+	return messages
+}
+
+func (s *Service) mcpSenderDisplayNames(ctx context.Context, roomID string) map[string]string {
+	names := map[string]string{}
+	setName := func(userID, displayName string) {
+		userID = strings.TrimSpace(userID)
+		displayName = strings.TrimSpace(displayName)
+		if userID == "" || displayName == "" {
+			return
+		}
+		current := strings.TrimSpace(names[userID])
+		if current == "" || current == displayNameFromMXID(userID) {
+			names[userID] = displayName
+		}
+	}
+
 	s.mu.Lock()
 	agentRoomID := strings.TrimSpace(s.agentRoomID)
 	agentMXID := s.agentMXIDLocked()
 	agentDisplayName := s.agentDisplayNameLocked()
+	ownerMXID := strings.TrimSpace(s.ownerMXID)
+	ownerDisplayName := strings.TrimSpace(s.profile.DisplayName)
 	s.mu.Unlock()
-	if roomID == "" || roomID != agentRoomID {
-		return messages
-	}
-	for i := range messages {
-		if strings.EqualFold(strings.TrimSpace(messages[i].SenderMXID), agentMXID) {
-			messages[i].Sender = agentDisplayName
+
+	setName(ownerMXID, ownerDisplayName)
+	setName(agentMXID, agentDisplayName)
+
+	if record, ok, err := s.getConversation(ctx, "", roomID); err == nil && ok && record.Kind == conversationKindDirect {
+		if view, viewErr := s.conversationView(ctx, record); viewErr == nil {
+			setName(view.PeerMXID, view.Title)
+			setName(ownerMXID, ownerDisplayName)
 		}
 	}
-	return messages
+
+	if members, err := s.membersForProduct(ctx, roomID, ""); err == nil {
+		for _, member := range members {
+			setName(member.UserID, member.DisplayName)
+		}
+	}
+	if members, err := s.mcpMatrixRoomMembers(ctx, roomID); err == nil {
+		for _, member := range members {
+			setName(member.UserID, member.DisplayName)
+		}
+	}
+	if profileResolver := s.currentMatrixProfileResolver(); profileResolver != nil {
+		profileCache := map[string]matrixUserProfile{}
+		for userID, displayName := range names {
+			if !mcpNeedsProfileDisplayName(userID, displayName) {
+				continue
+			}
+			if profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, userID); ok {
+				setName(userID, profile.DisplayName)
+			}
+		}
+	}
+
+	if roomID == agentRoomID {
+		setName(agentMXID, agentDisplayName)
+	}
+	setName(ownerMXID, ownerDisplayName)
+	return names
+}
+
+func (s *Service) mcpRoomMembersList(ctx context.Context, params map[string]any) (any, *apiError) {
+	roomID := trimString(params["room_id"])
+	channelID := trimString(params["channel_id"])
+	if roomID == "" && channelID == "" {
+		return nil, badRequest("room_id or channel_id is required")
+	}
+	status := fallbackString(trimString(params["status"]), trimString(params["membership"]))
+	role := trimString(params["role"])
+	name := roomID
+	knownRoom := false
+	if ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID); err != nil {
+		return nil, internalError(err)
+	} else if ok {
+		roomID = fallbackString(roomID, ch.RoomID)
+		channelID = fallbackString(channelID, ch.ChannelID)
+		name = fallbackString(ch.Name, roomID)
+		knownRoom = true
+	}
+	if name == roomID {
+		if group, ok, err := s.groupByRoom(ctx, roomID); err != nil {
+			return nil, internalError(err)
+		} else if ok {
+			name = fallbackString(group.Name, roomID)
+			knownRoom = true
+		}
+	}
+	if record, ok, err := s.getConversation(ctx, "", roomID); err != nil {
+		return nil, internalError(err)
+	} else if ok {
+		knownRoom = true
+		view, viewErr := s.conversationView(ctx, record)
+		if viewErr != nil {
+			return nil, internalError(viewErr)
+		}
+		if strings.TrimSpace(view.Title) != "" {
+			name = view.Title
+		}
+	}
+	if !knownRoom {
+		return nil, statusError(http.StatusNotFound, "room not found")
+	}
+	members, err := s.membersForProduct(ctx, roomID, channelID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	summaries := make([]mcpMemberSummary, 0, len(members))
+	for _, member := range members {
+		if memberHidden(member.Membership) {
+			continue
+		}
+		summaries = append(summaries, mcpMemberSummaryFromMember(member))
+	}
+	if matrixMembers, matrixErr := s.mcpMatrixRoomMembers(ctx, roomID); matrixErr != nil && len(summaries) == 0 {
+		return nil, internalError(matrixErr)
+	} else if matrixErr == nil {
+		summaries = mergeMCPMemberSummaries(summaries, matrixMembers)
+	}
+	if len(summaries) == 0 {
+		if directMembers, directName, apiErr := s.mcpDirectRoomMembers(ctx, roomID); apiErr != nil {
+			return nil, apiErr
+		} else if len(directMembers) > 0 {
+			summaries = directMembers
+			name = fallbackString(directName, name)
+		}
+	}
+	summaries = filterMCPMemberSummaries(summaries, status, role)
+	summaries = s.enrichMCPMemberSummariesWithProfiles(ctx, summaries)
+	limit := mcpLimit(params)
+	if len(summaries) > limit {
+		summaries = summaries[:limit]
+	}
+	return map[string]any{
+		"room_id": roomID,
+		"name":    name,
+		"members": summaries,
+		"count":   len(summaries),
+	}, nil
+}
+
+func (s *Service) mcpMatrixRoomMembers(ctx context.Context, roomID string) ([]memberRecord, error) {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return nil, nil
+	}
+	s.mu.Lock()
+	transport := s.transport
+	s.mu.Unlock()
+	if transport == nil {
+		return nil, nil
+	}
+	return transport.ListRoomMembers(ctx, roomID)
+}
+
+func (s *Service) currentMatrixProfileResolver() matrixProfileResolver {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.matrixProfiles
+}
+
+func (s *Service) enrichMCPMemberSummariesWithProfiles(ctx context.Context, summaries []mcpMemberSummary) []mcpMemberSummary {
+	if len(summaries) == 0 {
+		return summaries
+	}
+	profileResolver := s.currentMatrixProfileResolver()
+	if profileResolver == nil {
+		return summaries
+	}
+	profileCache := map[string]matrixUserProfile{}
+	for i := range summaries {
+		userID := strings.TrimSpace(fallbackString(summaries[i].UserMXID, summaries[i].UserID))
+		if userID == "" {
+			continue
+		}
+		needsDisplayName := mcpNeedsProfileDisplayName(userID, summaries[i].DisplayName)
+		needsAvatar := strings.TrimSpace(summaries[i].AvatarURL) == ""
+		if !needsDisplayName && !needsAvatar {
+			continue
+		}
+		profile, ok := mcpResolveMatrixProfile(ctx, profileResolver, profileCache, userID)
+		if !ok {
+			continue
+		}
+		if needsDisplayName && strings.TrimSpace(profile.DisplayName) != "" {
+			summaries[i].DisplayName = profile.DisplayName
+		}
+		if needsAvatar && strings.TrimSpace(profile.AvatarURL) != "" {
+			summaries[i].AvatarURL = profile.AvatarURL
+		}
+	}
+	return summaries
+}
+
+func mcpResolveMatrixProfile(ctx context.Context, resolver matrixProfileResolver, cache map[string]matrixUserProfile, userID string) (matrixUserProfile, bool) {
+	if resolver == nil {
+		return matrixUserProfile{}, false
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return matrixUserProfile{}, false
+	}
+	if profile, ok := cache[userID]; ok {
+		return profile, strings.TrimSpace(profile.DisplayName) != "" || strings.TrimSpace(profile.AvatarURL) != ""
+	}
+	profile, err := resolver.ResolveMatrixProfile(ctx, userID)
+	if err != nil {
+		cache[userID] = matrixUserProfile{}
+		return matrixUserProfile{}, false
+	}
+	cache[userID] = profile
+	return profile, strings.TrimSpace(profile.DisplayName) != "" || strings.TrimSpace(profile.AvatarURL) != ""
+}
+
+func mcpNeedsProfileDisplayName(userID, displayName string) bool {
+	displayName = strings.TrimSpace(displayName)
+	return displayName == "" || strings.EqualFold(displayName, displayNameFromMXID(userID))
+}
+
+func mergeMCPMemberSummaries(existing []mcpMemberSummary, matrixMembers []memberRecord) []mcpMemberSummary {
+	indexByUser := make(map[string]int, len(existing)+len(matrixMembers))
+	for i, member := range existing {
+		userID := strings.TrimSpace(fallbackString(member.UserMXID, member.UserID))
+		if userID != "" {
+			indexByUser[userID] = i
+		}
+	}
+	for _, member := range matrixMembers {
+		if memberHidden(member.Membership) {
+			continue
+		}
+		summary := mcpMemberSummaryFromMember(member)
+		userID := strings.TrimSpace(fallbackString(summary.UserMXID, summary.UserID))
+		if userID == "" {
+			continue
+		}
+		if idx, ok := indexByUser[userID]; ok {
+			existing[idx] = mergeMCPMemberSummary(existing[idx], summary)
+			continue
+		}
+		indexByUser[userID] = len(existing)
+		existing = append(existing, summary)
+	}
+	return existing
+}
+
+func mergeMCPMemberSummary(existing, incoming mcpMemberSummary) mcpMemberSummary {
+	existingUserID := fallbackString(existing.UserMXID, existing.UserID)
+	if strings.TrimSpace(existing.DisplayName) == "" ||
+		strings.TrimSpace(existing.DisplayName) == displayNameFromMXID(existingUserID) {
+		existing.DisplayName = incoming.DisplayName
+	}
+	if strings.TrimSpace(existing.AvatarURL) == "" {
+		existing.AvatarURL = incoming.AvatarURL
+	}
+	if strings.TrimSpace(existing.Membership) == "" {
+		existing.Membership = incoming.Membership
+	}
+	if strings.TrimSpace(existing.Role) == "" || strings.TrimSpace(existing.Role) == "member" {
+		existing.Role = incoming.Role
+	}
+	if existing.JoinedAt == 0 {
+		existing.JoinedAt = incoming.JoinedAt
+	}
+	return existing
+}
+
+func filterMCPMemberSummaries(members []mcpMemberSummary, status, role string) []mcpMemberSummary {
+	status = strings.ToLower(strings.TrimSpace(status))
+	role = strings.ToLower(strings.TrimSpace(role))
+	if status == "" && role == "" {
+		return members
+	}
+	filtered := members[:0]
+	for _, member := range members {
+		if status != "" && strings.ToLower(strings.TrimSpace(member.Membership)) != status {
+			continue
+		}
+		if role != "" && strings.ToLower(strings.TrimSpace(member.Role)) != role {
+			continue
+		}
+		filtered = append(filtered, member)
+	}
+	return filtered
+}
+
+func (s *Service) mcpDirectRoomMembers(ctx context.Context, roomID string) ([]mcpMemberSummary, string, *apiError) {
+	record, ok, err := s.getConversation(ctx, "", roomID)
+	if err != nil {
+		return nil, "", internalError(err)
+	}
+	if !ok || record.Kind != conversationKindDirect {
+		return nil, "", nil
+	}
+	view, err := s.conversationView(ctx, record)
+	if err != nil {
+		return nil, "", internalError(err)
+	}
+	if strings.TrimSpace(view.PeerMXID) == "" {
+		return nil, fallbackString(view.Title, roomID), nil
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	profile := s.profile
+	s.mu.Unlock()
+	members := make([]mcpMemberSummary, 0, 2)
+	if strings.TrimSpace(ownerMXID) != "" {
+		members = append(members, mcpMemberSummaryFromIdentity(
+			ownerMXID,
+			fallbackString(profile.DisplayName, displayNameFromMXID(ownerMXID)),
+			profile.AvatarURL,
+			"join",
+			"owner",
+			0,
+		))
+	}
+	members = append(members, mcpMemberSummaryFromIdentity(
+		view.PeerMXID,
+		fallbackString(view.Title, displayNameFromMXID(view.PeerMXID)),
+		view.AvatarURL,
+		fallbackString(view.Membership, "join"),
+		"member",
+		0,
+	))
+	return members, fallbackString(view.Title, roomID), nil
+}
+
+func mcpMemberSummaryFromMember(member memberRecord) mcpMemberSummary {
+	return mcpMemberSummaryFromIdentity(
+		member.UserID,
+		member.DisplayName,
+		member.AvatarURL,
+		member.Membership,
+		member.Role,
+		member.JoinedAt,
+	)
+}
+
+func mcpMemberSummaryFromIdentity(userID, displayName, avatarURL, membership, role string, joinedAt int64) mcpMemberSummary {
+	userID = strings.TrimSpace(userID)
+	return mcpMemberSummary{
+		UserID:      userID,
+		UserMXID:    userID,
+		Localpart:   localpartFromMXID(userID),
+		Domain:      domainFromMXID(userID),
+		DisplayName: fallbackString(displayName, displayNameFromMXID(userID)),
+		AvatarURL:   strings.TrimSpace(avatarURL),
+		Membership:  strings.TrimSpace(membership),
+		Role:        normalizeProductMemberRole(role),
+		JoinedAt:    joinedAt,
+	}
 }
 
 func (s *Service) mcpChannelPostsList(ctx context.Context, params map[string]any) (any, *apiError) {

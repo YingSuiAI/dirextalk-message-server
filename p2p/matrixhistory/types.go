@@ -6,10 +6,13 @@ import (
 )
 
 type MessageSummary struct {
-	TS         int64  `json:"ts"`
-	Sender     string `json:"sender"`
-	Msg        string `json:"msg"`
-	SenderMXID string `json:"-"`
+	TS                int64  `json:"ts"`
+	Sender            string `json:"sender"`
+	SenderMXID        string `json:"sender_mxid,omitempty"`
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	SenderDomain      string `json:"sender_domain,omitempty"`
+	SenderLocalpart   string `json:"sender_localpart,omitempty"`
+	Msg               string `json:"msg"`
 }
 
 type Event struct {
@@ -43,13 +46,20 @@ func trimString(value any) string {
 }
 
 func displayNameFromMXID(mxid string) string {
-	original := strings.TrimSpace(mxid)
-	localpart := strings.TrimPrefix(original, "@")
-	if idx := strings.Index(localpart, ":"); idx >= 0 {
-		localpart = localpart[:idx]
-	}
+	localpart, _ := splitMXID(mxid)
 	if strings.TrimSpace(localpart) == "" {
-		return original
+		return strings.TrimSpace(mxid)
 	}
 	return localpart
+}
+
+func splitMXID(mxid string) (localpart, domain string) {
+	trimmed := strings.TrimSpace(mxid)
+	withoutSigil := strings.TrimPrefix(trimmed, "@")
+	if idx := strings.Index(withoutSigil, ":"); idx >= 0 {
+		localpart = strings.TrimSpace(withoutSigil[:idx])
+		domain = strings.TrimSpace(withoutSigil[idx+1:])
+		return localpart, domain
+	}
+	return strings.TrimSpace(withoutSigil), ""
 }

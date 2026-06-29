@@ -218,6 +218,14 @@ func domainFromMXID(mxid string) string {
 	return domainFromMatrixID(mxid, "@")
 }
 
+func localpartFromMXID(mxid string) string {
+	localpart := strings.TrimPrefix(strings.TrimSpace(mxid), "@")
+	if idx := strings.Index(localpart, ":"); idx >= 0 {
+		localpart = localpart[:idx]
+	}
+	return strings.TrimSpace(localpart)
+}
+
 func domainFromMatrixID(id, sigil string) string {
 	trimmed := strings.TrimPrefix(id, sigil)
 	if idx := strings.Index(trimmed, ":"); idx >= 0 {

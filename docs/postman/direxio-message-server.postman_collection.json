@@ -2512,10 +2512,42 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "按 portal owner 视角查询指定房间的普通消息摘要；不包含频道帖子和评论。服务端复用当前 owner access_token 读取 Matrix history，不创建或刷新 Matrix session。\n\nList concise ordinary message summaries for a room from the portal owner view. Channel posts and comments are excluded. The server reuses the current owner access_token for Matrix history and does not create or refresh Matrix sessions.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "按 portal owner 视角查询指定房间的普通消息摘要；不包含频道帖子和评论。服务端复用当前 owner access_token 读取 Matrix history，不创建或刷新 Matrix session。响应会返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart` 供 Agent 解释发言人身份。\n\nList concise ordinary message summaries for a room from the portal owner view. Channel posts and comments are excluded. The server reuses the current owner access_token for Matrix history and does not create or refresh Matrix sessions. Responses include `sender_mxid`, `sender_display_name`, `sender_domain`, and `sender_localpart` so agents can explain who said what.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"mcp.messages.list\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"from_ts\": 1710000000000,\n    \"to_ts\": 1710086400000,\n    \"limit\": 50\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp.room_members.list（查询房间成员身份）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{agentToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "按 portal owner 视角查询已知 Direxio 产品房间或会话的成员身份。可用 `room_id` 或 `channel_id` 定位，支持 `status`/`membership`、`role` 和 `limit`。服务端会合并产品成员投影、Matrix `m.room.member` state 和 Matrix profile fallback，但不会对未知 room_id 暴露内部 roomserver 成员状态。\n\nList member identities for a known Direxio product room or conversation from the portal owner view. Use `room_id` or `channel_id`; optional filters are `status`/`membership`, `role`, and `limit`. The server may merge product member projections, Matrix `m.room.member` state, and Matrix profile fallback data, but unknown room IDs do not expose internal roomserver member state.\n\nAction: `mcp.room_members.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"mcp.room_members.list\",\n  \"params\": {\n    \"room_id\": \"!group:example.com\",\n    \"role\": \"member\",\n    \"limit\": 50\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
