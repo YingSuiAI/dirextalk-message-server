@@ -1,6 +1,16 @@
 # API Interface Change Record
 
-Last updated: 2026-06-27
+Last updated: 2026-06-29
+
+## 2026-06-29 MCP Room Member Identities
+
+Added protected MCP action `mcp.room_members.list` on `POST /_p2p/query`. Owner `access_token` and fixed MCP `agent_token` may call it. The action accepts `room_id` or `channel_id`, optional `status`/`membership`, optional `role`, and optional `limit`; it returns `room_id`, `name`, `count`, and concise member identities with `user_id`, `user_mxid`, `localpart`, `domain`, `display_name`, `avatar_url`, `membership`, `role`, and `joined_at`.
+
+`mcp.room_members.list` is owner-scoped and only reads known Direxio product rooms or conversations. It may enrich stale product projections from current Matrix `m.room.member` state and Matrix profile fallback data, but it rejects unknown room IDs instead of exposing arbitrary roomserver state through the MCP surface.
+
+`mcp.messages.list` message summaries now expose sender identity fields: `sender_mxid`, `sender_display_name`, `sender_domain`, and `sender_localpart`. The legacy `sender` field is preserved and is upgraded to a readable display name when Matrix member/profile data is available.
+
+`mcp.rooms.search` may use current Matrix member state to display fresher group/channel member counts when product read-model counts are stale.
 
 ## 2026-06-27 MCP Owner-Scoped Message History
 

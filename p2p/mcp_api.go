@@ -309,25 +309,42 @@ func (s *Service) mcpRoomMembersList(ctx context.Context, params map[string]any)
 	status := fallbackString(trimString(params["status"]), trimString(params["membership"]))
 	role := trimString(params["role"])
 	name := roomID
+	knownRoom := false
 	if ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID); err != nil {
 		return nil, internalError(err)
 	} else if ok {
 		roomID = fallbackString(roomID, ch.RoomID)
 		channelID = fallbackString(channelID, ch.ChannelID)
 		name = fallbackString(ch.Name, roomID)
+		knownRoom = true
 	}
 	if name == roomID {
 		if group, ok, err := s.groupByRoom(ctx, roomID); err != nil {
 			return nil, internalError(err)
 		} else if ok {
 			name = fallbackString(group.Name, roomID)
+			knownRoom = true
 		}
+	}
+	if record, ok, err := s.getConversation(ctx, "", roomID); err != nil {
+		return nil, internalError(err)
+	} else if ok {
+		knownRoom = true
+		view, viewErr := s.conversationView(ctx, record)
+		if viewErr != nil {
+			return nil, internalError(viewErr)
+		}
+		if strings.TrimSpace(view.Title) != "" {
+			name = view.Title
+		}
+	}
+	if !knownRoom {
+		return nil, statusError(http.StatusNotFound, "room not found")
 	}
 	members, err := s.membersForProduct(ctx, roomID, channelID)
 	if err != nil {
 		return nil, internalError(err)
 	}
-	members = filterMembers(members, status, role)
 	summaries := make([]mcpMemberSummary, 0, len(members))
 	for _, member := range members {
 		if memberHidden(member.Membership) {
@@ -348,6 +365,7 @@ func (s *Service) mcpRoomMembersList(ctx context.Context, params map[string]any)
 			name = fallbackString(directName, name)
 		}
 	}
+	summaries = filterMCPMemberSummaries(summaries, status, role)
 	summaries = s.enrichMCPMemberSummariesWithProfiles(ctx, summaries)
 	limit := mcpLimit(params)
 	if len(summaries) > limit {
@@ -485,6 +503,25 @@ func mergeMCPMemberSummary(existing, incoming mcpMemberSummary) mcpMemberSummary
 		existing.JoinedAt = incoming.JoinedAt
 	}
 	return existing
+}
+
+func filterMCPMemberSummaries(members []mcpMemberSummary, status, role string) []mcpMemberSummary {
+	status = strings.ToLower(strings.TrimSpace(status))
+	role = strings.ToLower(strings.TrimSpace(role))
+	if status == "" && role == "" {
+		return members
+	}
+	filtered := members[:0]
+	for _, member := range members {
+		if status != "" && strings.ToLower(strings.TrimSpace(member.Membership)) != status {
+			continue
+		}
+		if role != "" && strings.ToLower(strings.TrimSpace(member.Role)) != role {
+			continue
+		}
+		filtered = append(filtered, member)
+	}
+	return filtered
 }
 
 func (s *Service) mcpDirectRoomMembers(ctx context.Context, roomID string) ([]mcpMemberSummary, string, *apiError) {

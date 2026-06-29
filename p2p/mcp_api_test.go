@@ -392,6 +392,41 @@ func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
 	}
 }
 
+func TestMCPRoomMembersListRejectsUnknownRoomsBeforeMatrixLookup(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!secret:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+
+	_, apiErr := service.Handle(context.Background(), "mcp.room_members.list", map[string]any{
+		"room_id": "!secret:example.com",
+	})
+	if apiErr == nil || apiErr.Status != 404 || !strings.Contains(apiErr.Error, "room not found") {
+		t.Fatalf("expected unknown room to be rejected, got %#v", apiErr)
+	}
+}
+
+func TestMCPRoomMembersListFiltersMergedMatrixMembers(t *testing.T) {
+	transport := &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
+		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Design Group",
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+		"role":    "member",
+	})
+	members := result["members"].([]mcpMemberSummary)
+	if len(members) != 1 || members[0].UserMXID != "@alice:remote.example" || members[0].Role != "member" {
+		t.Fatalf("expected role filter to apply after Matrix member merge, got %#v", members)
+	}
+}
+
 func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T) {
 	transport := &recordingTransport{roomMembers: []memberRecord{
 		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
