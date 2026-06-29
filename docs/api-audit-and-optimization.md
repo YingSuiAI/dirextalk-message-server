@@ -62,7 +62,21 @@ Current assumptions:
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
 - [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly.
 - [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements.
-- [ ] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, sync, DB, memory, and projector-lag metrics.
+- [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
+
+Capacity smoke usage:
+
+```bash
+python scripts/p2p-capacity-smoke.py \
+  --base-url http://localhost:8008 \
+  --password '<portal-password>' \
+  --groups 500 \
+  --channels 500 \
+  --posts-per-channel 2 \
+  --matrix-sync
+```
+
+The script creates test groups/channels/posts using a unique prefix, then prints JSON metrics for create actions, `sync.bootstrap`, `groups.list`, `channels.list`, `channels.public.search`, and optional Matrix `/sync`. Use a disposable test node or a clearly named prefix because the script intentionally writes product data.
 
 ### Deferred Client Optimization Checklist
 
