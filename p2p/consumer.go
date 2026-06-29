@@ -3,6 +3,9 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strconv"
+	"strings"
 
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/YingSuiAI/direxio-message-server/setup/config"
@@ -20,6 +23,7 @@ type OutputRoomEventConsumer struct {
 	service            *Service
 	projectOutputEvent func(context.Context, roomserverAPI.OutputEvent) error
 	metrics            *p2pProjectorConsumerMetrics
+	batchSize          int
 }
 
 func NewOutputRoomEventConsumer(process *process.ProcessContext, cfg *config.JetStream, js nats.JetStreamContext, service *Service) *OutputRoomEventConsumer {
@@ -31,18 +35,31 @@ func NewOutputRoomEventConsumer(process *process.ProcessContext, cfg *config.Jet
 		service:            service,
 		projectOutputEvent: service.ProjectOutputEvent,
 		metrics:            defaultP2PProjectorConsumerMetrics,
+		batchSize:          p2pProjectorBatchSizeFromEnv(),
 	}
 }
 
 func (c *OutputRoomEventConsumer) Start() error {
+	batchSize := c.batchSize
+	if batchSize <= 0 {
+		batchSize = 1
+	}
 	return jetstream.JetStreamConsumer(
-		c.ctx, c.jetstream, c.topic, c.durable, 1,
+		c.ctx, c.jetstream, c.topic, c.durable, batchSize,
 		c.onMessage, nats.DeliverAll(), nats.ManualAck(),
 	)
 }
 
 func (c *OutputRoomEventConsumer) onMessage(ctx context.Context, msgs []*nats.Msg) bool {
-	msg := msgs[0]
+	for _, msg := range msgs {
+		if !c.processMessage(ctx, msg) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *OutputRoomEventConsumer) processMessage(ctx context.Context, msg *nats.Msg) bool {
 	c.metrics.recordReceived(msg)
 	var output roomserverAPI.OutputEvent
 	if err := json.Unmarshal(msg.Data, &output); err != nil {
@@ -66,4 +83,20 @@ func (c *OutputRoomEventConsumer) onMessage(ctx context.Context, msgs []*nats.Ms
 	}
 	c.metrics.recordProcessed()
 	return true
+}
+
+func p2pProjectorBatchSizeFromEnv() int {
+	value := strings.TrimSpace(os.Getenv("P2P_PROJECTOR_BATCH_SIZE"))
+	if value == "" {
+		return 1
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		logrus.WithField("value", value).Warn("Ignoring invalid P2P_PROJECTOR_BATCH_SIZE value")
+		return 1
+	}
+	if parsed > 100 {
+		return 100
+	}
+	return parsed
 }

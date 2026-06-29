@@ -61,7 +61,7 @@ Current assumptions:
 - [ ] Add server-side retention or compaction for `p2p_events` with an explicit old-`since` recovery behavior. Status: default-off server retention primitives are implemented through `P2P_EVENT_RETENTION_MAX_ROWS` and `P2P_EVENT_RETENTION_PRUNE_ON_WRITE`; old-cursor reset/recovery remains deferred until client support.
 - [x] Add operator-safe defaults for 2c2g deployments: lower cache size, bounded DB connections, and documented disabled-by-default heavy features.
 - [ ] Review sync/history PostgreSQL query plans and add only measured indexes, especially room-scoped history pagination indexes if current plans scan poorly. Status: room-scoped topology index added from query-shape review; `scripts/p2p-sync-history-explain.py` now provides repeatable EXPLAIN measurement, but production-sized plan results are still pending.
-- [ ] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: reviewed and intentionally deferred. The durable JetStream consumer currently processes one roomserver output at a time with manual ack/retry. Redaction projection and reaction target resolution now use indexed post/comment lookups instead of full content scans, projected P2P delta events are deduplicated by source event/action, and consumer retry/backoff visibility is exposed through Prometheus metrics. Raising batch/concurrency remains blocked until strict per-room ordering is preserved.
+- [x] Make P2P projector batching/backpressure configurable after confirming idempotency and event ordering requirements. Status: `P2P_PROJECTOR_BATCH_SIZE` now enables sequential batch processing with default `1` and cap `100`; messages are still processed in stream order by one consumer goroutine, projected P2P deltas are deduplicated by source event/action, indexed post/comment lookups avoid content scans, and consumer retry/backoff visibility is exposed through Prometheus metrics.
 - [x] Add a repeatable capacity smoke script that creates many groups/channels/messages and records bootstrap, list, public search, optional Matrix sync, and response-size metrics.
 
 Capacity smoke usage:
@@ -96,13 +96,13 @@ Keep these controls disabled for normal clients until old/expired cursor recover
 
 Projector batching/backpressure notes:
 
-- Keep `P2POutputRoomEventConsumer` batch size at 1 until per-room ordering is explicit.
+- `P2POutputRoomEventConsumer` keeps default batch size `1`. Set `P2P_PROJECTOR_BATCH_SIZE` to process larger JetStream fetch batches sequentially; invalid values fall back to `1`, and values above `100` are capped.
 - Do not process multiple events from the same room concurrently. Profile, member, message, reaction, and redaction projection can depend on previous room state and projected channel/post/comment records.
 - Redaction projection deletes by post/comment id or Matrix event id and uses affected row counts, avoiding a full `p2p_channel_posts` / `p2p_channel_comments` scan.
 - Reaction target resolution uses direct post/comment id and Matrix event-id lookups, avoiding list-and-filter scans as channel content grows.
 - Projected `p2p_events` use an internal non-JSON `dedupe_key` persisted in `p2p_events`, so duplicate JetStream delivery of the same source event does not create duplicate product delta rows.
 - P2P projector consumer metrics are exposed under `direxio_message_server_p2p_projector_*`: `consumer_events_total{result}`, `consumer_consecutive_failures`, `consumer_last_success_unixtime`, `consumer_last_failure_unixtime`, and `consumer_last_message_age_seconds`.
-- Before enabling batching, preserve strict per-room ordering.
+- Keep strict per-room ordering if this consumer is ever changed from sequential batch processing to concurrent workers.
 
 ### Deferred Client Optimization Checklist
 

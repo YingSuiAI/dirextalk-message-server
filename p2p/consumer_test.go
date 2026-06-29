@@ -56,3 +56,56 @@ func TestOutputRoomEventConsumerRecordsProcessingMetrics(t *testing.T) {
 		t.Fatalf("expected failure and backoff metrics, got %#v", snapshot)
 	}
 }
+
+func TestOutputRoomEventConsumerProcessesBatchSequentially(t *testing.T) {
+	ctx := context.Background()
+	processed := []roomserverAPI.OutputType{}
+	consumer := &OutputRoomEventConsumer{
+		metrics: newP2PProjectorConsumerMetrics(),
+		projectOutputEvent: func(ctx context.Context, output roomserverAPI.OutputEvent) error {
+			processed = append(processed, output.Type)
+			if output.Type == roomserverAPI.OutputTypeNewRoomEvent {
+				return errors.New("second failed")
+			}
+			return nil
+		},
+	}
+	first, err := json.Marshal(roomserverAPI.OutputEvent{Type: roomserverAPI.OutputTypeOldRoomEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := json.Marshal(roomserverAPI.OutputEvent{Type: roomserverAPI.OutputTypeNewRoomEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if consumer.onMessage(ctx, []*nats.Msg{{Data: first}, {Data: second}}) {
+		t.Fatalf("expected batch to NAK when a later message fails")
+	}
+	if len(processed) != 2 || processed[0] != roomserverAPI.OutputTypeOldRoomEvent || processed[1] != roomserverAPI.OutputTypeNewRoomEvent {
+		t.Fatalf("expected batch to process messages sequentially, got %#v", processed)
+	}
+	snapshot := consumer.metrics.snapshot()
+	if snapshot.Received != 2 || snapshot.Processed != 1 || snapshot.Failed != 1 || snapshot.ConsecutiveFailures != 1 {
+		t.Fatalf("expected sequential batch metrics, got %#v", snapshot)
+	}
+}
+
+func TestP2PProjectorBatchSizeFromEnv(t *testing.T) {
+	t.Setenv("P2P_PROJECTOR_BATCH_SIZE", "")
+	if got := p2pProjectorBatchSizeFromEnv(); got != 1 {
+		t.Fatalf("expected default batch size 1, got %d", got)
+	}
+	t.Setenv("P2P_PROJECTOR_BATCH_SIZE", "25")
+	if got := p2pProjectorBatchSizeFromEnv(); got != 25 {
+		t.Fatalf("expected configured batch size 25, got %d", got)
+	}
+	t.Setenv("P2P_PROJECTOR_BATCH_SIZE", "0")
+	if got := p2pProjectorBatchSizeFromEnv(); got != 1 {
+		t.Fatalf("expected invalid low batch size to fall back to 1, got %d", got)
+	}
+	t.Setenv("P2P_PROJECTOR_BATCH_SIZE", "250")
+	if got := p2pProjectorBatchSizeFromEnv(); got != 100 {
+		t.Fatalf("expected high batch size to be capped at 100, got %d", got)
+	}
+}
