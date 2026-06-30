@@ -11,6 +11,10 @@ import (
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 )
 
+type peerContactReactivation struct {
+	PendingInbound bool
+}
+
 func (s *Service) contactRequest(ctx context.Context, params map[string]any) (any, *apiError) {
 	mxid := trimString(params["mxid"])
 	if mxid == "" {
@@ -38,11 +42,15 @@ func (s *Service) contactRequest(ctx context.Context, params map[string]any) (an
 		s.mu.Lock()
 		ownerMXID := s.ownerMXID
 		s.mu.Unlock()
-		if apiErr := s.requestPeerContactReactivation(ctx, existing, params, ownerMXID); apiErr != nil {
+		reactivation, apiErr := s.requestPeerContactReactivation(ctx, existing, params, ownerMXID)
+		if apiErr != nil {
 			if contactReactivationNotRetained(apiErr) {
-				return s.requestPeerApprovalInExistingDirectRoom(ctx, existing, params, fallbackString(domain, existing.Domain))
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, existing, params, fallbackString(domain, existing.Domain), true)
 			}
 			return nil, apiErr
+		}
+		if reactivation.PendingInbound {
+			return s.requestPeerApprovalInExistingDirectRoom(ctx, existing, params, fallbackString(domain, existing.Domain), false)
 		}
 		if err := s.attachContactConversationOperation(ctx, &existing, "contacts.request", existing.Status); err != nil {
 			return nil, internalError(err)
@@ -155,8 +163,11 @@ func (s *Service) acceptPendingInboundContact(ctx context.Context, contact conta
 		s.mu.Unlock()
 		roomID, apiErr := s.joinContactDirectRoom(ctx, contact, params, ownerMXID, ownerDisplayName, ownerAvatarURL)
 		if apiErr != nil {
+			if contactReactivationRecordedPending(apiErr) {
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(trimString(params["domain"]), contact.Domain), false)
+			}
 			if contactReactivationNotRetained(apiErr) {
-				return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(trimString(params["domain"]), contact.Domain))
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(trimString(params["domain"]), contact.Domain), true)
 			}
 			return nil, apiErr
 		}
@@ -190,11 +201,15 @@ func (s *Service) restoreDeletedContact(ctx context.Context, contact contactReco
 		ownerAvatarURL := s.profile.AvatarURL
 		s.mu.Unlock()
 		if remoteNodeBaseURLParam(params) != "" && domainFromMXID(contact.PeerMXID) != s.serverName {
-			if apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID); apiErr != nil {
+			reactivation, apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID)
+			if apiErr != nil {
 				if contactReactivationNotRetained(apiErr) {
-					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
+					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), true)
 				}
 				return nil, apiErr
+			}
+			if reactivation.PendingInbound {
+				return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), false)
 			}
 			join, err := s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, stringSliceParam(params["server_names"]))
 			if err != nil {
@@ -206,8 +221,11 @@ func (s *Service) restoreDeletedContact(ctx context.Context, contact contactReco
 		} else {
 			roomID, apiErr := s.joinContactDirectRoom(ctx, contact, params, ownerMXID, ownerDisplayName, ownerAvatarURL)
 			if apiErr != nil {
+				if contactReactivationRecordedPending(apiErr) {
+					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), false)
+				}
 				if contactReactivationNotRetained(apiErr) {
-					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
+					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), true)
 				}
 				return nil, apiErr
 			}
@@ -236,7 +254,7 @@ func (s *Service) restoreDeletedContact(ctx context.Context, contact contactReco
 	return contact, nil
 }
 
-func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, contact contactRecord, params map[string]any, fallbackDomain string) (contactRecord, *apiError) {
+func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, contact contactRecord, params map[string]any, fallbackDomain string, sendMatrixInvite bool) (contactRecord, *apiError) {
 	if strings.TrimSpace(contact.RoomID) == "" {
 		return s.createDirectContactRequest(ctx, contact.PeerMXID, params, fallbackDomain)
 	}
@@ -255,7 +273,7 @@ func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, c
 		contact.Domain = fallbackDomain
 	}
 	contact.Status = "pending_outbound"
-	if s.transport != nil {
+	if sendMatrixInvite && s.transport != nil {
 		s.mu.Lock()
 		ownerMXID := s.ownerMXID
 		ownerDisplayName := s.profile.DisplayName
@@ -296,8 +314,12 @@ func (s *Service) joinContactDirectRoom(ctx context.Context, contact contactReco
 		if !isDirectRoomJoinRequiresInvite(err) {
 			return "", transportWriteError(err)
 		}
-		if apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID); apiErr != nil {
+		reactivation, apiErr := s.requestPeerContactReactivation(ctx, contact, params, ownerMXID)
+		if apiErr != nil {
 			return "", apiErr
+		}
+		if reactivation.PendingInbound {
+			return "", statusError(http.StatusConflict, "peer recorded pending contact request")
 		}
 		join, err = s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, serverNames)
 		if err != nil {
@@ -335,10 +357,10 @@ func (s *Service) joinReactivatedDirectRoom(ctx context.Context, roomID, userMXI
 	return JoinRoomResult{}, productpolicy.Forbidden("direct room join requires invite")
 }
 
-func (s *Service) requestPeerContactReactivation(ctx context.Context, contact contactRecord, params map[string]any, requesterMXID string) *apiError {
+func (s *Service) requestPeerContactReactivation(ctx context.Context, contact contactRecord, params map[string]any, requesterMXID string) (peerContactReactivation, *apiError) {
 	peerServer := domainFromMXID(contact.PeerMXID)
 	if peerServer == "" || peerServer == s.serverName {
-		return statusError(http.StatusForbidden, "peer node is required to reactivate direct room")
+		return peerContactReactivation{}, statusError(http.StatusForbidden, "peer node is required to reactivate direct room")
 	}
 	remoteBase := remoteNodeBaseURLParam(params)
 	if remoteBase == "" {
@@ -349,20 +371,27 @@ func (s *Service) requestPeerContactReactivation(ctx context.Context, contact co
 		"room_id":              contact.RoomID,
 		"requester_mxid":       requesterMXID,
 		"remote_node_base_url": remoteBase,
+		"display_name":         trimString(params["display_name"]),
+		"avatar_url":           trimString(params["avatar_url"]),
+		"domain":               trimString(params["domain"]),
+		"remark":               contactRequestRemark(params),
 	}, &result)
 	if err != nil {
 		if status != 0 && status != http.StatusBadGateway {
-			return statusError(status, err.Error())
+			return peerContactReactivation{}, statusError(status, err.Error())
 		}
-		return statusError(http.StatusBadGateway, err.Error())
+		return peerContactReactivation{}, statusError(http.StatusBadGateway, err.Error())
 	}
 	if status != http.StatusOK {
 		if status == http.StatusNotFound {
-			return statusError(status, "retained contact not found")
+			return peerContactReactivation{}, statusError(status, "retained contact not found")
 		}
-		return statusError(status, "target node contact reactivation failed")
+		return peerContactReactivation{}, statusError(status, "target node contact reactivation failed")
 	}
-	return nil
+	if strings.EqualFold(trimString(result["status"]), "pending_inbound") {
+		return peerContactReactivation{PendingInbound: true}, nil
+	}
+	return peerContactReactivation{}, nil
 }
 
 func (s *Service) contactReactivate(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -381,8 +410,31 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 	if err != nil {
 		return nil, internalError(err)
 	}
-	if !ok || contact.RoomID != roomID || !contactAccepted(contact.Status) {
+	if !ok || contact.RoomID != roomID {
 		return nil, statusError(http.StatusNotFound, "retained contact not found")
+	}
+	if !contactAccepted(contact.Status) {
+		if displayName := trimString(params["display_name"]); contact.DisplayName == "" && displayName != "" {
+			contact.DisplayName = displayName
+		}
+		if avatarURL := trimString(params["avatar_url"]); contact.AvatarURL == "" && avatarURL != "" {
+			contact.AvatarURL = avatarURL
+		}
+		if domain := trimString(params["domain"]); contact.Domain == "" && domain != "" {
+			contact.Domain = domain
+		}
+		if remark := contactRequestRemark(params); remark != "" {
+			contact.Remark = remark
+		}
+		contact.Status = "pending_inbound"
+		if err := s.saveContact(ctx, contact); err != nil {
+			return nil, internalError(err)
+		}
+		result := map[string]any{"status": "pending_inbound", "room_id": roomID}
+		if err := s.attachConversationOperation(ctx, result, "contacts.reactivate", contact.Status, roomID); err != nil {
+			return nil, internalError(err)
+		}
+		return result, nil
 	}
 	if s.transport != nil {
 		if err := s.transport.InviteUser(ctx, InviteUserRequest{
@@ -408,6 +460,12 @@ func contactReactivationNotRetained(apiErr *apiError) bool {
 	return apiErr != nil &&
 		apiErr.Status == http.StatusNotFound &&
 		strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Error)), "retained contact")
+}
+
+func contactReactivationRecordedPending(apiErr *apiError) bool {
+	return apiErr != nil &&
+		apiErr.Status == http.StatusConflict &&
+		strings.Contains(strings.ToLower(strings.TrimSpace(apiErr.Error)), "pending contact request")
 }
 
 func isDirectRoomJoinRequiresInvite(err error) bool {

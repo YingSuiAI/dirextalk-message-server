@@ -182,7 +182,7 @@ Contacts：
 - 发起联系人请求会创建 direct Matrix room，并邀请对方。
 - inbound/outbound request 来自 Matrix invite/member projection。
 - accept 通过 Matrix join 进入 direct room。
-- delete 后保留原 direct room 身份用于恢复。删除方主动重新添加时，如果对方仍保留 accepted 关系，可以通过 `contacts.reactivate` 复用旧房间；被删除方重新申请时只能在旧房间形成 pending request，必须由删除方 accept 后才能重新聊天。
+- delete 后保留原 direct room 身份用于恢复。删除方主动重新添加时，如果对方仍保留 accepted 关系，可以通过 `contacts.reactivate` 复用旧房间；被删除方重新申请时只能在旧房间形成 pending request。双方都已离开旧房间时，目标节点直接记录 `pending_inbound`，请求节点记录 `pending_outbound`，不能由已离房用户再次发旧房间 Matrix invite，必须由删除方 accept 后才能重新聊天。
 - reject/delete 只改变产品 projection 与对应 Matrix leave/kick 行为，不制造普通消息副本。
 
 Groups：

@@ -734,6 +734,65 @@ func TestContactRequestKeepsOldRoomWhenPendingInboundInviteIsGone(t *testing.T) 
 	}
 }
 
+func TestContactRequestKeepsOldRoomWhenPeerRecordsPendingFromStaleInboundInvite(t *testing.T) {
+	remoteActions := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		remoteActions = append(remoteActions, req.Action)
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "pending_inbound",
+			"room_id": "!old-dm:remote.example",
+		})
+	}))
+	defer remote.Close()
+
+	transport := &failOnceJoinTransport{
+		recordingTransport: recordingTransport{roomID: "!fresh-dm:example.com"},
+		err:                productpolicy.Forbidden("direct room join requires invite"),
+		failures:           100,
+	}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "pending_inbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice Again",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected stale inbound request to become pending outbound in old room, got %#v", contact)
+	}
+	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
+		t.Fatalf("expected one peer reactivation call, got %#v", remoteActions)
+	}
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("stale inbound retry must preserve the old direct room, got %#v", transport.createRooms)
+	}
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("peer-recorded pending request must not invite from a left sender, got %#v", transport.inviteRequests)
+	}
+}
+
 func TestContactAcceptJoinsDirectRoomThroughTransport(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
@@ -1037,6 +1096,68 @@ func TestDeletedContactRequestCreatesFreshRequestWhenPeerNoLongerRetainsOldRoom(
 	}
 }
 
+func TestDeletedContactRequestKeepsPendingWhenPeerRecordsInboundRequest(t *testing.T) {
+	remoteActions := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		remoteActions = append(remoteActions, req.Action)
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "pending_inbound",
+			"room_id": "!old-dm:remote.example",
+		})
+	}))
+	defer remote.Close()
+
+	transport := &failOnceJoinTransport{
+		recordingTransport: recordingTransport{roomID: "!fresh-dm:example.com"},
+		err:                productpolicy.Forbidden("direct room join requires invite"),
+		failures:           100,
+	}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "deleted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice Again",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected peer-recorded re-request to wait for approval in the old room, got %#v", contact)
+	}
+	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
+		t.Fatalf("expected one peer reactivation call, got %#v", remoteActions)
+	}
+	if len(transport.joinRequests) != 0 {
+		t.Fatalf("peer-recorded pending request must not join old direct room, got %#v", transport.joinRequests)
+	}
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("peer-recorded pending request must preserve the old direct room, got %#v", transport.createRooms)
+	}
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("peer-recorded pending request must not invite from a left sender, got %#v", transport.inviteRequests)
+	}
+}
+
 func TestContactReactivateInvitesOnlyRetainedAcceptedPeer(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "remote.example"}, transport)
@@ -1069,6 +1190,40 @@ func TestContactReactivateInvitesOnlyRetainedAcceptedPeer(t *testing.T) {
 		"requester_mxid": "@owner:example.com",
 	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
 		t.Fatalf("expected mismatched room reactivation to be rejected, got %#v", apiErr)
+	}
+}
+
+func TestContactReactivateRecordsPendingInboundForDeletedPeerRequest(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "remote.example"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:example.com",
+		PeerMXID:    "@owner:example.com",
+		DisplayName: "Owner",
+		Domain:      "example.com",
+		Status:      "deleted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "contacts.reactivate", map[string]any{
+		"room_id":        "!old-dm:example.com",
+		"requester_mxid": "@owner:example.com",
+	})
+
+	if result["status"] != "pending_inbound" || result["room_id"] != "!old-dm:example.com" {
+		t.Fatalf("expected deleted retained room to become pending inbound, got %#v", result)
+	}
+	contact, ok, err := service.lookupContactByPeer(context.Background(), "@owner:example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || contact.Status != "pending_inbound" || contact.RoomID != "!old-dm:example.com" {
+		t.Fatalf("expected pending inbound contact in old room, got ok=%v contact=%#v", ok, contact)
+	}
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("deleted peer request must not invite from a left sender, got %#v", transport.inviteRequests)
 	}
 }
 
