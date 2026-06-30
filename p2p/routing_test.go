@@ -329,8 +329,8 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	mcpReq.Header.Set("Authorization", "Bearer "+agentToken)
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
-	if mcpRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected HTTP MCP action to require websocket, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
+	if mcpRec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP MCP action to succeed, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
 	}
 
 	agentRequest := jsonRequest(t, "/_p2p/command", map[string]any{

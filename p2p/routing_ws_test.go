@@ -121,14 +121,34 @@ func TestRealtimeWSStreamsLiveEventsAndTracksClientState(t *testing.T) {
 	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
 		t.Fatalf("expected ready, got %#v", got)
 	}
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.lifecycle", "foreground": true})
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.focus", "room_id": "!live:example.com"})
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":       "client.lifecycle",
+		"foreground": true,
+		"state":      "resumed",
+		"hidden":     false,
+		"flags":      map[string]any{"resumed": true},
+	})
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":    "client.focus",
+		"room_id": "!live:example.com",
+		"flags":   map[string]any{"chat_open": true},
+	})
 	writeRealtimeFrame(t, conn, map[string]any{"type": "client.ack", "seq": 7})
 
 	waitForRealtimePushSuppressed(t, service, "!live:example.com")
 	if service.shouldSuppressPushForRoom("!other:example.com") {
 		t.Fatal("expected different room to keep normal push behavior")
 	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":       "client.lifecycle",
+		"foreground": true,
+		"state":      "hidden",
+		"hidden":     true,
+		"flags":      map[string]any{"hidden": true, "background": true},
+	})
+	waitForRealtimePushNotSuppressed(t, service, "!live:example.com")
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.lifecycle", "foreground": true, "state": "resumed"})
+	waitForRealtimePushSuppressed(t, service, "!live:example.com")
 
 	if err := service.appendP2PEvent(context.Background(), p2pEvent{
 		Type:    "live.event",
@@ -236,36 +256,59 @@ func TestRealtimeWSClientCommandAliasUsesServerResponse(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSAgentCanOnlyRequestMCPActions(t *testing.T) {
+func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
 	defer server.Close()
-	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	ownerConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer ownerConn.Close(websocket.StatusNormalClosure, "")
 
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+	writeRealtimeFrame(t, ownerConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, ownerConn); got["type"] != "server.ready" {
 		t.Fatalf("expected ready, got %#v", got)
 	}
-	writeRealtimeFrame(t, conn, map[string]any{
+	writeRealtimeFrame(t, ownerConn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-owner-mcp",
+		"action": "mcp.rooms.search",
+		"params": map[string]any{"q": "none"},
+	})
+	ownerMCP := readRealtimeResponse(t, ownerConn, "req-owner-mcp")
+	if ownerMCP["type"] != "server.response" ||
+		ownerMCP["ok"] != false ||
+		int(ownerMCP["status"].(float64)) != http.StatusBadRequest ||
+		ownerMCP["error"] != "action requires http" {
+		t.Fatalf("expected owner MCP request to require HTTP, got %#v", ownerMCP)
+	}
+
+	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
+	defer agentConn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, agentConn, map[string]any{
 		"type":   "client.request",
 		"id":     "req-agent-mcp",
 		"action": "mcp.rooms.search",
 		"params": map[string]any{"q": "none"},
 	})
-	mcp := readRealtimeResponse(t, conn, "req-agent-mcp")
-	if mcp["type"] != "server.response" || mcp["ok"] != true || mcp["action"] != "mcp.rooms.search" {
-		t.Fatalf("expected agent MCP request to succeed, got %#v", mcp)
+	agentMCP := readRealtimeResponse(t, agentConn, "req-agent-mcp")
+	if agentMCP["type"] != "server.response" ||
+		agentMCP["ok"] != false ||
+		int(agentMCP["status"].(float64)) != http.StatusBadRequest ||
+		agentMCP["error"] != "action requires http" {
+		t.Fatalf("expected agent MCP request to require HTTP, got %#v", agentMCP)
 	}
 
-	writeRealtimeFrame(t, conn, map[string]any{
+	writeRealtimeFrame(t, agentConn, map[string]any{
 		"type":   "client.request",
 		"id":     "req-agent-owner",
 		"action": "contacts.list",
 		"params": map[string]any{},
 	})
-	frame := readRealtimeResponse(t, conn, "req-agent-owner")
+	frame := readRealtimeResponse(t, agentConn, "req-agent-owner")
 	if frame["type"] != "server.response" ||
 		frame["id"] != "req-agent-owner" ||
 		frame["ok"] != false ||
@@ -523,6 +566,23 @@ func waitForRealtimePushSuppressed(t *testing.T, service *Service, roomID string
 		select {
 		case <-deadline:
 			t.Fatalf("expected focused foreground WS session to suppress push for %s", roomID)
+		case <-tick.C:
+		}
+	}
+}
+
+func waitForRealtimePushNotSuppressed(t *testing.T, service *Service, roomID string) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if !service.shouldSuppressPushForRoom(roomID) {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected WS session state to keep normal push for %s", roomID)
 		case <-tick.C:
 		}
 	}

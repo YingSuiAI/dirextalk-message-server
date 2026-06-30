@@ -42,7 +42,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 主链路是 `GET /_p2p/ws` 上的 `client.request`/`server.response`；HTTP `/query` 和 `/command` 只保留给 portal bootstrap/auth/status/password、`realtime.ws_ticket.create`、以及节点间 public/callback action。`agent_token` 只允许访问固定 `mcp.*` action 和 `realtime.ws_ticket.create`，供 agent gateway 连接 WS 被动接收 `agent_room.message`，并发送临时 `client.agent_stream` 片段。`GET /_p2p/ws` 只接受短期单次 WS ticket，不直接接受 bearer token。当前 public action 是：
+Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 主链路是 `GET /_p2p/ws` 上的 `client.request`/`server.response`；HTTP `/query` 和 `/command` 保留给 portal bootstrap/auth/status/password、`realtime.ws_ticket.create`、固定 MCP action、以及节点间 public/callback action。`agent_token` 只允许访问固定 `mcp.*` HTTP action 和 `realtime.ws_ticket.create`，供 agent gateway 连接 WS 被动接收 `agent_room.message`，并发送临时 `client.agent_stream` 片段。MCP action 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 WS ticket，不直接接受 bearer token。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -112,7 +112,7 @@ P2P action 生命周期：
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
 6. Direxio Message Server roomserver 产生 output event。
 7. `p2p.consumer` 调用 `ProjectRoomEvent` 更新 P2P read model。
-8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，`client.command` 只作为兼容期别名映射到同一处理路径；agent-token WS 可用 `client.agent_stream` 向 owner WS 临时转发流式输出。
+8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；`client.command` 只作为兼容期别名映射到同一处理路径；agent-token WS 可用 `client.agent_stream` 向 owner WS 临时转发流式输出。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
 
 同步策略：
@@ -217,7 +217,7 @@ Calls/Favorites/Follows：
 Push：
 
 - 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。
-- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：前台且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.direxio.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
+- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：`client.lifecycle` 至少包含 `foreground`，并可携带 `state`、`hidden` 和 `flags`；`client.focus` 至少包含 `room_id`，并可携带 `focused` 和 `flags`。前台、未 hidden、且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、hidden、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.direxio.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
 
 Agent/API：
 

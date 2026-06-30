@@ -9,7 +9,7 @@
 - Flutter branch: `feature/ws-realtime-sync`
 - Server WebSocket library: existing `github.com/coder/websocket`
 - Flutter WebSocket library: `web_socket_channel`
-- Target result: migrate the logged-in Direxio client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP only for startup/session and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
+- Target result: migrate the logged-in Direxio client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP for startup/session, fixed MCP, and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
 
 ## Contract Summary
 
@@ -17,7 +17,7 @@
 - Retain WebSocket route `GET /_p2p/ws?ticket=<ticket>`.
 - A WS ticket is short-lived, server-local, single-use, and issued from an owner `access_token` or an `agent_token`.
 - Remove `GET /_p2p/events`; there is no SSE fallback.
-- HTTP `/query` and `/command` stay registered only for portal bootstrap/auth/status/password, WS ticket creation, and node-to-node public/callback actions.
+- HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, fixed MCP actions, and node-to-node public/callback actions.
 - Logged-in owner clients call product actions through WS:
 
 ```json
@@ -50,27 +50,28 @@
 }
 ```
 
-- WS still supports `client.hello`, `client.lifecycle`, `client.focus`, `client.ack`, `client.agent_stream`, `client.ping`, `server.ready`, `server.event`, `server.cursor_reset`, `server.agent_stream`, `server.pong`, and `server.error`.
+- WS still supports `client.hello`, `client.lifecycle`, `client.focus`, `client.ack`, `client.agent_stream`, `client.ping`, `server.ready`, `server.event`, `server.cursor_reset`, `server.agent_stream`, `server.pong`, and `server.error`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`.
 - `client.command` remains a one-release compatibility alias and maps internally to `client.request`; new Flutter code sends only `client.request`.
+- Fixed `mcp.*` actions stay HTTP-only. WS `client.request` for `mcp.*` returns `server.response ok=false status=400 error="action requires http"`.
 
 ## Behavioral Rules
 
 - Matrix `/sync` remains the source for ordinary room timeline, Matrix state, membership, account data, and agent room state.
 - Matrix Client-Server APIs remain responsible for ordinary text/media send, history, search, redaction, and local delete.
-- WS `client.request` is the primary product request/response API after login.
+- WS `client.request` is the primary product request/response API after login, excluding MCP.
 - `/_p2p/query` and `/_p2p/command` reject non-retained client product actions with an explicit "action requires websocket" error.
 - Flutter keeps the existing chat timeline and `AgentMessageBody`/`gpt_markdown` rendering stack for agent output. Whole-chat packages such as `flutter_chat_ui` are not introduced in this phase because they would replace current Matrix timeline, local outbox, scroll, read-marker, call-record, and selection behavior.
 - WS session state is server-internal only. It must not expose user-visible presence or focused room information to other users.
 - WS session state is memory-only because it is a connection/session fact. Persistent product facts continue to use existing Matrix state and product stores.
 - Agent stream fragments are memory-only delivery hints. They are not stored in the P2P outbox or Matrix timeline, and they do not replace the final Matrix `m.room.message` reply from `@agent:<server>`.
-- Push suppression uses server time. A connected foreground WS session with the same focused room suppresses system push for that room; background, disconnected, expired, or different-room state allows normal push. The agents room keeps its default no-system-push rule.
+- Push suppression uses server time. A connected foreground, non-hidden WS session with the same focused room suppresses system push for that room; hidden, background, disconnected, expired, no-focus, or different-room state allows normal push. Lifecycle/focus `flags` are stored as server-side session context for future push decisions, not exposed as user presence. The agents room keeps its default no-system-push rule.
 - Non-idempotent mutations are not automatically retried if the WS connection drops before a matching `server.response` arrives; the UI must show the error/retry state.
 
 ## Acceptance Criteria
 
 - Server route `GET /_p2p/ws` supports ticket authentication, replay from `since`, live P2P event streaming, cursor reset, client lifecycle/focus/ack, heartbeat, `client.request`, and clean disconnect handling.
 - Owner WS sessions can call representative query and command actions through `client.request`, including `contacts.list`, `groups.create`, and `sync.read_marker`/`channels.read_marker`.
-- Agent-token WS sessions can call only fixed `mcp.*` actions, receive only `agent_room.message`, and send `client.agent_stream` for the configured `agent_room_id`; owner WS sessions receive `server.agent_stream`.
+- Agent-token WS sessions receive only `agent_room.message` and send `client.agent_stream` for the configured `agent_room_id`; owner WS sessions receive `server.agent_stream`. MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`.
 - Unknown action, malformed request frame, missing `id`, and handler errors return `server.response` with `ok=false`.
 - `GET /_p2p/events` is not registered.
 - HTTP `/query` and `/command` reject non-retained logged-in product actions while retained login/ticket and node public/callback actions still work.
@@ -115,6 +116,10 @@
 - [x] Phase 26: Validate device or browser WS smoke; record whether a physical Android/iOS device is available.
 - [x] Phase 27: Review diffs and commit server repository.
 - [x] Phase 28: Review diffs and commit Flutter repository.
+- [x] Phase 29: Correct MCP boundary back to fixed HTTP body actions and reject `mcp.*` over WS.
+- [x] Phase 30: Extend WS lifecycle/focus state with `state`, `hidden`, and `flags`; make hidden sessions keep normal push behavior.
+- [x] Phase 31: Extend Flutter lifecycle reporting and reconnect replay of client state.
+- [x] Phase 32: Re-run focused server/Flutter verification, update documentation, and commit the correction.
 
 ## Verification Log
 
@@ -168,7 +173,7 @@ Record command evidence here as phases complete.
 - `docker compose -f docker-compose.p2p.yml config` and `docker compose -f docker-compose.p2p-dual.yml config` passed with `P2P_DUAL_PUBLIC_HOST=host.docker.internal`.
 - `docker compose -f docker-compose.p2p.yml up -d --build` rebuilt and started the single-node stack from the current server code.
 - Docker owner WS smoke passed: health `ok`, real owner ticket connected to `GET /_p2p/ws`, `client.hello` returned `server.ready`, `client.request contacts.list` returned `server.response ok=true`, `GET /_p2p/events` returned `404`, and HTTP `contacts.list` returned `action requires websocket`.
-- Docker agent WS smoke passed: real agent ticket connected to `GET /_p2p/ws`, `mcp.rooms.search` returned `server.response ok=true`, and `contacts.list` returned `server.response status=403`.
+- Docker agent WS smoke passed in the full-migration commit, then MCP was corrected back to HTTP-only: real agent tickets connect to `GET /_p2p/ws`; `mcp.rooms.search` over WS returns `server.response status=400 error=action requires http`, while HTTP `mcp.rooms.search` remains available to `agent_token`; `contacts.list` over agent WS returns `server.response status=403`.
 - `dart format --set-exit-if-changed ...` passed for touched Flutter files.
 - `flutter test --no-pub test\as_realtime_transport_test.dart test\http_as_client_test.dart test\as_event_stream_refresh_controller_test.dart test\as_bootstrap_store_test.dart test\as_event_cursor_store_test.dart` passed.
 - `flutter analyze --no-pub` passed.
@@ -177,6 +182,16 @@ Record command evidence here as phases complete.
 - `flutter devices` found Windows, Chrome, and Edge targets; no Android/iOS physical device was connected in this workspace. `flutter emulators` found `Pixel_10_Pro`, but it is an emulator, not a physical device.
 - Browser Web smoke served `build\web` at `http://127.0.0.1:3017`, logged in against `http://127.0.0.1:8008`, reached `#/home`, and after the Web SharedPreferences store fix no longer logged `P2P event stream refresh failed: MissingPluginException(... getApplicationSupportDirectory ...)`. Existing unrelated Web file-cache logs remain for chat-clear/conversation-summary/profile providers.
 - Flutter WS Product API migration commit: `3e0d0ba feat: migrate product actions to websocket`.
+- `go test ./p2p ./internal/realtime ./userapi/consumers -count=1` passed.
+- `go build ./cmd/direxio-message-server` passed.
+- `python -m json.tool docs\postman\direxio-message-server.postman_collection.json > $null` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-contract-sync` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-event-state-tracer` passed.
+- `git diff --check` passed in the server repository.
+- `flutter test test/as_realtime_transport_test.dart test/as_event_stream_refresh_controller_test.dart` passed.
+- `flutter analyze` passed.
+- `git diff --check` passed in the Flutter repository.
+- `flutter devices` found Windows, Chrome, and Edge targets; no Android/iOS physical device was connected, so physical-device acceptance still requires a connected phone build.
 
 ## Manual Device Acceptance
 

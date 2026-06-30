@@ -72,14 +72,31 @@ Use a regional gateway URL when required, for example `https://push-eu.direxio.a
 The homeserver cannot reliably infer whether a mobile app is foreground or background from `/sync`, read receipts, or pusher registration. Current Direxio clients should report app lifecycle and focused room over `GET /_p2p/ws` after creating a `realtime.ws_ticket.create` ticket:
 
 ```json
-{ "type": "client.lifecycle", "foreground": true }
+{
+  "type": "client.lifecycle",
+  "foreground": true,
+  "state": "resumed",
+  "hidden": false,
+  "flags": {
+    "foreground": true,
+    "background": false,
+    "hidden": false
+  }
+}
 ```
 
 ```json
-{ "type": "client.focus", "room_id": "!room:server" }
+{
+  "type": "client.focus",
+  "room_id": "!room:server",
+  "focused": true,
+  "flags": {
+    "focused": true
+  }
+}
 ```
 
-A fresh foreground WS session suppresses Matrix push-rule notifications only for the same focused room: the server does not create a new unread notification row and does not call the HTTP push gateway for that room. Missing focus, different-room focus, background, disconnected, or expired session state keeps normal background push behavior. WS session freshness is stamped with server time and expires after 60 seconds.
+A fresh foreground, non-hidden WS session suppresses Matrix push-rule notifications only for the same focused room: the server does not create a new unread notification row and does not call the HTTP push gateway for that room. Missing focus, different-room focus, hidden, background, disconnected, or expired session state keeps normal background push behavior. WS session freshness is stamped with server time and expires after 60 seconds.
 
 During migration, clients without a fresh WS session may still report a coarse foreground fallback with global Matrix account data:
 

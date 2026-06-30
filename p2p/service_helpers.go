@@ -214,6 +214,31 @@ func boolParam(value any) bool {
 	}
 }
 
+func boolMapParam(value any) map[string]bool {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		if alternate, alternateOK := value.(map[string]interface{}); alternateOK {
+			raw = alternate
+			ok = true
+		}
+	}
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	flags := make(map[string]bool, len(raw))
+	for key, value := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		flags[key] = boolParam(value)
+	}
+	if len(flags) == 0 {
+		return nil
+	}
+	return flags
+}
+
 func domainFromMXID(mxid string) string {
 	return domainFromMatrixID(mxid, "@")
 }

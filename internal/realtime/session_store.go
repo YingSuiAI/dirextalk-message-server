@@ -12,9 +12,12 @@ type SessionState struct {
 	UserID        string
 	Role          string
 	Foreground    bool
+	Hidden        bool
+	AppState      string
 	FocusedRoomID string
 	LastAckSeq    int64
 	LastSeen      time.Time
+	Flags         map[string]bool
 }
 
 type SessionStore struct {
@@ -121,7 +124,7 @@ func (s *SessionStore) ShouldSuppressPush(userID, roomID string, now time.Time) 
 			delete(s.sessions, sessionID)
 			continue
 		}
-		if state.UserID == userID && state.Foreground && state.FocusedRoomID == roomID {
+		if state.UserID == userID && state.Foreground && !state.Hidden && state.FocusedRoomID == roomID {
 			return true
 		}
 	}

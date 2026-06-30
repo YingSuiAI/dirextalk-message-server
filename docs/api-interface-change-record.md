@@ -2,9 +2,52 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 MCP HTTP Boundary And WS Client State Flags
+
+Fixed MCP actions remain HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they are not migrated into WS `client.request`. Owner `access_token` and fixed `agent_token` may call the existing MCP allowlist over HTTP. If an owner or agent WS session sends a `client.request` for `mcp.*`, the server returns:
+
+```json
+{
+  "type": "server.response",
+  "id": "req-1",
+  "action": "mcp.rooms.search",
+  "ok": false,
+  "status": 400,
+  "error": "action requires http"
+}
+```
+
+WS lifecycle and focus frames now accept extra client-state fields for future push decisions while preserving the existing `foreground` and `room_id` fields:
+
+```json
+{
+  "type": "client.lifecycle",
+  "foreground": false,
+  "state": "hidden",
+  "hidden": true,
+  "flags": {
+    "hidden": true,
+    "background": true
+  }
+}
+```
+
+```json
+{
+  "type": "client.focus",
+  "room_id": "!room:server",
+  "focused": true,
+  "flags": {
+    "focused": true
+  }
+}
+```
+
+Push suppression requires a fresh foreground WS session that is not hidden and has the same focused room as the push candidate. Hidden/background/disconnected/expired/different-room state keeps normal push behavior.
+
 ## 2026-06-30 WS Product API Full Migration
 
-Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain only for portal bootstrap/auth/status/password, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
+Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, fixed MCP actions, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
 
 Client request frame:
 
@@ -46,7 +89,7 @@ Error response frame:
 
 `GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
 
-Owner WS sessions may call all protected logged-in product actions except `realtime.ws_ticket.create`. Agent-token WS sessions may call only fixed `mcp.*` actions, receive only `agent_room.message`, and send `client.agent_stream` fragments. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, and local delete.
+Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create` and fixed MCP actions. Agent-token WS sessions receive only `agent_room.message` and may send `client.agent_stream` fragments; MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, and local delete.
 
 HTTP `/query` and `/command` now return an explicit error for non-retained logged-in client actions:
 

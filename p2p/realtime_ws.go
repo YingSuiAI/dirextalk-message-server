@@ -141,11 +141,24 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 		switch trimString(frame["type"]) {
 		case "client.lifecycle":
 			s.updateRealtimeWSSession(sessionID, func(state *realtime.SessionState) {
-				state.Foreground = boolParam(frame["foreground"])
+				foreground := boolParam(frame["foreground"])
+				hidden := boolParam(frame["hidden"])
+				state.Foreground = foreground
+				state.Hidden = hidden
+				state.AppState = trimString(frame["state"])
+				updateRealtimeWSSessionFlags(state, frame, map[string]bool{
+					"foreground": foreground,
+					"background": !foreground,
+					"hidden":     hidden,
+				})
 			})
 		case "client.focus":
 			s.updateRealtimeWSSession(sessionID, func(state *realtime.SessionState) {
-				state.FocusedRoomID = trimString(frame["room_id"])
+				roomID := trimString(frame["room_id"])
+				state.FocusedRoomID = roomID
+				updateRealtimeWSSessionFlags(state, frame, map[string]bool{
+					"focused": roomID != "",
+				})
 			})
 		case "client.ack":
 			s.updateRealtimeWSSession(sessionID, func(state *realtime.SessionState) {
@@ -249,7 +262,10 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	if action == realtimeWSTicketAction {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
-	if record.Role != "owner" && !(record.Role == "agent" && serviceapi.AgentAction(action)) {
+	if serviceapi.AgentAction(action) {
+		return realtimeWSResponseError(id, action, http.StatusBadRequest, "action requires http")
+	}
+	if record.Role != "owner" {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
 	result, apiErr := s.Handle(ctx, action, params)
@@ -263,6 +279,33 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 		"ok":     true,
 		"result": result,
 	}
+}
+
+func updateRealtimeWSSessionFlags(state *realtime.SessionState, frame map[string]any, defaults map[string]bool) {
+	if state == nil {
+		return
+	}
+	flags := make(map[string]bool, len(state.Flags)+len(defaults)+4)
+	for key, value := range state.Flags {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			flags[key] = value
+		}
+	}
+	for key, value := range defaults {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			flags[key] = value
+		}
+	}
+	for key, value := range boolMapParam(frame["flags"]) {
+		flags[key] = value
+	}
+	if len(flags) == 0 {
+		state.Flags = nil
+		return
+	}
+	state.Flags = flags
 }
 
 func realtimeWSResponseError(id, action string, status int, message string) map[string]any {

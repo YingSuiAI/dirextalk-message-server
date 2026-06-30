@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 	"github.com/gorilla/mux"
 )
 
@@ -107,6 +108,9 @@ func handle(service *Service) http.HandlerFunc {
 func httpProductActionAllowed(action string) bool {
 	action = strings.TrimSpace(action)
 	if publicAction(action) {
+		return true
+	}
+	if serviceapi.AgentAction(action) {
 		return true
 	}
 	switch action {
