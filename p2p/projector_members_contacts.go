@@ -204,7 +204,7 @@ func (s *Service) projectDirectContactMember(ctx context.Context, member memberR
 		contact.PeerMXID = member.UserID
 		changed = true
 	}
-	if member.DisplayName != "" && contact.DisplayName != member.DisplayName {
+	if member.DisplayName != "" && !contact.DisplayNameOverride && contact.DisplayName != member.DisplayName {
 		contact.DisplayName = member.DisplayName
 		changed = true
 	}

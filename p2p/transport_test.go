@@ -530,6 +530,39 @@ func TestContactRequestIsIdempotentForExistingDirectContact(t *testing.T) {
 	}
 }
 
+func TestPendingOutboundContactRequestKeepsOldRoomWhenSenderLeft(t *testing.T) {
+	transport := &failingInviteTransport{
+		err: productpolicy.Forbidden("sender is not joined to the direxio room"),
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "pending_outbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":         "@alice:remote.example",
+		"display_name": "Alice Again",
+		"domain":       "remote.example",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected pending outbound retry to keep old room, got %#v", contact)
+	}
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("pending outbound retry must not create a replacement direct room, got %#v", transport.createRooms)
+	}
+	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected retry to attempt old-room invite once, got %#v", transport.inviteRequests)
+	}
+}
+
 func TestAcceptedContactRequestCreatesPendingInviteWhenPeerNoLongerRetainsOldRoom(t *testing.T) {
 	remoteActions := []string{}
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -586,6 +619,60 @@ func TestAcceptedContactRequestCreatesPendingInviteWhenPeerNoLongerRetainsOldRoo
 		transport.inviteRequests[0].InviteeMXID != "@alice:remote.example" ||
 		!transport.inviteRequests[0].IsDirect {
 		t.Fatalf("expected pending invite in old direct room, got %#v", transport.inviteRequests)
+	}
+}
+
+func TestAcceptedContactRequestKeepsPendingWhenOldRoomInviteSenderLeft(t *testing.T) {
+	remoteActions := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		remoteActions = append(remoteActions, req.Action)
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "retained contact not found"})
+	}))
+	defer remote.Close()
+
+	transport := &failingInviteTransport{
+		err: productpolicy.Forbidden("sender is not joined to the direxio room"),
+	}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice Again",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected left-sender re-request to wait for approval in the old room, got %#v", contact)
+	}
+	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
+		t.Fatalf("expected one peer reactivation probe, got %#v", remoteActions)
+	}
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("left-sender re-request must preserve the old direct room, got %#v", transport.createRooms)
+	}
+	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected one old-room invite attempt, got %#v", transport.inviteRequests)
 	}
 }
 
@@ -3106,6 +3193,17 @@ type failingSendTransport struct {
 func (t *failingSendTransport) SendMessage(ctx context.Context, req SendMessageRequest) (SendMessageResult, error) {
 	t.messages = append(t.messages, req)
 	return SendMessageResult{}, t.err
+}
+
+type failingInviteTransport struct {
+	recordingTransport
+	err error
+}
+
+func (t *failingInviteTransport) InviteUser(ctx context.Context, req InviteUserRequest) error {
+	t.invites = append(t.invites, req.InviterMXID+" -> "+req.InviteeMXID+" in "+req.RoomID)
+	t.inviteRequests = append(t.inviteRequests, req)
+	return t.err
 }
 
 type failingRedactTransport struct {

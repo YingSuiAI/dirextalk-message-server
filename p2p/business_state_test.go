@@ -2006,11 +2006,11 @@ func TestContactRemarkUpdatePersistsAfterReload(t *testing.T) {
 		"room_id":      accepted.RoomID,
 		"display_name": "Alice Remark",
 	})
-	if updated.DisplayName != "Alice Remark" || updated.PeerMXID != accepted.PeerMXID || updated.Status != "accepted" {
+	if updated.DisplayName != "Alice Remark" || !updated.DisplayNameOverride || updated.PeerMXID != accepted.PeerMXID || updated.Status != "accepted" {
 		t.Fatalf("expected updated contact remark, got %#v", updated)
 	}
 	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
-	if got := findContact(contacts, accepted.PeerMXID); got.DisplayName != "Alice Remark" {
+	if got := findContact(contacts, accepted.PeerMXID); got.DisplayName != "Alice Remark" || !got.DisplayNameOverride {
 		t.Fatalf("expected updated remark in contacts list, got %#v", contacts)
 	}
 
@@ -2024,7 +2024,7 @@ func TestContactRemarkUpdatePersistsAfterReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	reloadedContacts := mustHandle[map[string]any](t, reloaded, "contacts.list", nil)["contacts"].([]contactRecord)
-	if got := findContact(reloadedContacts, accepted.PeerMXID); got.DisplayName != "Alice Remark" {
+	if got := findContact(reloadedContacts, accepted.PeerMXID); got.DisplayName != "Alice Remark" || !got.DisplayNameOverride {
 		t.Fatalf("expected updated remark after reload, got %#v", reloadedContacts)
 	}
 }

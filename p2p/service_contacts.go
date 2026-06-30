@@ -142,7 +142,9 @@ func (s *Service) resendPendingOutboundContactRequest(ctx context.Context, conta
 				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
 			},
 		}); err != nil {
-			return contactRecord{}, transportWriteError(err)
+			if !isSenderNotJoinedDirexioRoom(err) {
+				return contactRecord{}, transportWriteError(err)
+			}
 		}
 	}
 	if err := s.saveContact(ctx, contact); err != nil {
@@ -289,7 +291,9 @@ func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, c
 				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
 			},
 		}); err != nil {
-			return contactRecord{}, transportWriteError(err)
+			if !isSenderNotJoinedDirexioRoom(err) {
+				return contactRecord{}, transportWriteError(err)
+			}
 		}
 	}
 	if err := s.saveContact(ctx, contact); err != nil {
@@ -472,6 +476,13 @@ func isDirectRoomJoinRequiresInvite(err error) bool {
 		policyErr.Message == "direct room join requires invite"
 }
 
+func isSenderNotJoinedDirexioRoom(err error) bool {
+	var policyErr *productpolicy.PolicyError
+	return errors.As(err, &policyErr) &&
+		policyErr.Code == http.StatusForbidden &&
+		policyErr.Message == "sender is not joined to the direxio room"
+}
+
 //nolint:gocyclo // Contact mutations share transport and persistence guards in one compatibility endpoint.
 func (s *Service) contactMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
 	peer := trimString(params["peer_mxid"])
@@ -636,6 +647,7 @@ func (s *Service) contactUpdate(ctx context.Context, params map[string]any) (any
 		return nil, statusError(http.StatusForbidden, "contact is not accepted")
 	}
 	contact.DisplayName = displayName
+	contact.DisplayNameOverride = true
 	if domain := trimString(params["domain"]); domain != "" {
 		contact.Domain = domain
 	}

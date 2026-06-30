@@ -8,12 +8,13 @@ import (
 func (s *DatabaseStore) UpsertContact(ctx context.Context, contact contactRecord) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, avatar_url, remark, domain, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT(peer_mxid) DO UPDATE SET
 				room_id = EXCLUDED.room_id,
 				peer_mxid = EXCLUDED.peer_mxid,
 				display_name = EXCLUDED.display_name,
+				display_name_override = EXCLUDED.display_name_override,
 				avatar_url = CASE
 					WHEN EXCLUDED.avatar_url <> '' THEN EXCLUDED.avatar_url
 					ELSE p2p_contacts.avatar_url
@@ -21,13 +22,13 @@ func (s *DatabaseStore) UpsertContact(ctx context.Context, contact contactRecord
 				remark = EXCLUDED.remark,
 				domain = EXCLUDED.domain,
 				status = EXCLUDED.status
-		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.AvatarURL, contact.Remark, contact.Domain, contact.Status)
+		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.DisplayNameOverride, contact.AvatarURL, contact.Remark, contact.Domain, contact.Status)
 		return err
 	})
 }
 
 func (s *DatabaseStore) ListContacts(ctx context.Context) ([]contactRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT room_id, peer_mxid, display_name, avatar_url, remark, domain, status FROM p2p_contacts ORDER BY display_name ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status FROM p2p_contacts ORDER BY display_name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +36,7 @@ func (s *DatabaseStore) ListContacts(ctx context.Context) ([]contactRecord, erro
 	var contacts []contactRecord
 	for rows.Next() {
 		var contact contactRecord
-		if err := rows.Scan(&contact.RoomID, &contact.PeerMXID, &contact.DisplayName, &contact.AvatarURL, &contact.Remark, &contact.Domain, &contact.Status); err != nil {
+		if err := rows.Scan(&contact.RoomID, &contact.PeerMXID, &contact.DisplayName, &contact.DisplayNameOverride, &contact.AvatarURL, &contact.Remark, &contact.Domain, &contact.Status); err != nil {
 			return nil, err
 		}
 		contacts = append(contacts, contact)

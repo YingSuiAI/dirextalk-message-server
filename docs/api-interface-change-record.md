@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 Contact Display Name Override
+
+`contacts.update` now marks the supplied `display_name` as a local contact remark. Contact records returned from `contacts.update`, `contacts.list`, and `sync.bootstrap.contacts` may include `display_name_override: true` when the displayed name is owner-managed.
+
+Remote Matrix member profile updates still refresh peer avatar metadata, but they no longer overwrite an accepted contact's `display_name` while `display_name_override` is true. Contacts without a local override keep the previous Matrix-native behavior and continue to follow the peer's latest Matrix member display name.
+
 ## 2026-06-30 Agent Bridge Transport Returns To Matrix
 
 Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its `@agent:<server>` Matrix session. The server no longer treats `agent.config.enabled=true` or an agent-token WS session as online; startup/agents-room repair and `agent.config.update enabled=false` only publish `online=false` as a fallback.

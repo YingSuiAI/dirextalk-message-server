@@ -93,6 +93,7 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 					room_id TEXT PRIMARY KEY NOT NULL,
 					peer_mxid TEXT NOT NULL,
 					display_name TEXT NOT NULL,
+					display_name_override BOOLEAN NOT NULL DEFAULT FALSE,
 					remark TEXT NOT NULL DEFAULT '',
 					domain TEXT NOT NULL,
 					status TEXT NOT NULL
@@ -496,6 +497,20 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 				`ALTER TABLE p2p_events ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT ''`,
 				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_events_dedupe_key_idx ON p2p_events(dedupe_key) WHERE dedupe_key <> ''`,
 			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: contact display name override v28",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_contacts")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return nil
+			}
+			_, err = txn.ExecContext(ctx, `ALTER TABLE p2p_contacts ADD COLUMN IF NOT EXISTS display_name_override BOOLEAN NOT NULL DEFAULT FALSE`)
+			return err
 		},
 	})
 	return m.Up(ctx)

@@ -898,6 +898,43 @@ func TestProjectDirectMemberProfileUpdateRefreshesAcceptedContact(t *testing.T) 
 	}
 }
 
+func TestProjectDirectMemberProfileUpdatePreservesLocalContactRemark(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = owner.ID
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:            remote.ID,
+		DisplayName:         "Local Remark",
+		DisplayNameOverride: true,
+		AvatarURL:           "mxc://test/old",
+		Domain:              domainFromMXID(remote.ID),
+		RoomID:              room.ID,
+		Status:              "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	update := room.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership":  "join",
+		"displayname": "Remote New",
+		"avatar_url":  "mxc://test/new",
+	}, test.WithStateKey(remote.ID))
+	if err := service.ProjectRoomEvent(context.Background(), update); err != nil {
+		t.Fatal(err)
+	}
+
+	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
+	if len(contacts) != 1 || contacts[0].DisplayName != "Local Remark" || !contacts[0].DisplayNameOverride || contacts[0].AvatarURL != "mxc://test/new" || contacts[0].Status != "accepted" {
+		t.Fatalf("expected direct member profile update to preserve local contact remark, got %#v", contacts)
+	}
+	conversations := mustHandle[map[string]any](t, service, "conversations.list", nil)["conversations"].([]conversationView)
+	if len(conversations) != 1 || conversations[0].Title != "Local Remark" || conversations[0].AvatarURL != "mxc://test/new" {
+		t.Fatalf("expected direct conversation to keep local contact remark, got %#v", conversations)
+	}
+}
+
 func TestProjectOutputNewInviteCreatesPendingInboundContact(t *testing.T) {
 	owner := test.NewUser(t)
 	remote := test.NewUser(t)
