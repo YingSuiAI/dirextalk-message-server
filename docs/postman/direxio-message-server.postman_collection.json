@@ -33,7 +33,7 @@
     },
     {
       "name": "P2P Realtime WebSocket（实时WebSocket）",
-      "description": "Realtime WS is the primary product-event stream and client session-state path. Create a short-lived ticket with `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. SSE `GET /_p2p/events` remains the fallback.",
+      "description": "Realtime WS is the primary product-event stream and client session-state path. Create a short-lived ticket with `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions may send read-marker `client.command` frames. Agent-token sessions may send ephemeral `client.agent_stream` fragments for owner WS display. SSE `GET /_p2p/events` remains the fallback.",
       "item": [
         {
           "name": "realtime.ws_ticket.create（创建WS票据）",
@@ -55,7 +55,7 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/query",
-            "description": "Create a short-lived single-use ticket for `GET /_p2p/ws?ticket=<ticket>`. Owner access_token may create an owner realtime stream; agent_token may create an agent stream that only receives `agent_room.message`.\n\nResponse shape:\n\n```json\n{\n  \"ticket\": \"ws_ticket_...\",\n  \"expires_in_ms\": 30000\n}\n```",
+            "description": "Create a short-lived single-use ticket for `GET /_p2p/ws?ticket=<ticket>`. Owner access_token may create an owner realtime stream; agent_token may create an agent stream that receives only `agent_room.message` and may send `client.agent_stream` fragments for the configured agent room.\n\nResponse shape:\n\n```json\n{\n  \"ticket\": \"ws_ticket_...\",\n  \"expires_in_ms\": 30000\n}\n```",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"action\": \"realtime.ws_ticket.create\",\n  \"params\": {}\n}",
@@ -73,7 +73,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/_p2p/ws?ticket={{wsTicket}}",
-            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Server sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
+            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Owner sessions may send `client.command` for `sync.read_marker` or `channels.read_marker`; server replies with `server.command_result` or `server.command_error`. Agent-token sessions may send `client.agent_stream`; owner sessions receive `server.agent_stream` as ephemeral stream fragments. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
           }
         }
       ]

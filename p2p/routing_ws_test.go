@@ -143,6 +143,73 @@ func TestRealtimeWSStreamsLiveEventsAndTracksClientState(t *testing.T) {
 	}
 }
 
+func TestRealtimeWSCommandUpdatesReadMarker(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.command",
+		"id":     "cmd-read-1",
+		"action": "sync.read_marker",
+		"params": map[string]any{
+			"room_id":          "!room:example.com",
+			"event_id":         "$event",
+			"origin_server_ts": int64(1710000000000),
+		},
+	})
+	frame := readRealtimeFrame(t, conn)
+	if frame["type"] != "server.command_result" || frame["id"] != "cmd-read-1" {
+		t.Fatalf("expected command result for read marker, got %#v", frame)
+	}
+	result, ok := frame["result"].(map[string]any)
+	if !ok || result["status"] != "ok" {
+		t.Fatalf("expected ok command result, got %#v", frame)
+	}
+	service.mu.Lock()
+	marker := service.readMarkers["!room:example.com"]
+	service.mu.Unlock()
+	if marker.EventID != "$event" || marker.OriginServerTS != 1710000000000 {
+		t.Fatalf("expected read marker to update via WS command, got %#v", marker)
+	}
+}
+
+func TestRealtimeWSCommandRejectsAgentRole(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.command",
+		"id":     "cmd-agent-read",
+		"action": "sync.read_marker",
+		"params": map[string]any{
+			"room_id":  "!room:example.com",
+			"event_id": "$event",
+		},
+	})
+	frame := readRealtimeFrame(t, conn)
+	if frame["type"] != "server.command_error" ||
+		frame["id"] != "cmd-agent-read" ||
+		int(frame["status"].(float64)) != http.StatusForbidden {
+		t.Fatalf("expected agent command to be forbidden, got %#v", frame)
+	}
+}
+
 func TestRealtimeWSAgentTicketOnlyStreamsAgentRoomMessages(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
@@ -179,6 +246,47 @@ func TestRealtimeWSAgentTicketOnlyStreamsAgentRoomMessages(t *testing.T) {
 	event := frame["event"].(map[string]any)
 	if event["type"] != AgentRoomMessageEventType || int64(event["seq"].(float64)) != 2 {
 		t.Fatalf("expected only agent room message replay, got %#v", event)
+	}
+}
+
+func TestRealtimeWSAgentStreamFanoutToOwner(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.mu.Lock()
+	service.agentRoomID = "!agent-room:example.com"
+	service.mu.Unlock()
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	ownerConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer ownerConn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, ownerConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, ownerConn); got["type"] != "server.ready" {
+		t.Fatalf("expected owner ready, got %#v", got)
+	}
+
+	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
+	defer agentConn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
+		t.Fatalf("expected agent ready, got %#v", got)
+	}
+
+	writeRealtimeFrame(t, agentConn, map[string]any{
+		"type":      "client.agent_stream",
+		"room_id":   "!agent-room:example.com",
+		"stream_id": "turn-1",
+		"seq":       1,
+		"delta":     "Hello",
+		"done":      false,
+	})
+	frame := readRealtimeFrame(t, ownerConn)
+	if frame["type"] != "server.agent_stream" ||
+		frame["room_id"] != "!agent-room:example.com" ||
+		frame["stream_id"] != "turn-1" ||
+		frame["delta"] != "Hello" ||
+		frame["sender_mxid"] != "@agent:example.com" {
+		t.Fatalf("expected owner to receive agent stream frame, got %#v", frame)
 	}
 }
 

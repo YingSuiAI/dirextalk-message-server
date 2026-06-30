@@ -1,6 +1,50 @@
 # API Interface Change Record
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
+
+## 2026-06-30 Realtime WS Commands And Agent Stream Frames
+
+`GET /_p2p/ws` now accepts owner-session `client.command` frames for lightweight product commands. The initial allowlist is:
+
+- `sync.read_marker`
+- `channels.read_marker`
+
+Frame shape:
+
+```json
+{
+  "type": "client.command",
+  "id": "cmd-1",
+  "action": "sync.read_marker",
+  "params": {
+    "room_id": "!room:server",
+    "event_id": "$event",
+    "origin_server_ts": 1710000000000
+  }
+}
+```
+
+Successful commands return `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors return `server.command_error` with `id`, `status`, and `error`. Agent-token WS sessions cannot call owner commands.
+
+Agent-token WS sessions may send `client.agent_stream` frames for the configured real `agent_room_id`; owner WS sessions receive matching `server.agent_stream` frames. This is an ephemeral streaming display path for agent output fragments. It is not persisted in `p2p_events`, not emitted by `GET /_p2p/events`, and not stored as Matrix history. The final durable agent reply must still be sent as a Matrix `m.room.message` from `@agent:<server>`.
+
+Frame shape:
+
+```json
+{
+  "type": "client.agent_stream",
+  "room_id": "!agent:server",
+  "stream_id": "turn-1",
+  "seq": 1,
+  "delta": "partial text",
+  "body": "partial accumulated text",
+  "final_body": "",
+  "done": false,
+  "replace": true
+}
+```
+
+Owner clients should render fragments with the same `stream_id` as one visible agent message. When `done=true`, `final_body` replaces previous intermediate cards or chunks; if `final_body` is absent, the latest `body` is the fallback visible text.
 
 ## 2026-06-29 WebSocket Realtime Sync
 

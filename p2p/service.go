@@ -96,7 +96,8 @@ type Service struct {
 	nextEventSeq  int64
 	eventNotify   chan struct{}
 
-	realtimeWSTickets map[string]realtimeWSTicket
+	realtimeWSTickets     map[string]realtimeWSTicket
+	realtimeWSSubscribers map[string]realtimeWSSubscriber
 }
 
 type PushRuleManager interface {
@@ -555,7 +556,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		inviteGrants:  map[string]channelInviteGrant{},
 		eventNotify:   make(chan struct{}),
 
-		realtimeWSTickets: map[string]realtimeWSTicket{},
+		realtimeWSTickets:     map[string]realtimeWSTicket{},
+		realtimeWSSubscribers: map[string]realtimeWSSubscriber{},
 	}
 	service.actions = service.actionHandlers()
 	return service
