@@ -2536,6 +2536,54 @@ func TestChannelInviteGrantInvitesJoinedShareRoomMembers(t *testing.T) {
 	}
 }
 
+func TestChannelInviteGrantUsesMatrixShareRoomMembersWhenProjectionMissing(t *testing.T) {
+	shareRoomID := "!share:example.com"
+	transport := &recordingTransport{
+		roomMembers: []memberRecord{
+			{RoomID: shareRoomID, UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner"},
+			{RoomID: shareRoomID, UserID: "@alice:remote.example", Domain: "remote.example", Membership: "join", Role: "member"},
+		},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	createdChannel := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "private",
+		"room_id":     "!private:example.com",
+		"name":        "Private",
+		"visibility":  "private",
+		"join_policy": "invite",
+	})
+	if err := service.saveGroup(context.Background(), groupRecord{
+		RoomID: shareRoomID,
+		Name:   "Share Room",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     shareRoomID,
+		UserID:     "@owner:example.com",
+		Domain:     "example.com",
+		Membership: "join",
+		Role:       "owner",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.invite_grant.create", map[string]any{
+		"room_id":       createdChannel.RoomID,
+		"channel_id":    createdChannel.ChannelID,
+		"share_room_id": shareRoomID,
+	})
+
+	members := result["members"].([]memberRecord)
+	if len(members) != 1 || members[0].UserID != "@alice:remote.example" || members[0].Membership != "invite" {
+		t.Fatalf("expected Matrix share-room member to be invited, got %#v", result)
+	}
+	if len(transport.invites) != 1 || transport.invites[0] != "@owner:example.com -> @alice:remote.example in !private:example.com" {
+		t.Fatalf("expected grant to invite Matrix share-room member, got %#v", transport.invites)
+	}
+}
+
 func TestMemberMutePublishesMemberPolicyState(t *testing.T) {
 	transport := &recordingTransport{roomID: "!channel:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)

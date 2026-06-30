@@ -102,7 +102,7 @@ func (s *Service) channelInviteGrantCreate(ctx context.Context, params map[strin
 	if saveErr := s.saveChannelInviteGrant(ctx, grant); saveErr != nil {
 		return nil, internalError(saveErr)
 	}
-	shareMembers, err := s.membersForProduct(ctx, shareRoomID, "")
+	shareMembers, err := s.shareRoomMembersForInviteGrant(ctx, shareRoomID)
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -154,6 +154,51 @@ func (s *Service) channelInviteGrantCreate(ctx context.Context, params map[strin
 		"channel":       ch,
 		"members":       invited,
 	}, nil
+}
+
+func (s *Service) shareRoomMembersForInviteGrant(ctx context.Context, shareRoomID string) ([]memberRecord, error) {
+	members, err := s.membersForProduct(ctx, shareRoomID, "")
+	if err != nil {
+		return nil, err
+	}
+	if s.transport == nil || shareRoomID == "" {
+		return members, nil
+	}
+	matrixMembers, err := s.transport.ListRoomMembers(ctx, shareRoomID)
+	if err != nil {
+		return nil, err
+	}
+	byUserID := make(map[string]int, len(members)+len(matrixMembers))
+	for index, member := range members {
+		if member.UserID == "" {
+			continue
+		}
+		byUserID[member.UserID] = index
+	}
+	for _, member := range matrixMembers {
+		if member.UserID == "" {
+			continue
+		}
+		member.RoomID = shareRoomID
+		if member.ChannelID != "" {
+			member.ChannelID = ""
+		}
+		if member.Membership == "" {
+			member.Membership = "join"
+		}
+		if member.Role == "" {
+			member.Role = "member"
+		}
+		if index, ok := byUserID[member.UserID]; ok {
+			mergeRefreshedMember(&member, members[index])
+			members[index] = member
+			continue
+		}
+		byUserID[member.UserID] = len(members)
+		members = append(members, member)
+	}
+	sortMembersByJoinOrder(members)
+	return members, nil
 }
 
 func (s *Service) productInviteRoomState(ctx context.Context, scope, roomID, channelID string) ([]RoomStateEvent, *apiError) {
