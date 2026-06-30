@@ -8,7 +8,7 @@
   "item": [
     {
       "name": "P2P Realtime WebSocket（实时WebSocket）",
-      "description": "Realtime WS is the logged-in owner product request/response, product-event stream, and client session-state path. Create a short-lived ticket with owner `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response`. Fixed `mcp.*` actions remain HTTP body actions. Agent bridge traffic uses Matrix Client-Server APIs, not product WS stream frames.",
+      "description": "Realtime WS is the logged-in owner product request/response, product-event stream, and client session-state path. Create a short-lived ticket with owner `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response`. `agent.matrix_session.create` and fixed `mcp.*` actions remain HTTP body actions. Agent bridge traffic uses Matrix Client-Server APIs, not product WS stream frames.",
       "item": [
         {
           "name": "realtime.ws_ticket.create（创建WS票据）",
@@ -30,7 +30,7 @@
               }
             ],
             "url": "{{baseUrl}}/_p2p/query",
-            "description": "Create a short-lived single-use owner ticket for `GET /_p2p/ws?ticket=<ticket>`. Only owner `access_token` may create a realtime stream; `agent_token` is limited to fixed MCP HTTP actions.\n\nResponse shape:\n\n```json\n{\n  \"ticket\": \"ws_ticket_...\",\n  \"expires_in_ms\": 30000\n}\n```",
+            "description": "Create a short-lived single-use owner ticket for `GET /_p2p/ws?ticket=<ticket>`. Only owner `access_token` may create a realtime stream; `agent_token` is limited to `agent.matrix_session.create` and fixed MCP HTTP actions.\n\nResponse shape:\n\n```json\n{\n  \"ticket\": \"ws_ticket_...\",\n  \"expires_in_ms\": 30000\n}\n```",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"action\": \"realtime.ws_ticket.create\",\n  \"params\": {}\n}",
@@ -48,14 +48,14 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/_p2p/ws?ticket={{wsTicket}}",
-            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response`; `client.command` remains a one-release compatibility alias. Fixed `mcp.*` actions stay on HTTP. Agent bridge traffic uses Matrix Client-Server APIs. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
+            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response`; `client.command` remains a one-release compatibility alias. `agent.matrix_session.create` and fixed `mcp.*` actions stay on HTTP. Agent bridge traffic uses Matrix Client-Server APIs. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
           }
         }
       ]
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 使用 WS `client.request`；HTTP `/query` 和 `/command` 保留 portal bootstrap/auth/status/password、固定 MCP action、owner `realtime.ws_ticket.create`、以及节点间 public/callback action。除公开 action 外，默认使用 `access_token`；MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 使用 WS `client.request`；HTTP `/query` 和 `/command` 保留 portal bootstrap/auth/status/password、`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、以及节点间 public/callback action。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -171,12 +171,12 @@
                   },
                   {
                     "key": "Authorization",
-                    "value": "Bearer {{accessToken}}",
+                    "value": "Bearer {{agentToken}}",
                     "type": "text"
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "为本地 Agent 网关或工具创建本地 @agent:<server> 用户的内部 Matrix 会话。\n\nCreate an internal Matrix session for the local @agent:<server> user used by local Agent gateway or tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token. The returned Matrix access token is sensitive.",
+                "description": "为本地 Agent 网关或工具创建本地 @agent:<server> 用户的内部 Matrix 会话。\n\nCreate an internal Matrix session for the local @agent:<server> user used by local Agent gateway or tooling.\n\nAction: `agent.matrix_session.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected HTTP-only action; use owner access_token or agent_token. The returned Matrix access token is sensitive.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.matrix_session.create\",\n  \"params\": {\n    \"device_id\": \"DIREXIO_AGENT_GATEWAY\"\n  }\n}",

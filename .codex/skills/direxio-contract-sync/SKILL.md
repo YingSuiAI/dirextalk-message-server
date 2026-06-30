@@ -12,7 +12,7 @@ Use this skill when a change can affect clients, agents, external nodes, operato
 - Matrix-compatible routes stay under `/_matrix/*`, `/_synapse/*`, `/_dendrite/*`, and `/.well-known/matrix/*`.
 - Direxio product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `GET /_p2p/ws`, and `GET /.well-known/portal/owner.json`.
 - Direxio action requests use `{ "action": "...", "params": { ... } }`.
-- Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` HTTP actions; it cannot create realtime WS tickets. `GET /_p2p/ws` authenticates only short-lived single-use owner tickets created with the owner `access_token`. MCP actions are HTTP body actions and must not be migrated into WS `client.request`.
+- Protected product actions require bearer `access_token`. `agent_token` is accepted only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions; it cannot create realtime WS tickets. `GET /_p2p/ws` authenticates only short-lived single-use owner tickets created with the owner `access_token`. MCP actions and `agent.matrix_session.create` are HTTP body actions and must not be migrated into WS `client.request`.
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - `channels.public.join_result` is an internal node-to-node callback, not a normal client workflow entry.
 - Dynamic Agent permission actions are removed. Do not reintroduce Agent-token action management unless the product contract changes explicitly.

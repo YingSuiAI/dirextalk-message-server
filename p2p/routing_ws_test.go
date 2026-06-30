@@ -276,6 +276,19 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 		t.Fatalf("expected owner MCP request to require HTTP, got %#v", ownerMCP)
 	}
 
+	writeRealtimeFrame(t, ownerConn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-agent-session",
+		"action": "agent.matrix_session.create",
+		"params": map[string]any{"device_id": "DIREXIO_AGENT_GATEWAY"},
+	})
+	agentSession := readRealtimeResponse(t, ownerConn, "req-agent-session")
+	if agentSession["type"] != "server.response" ||
+		agentSession["ok"] != false ||
+		int(agentSession["status"].(float64)) != http.StatusBadRequest ||
+		agentSession["error"] != "action requires http" {
+		t.Fatalf("expected agent Matrix session request to require HTTP, got %#v", agentSession)
+	}
 }
 
 func TestRealtimeWSClientRequestValidationErrors(t *testing.T) {

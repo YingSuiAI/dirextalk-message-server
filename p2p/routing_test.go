@@ -35,10 +35,31 @@ func TestHTTPProductActionRequiresWebSocketAfterLogin(t *testing.T) {
 	}
 }
 
-func TestAgentMatrixSessionCreateRejectsAgentToken(t *testing.T) {
+func TestAgentMatrixSessionCreateAllowsAgentToken(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	if service.Authorize(service.AgentToken(), "agent.matrix_session.create") {
-		t.Fatal("expected agent token to reject agent.matrix_session.create")
+	router := newP2PTestRouter(service)
+	agentToken := service.AgentToken()
+
+	if !service.Authorize(agentToken, "agent.matrix_session.create") {
+		t.Fatal("expected agent token to create an agent Matrix session")
+	}
+
+	req := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "agent.matrix_session.create",
+		"params": map[string]any{"device_id": "DIREXIO_AGENT_GATEWAY"},
+	})
+	req.Header.Set("Authorization", "Bearer "+agentToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected agent Matrix session create to succeed, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["user_id"] != "@agent:example.com" || got["device_id"] != "DIREXIO_AGENT_GATEWAY" {
+		t.Fatalf("expected local agent Matrix session metadata, got %#v", got)
 	}
 }
 
@@ -307,19 +328,27 @@ func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	}
 }
 
-func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
+func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	agentToken := service.AgentToken()
 
+	if !service.Authorize(agentToken, "agent.matrix_session.create") {
+		t.Fatal("expected agent token to authorize agent Matrix session bootstrap")
+	}
 	if !service.Authorize(agentToken, "mcp.rooms.search") {
 		t.Fatal("expected agent token to authorize MCP actions")
 	}
-	if service.Authorize(agentToken, "contacts.request") {
-		t.Fatal("expected agent token to reject owner product actions")
-	}
-	if service.Authorize(agentToken, realtimeWSTicketAction) {
-		t.Fatal("expected agent token to reject realtime WS ticket creation")
+	for _, action := range []string{
+		"contacts.request",
+		"agent.config.get",
+		"agent.config.update",
+		"agent.password",
+		realtimeWSTicketAction,
+	} {
+		if service.Authorize(agentToken, action) {
+			t.Fatalf("expected agent token to reject %s", action)
+		}
 	}
 
 	mcpReq := jsonRequest(t, "/_p2p/query", map[string]any{

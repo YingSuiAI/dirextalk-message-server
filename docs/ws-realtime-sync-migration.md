@@ -9,7 +9,7 @@
 - Flutter branch: `feature/ws-realtime-sync`
 - Server WebSocket library: existing `github.com/coder/websocket`
 - Flutter WebSocket library: `web_socket_channel`
-- Target result: migrate the logged-in Direxio client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP for startup/session, fixed MCP, and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
+- Target result: migrate the logged-in Direxio client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP for startup/session, Agent Matrix session bootstrap, fixed MCP, and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
 
 ## Contract Summary
 
@@ -17,7 +17,7 @@
 - Retain WebSocket route `GET /_p2p/ws?ticket=<ticket>`.
 - A WS ticket is short-lived, server-local, single-use, and issued only from an owner `access_token`.
 - Remove `GET /_p2p/events`; there is no SSE fallback.
-- HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, fixed MCP actions, and node-to-node public/callback actions.
+- HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, `agent.matrix_session.create`, fixed MCP actions, and node-to-node public/callback actions.
 - Logged-in owner clients call product actions through WS:
 
 ```json
@@ -52,7 +52,7 @@
 
 - WS still supports `client.hello`, `client.lifecycle`, `client.focus`, `client.ack`, `client.ping`, `client.request`, `server.response`, `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, and `server.error`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`.
 - `client.command` remains a one-release compatibility alias and maps internally to `client.request`; new Flutter code sends only `client.request`.
-- Fixed `mcp.*` actions stay HTTP-only. WS `client.request` for `mcp.*` returns `server.response ok=false status=400 error="action requires http"`.
+- `agent.matrix_session.create` and fixed `mcp.*` actions stay HTTP-only. WS `client.request` for those actions returns `server.response ok=false status=400 error="action requires http"`.
 
 ## Behavioral Rules
 
@@ -71,7 +71,7 @@
 
 - Server route `GET /_p2p/ws` supports ticket authentication, replay from `since`, live P2P event streaming, cursor reset, client lifecycle/focus/ack, heartbeat, `client.request`, and clean disconnect handling.
 - Owner WS sessions can call representative query and command actions through `client.request`, including `contacts.list`, `groups.create`, and `sync.read_marker`/`channels.read_marker`.
-- Agent-token callers cannot create WS tickets. MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`; local agent bridge message transport uses Matrix sync/send/edit.
+- Agent-token callers cannot create WS tickets. `agent.matrix_session.create` and MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`; local agent bridge message transport uses Matrix sync/send/edit.
 - Unknown action, malformed request frame, missing `id`, and handler errors return `server.response` with `ok=false`.
 - `GET /_p2p/events` is not registered.
 - HTTP `/query` and `/command` reject non-retained logged-in product actions while retained login/ticket and node public/callback actions still work.

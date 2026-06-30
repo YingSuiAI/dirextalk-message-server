@@ -6,7 +6,9 @@ Last updated: 2026-06-30
 
 Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its `@agent:<server>` Matrix session. The server no longer treats `agent.config.enabled=true` or an agent-token WS session as online; startup/agents-room repair and `agent.config.update enabled=false` only publish `online=false` as a fallback.
 
-`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to fixed `mcp.*` HTTP actions.
+`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
+
+`agent.matrix_session.create` remains a retained HTTP body action and may be called with either owner `access_token` or `agent_token`. It returns a Matrix Client-Server session for the local `@agent:<server>` bridge user so direxio-connect can bootstrap Matrix-native Agent room sync/send/edit without owner credentials. It must not be migrated into Product WS and must not evict owner devices.
 
 Agent room messages, previews, edits, and final replies are transported through Matrix Client-Server APIs as `@agent:<server>`. `agent_room.message`, `client.agent_stream`, and `server.agent_stream` are no longer current protocol frames/events.
 
@@ -14,7 +16,7 @@ No response fields change: `sync.bootstrap` still returns only `agent_room_id` f
 
 ## 2026-06-30 MCP HTTP Boundary And WS Client State Flags
 
-Fixed MCP actions remain HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they are not migrated into WS `client.request`. Owner `access_token` and fixed `agent_token` may call the existing MCP allowlist over HTTP. If an owner or agent WS session sends a `client.request` for `mcp.*`, the server returns:
+Fixed MCP actions remain HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they are not migrated into WS `client.request`. Owner `access_token` and fixed `agent_token` may call the existing MCP allowlist over HTTP. `agent.matrix_session.create` is also HTTP-only. If an owner or agent WS session sends a `client.request` for `mcp.*` or `agent.matrix_session.create`, the server returns:
 
 ```json
 {
@@ -57,7 +59,7 @@ Push suppression requires a fresh foreground WS session that is not hidden and h
 
 ## 2026-06-30 WS Product API Full Migration
 
-Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, fixed MCP actions, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
+Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, `agent.matrix_session.create`, fixed MCP actions, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
 
 Client request frame:
 
@@ -99,7 +101,7 @@ Error response frame:
 
 `GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
 
-Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create` and fixed MCP actions. Agent-token callers cannot create WS sessions; MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, local delete, and Agent bridge room traffic.
+Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create`, `agent.matrix_session.create`, and fixed MCP actions. Agent-token callers cannot create WS sessions; Agent bridge bootstrap and MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, local delete, and Agent bridge room traffic.
 
 HTTP `/query` and `/command` now return an explicit error for non-retained logged-in client actions:
 
@@ -224,7 +226,7 @@ Default owner-scoped `mcp.messages.send` now rejects the configured `agent_room_
 
 ## 2026-06-26 Agent Matrix Session Identity
 
-`agent.matrix_session.create` still requires the owner `access_token`, but it now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID.
+`agent.matrix_session.create` now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID. Current servers accept either owner `access_token` or fixed `agent_token` for this HTTP-only bootstrap action.
 
 The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or local gateway Matrix session does not evict the portal owner's phone or browser sessions.
 
@@ -240,7 +242,7 @@ Matrix `m.presence` is not part of the Agent online contract, and Direxio monoli
 
 `GET /_p2p/events` previously accepted bearer `agent_token` as well as owner `access_token` as a narrow passive gateway exception. This path was later removed with SSE and the Agent bridge returned to Matrix Client-Server transport.
 
-Non-MCP protected body actions still reject `agent_token`; the fixed MCP action allowlist is unchanged.
+Non-MCP protected body actions still reject `agent_token` except the HTTP-only `agent.matrix_session.create` bridge bootstrap action; the fixed MCP action allowlist is unchanged.
 
 ## 2026-06-25 Immutable Channel Type
 
@@ -252,7 +254,7 @@ Clients must set `channel_type` only in `channels.create`. Post channels (`chann
 
 Agent-token dynamic permission management is removed. `apis.list` and `apis.status` are no longer P2P actions and calls to those action names return `unknown action`.
 
-Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` is a route-level exception for passive gateway listening; non-MCP protected body actions reject `agent_token`.
+Protected product actions require bearer `access_token`. `agent_token` is accepted only for `agent.matrix_session.create` and fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` was a route-level exception for passive gateway listening at the time and was later removed; other protected body actions reject `agent_token`.
 
 The first-party CLI module and its helper package are removed: `cmd/direxio-cli`, `internal/agentclient`, CLI build scripts, CLI agent-skill docs, and the project-local `direxio-cli` Codex skill.
 
@@ -266,7 +268,7 @@ Post channels (`io.direxio.room.profile.channel_type=post`) are not sent to HTTP
 
 `portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
 
-`agent.matrix_session.create` remains an owner-token internal Matrix session helper and does not evict the portal user's phone session. As of 2026-06-26, it returns a session for the local `@agent:<server>` user.
+`agent.matrix_session.create` remains an internal Matrix session helper and does not evict the portal user's phone session. As of 2026-06-26, it returns a session for the local `@agent:<server>` user. Current servers accept either owner `access_token` or fixed `agent_token` for this HTTP-only bridge bootstrap action.
 
 ## 2026-06-24 User Public Channel Lookup
 
@@ -328,7 +330,7 @@ Added six protected MCP-oriented P2P actions for the local Direxio MCP adapter:
 - `mcp.messages.send` on `POST /_p2p/command`
 - `mcp.channel_comments.create` on `POST /_p2p/command`
 
-All six require bearer auth. Owner `access_token` can call them, and `agent_token` is accepted only for these fixed MCP actions. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
+All six require bearer auth. Owner `access_token` can call them, and `agent_token` is accepted for these fixed MCP actions. Current servers also allow `agent_token` for the HTTP-only `agent.matrix_session.create` bootstrap action. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
 
 Ordinary MCP message send/list remains separate from channel post/comment product content. `mcp.messages.send` writes a plain `m.room.message` without `p2p_kind`; `mcp.messages.list` reads ordinary Matrix timeline messages through a server-side Matrix reader and filters out events carrying product `p2p_kind`. No P2P ordinary-message store was added.
 
@@ -346,7 +348,7 @@ Breaking removals and contract changes:
 - Public channel approval no longer exposes Matrix invite as the product workflow. Approval writes `io.direxio.join_request status=approved`; the requester homeserver performs Matrix join.
 - New public internal action `channels.public.join_result` carries owner-node approval results to the requester node. Params: `room_id`, `channel_id`, `user_id`, `status`, `reason`, `server_names`, and `request_id`.
 - Public channel join response status is one of `pending`, `rejected`, `approved`, `joining`, `joined`, or `join_failed`.
-- Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It requires bearer `access_token` and returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
+- Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It initially required bearer `access_token`; current servers accept owner `access_token` or `agent_token`. It returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
 The live P2P body-action count is 89. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
@@ -435,7 +437,7 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-Protected product actions require bearer `access_token`. `agent_token` is accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 The live P2P action count is now 85.
 
