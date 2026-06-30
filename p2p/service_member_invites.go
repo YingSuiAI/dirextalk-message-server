@@ -31,15 +31,21 @@ func (s *Service) inviteMembers(ctx context.Context, scope string, params map[st
 			s.mu.Lock()
 			inviterMXID := s.ownerMXID
 			s.mu.Unlock()
-			if err := s.transport.InviteUser(ctx, InviteUserRequest{
+			inviteReq := InviteUserRequest{
 				RoomID:          member.RoomID,
 				InviterMXID:     inviterMXID,
 				InviteeMXID:     userID,
 				Reason:          trimString(params["reason"]),
 				IsDirect:        boolParam(params["is_direct"]),
 				InviteRoomState: inviteRoomState,
-			}); err != nil {
-				return nil, transportWriteError(err)
+			}
+			if err := s.transport.InviteUser(ctx, inviteReq); err != nil {
+				if !isAlreadyJoinedRoomError(err) {
+					return nil, transportWriteError(err)
+				}
+				if apiErr := s.reinviteAlreadyJoinedRoomMember(ctx, scope, member, params, inviteReq); apiErr != nil {
+					return nil, apiErr
+				}
 			}
 		}
 		if err := s.saveMember(ctx, member); err != nil {
@@ -129,14 +135,20 @@ func (s *Service) channelInviteGrantCreate(ctx context.Context, params map[strin
 		member.AvatarURL = fallbackString(shareMember.AvatarURL, member.AvatarURL)
 		member.Domain = fallbackString(shareMember.Domain, member.Domain)
 		if s.transport != nil {
-			if err := s.transport.InviteUser(ctx, InviteUserRequest{
+			inviteReq := InviteUserRequest{
 				RoomID:          ch.RoomID,
 				InviterMXID:     ownerMXID,
 				InviteeMXID:     shareMember.UserID,
 				Reason:          trimString(params["reason"]),
 				InviteRoomState: inviteRoomState,
-			}); err != nil {
-				return nil, transportWriteError(err)
+			}
+			if err := s.transport.InviteUser(ctx, inviteReq); err != nil {
+				if !isAlreadyJoinedRoomError(err) {
+					return nil, transportWriteError(err)
+				}
+				if apiErr := s.reinviteAlreadyJoinedRoomMember(ctx, "channel", member, params, inviteReq); apiErr != nil {
+					return nil, apiErr
+				}
 			}
 		}
 		if err := s.saveMember(ctx, member); err != nil {
@@ -289,41 +301,8 @@ func (s *Service) joinMember(ctx context.Context, scope string, params map[strin
 	}
 	applyMemberProfileParams(&member, params)
 	s.applyLocalOwnerMemberProfile(&member)
-	if s.transport != nil {
-		result, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
-			RoomIDOrAlias: fallbackString(member.RoomID, member.ChannelID),
-			UserMXID:      member.UserID,
-			DisplayName:   member.DisplayName,
-			AvatarURL:     member.AvatarURL,
-			ServerNames:   stringSliceParam(params["server_names"]),
-		})
-		if err != nil {
-			return nil, transportWriteError(err)
-		}
-		member.RoomID = fallbackString(result.RoomID, member.RoomID)
-	}
-	if err := s.saveMember(ctx, member); err != nil {
-		return nil, internalError(err)
-	}
-	if scope == "group" {
-		if err := s.ensureJoinedGroupRecord(ctx, member, params); err != nil {
-			return nil, internalError(err)
-		}
-	}
-	if s.transport != nil {
-		if scope == "channel" {
-			if refreshedChannelID, err := s.refreshRoomChannel(ctx, member.RoomID); err != nil {
-				return nil, internalError(err)
-			} else if refreshedChannelID != "" {
-				member.ChannelID = refreshedChannelID
-			}
-			if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
-				return nil, internalError(err)
-			}
-			if err := s.backfillJoinedPostChannelContent(ctx, member.RoomID, member.ChannelID); err != nil {
-				return nil, internalError(err)
-			}
-		}
+	if apiErr := s.joinAndProjectRetainedRoom(ctx, scope, &member, params); apiErr != nil {
+		return nil, apiErr
 	}
 	result := map[string]any{"status": "ok", "room_id": member.RoomID, "member": member}
 	if scope == "channel" {

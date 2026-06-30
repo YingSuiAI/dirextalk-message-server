@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-30
 
-`p2p.Service.Handle` is the source of truth for the product action surface. The current code exposes **85** P2P actions plus the WS product request/event endpoint.
+`p2p.Service.Handle` is the source of truth for the product action surface. The current code exposes **90** P2P body actions plus the WS product request/event endpoint.
 
 ## Current Feature Areas
 
@@ -39,6 +39,7 @@ Public actions:
 - `portal.auth`
 - `portal.status`
 - `contacts.reactivate`
+- `rooms.reactivate`
 - `channels.public.search`
 - `channels.public.get`
 - `channels.public.join_request`

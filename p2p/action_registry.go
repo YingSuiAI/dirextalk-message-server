@@ -38,6 +38,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"contacts.list":                s.contactListAction,
 		"contacts.request":             s.contactRequest,
 		"contacts.reactivate":          s.contactReactivate,
+		"rooms.reactivate":             s.roomReactivate,
 		"contacts.requests.accept":     s.contactMutationAction("contacts.requests.accept"),
 		"contacts.requests.reject":     s.contactMutationAction("contacts.requests.reject"),
 		"contacts.requests.delete":     s.contactMutationAction("contacts.requests.delete"),

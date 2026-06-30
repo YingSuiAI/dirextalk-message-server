@@ -408,7 +408,11 @@ func (s *Service) savePendingInboundContact(ctx context.Context, contact contact
 			continue
 		}
 		if contactAccepted(existing.Status) {
-			return s.reinviteAcceptedContactToRetainedRoom(ctx, existing)
+			reinvited, err := s.reinviteAcceptedContactToRetainedRoom(ctx, existing)
+			if err != nil || reinvited {
+				return err
+			}
+			return s.acceptReplacementDirectInvite(ctx, existing, contact)
 		}
 		if !contactDeleted(existing.Status) && !strings.EqualFold(strings.TrimSpace(existing.Status), "rejected") && !strings.EqualFold(strings.TrimSpace(existing.Status), "reject") {
 			return nil
@@ -432,9 +436,9 @@ func (s *Service) savePendingInboundContact(ctx context.Context, contact contact
 	})
 }
 
-func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, contact contactRecord) error {
+func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, contact contactRecord) (bool, error) {
 	if s.transport == nil || strings.TrimSpace(contact.RoomID) == "" || strings.TrimSpace(contact.PeerMXID) == "" {
-		return nil
+		return true, nil
 	}
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
@@ -442,7 +446,7 @@ func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, con
 	ownerAvatarURL := s.profile.AvatarURL
 	s.mu.Unlock()
 	directName := fallbackString(ownerDisplayName, ownerMXID)
-	return s.transport.InviteUser(ctx, InviteUserRequest{
+	if err := s.transport.InviteUser(ctx, InviteUserRequest{
 		RoomID:      contact.RoomID,
 		InviterMXID: ownerMXID,
 		InviteeMXID: contact.PeerMXID,
@@ -450,7 +454,54 @@ func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, con
 		InviteRoomState: []RoomStateEvent{
 			roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, "", false),
 		},
-	})
+	}); err != nil {
+		if isAlreadyJoinedRoomError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) acceptReplacementDirectInvite(ctx context.Context, existing, invite contactRecord) error {
+	roomID := strings.TrimSpace(invite.RoomID)
+	if roomID == "" {
+		return nil
+	}
+	if s.transport != nil {
+		s.mu.Lock()
+		ownerMXID := s.ownerMXID
+		ownerDisplayName := s.profile.DisplayName
+		ownerAvatarURL := s.profile.AvatarURL
+		s.mu.Unlock()
+		join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+			RoomIDOrAlias: roomID,
+			UserMXID:      ownerMXID,
+			DisplayName:   ownerDisplayName,
+			AvatarURL:     ownerAvatarURL,
+			ServerNames:   retainedRoomServerNames(nil, roomID),
+		})
+		if err != nil && !isAlreadyJoinedRoomError(err) {
+			return err
+		}
+		if strings.TrimSpace(join.RoomID) != "" {
+			roomID = join.RoomID
+		}
+	}
+	replacement := existing
+	replacement.RoomID = roomID
+	replacement.Status = "accepted"
+	replacement.Remark = ""
+	if !replacement.DisplayNameOverride && strings.TrimSpace(invite.DisplayName) != "" {
+		replacement.DisplayName = invite.DisplayName
+	}
+	if strings.TrimSpace(invite.AvatarURL) != "" {
+		replacement.AvatarURL = invite.AvatarURL
+	}
+	if strings.TrimSpace(replacement.Domain) == "" {
+		replacement.Domain = invite.Domain
+	}
+	return s.saveContact(ctx, replacement)
 }
 
 func (s *Service) channelIDForRoom(ctx context.Context, roomID string) string {

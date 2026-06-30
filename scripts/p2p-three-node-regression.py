@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
+import base64
+import hashlib
 import json
+import os
+import socket
+import ssl
+import struct
 import subprocess
 import sys
 import time
@@ -26,6 +32,8 @@ class Node:
     agent_token: str = ""
     name: str = ""
     avatar: str = ""
+    ws: Any = None
+    request_seq: int = 0
 
 
 class ApiError(Exception):
@@ -35,8 +43,121 @@ class ApiError(Exception):
         self.body = body
 
 
+class WebSocketJSON:
+    def __init__(self, url: str):
+        self.url = url
+        self.sock = self._connect(url)
+
+    def _connect(self, url: str):
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"ws", "wss"}:
+            raise ValueError(f"unsupported websocket scheme {parsed.scheme!r}")
+        host = parsed.hostname or ""
+        port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        raw = socket.create_connection((host, port), timeout=10)
+        raw.settimeout(30)
+        sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host) if parsed.scheme == "wss" else raw
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        request = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {parsed.netloc}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "\r\n"
+        )
+        sock.sendall(request.encode("ascii"))
+        response = self._read_http_response(sock)
+        if not response.startswith("HTTP/1.1 101") and not response.startswith("HTTP/1.0 101"):
+            raise RuntimeError(f"websocket upgrade failed: {response.splitlines()[0] if response else 'empty response'}")
+        accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()).decode("ascii")
+        if f"sec-websocket-accept: {accept.lower()}" not in response.lower():
+            raise RuntimeError("websocket upgrade did not return expected accept key")
+        return sock
+
+    @staticmethod
+    def _read_http_response(sock) -> str:
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return data.decode("iso-8859-1", errors="replace")
+
+    def close(self) -> None:
+        try:
+            self._send_frame(0x8, b"")
+        except Exception:
+            pass
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+
+    def send_json(self, payload: dict[str, Any]) -> None:
+        self._send_frame(0x1, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+
+    def recv_json(self) -> dict[str, Any]:
+        while True:
+            opcode, payload = self._recv_frame()
+            if opcode == 0x1:
+                return dict(json.loads(payload.decode("utf-8")))
+            if opcode == 0x8:
+                raise EOFError("websocket closed")
+            if opcode == 0x9:
+                self._send_frame(0xA, payload)
+
+    def _send_frame(self, opcode: int, payload: bytes) -> None:
+        header = bytearray([0x80 | opcode])
+        length = len(payload)
+        if length < 126:
+            header.append(0x80 | length)
+        elif length <= 0xFFFF:
+            header.append(0x80 | 126)
+            header.extend(struct.pack("!H", length))
+        else:
+            header.append(0x80 | 127)
+            header.extend(struct.pack("!Q", length))
+        mask = os.urandom(4)
+        masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+        self.sock.sendall(bytes(header) + mask + masked)
+
+    def _recv_frame(self) -> tuple[int, bytes]:
+        first = self._recv_exact(2)
+        opcode = first[0] & 0x0F
+        masked = bool(first[1] & 0x80)
+        length = first[1] & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", self._recv_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self._recv_exact(8))[0]
+        mask = self._recv_exact(4) if masked else b""
+        payload = self._recv_exact(length)
+        if masked:
+            payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+        return opcode, payload
+
+    def _recv_exact(self, size: int) -> bytes:
+        data = b""
+        while len(data) < size:
+            chunk = self.sock.recv(size - len(data))
+            if not chunk:
+                raise EOFError("websocket closed")
+            data += chunk
+        return data
+
+
 def run(args: list[str]) -> str:
     return subprocess.check_output(args, text=True).strip()
+
+
+def run_checked(args: list[str]) -> None:
+    subprocess.check_call(args)
 
 
 def read_bootstrap(container: str) -> dict[str, Any]:
@@ -65,6 +186,15 @@ def request_json(method: str, url: str, body: Any = None, token: str = "") -> An
 
 def p2p(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = None, *, token: Optional[str] = None) -> Any:
     bearer = node.token if token is None else token
+    if token is None and not action_requires_http(action):
+        try:
+            return p2p_ws(node, action, params or {})
+        except ApiError as exc:
+            if exc.status != 401:
+                raise
+            close_ws(node)
+            login(node)
+            return p2p_ws(node, action, params or {})
     try:
         return request_json(
             "POST",
@@ -82,6 +212,79 @@ def p2p(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = N
             {"action": action, "params": params or {}},
             node.token,
         )
+
+
+def action_requires_http(action: str) -> bool:
+    if action.startswith("mcp."):
+        return True
+    return action in {
+        "agent.matrix_session.create",
+        "portal.bootstrap",
+        "portal.auth",
+        "portal.status",
+        "portal.password",
+        "realtime.ws_ticket.create",
+    }
+
+
+def close_ws(node: Node) -> None:
+    if node.ws is not None:
+        try:
+            node.ws.close()
+        finally:
+            node.ws = None
+
+
+def p2p_ws(node: Node, action: str, params: dict[str, Any]) -> Any:
+    last_error: Optional[Exception] = None
+    for attempt in range(2):
+        try:
+            ws = ensure_ws(node)
+            node.request_seq += 1
+            request_id = f"{node.label.lower()}-{node.request_seq}-{int(time.time() * 1000)}"
+            ws.send_json({"type": "client.request", "id": request_id, "action": action, "params": params})
+            while True:
+                frame = ws.recv_json()
+                if frame.get("type") != "server.response" or frame.get("id") != request_id:
+                    continue
+                if frame.get("ok") is True:
+                    return frame.get("result") or {}
+                status = int(frame.get("status") or 500)
+                raise ApiError(status, frame, f"WS {action} failed with {status}: {frame.get('error')}")
+        except ApiError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            close_ws(node)
+            if attempt == 0:
+                continue
+    raise RuntimeError(f"WS {action} failed: {last_error}") from last_error
+
+
+def ensure_ws(node: Node) -> WebSocketJSON:
+    if node.ws is not None:
+        return node.ws
+    ticket_response = request_json(
+        "POST",
+        f"{node.base}/_p2p/query",
+        {"action": "realtime.ws_ticket.create", "params": {}},
+        node.token,
+    )
+    ticket = ticket_response.get("ticket") or ""
+    expect(bool(ticket), f"{node.label} realtime.ws_ticket.create did not return ticket")
+    parsed = urllib.parse.urlparse(node.base)
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    ws_url = urllib.parse.urlunparse((scheme, parsed.netloc, "/_p2p/ws", "", urllib.parse.urlencode({"ticket": ticket}), ""))
+    ws = WebSocketJSON(ws_url)
+    ws.send_json({"type": "client.hello"})
+    while True:
+        frame = ws.recv_json()
+        if frame.get("type") == "server.ready":
+            node.ws = ws
+            return ws
+        if frame.get("type") == "server.error":
+            ws.close()
+            raise RuntimeError(f"{node.label} websocket hello failed: {frame.get('error')}")
 
 
 def p2p_status(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = None, *, token: Optional[str] = None) -> tuple[int, Any]:
@@ -177,6 +380,7 @@ def assert_caps(
 
 
 def login(node: Node) -> None:
+    close_ws(node)
     auth = p2p(
         node,
         "query",
@@ -253,6 +457,73 @@ def verify_delete_readd(deleter: Node, peer: Node, room_id: str) -> None:
     )
 
 
+def rebuild_node_with_empty_volumes(node: Node, suffix: int) -> None:
+    close_ws(node)
+    suffix_name = node.label.lower()
+    run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "rm", "-f", "-s", "-v", f"dendrite-{suffix_name}", f"dendrite-{suffix_name}-init", f"postgres-{suffix_name}"])
+    for volume in [
+        f"direxio-p2p-dual_p2p_dual_postgres_{suffix_name}",
+        f"direxio-p2p-dual_p2p_dual_message_server_{suffix_name}_config",
+        f"direxio-p2p-dual_p2p_dual_message_server_{suffix_name}_data",
+    ]:
+        subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+    run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "up", "-d", "--force-recreate", f"dendrite-{suffix_name}"])
+    wait_until(f"{node.label} did not become healthy after empty-volume rebuild", lambda: request_json("GET", f"{node.base}/_p2p/health").get("status") == "ok", seconds=120)
+    bootstrap = read_bootstrap(node.container)
+    node.password = bootstrap.get("password") or ""
+    node.agent_token = bootstrap.get("agent_token") or ""
+    expect(bool(node.password), f"{node.label} rebuilt bootstrap did not include password")
+    expect(bool(node.agent_token), f"{node.label} rebuilt bootstrap did not include agent_token")
+    login(node)
+    update_profile(node, suffix)
+
+
+def verify_rebuilt_peer_readd(retained_peer: Node, rebuilt_peer: Node, suffix: int) -> None:
+    old_room = ensure_direct(retained_peer, rebuilt_peer)
+    text = f"pre-rebuild direct message {suffix}"
+    event_id = matrix_send_text(retained_peer, old_room, text)
+    expect(bool(event_id), "Matrix direct send before rebuild did not return event_id")
+    assert_history(rebuilt_peer, old_room, text)
+
+    rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 1)
+    request = p2p(
+        rebuilt_peer,
+        "command",
+        "contacts.request",
+        {
+            "mxid": retained_peer.mxid,
+            "display_name": retained_peer.name,
+            "domain": retained_peer.server_name,
+            "remote_node_base_url": f"{retained_peer.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+        },
+    )
+    request_room = request.get("room_id") or ""
+    expect(request_room, "rebuilt peer contacts.request did not return room_id")
+
+    rebuilt_contact = wait_until(
+        "rebuilt peer did not restore accepted contact with retained peer",
+        lambda: find_by(list((p2p(rebuilt_peer, "command", "sync.bootstrap").get("contacts") or [])), peer_mxid=retained_peer.mxid, status="accepted"),
+        seconds=90,
+    )
+    rebuilt_room = rebuilt_contact.get("room_id")
+    retained_contact = wait_until(
+        "retained peer did not converge to rebuilt peer direct room after peer rebuild",
+        lambda: find_by(
+            list((p2p(retained_peer, "command", "sync.bootstrap").get("contacts") or [])),
+            peer_mxid=rebuilt_peer.mxid,
+            status="accepted",
+            room_id=rebuilt_room,
+        ),
+        seconds=90,
+    )
+    retained_room = retained_contact.get("room_id")
+    expect(rebuilt_room == retained_room, f"peers disagree on restored direct room: rebuilt={rebuilt_room!r} retained={retained_room!r}")
+    if rebuilt_room == old_room:
+        assert_history(rebuilt_peer, old_room, text)
+    else:
+        expect(rebuilt_room == request_room, f"rebuilt peer should use replacement direct room {request_room!r}, got {rebuilt_room!r}")
+
+
 def create_group(owner: Node, name: str) -> str:
     group = p2p(owner, "command", "groups.create", {"name": name, "topic": "three-node regression"})
     room_id = group.get("room_id") or ""
@@ -277,6 +548,169 @@ def invite_and_join(owner: Node, invitee: Node, room_id: str) -> None:
         f"{invitee.label} groups.list missing joined group",
         lambda: find_by(list((p2p(invitee, "command", "groups.list").get("groups") or [])), room_id=room_id),
     )
+
+
+def create_channel(owner: Node, name: str, visibility: str, join_policy: str, channel_type: str = "chat") -> dict[str, Any]:
+    channel = p2p(
+        owner,
+        "command",
+        "channels.create",
+        {
+            "name": name,
+            "visibility": visibility,
+            "join_policy": join_policy,
+            "channel_type": channel_type,
+            "comments_enabled": channel_type == "post",
+        },
+    )
+    expect(bool(channel.get("room_id") and channel.get("channel_id")), f"channels.create {name} did not return identifiers")
+    return channel
+
+
+def invite_channel_and_join(owner: Node, invitee: Node, channel: dict[str, Any]) -> None:
+    room_id = channel.get("room_id") or ""
+    channel_id = channel.get("channel_id") or ""
+    p2p(
+        owner,
+        "command",
+        "channels.invite",
+        {"room_id": room_id, "channel_id": channel_id, "user_id": invitee.mxid, "display_name": invitee.name},
+    )
+    wait_until(
+        f"{invitee.label} did not receive channel invite",
+        lambda: find_by(list((p2p(invitee, "command", "sync.bootstrap").get("pending", {}).get("channel_notices") or [])), id=room_id),
+    )
+    joined = p2p(
+        invitee,
+        "command",
+        "channels.join",
+        {"room_id": room_id, "channel_id": channel_id, "server_names": [owner.server_name], "display_name": invitee.name, "avatar_url": invitee.avatar},
+    )
+    expect(joined.get("status") == "ok", f"{invitee.label} channels.join did not return ok")
+    wait_until(
+        f"{invitee.label} channels.list missing joined channel",
+        lambda: find_by(list((p2p(invitee, "command", "channels.list").get("channels") or [])), room_id=room_id),
+    )
+
+
+def public_channel_join_request(owner: Node, joiner: Node, channel: dict[str, Any]) -> dict[str, Any]:
+    return p2p(
+        joiner,
+        "command",
+        "channels.public.join_request",
+        {
+            "room_id": channel.get("room_id"),
+            "channel_id": channel.get("channel_id"),
+            "remote_node_base_url": f"{owner.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+            "requester_node_base_url": f"{joiner.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+            "server_names": [owner.server_name],
+            "display_name": joiner.name,
+            "avatar_url": joiner.avatar,
+        },
+    )
+
+
+def wait_public_channel_join(owner: Node, joiner: Node, channel: dict[str, Any], label: str) -> dict[str, Any]:
+    last: dict[str, Any] = public_channel_join_request(owner, joiner, channel)
+    initial = last
+    if last.get("status") == "joined":
+        return last
+
+    def joined():
+        nonlocal last
+        current = find_by(list((p2p(joiner, "command", "channels.list").get("channels") or [])), room_id=channel.get("room_id"))
+        if current:
+            last = current
+            if current.get("member_status") in ("join", "joined", ""):
+                return current
+        return None
+
+    return wait_until(
+        f"{joiner.label} {label} public channel join did not reach joined, initial={initial!r} last={last!r}",
+        joined,
+        seconds=120,
+    )
+
+
+def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) -> None:
+    group_room = create_group(owner, f"Retained Group {suffix}")
+    invite_and_join(owner, rebuilt_peer, group_room)
+    group_text = f"pre-rebuild retained group message {suffix}"
+    expect(bool(matrix_send_text(owner, group_room, group_text)), "Matrix retained group send did not return event_id")
+    assert_history(rebuilt_peer, group_room, group_text)
+
+    private_channel = create_channel(owner, f"Retained Private {suffix}", "private", "invite")
+    invite_channel_and_join(owner, rebuilt_peer, private_channel)
+
+    public_channel = create_channel(owner, f"Retained Public {suffix}", "public", "open", "post")
+    post = p2p(
+        owner,
+        "command",
+        "channels.posts.create",
+        {
+            "channel_id": public_channel.get("channel_id"),
+            "room_id": public_channel.get("room_id"),
+            "body": f"pre-rebuild public post {suffix}",
+            "message_type": "text",
+        },
+    )
+    expect(bool(post.get("post_id")), "public channel pre-rebuild post did not return post_id")
+    wait_public_channel_join(owner, rebuilt_peer, public_channel, "initial")
+
+    rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 2)
+
+    p2p(
+        owner,
+        "command",
+        "groups.invite",
+        {
+            "room_id": group_room,
+            "user_id": rebuilt_peer.mxid,
+            "display_name": rebuilt_peer.name,
+            "remote_node_base_url": f"{rebuilt_peer.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+        },
+    )
+    wait_until(
+        f"{rebuilt_peer.label} did not receive retained group re-invite",
+        lambda: find_by(list((p2p(rebuilt_peer, "command", "sync.bootstrap").get("pending", {}).get("group_invites") or [])), id=group_room),
+        seconds=90,
+    )
+    group_join = p2p(rebuilt_peer, "command", "groups.join", {"room_id": group_room, "server_names": [owner.server_name], "display_name": rebuilt_peer.name, "avatar_url": rebuilt_peer.avatar})
+    expect(group_join.get("status") == "ok", f"{rebuilt_peer.label} retained group join failed: {group_join!r}")
+
+    p2p(
+        owner,
+        "command",
+        "channels.invite",
+        {
+            "room_id": private_channel.get("room_id"),
+            "channel_id": private_channel.get("channel_id"),
+            "user_id": rebuilt_peer.mxid,
+            "display_name": rebuilt_peer.name,
+            "remote_node_base_url": f"{rebuilt_peer.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+        },
+    )
+    wait_until(
+        f"{rebuilt_peer.label} did not receive retained private channel re-invite",
+        lambda: find_by(list((p2p(rebuilt_peer, "command", "sync.bootstrap").get("pending", {}).get("channel_notices") or [])), id=private_channel.get("room_id")),
+        seconds=90,
+    )
+    private_join = p2p(
+        rebuilt_peer,
+        "command",
+        "channels.join",
+        {
+            "room_id": private_channel.get("room_id"),
+            "channel_id": private_channel.get("channel_id"),
+            "server_names": [owner.server_name],
+            "display_name": rebuilt_peer.name,
+            "avatar_url": rebuilt_peer.avatar,
+        },
+    )
+    expect(private_join.get("status") == "ok", f"{rebuilt_peer.label} retained private channel join failed: {private_join!r}")
+
+    wait_public_channel_join(owner, rebuilt_peer, public_channel, "retained")
+    assert_matrix_channel_content(rebuilt_peer, public_channel.get("room_id") or "", [f"pre-rebuild public post {suffix}"])
 
 
 def assert_members(owner: Node, room_id: str, expected: list[Node]) -> None:
@@ -497,6 +931,7 @@ def assert_remote_post_channel_history(owner: Node, joiner: Node, channel: dict[
 
 
 def main() -> int:
+    os.environ.setdefault("P2P_DUAL_PUBLIC_HOST", PUBLIC_HOST)
     suffix = int(time.time() * 1000)
     nodes = [
         Node("A", "http://127.0.0.1:18008", "direxio-p2p-dual-dendrite-a-1", f"{PUBLIC_HOST}:18448", "", ""),
@@ -520,6 +955,11 @@ def main() -> int:
         login(node)
 
     a, b, c = nodes
+
+    verify_rebuilt_peer_readd(a, c, suffix)
+    print("PASS C empty-volume rebuild re-add restores contact, using old room when joinable or replacement room when not")
+    verify_rebuilt_room_reentry(a, c, suffix)
+    print("PASS C empty-volume rebuild requires explicit group/private-channel rejoin and public-channel reapply")
 
     direct_room = ensure_direct(a, b)
     verify_delete_readd(b, a, direct_room)

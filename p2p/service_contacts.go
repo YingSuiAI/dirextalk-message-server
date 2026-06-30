@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 )
 
 type peerContactReactivation struct {
 	PendingInbound bool
+	RoomID         string
 }
 
 func (s *Service) contactRequest(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -62,7 +62,72 @@ func (s *Service) contactRequest(ctx context.Context, params map[string]any) (an
 		}
 		return existing, nil
 	}
+	if contact, restored, apiErr := s.restoreRetainedPeerContact(ctx, mxid, params, domain); apiErr != nil {
+		return nil, apiErr
+	} else if restored {
+		return contact, nil
+	}
 	return s.createDirectContactRequest(ctx, mxid, params, domain)
+}
+
+func (s *Service) restoreRetainedPeerContact(ctx context.Context, mxid string, params map[string]any, domain string) (contactRecord, bool, *apiError) {
+	if remoteNodeBaseURLParam(params) == "" || domain == "" || domain == s.serverName {
+		return contactRecord{}, false, nil
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	ownerDisplayName := s.profile.DisplayName
+	ownerAvatarURL := s.profile.AvatarURL
+	s.mu.Unlock()
+	reactivation, apiErr := s.requestPeerContactReactivation(ctx, contactRecord{PeerMXID: mxid, Domain: domain}, params, ownerMXID)
+	if apiErr != nil {
+		if contactReactivationNotRetained(apiErr) {
+			return contactRecord{}, false, nil
+		}
+		return contactRecord{}, false, apiErr
+	}
+	if reactivation.PendingInbound || strings.TrimSpace(reactivation.RoomID) == "" {
+		return contactRecord{}, false, nil
+	}
+	roomID := reactivation.RoomID
+	if s.transport != nil {
+		join, err := s.joinReactivatedDirectRoom(ctx, roomID, ownerMXID, ownerDisplayName, ownerAvatarURL, retainedRoomServerNames(params, roomID))
+		if err != nil {
+			if isDirectContactReactivationJoinFailed(err) {
+				replacement, apiErr := s.createReplacementDirectContactRequest(ctx, contactRecord{
+					PeerMXID:    mxid,
+					DisplayName: trimString(params["display_name"]),
+					AvatarURL:   trimString(params["avatar_url"]),
+					Domain:      domain,
+					RoomID:      roomID,
+					Status:      "accepted",
+				}, params, domain)
+				if apiErr != nil {
+					return contactRecord{}, false, apiErr
+				}
+				return replacement, true, nil
+			}
+			return contactRecord{}, false, transportWriteError(err)
+		}
+		if strings.TrimSpace(join.RoomID) != "" {
+			roomID = join.RoomID
+		}
+	}
+	contact := contactRecord{
+		PeerMXID:    mxid,
+		DisplayName: trimString(params["display_name"]),
+		AvatarURL:   trimString(params["avatar_url"]),
+		Domain:      domain,
+		RoomID:      roomID,
+		Status:      "accepted",
+	}
+	if err := s.saveContact(ctx, contact); err != nil {
+		return contactRecord{}, false, internalError(err)
+	}
+	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
+		return contactRecord{}, false, internalError(err)
+	}
+	return contact, true, nil
 }
 
 func (s *Service) createDirectContactRequest(ctx context.Context, mxid string, params map[string]any, domain string) (contactRecord, *apiError) {
@@ -254,7 +319,7 @@ func (s *Service) restoreDeletedContact(ctx context.Context, contact contactReco
 			if reactivation.PendingInbound {
 				return s.createReplacementDirectContactRequest(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
 			}
-			join, err := s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, stringSliceParam(params["server_names"]))
+			join, err := s.joinReactivatedDirectRoom(ctx, contact.RoomID, ownerMXID, ownerDisplayName, ownerAvatarURL, retainedRoomServerNames(params, contact.RoomID))
 			if err != nil {
 				return nil, transportWriteError(err)
 			}
@@ -348,13 +413,13 @@ func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, c
 
 func (s *Service) joinContactDirectRoom(ctx context.Context, contact contactRecord, params map[string]any, ownerMXID, ownerDisplayName, ownerAvatarURL string) (string, *apiError) {
 	serverNames := stringSliceParam(params["server_names"])
-	join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+	join, err := s.joinRoomWithRetry(ctx, JoinRoomRequest{
 		RoomIDOrAlias: contact.RoomID,
 		UserMXID:      ownerMXID,
 		DisplayName:   ownerDisplayName,
 		AvatarURL:     ownerAvatarURL,
 		ServerNames:   serverNames,
-	})
+	}, 6, isFederatedJoinInProgress)
 	if err != nil {
 		if !isDirectRoomJoinRequiresInvite(err) {
 			return "", transportWriteError(err)
@@ -378,28 +443,16 @@ func (s *Service) joinContactDirectRoom(ctx context.Context, contact contactReco
 }
 
 func (s *Service) joinReactivatedDirectRoom(ctx context.Context, roomID, userMXID, displayName, avatarURL string, serverNames []string) (JoinRoomResult, error) {
-	const maxAttempts = 6
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
-			RoomIDOrAlias: roomID,
-			UserMXID:      userMXID,
-			DisplayName:   displayName,
-			AvatarURL:     avatarURL,
-			ServerNames:   serverNames,
-		})
-		if err == nil || !isDirectRoomJoinRequiresInvite(err) {
-			return join, err
-		}
-		if attempt == maxAttempts-1 {
-			return JoinRoomResult{}, err
-		}
-		select {
-		case <-ctx.Done():
-			return JoinRoomResult{}, ctx.Err()
-		case <-time.After(time.Duration(attempt+1) * 150 * time.Millisecond):
-		}
-	}
-	return JoinRoomResult{}, productpolicy.Forbidden("direct room join requires invite")
+	return s.joinRoomWithRetry(ctx, JoinRoomRequest{
+		RoomIDOrAlias:             roomID,
+		UserMXID:                  userMXID,
+		DisplayName:               displayName,
+		AvatarURL:                 avatarURL,
+		ServerNames:               serverNames,
+		DirectContactReactivation: true,
+	}, 6, func(err error) bool {
+		return isDirectRoomJoinRequiresInvite(err) || isFederatedJoinInProgress(err)
+	})
 }
 
 func (s *Service) requestPeerContactReactivation(ctx context.Context, contact contactRecord, params map[string]any, requesterMXID string) (peerContactReactivation, *apiError) {
@@ -434,16 +487,16 @@ func (s *Service) requestPeerContactReactivation(ctx context.Context, contact co
 		return peerContactReactivation{}, statusError(status, "target node contact reactivation failed")
 	}
 	if strings.EqualFold(trimString(result["status"]), "pending_inbound") {
-		return peerContactReactivation{PendingInbound: true}, nil
+		return peerContactReactivation{PendingInbound: true, RoomID: trimString(result["room_id"])}, nil
 	}
-	return peerContactReactivation{}, nil
+	return peerContactReactivation{RoomID: trimString(result["room_id"])}, nil
 }
 
 func (s *Service) contactReactivate(ctx context.Context, params map[string]any) (any, *apiError) {
 	roomID := trimString(params["room_id"])
 	requesterMXID := trimString(params["requester_mxid"])
-	if roomID == "" || requesterMXID == "" {
-		return nil, badRequest("room_id and requester_mxid are required")
+	if requesterMXID == "" {
+		return nil, badRequest("requester_mxid is required")
 	}
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
@@ -457,8 +510,14 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 	if err != nil {
 		return nil, internalError(err)
 	}
-	if !ok || contact.RoomID != roomID {
+	if !ok || (roomID != "" && contact.RoomID != roomID) {
 		return nil, statusError(http.StatusNotFound, "retained contact not found")
+	}
+	if roomID == "" {
+		if !contactAccepted(contact.Status) {
+			return nil, statusError(http.StatusNotFound, "retained contact not found")
+		}
+		roomID = contact.RoomID
 	}
 	if !contactAccepted(contact.Status) {
 		if contact.DisplayName == "" {
@@ -488,6 +547,13 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 				roomProfileForDirect(directName, ownerMXID, requesterMXID, ownerDisplayName, ownerAvatarURL, "", false),
 			},
 		}); err != nil {
+			if isAlreadyJoinedRoomError(err) {
+				result := map[string]any{"status": "invited", "room_id": roomID}
+				if err := s.attachConversationOperation(ctx, result, "contacts.reactivate", "invited", roomID); err != nil {
+					return nil, internalError(err)
+				}
+				return result, nil
+			}
 			return nil, transportWriteError(err)
 		}
 	}
@@ -530,13 +596,18 @@ func isDirectContactReactivationJoinFailed(err error) bool {
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(message, "inputwasrejected") ||
-		strings.Contains(message, "local server not currently joined to room")
+		strings.Contains(message, "local server not currently joined to room") ||
+		strings.Contains(message, "join rule \"invite\" forbids it")
 }
 
 func isAlreadyLeftRoomError(err error) bool {
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(message, "not joined to the room") &&
 		strings.Contains(message, "membership is \"leave\"")
+}
+
+func isAlreadyJoinedRoomError(err error) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "already joined")
 }
 
 //nolint:gocyclo // Contact mutations share transport and persistence guards in one compatibility endpoint.
@@ -637,14 +708,14 @@ func (s *Service) contactMutation(ctx context.Context, action string, params map
 		ownerDisplayName := s.profile.DisplayName
 		ownerAvatarURL := s.profile.AvatarURL
 		s.mu.Unlock()
-		join, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
+		join, err := s.joinRoomWithRetry(ctx, JoinRoomRequest{
 			RoomIDOrAlias:             roomID,
 			UserMXID:                  ownerMXID,
 			DisplayName:               ownerDisplayName,
 			AvatarURL:                 ownerAvatarURL,
 			ServerNames:               stringSliceParam(params["server_names"]),
 			DirectContactReactivation: contactPendingInbound(existing.Status),
-		})
+		}, 6, isFederatedJoinInProgress)
 		if err != nil {
 			if contactPendingInbound(existing.Status) && isDirectContactReactivationJoinFailed(err) {
 				replacementRoomID, apiErr := s.createAcceptedReplacementDirectRoom(ctx, existing, ownerMXID, ownerDisplayName, ownerAvatarURL)

@@ -924,6 +924,39 @@ func TestContactAcceptJoinsDirectRoomThroughTransport(t *testing.T) {
 	}
 }
 
+func TestContactAcceptRetriesFederatedJoinInProgress(t *testing.T) {
+	transport := &failOnceJoinTransport{
+		err: errors.New(`contents=[] msg={
+				"errcode": "M_LIMIT_EXCEEDED",
+				"error": "There is already a federated join to this room in progress. Please wait for it to finish."
+			} code=429 wrapped=`),
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "pending_inbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted := mustHandle[contactRecord](t, service, "contacts.requests.accept", map[string]any{
+		"room_id":   "!dm:remote.example",
+		"peer_mxid": "@alice:remote.example",
+		"domain":    "remote.example",
+	})
+
+	if accepted.Status != "accepted" || accepted.RoomID != "!dm:remote.example" {
+		t.Fatalf("expected accepted contact after retry, got %#v", accepted)
+	}
+	if transport.attempts != 2 || len(transport.joins) != 2 {
+		t.Fatalf("expected one retry for federated join in progress, attempts=%d joins=%#v", transport.attempts, transport.joins)
+	}
+}
+
 func TestContactAcceptUsesDirectReactivationJoinWhenInviteIsGone(t *testing.T) {
 	transport := &directReactivationJoinTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
@@ -1227,6 +1260,174 @@ func TestDeletedContactRequestWaitsForFederatedReactivationInvite(t *testing.T) 
 	}
 }
 
+func TestFreshContactRequestRestoresPeerRetainedDirectRoom(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		if trimString(req.Params["room_id"]) != "" ||
+			trimString(req.Params["requester_mxid"]) != "@owner:example.com" {
+			t.Fatalf("unexpected fresh reactivation params %#v", req.Params)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "invited",
+			"room_id": "!old-dm:remote.example",
+		})
+	}))
+	defer remote.Close()
+
+	transport := &recordingTransport{roomID: "!new-dm:example.com"}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "accepted" || contact.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected fresh request to restore peer-retained old room, got %#v", contact)
+	}
+	if len(transport.joinRequests) != 1 ||
+		transport.joinRequests[0].RoomIDOrAlias != "!old-dm:remote.example" ||
+		!transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected direct reactivation join of old room, got %#v", transport.joinRequests)
+	}
+	if len(transport.createRooms) != 0 {
+		t.Fatalf("fresh retained-peer restore must not create a new direct room, got %#v", transport.createRooms)
+	}
+}
+
+func TestFreshContactRequestCreatesReplacementWhenRetainedRoomCannotRejoin(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "invited",
+			"room_id": "!old-dm:remote.example",
+		})
+	}))
+	defer remote.Close()
+
+	transport := &failOnceJoinTransport{
+		recordingTransport: recordingTransport{roomID: "!new-dm:example.com"},
+		err:                errors.New("eventauth: user is not allowed to change their membership from \"leave\" to \"join\" as join rule \"invite\" forbids it"),
+		failures:           6,
+	}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!new-dm:example.com" {
+		t.Fatalf("expected fresh replacement direct request, got %#v", contact)
+	}
+	if len(transport.joinRequests) != 1 ||
+		transport.joinRequests[0].RoomIDOrAlias != "!old-dm:remote.example" ||
+		!transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected direct reactivation retries against old room, got %#v", transport.joinRequests)
+	}
+	if len(transport.createRooms) != 1 || len(transport.createRooms[0].InviteMXIDs) != 1 || transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("expected replacement direct room invite, got %#v", transport.createRooms)
+	}
+}
+
+func TestAcceptedContactFreshInviteUsesReplacementWhenRetainedRoomAlreadyJoined(t *testing.T) {
+	transport := &failingInviteTransport{
+		recordingTransport: recordingTransport{},
+		err:                errors.New("user is already joined to room"),
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:              "!old-dm:example.com",
+		PeerMXID:            "@alice:remote.example",
+		DisplayName:         "Local Remark",
+		DisplayNameOverride: true,
+		AvatarURL:           "mxc://example.com/old",
+		Domain:              "remote.example",
+		Status:              "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.savePendingInboundContact(context.Background(), contactRecord{
+		RoomID:      "!new-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice Remote",
+		AvatarURL:   "mxc://remote.example/new",
+		Domain:      "remote.example",
+		Status:      "pending_inbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	contact, ok, err := service.lookupContactByPeer(context.Background(), "@alice:remote.example")
+	if err != nil || !ok {
+		t.Fatalf("expected accepted replacement contact, ok=%v err=%v", ok, err)
+	}
+	if contact.RoomID != "!new-dm:remote.example" || contact.Status != "accepted" {
+		t.Fatalf("expected accepted contact to move to replacement room, got %#v", contact)
+	}
+	if contact.DisplayName != "Local Remark" || !contact.DisplayNameOverride {
+		t.Fatalf("replacement must preserve local contact remark, got %#v", contact)
+	}
+	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-dm:example.com" {
+		t.Fatalf("expected retained-room invite attempt, got %#v", transport.inviteRequests)
+	}
+	if len(transport.joinRequests) != 1 || transport.joinRequests[0].RoomIDOrAlias != "!new-dm:remote.example" {
+		t.Fatalf("expected owner to join replacement direct room, got %#v", transport.joinRequests)
+	}
+}
+
+func TestContactReactivateTreatsAlreadyJoinedAsRestored(t *testing.T) {
+	transport := &failingInviteTransport{err: errors.New("user is already joined to room")}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:example.com",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "contacts.reactivate", map[string]any{
+		"requester_mxid": "@alice:remote.example",
+	})
+
+	if result["status"] != "invited" || result["room_id"] != "!old-dm:example.com" {
+		t.Fatalf("expected already-joined reactivation to return old room, got %#v", result)
+	}
+	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-dm:example.com" {
+		t.Fatalf("expected one retained-room invite attempt, got %#v", transport.inviteRequests)
+	}
+}
+
 func TestDeletedContactRequestCreatesFreshRequestWhenPeerNoLongerRetainsOldRoom(t *testing.T) {
 	remoteActions := []string{}
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1527,7 +1728,7 @@ func TestAcceptedContactRequestMutationsDoNotBypassDeleteLeave(t *testing.T) {
 }
 
 func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
+	transport := &alreadyJoinedOnceInviteTransport{recordingTransport: recordingTransport{roomID: "!channel:example.com"}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
 
@@ -1573,7 +1774,7 @@ func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
 }
 
 func TestChannelUpdateAndDissolvePublishRoomStateThroughTransport(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
+	transport := &alreadyJoinedOnceInviteTransport{recordingTransport: recordingTransport{roomID: "!channel:example.com"}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
 	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
@@ -2135,6 +2336,129 @@ func TestServiceUsesTransportForMemberLifecycle(t *testing.T) {
 	}
 }
 
+func TestGroupInviteReactivatesRemoteNodeWhenMatrixAlreadyJoined(t *testing.T) {
+	remoteActions := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		remoteActions = append(remoteActions, req.Action)
+		if req.Action != "rooms.reactivate" ||
+			trimString(req.Params["room_type"]) != "group" ||
+			trimString(req.Params["room_id"]) == "" ||
+			trimString(req.Params["user_id"]) != "@alice:remote.example" {
+			t.Fatalf("unexpected room reactivation request %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "invite", "room_id": trimString(req.Params["room_id"])})
+	}))
+	defer remote.Close()
+
+	transport := &alreadyJoinedOnceInviteTransport{}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"name": "Team"})
+
+	result := mustHandle[map[string]any](t, service, "groups.invite", map[string]any{
+		"room_id":              group.RoomID,
+		"user_id":              "@alice:remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if result["status"] != "ok" || len(remoteActions) != 1 {
+		t.Fatalf("expected invite to reactivate remote node, result=%#v actions=%#v", result, remoteActions)
+	}
+	member, ok, err := service.lookupMember(context.Background(), group.RoomID, "@alice:remote.example")
+	if err != nil || !ok || member.Membership != "invite" {
+		t.Fatalf("expected retained remote member to be re-invited, ok=%v member=%#v err=%v", ok, member, err)
+	}
+	if len(transport.kicks) != 1 || len(transport.inviteRequests) != 2 {
+		t.Fatalf("expected kick then replacement invite for already-joined member, kicks=%#v invites=%#v", transport.kicks, transport.inviteRequests)
+	}
+}
+
+func TestRoomReactivateRecordsRetainedGroupInvite(t *testing.T) {
+	transport := &recordingTransport{roomID: "!group:remote.example"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "rooms.reactivate", map[string]any{
+		"room_id":      "!group:remote.example",
+		"room_type":    "group",
+		"user_id":      "@owner:example.com",
+		"name":         "Remote Team",
+		"server_names": []any{"remote.example"},
+	})
+
+	if result["status"] != "invite" || result["room_id"] != "!group:remote.example" {
+		t.Fatalf("expected retained group reactivation to record invite, got %#v", result)
+	}
+	group, ok, err := service.groupByRoom(context.Background(), "!group:remote.example")
+	if err != nil || !ok || group.Name != "Remote Team" {
+		t.Fatalf("expected group projection after reactivation, ok=%v group=%#v err=%v", ok, group, err)
+	}
+	member, ok, err := service.lookupMember(context.Background(), "!group:remote.example", "@owner:example.com")
+	if err != nil || !ok || member.Membership != "invite" {
+		t.Fatalf("expected invited member after reactivation, ok=%v member=%#v err=%v", ok, member, err)
+	}
+	if len(transport.joinRequests) != 0 {
+		t.Fatalf("reactivation invite must not silently join retained group, got %#v", transport.joinRequests)
+	}
+}
+
+func TestPrivateChannelInviteReactivatesRemoteNodeWhenMatrixAlreadyJoined(t *testing.T) {
+	remoteActions := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		remoteActions = append(remoteActions, req.Action)
+		if req.Action != "rooms.reactivate" ||
+			trimString(req.Params["room_type"]) != "channel" ||
+			trimString(req.Params["channel_id"]) != "private" ||
+			trimString(req.Params["user_id"]) != "@alice:remote.example" {
+			t.Fatalf("unexpected channel reactivation request %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "invite", "room_id": "!channel:example.com", "channel_id": "private"})
+	}))
+	defer remote.Close()
+
+	transport := &alreadyJoinedOnceInviteTransport{recordingTransport: recordingTransport{roomID: "!channel:example.com"}}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "private",
+		"name":        "Private",
+		"visibility":  "private",
+		"join_policy": "invite",
+	})
+
+	result := mustHandle[map[string]any](t, service, "channels.invite", map[string]any{
+		"room_id":              ch.RoomID,
+		"channel_id":           ch.ChannelID,
+		"user_id":              "@alice:remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if result["status"] != "ok" || len(remoteActions) != 1 {
+		t.Fatalf("expected private channel invite to reactivate remote node, result=%#v actions=%#v", result, remoteActions)
+	}
+	member, ok, err := service.lookupMember(context.Background(), ch.RoomID, "@alice:remote.example")
+	if err != nil || !ok || member.Membership != "invite" || member.ChannelID != ch.ChannelID {
+		t.Fatalf("expected retained remote channel member to be re-invited, ok=%v member=%#v err=%v", ok, member, err)
+	}
+	if len(transport.kicks) != 1 || len(transport.inviteRequests) != 2 {
+		t.Fatalf("expected kick then replacement invite for already-joined channel member, kicks=%#v invites=%#v", transport.kicks, transport.inviteRequests)
+	}
+}
+
 func TestGroupJoinUsesOwnerProfileForMemberAndMatrixJoin(t *testing.T) {
 	transport := &recordingTransport{roomID: "!group:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
@@ -2197,6 +2521,173 @@ func TestChannelPublicJoinRequestPublishesApprovalStateWithoutInvite(t *testing.
 	}
 	if !approvedState {
 		t.Fatalf("expected approved join request state, got %#v", transport.stateEvents)
+	}
+}
+
+func TestPublicChannelJoinRequestReinvitesRebuiltAlreadyJoinedRemoteMember(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Action != "channels.public.join_result" ||
+			trimString(req.Params["user_id"]) != "@alice:remote.example" ||
+			trimString(req.Params["status"]) != "approved" {
+			t.Fatalf("unexpected public join callback %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "joined", "room_id": trimString(req.Params["room_id"])})
+	}))
+	defer remote.Close()
+
+	transport := &alreadyJoinedOnceInviteTransport{recordingTransport: recordingTransport{roomID: "!channel:example.com"}}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "public",
+		"name":        "Public Channel",
+		"visibility":  "public",
+		"join_policy": "open",
+	})
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     ch.RoomID,
+		ChannelID:  ch.ChannelID,
+		UserID:     "@alice:remote.example",
+		Membership: "join",
+		Role:       "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
+		"room_id":                 ch.RoomID,
+		"channel_id":              ch.ChannelID,
+		"user_id":                 "@alice:remote.example",
+		"requester_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if result["status"] != "joined" {
+		t.Fatalf("expected rebuilt public channel member to join after re-invite, got %#v", result)
+	}
+	if len(transport.kicks) != 1 || len(transport.inviteRequests) != 2 {
+		t.Fatalf("expected stale public membership kick and fresh invite, kicks=%#v invites=%#v", transport.kicks, transport.inviteRequests)
+	}
+}
+
+func TestPublicChannelJoinRequestRetriesRemoteJoinResultFailure(t *testing.T) {
+	var attempts int
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Action != "channels.public.join_result" ||
+			trimString(req.Params["user_id"]) != "@alice:remote.example" ||
+			trimString(req.Params["status"]) != "approved" {
+			t.Fatalf("unexpected public join callback %#v", req)
+		}
+		attempts++
+		if attempts == 1 {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "join_failed", "error": "invite not received yet"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "joined", "room_id": trimString(req.Params["room_id"])})
+	}))
+	defer remote.Close()
+
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "public",
+		"name":        "Public Channel",
+		"visibility":  "public",
+		"join_policy": "open",
+	})
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
+		"room_id":                 ch.RoomID,
+		"channel_id":              ch.ChannelID,
+		"user_id":                 "@alice:remote.example",
+		"requester_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if result["status"] != "joined" || attempts != 2 {
+		t.Fatalf("expected public join callback retry to joined, attempts=%d result=%#v", attempts, result)
+	}
+	member, ok, err := service.lookupMember(context.Background(), ch.RoomID, "@alice:remote.example")
+	if err != nil || !ok || member.Membership != "join" {
+		t.Fatalf("expected owner projection to become joined after remote retry, ok=%v member=%#v err=%v", ok, member, err)
+	}
+}
+
+func TestRemotePublicChannelJoinRequestFallsBackToLocalJoinAfterRemoteJoinFailed(t *testing.T) {
+	remoteChannel := channel{
+		ChannelID:       "remote_public",
+		RoomID:          "!remote:remote.example",
+		Name:            "Remote Public",
+		Visibility:      "public",
+		JoinPolicy:      "open",
+		ChannelType:     "post",
+		CommentsEnabled: true,
+	}
+	var joinRequests int
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		switch req.Action {
+		case "channels.public.get":
+			writeJSON(w, http.StatusOK, remoteChannel)
+		case "channels.public.join_request":
+			joinRequests++
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status": "join_failed",
+				"member": memberRecord{
+					RoomID:     remoteChannel.RoomID,
+					ChannelID:  remoteChannel.ChannelID,
+					UserID:     "@owner:local.example",
+					Membership: "join_failed",
+					Role:       "member",
+				},
+				"channel": remoteChannel,
+				"error":   "requester callback was not ready",
+			})
+		default:
+			t.Fatalf("unexpected remote action %#v", req)
+		}
+	}))
+	defer remote.Close()
+
+	transport := &recordingTransport{roomID: remoteChannel.RoomID}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "local.example",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
+		"room_id":              remoteChannel.RoomID,
+		"channel_id":           remoteChannel.ChannelID,
+		"remote_node_base_url": remote.URL + "/_p2p",
+		"server_names":         []string{"remote.example"},
+	})
+
+	if result["status"] != "joined" || joinRequests != 1 {
+		t.Fatalf("expected local requester fallback join, joinRequests=%d result=%#v", joinRequests, result)
+	}
+	if len(transport.joins) != 1 || transport.joins[0] != "@owner:local.example in !remote:remote.example" {
+		t.Fatalf("expected requester node Matrix join, got %#v", transport.joins)
+	}
+	member, ok, err := service.lookupMember(context.Background(), remoteChannel.RoomID, "@owner:local.example")
+	if err != nil || !ok || member.Membership != "join" {
+		t.Fatalf("expected local member to become joined, ok=%v member=%#v err=%v", ok, member, err)
 	}
 }
 
@@ -3313,6 +3804,21 @@ func (t *failingInviteTransport) InviteUser(ctx context.Context, req InviteUserR
 	t.invites = append(t.invites, req.InviterMXID+" -> "+req.InviteeMXID+" in "+req.RoomID)
 	t.inviteRequests = append(t.inviteRequests, req)
 	return t.err
+}
+
+type alreadyJoinedOnceInviteTransport struct {
+	recordingTransport
+	attempts int
+}
+
+func (t *alreadyJoinedOnceInviteTransport) InviteUser(ctx context.Context, req InviteUserRequest) error {
+	t.invites = append(t.invites, req.InviterMXID+" -> "+req.InviteeMXID+" in "+req.RoomID)
+	t.inviteRequests = append(t.inviteRequests, req)
+	t.attempts++
+	if t.attempts == 1 {
+		return errors.New("user is already joined to room")
+	}
+	return nil
 }
 
 type failingRedactTransport struct {

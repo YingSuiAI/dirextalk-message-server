@@ -5,6 +5,7 @@ var publicActions = []string{
 	"portal.auth",
 	"portal.status",
 	"contacts.reactivate",
+	"rooms.reactivate",
 	"channels.public.search",
 	"channels.public.get",
 	"channels.public.join_request",

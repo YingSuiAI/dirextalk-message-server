@@ -48,6 +48,7 @@ Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer 
 - `portal.auth`
 - `portal.status`
 - `contacts.reactivate`
+- `rooms.reactivate`
 - `channels.public.search`
 - `channels.public.get`
 - `channels.public.join_request`
@@ -56,7 +57,7 @@ Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer 
 
 `portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。
 
-`channels.public.join_result` 是节点间审批结果回调，不是客户端常规入口。
+`rooms.reactivate` 与 `channels.public.join_result` 是节点间回调，不是客户端常规入口。`rooms.reactivate` 只用于在群/私有频道成员节点重建后恢复对方节点上的邀请/待加入提示，不能让对方静默加入；最终加入仍由对方客户端调用 `groups.join` 或 `channels.join`。
 
 ## 3. 运行时结构
 
@@ -183,7 +184,8 @@ Contacts：
 - inbound/outbound request 来自 Matrix invite/member projection。
 - accept 通过 Matrix join 进入 direct room。
 - `contacts.update` 设置的是 owner 本地联系人备注名；返回的 contact 可带 `display_name_override=true`。该标记存在时，后续远端 Matrix member display name 更新不能覆盖 contact `display_name`，但 avatar 仍可按远端 profile 更新。没有本地备注名的 accepted contact 继续跟随远端 Matrix member display name。
-- delete 后保留原 direct room 身份用于恢复。删除方主动重新添加时，如果对方仍保留 accepted 关系，可以通过 `contacts.reactivate` 复用旧房间；如果请求方本地联系人数据被清理并创建了新的 direct invite，而目标方仍保留 accepted 旧关系，目标方重新邀请真实 sender 回旧房间，不采纳新房间里的伪造身份资料。双方都已离开旧房间或对端不再保留旧关系时，再次申请会创建新的 direct request room；对历史遗留的旧 room pending request，accept 如果无法 rejoin 旧房间，也会创建新的 direct room 并接受关系。
+- delete 后保留原 direct room 身份用于恢复。删除方主动重新添加时，如果对方仍保留 accepted 关系，可以通过 `contacts.reactivate` 复用旧房间；如果请求方本地联系人数据被清理并创建了新的 direct invite，而目标方仍保留 accepted 旧关系，目标方优先重新邀请真实 sender 回旧房间，不采纳新房间里的伪造身份资料。如果清库重建导致旧 invite-only direct room 无法重新加入，则双方改用真实 sender 创建的新 direct room 作为 accepted 关系，旧房间历史不会复制到新房间。双方都已离开旧房间或对端不再保留旧关系时，再次申请会创建新的 direct request room；对历史遗留的旧 room pending request，accept 如果无法 rejoin 旧房间，也会创建新的 direct room 并接受关系。
+- 群聊和私有频道成员节点清库重建后，群主/频道主再次邀请该成员时，如果 Matrix 侧显示成员仍在旧房间，owner 节点会先移除该 stale joined membership，再发送新的真实 Matrix invite，并调用成员节点 `rooms.reactivate` 恢复 pending invite/card；成员节点不能静默加入，必须由用户点击后调用 `groups.join` 或 `channels.join`，Matrix join 成功后才写 joined 投影。公开频道不使用 `rooms.reactivate`，重建成员应重新调用 `channels.public.join_request`，并继续遵守 open/approval policy；如果 owner 节点仍保留该公开频道成员的 stale joined membership，owner 节点会先移除并发送新的 Matrix invite，再通过 `channels.public.join_result` 让申请节点完成 join。
 - reject/delete 只改变产品 projection 与对应 Matrix leave/kick 行为，不制造普通消息副本；如果 Matrix membership 已经是 leave，`contacts.delete` 仍按幂等删除处理并更新产品 projection。
 
 Groups：

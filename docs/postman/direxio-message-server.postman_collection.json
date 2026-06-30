@@ -55,7 +55,7 @@
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 使用 WS `client.request`；HTTP `/query` 和 `/command` 保留 portal bootstrap/auth/status/password、`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、以及节点间 public/callback action。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 使用 WS `client.request`；HTTP `/query` 和 `/command` 保留 portal bootstrap/auth/status/password、`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、以及节点间 public/callback action。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, rooms.reactivate, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -1509,6 +1509,33 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"contacts.reactivate\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"requester_mxid\": \"{{peerUserID}}\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "rooms.reactivate（恢复群/频道邀请）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "在群聊或私有频道成员节点清库重建后，owner 节点用于恢复该成员节点上的待加入提示。\n\nRestore a pending group/private-channel invite on a rebuilt member node\n\nAction: `rooms.reactivate`\nEndpoint: `POST /_p2p/query`\nAuth: Public internal node-to-node action. This action records an invite/pending room card only; it must not silently join the user. The rebuilt user must still call `groups.join` or `channels.join`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"rooms.reactivate\",\n  \"params\": {\n    \"room_id\": \"{{roomID}}\",\n    \"room_type\": \"group\",\n    \"user_id\": \"{{ownerUserID}}\",\n    \"name\": \"Recovered Group\",\n    \"server_names\": [\n      \"{{remoteServerName}}\"\n    ]\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"

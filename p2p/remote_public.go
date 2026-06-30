@@ -132,6 +132,7 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 		Status  string       `json:"status"`
 		Member  memberRecord `json:"member"`
 		Channel channel      `json:"channel"`
+		Error   string       `json:"error"`
 	}
 	status, err := s.remotePublicAction(ctx, roomServer, "channels.public.join_request", forwardParams, &remote)
 	if err != nil {
@@ -159,6 +160,25 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if member.RequesterNodeBaseURL == "" {
 		member.RequesterNodeBaseURL = localMember.RequesterNodeBaseURL
 	}
+	remoteStatus := fallbackString(remote.Status, member.Membership)
+	if strings.EqualFold(remoteStatus, "join_failed") || strings.EqualFold(remoteStatus, "approved") || strings.EqualFold(remoteStatus, "joining") {
+		localJoin := localMember
+		localJoin.RoomID = roomID
+		localJoin.ChannelID = ch.ChannelID
+		localJoin.Membership = "approved"
+		localJoin.Role = fallbackString(localJoin.Role, "member")
+		applyMemberProfileParams(&localJoin, params)
+		joinParams := cloneParams(params)
+		joinParams["server_names"] = channelJoinServerNames(params["server_names"], roomID)
+		if apiErr := s.joinAndProjectRetainedRoom(ctx, "channel", &localJoin, joinParams); apiErr == nil {
+			ch.MemberStatus = "join"
+			ch.Role = normalizeProductMemberRole(localJoin.Role)
+			ch.IsOwned = productOwnerRole(localJoin.Role)
+			return map[string]any{"status": "joined", "room_id": localJoin.RoomID, "member": localJoin, "channel": ch}, true, nil
+		} else if remote.Error == "" {
+			remote.Error = apiErr.Error
+		}
+	}
 	if err := s.saveMember(ctx, member); err != nil {
 		return nil, false, internalError(err)
 	}
@@ -168,7 +188,11 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 			return nil, false, internalError(err)
 		}
 	}
-	return map[string]any{"status": fallbackString(remote.Status, member.Membership), "member": member, "channel": ch}, true, nil
+	result := map[string]any{"status": remoteStatus, "member": member, "channel": ch}
+	if remote.Error != "" {
+		result["error"] = remote.Error
+	}
+	return result, true, nil
 }
 
 func (s *Service) remotePublicAction(ctx context.Context, serverName, action string, params map[string]any, out any) (int, error) {

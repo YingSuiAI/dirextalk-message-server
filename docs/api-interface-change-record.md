@@ -2,6 +2,14 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 Retained Room Reactivation For Rebuilt Members
+
+Added internal public action `rooms.reactivate` for node-to-node recovery when a group or private-channel member node has been rebuilt and lost local product/Matrix projections while the owner node still retains the member in the Matrix room. It is not a normal client workflow entry.
+
+When `groups.invite` or `channels.invite` sees Matrix report the target user as already joined, the owner node removes that stale joined membership, sends a new Matrix invite, and calls the target node `rooms.reactivate` instead of treating the invite as failed. The target node records an invite/pending room card only; it does not silently join. The user must still confirm by calling `groups.join` or `channels.join`, and joined state is recorded only after Matrix join succeeds. Public channels continue to recover through `channels.public.join_request` and the normal open/approval flow; if the owner node still has stale joined membership for that public requester, it removes it and sends the fresh Matrix invite required before returning `channels.public.join_result`.
+
+For rebuilt direct-contact nodes, `contacts.request` still first asks the retained peer to re-invite the old accepted direct room. If the retained room cannot be rejoined because the rebuilt node lost its old Matrix room/key state, the requester creates a replacement direct request room. The retained peer accepts that replacement only from the real Matrix invite sender and preserves local contact remarks; old direct-room history is not copied into the replacement.
+
 ## 2026-06-30 Contact Re-Request Replacement Room
 
 When both sides of a direct contact have left the retained old direct room, or the peer node no longer retains the old relationship, a new `contacts.request` creates a replacement direct request room instead of binding the pending request to the old room. The returned contact `room_id` may therefore differ from the previous direct room. Clients should use the latest `room_id` from `contacts.request`, `contacts.list`, `sync.bootstrap.contacts`, or contact mutation responses when accepting or opening the conversation.
@@ -363,7 +371,7 @@ Breaking removals and contract changes:
 - Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It initially required bearer `access_token`; current servers accept owner `access_token` or `agent_token`. It returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
-The live P2P body-action count is 89. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+The live P2P body-action count is 90. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 ## Current Pass
 
@@ -449,9 +457,9 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
-The live P2P action count is now 85.
+The live P2P action count is now 90.
 
 ## ProductCore Conversation Contract
 

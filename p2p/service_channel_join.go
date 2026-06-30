@@ -145,12 +145,15 @@ func (s *Service) completeApprovedChannelJoin(ctx context.Context, member member
 	if member.UserID == "" {
 		return nil, badRequest("user_id is required")
 	}
-	if domainFromMXID(member.UserID) != s.serverName {
-		return s.notifyRemoteChannelJoinResult(ctx, member, "approved", params)
-	}
 	member.Membership = "joining"
 	if err := s.saveMember(ctx, member); err != nil {
 		return nil, internalError(err)
+	}
+	if domainFromMXID(member.UserID) != s.serverName {
+		if apiErr := s.ensureRemoteApprovedChannelInvite(ctx, member, params); apiErr != nil {
+			return nil, apiErr
+		}
+		return s.notifyRemoteChannelJoinResult(ctx, member, "approved", params)
 	}
 	if s.transport == nil {
 		member.Membership = "approved"
@@ -159,42 +162,48 @@ func (s *Service) completeApprovedChannelJoin(ctx context.Context, member member
 		}
 		return map[string]any{"status": "approved", "member": member, "channel": s.channelSnapshot(ctx, member.ChannelID)}, nil
 	}
-	result, err := s.transport.JoinRoom(ctx, JoinRoomRequest{
-		RoomIDOrAlias: member.RoomID,
-		UserMXID:      member.UserID,
-		DisplayName:   member.DisplayName,
-		AvatarURL:     member.AvatarURL,
-		ServerNames:   channelJoinServerNames(params["server_names"], member.RoomID),
-	})
-	if err != nil {
+	joinParams := cloneParams(params)
+	joinParams["server_names"] = channelJoinServerNames(params["server_names"], member.RoomID)
+	if apiErr := s.joinAndProjectRetainedRoom(ctx, "channel", &member, joinParams); apiErr != nil {
 		member.Membership = "join_failed"
 		if saveErr := s.saveMember(ctx, member); saveErr != nil {
 			return nil, internalError(saveErr)
 		}
-		return map[string]any{"status": "join_failed", "member": member, "error": err.Error(), "channel": s.channelSnapshot(ctx, member.ChannelID)}, nil
-	}
-	if result.RoomID != "" {
-		member.RoomID = result.RoomID
-	}
-	member.Membership = "join"
-	if member.JoinedAt == 0 {
-		member.JoinedAt = time.Now().UTC().UnixMilli()
-	}
-	if err := s.saveMember(ctx, member); err != nil {
-		return nil, internalError(err)
-	}
-	if refreshedChannelID, err := s.refreshRoomChannel(ctx, member.RoomID); err != nil {
-		return nil, internalError(err)
-	} else if refreshedChannelID != "" {
-		member.ChannelID = refreshedChannelID
-	}
-	if err := s.refreshRoomMembers(ctx, member.RoomID, member.ChannelID); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.backfillJoinedPostChannelContent(ctx, member.RoomID, member.ChannelID); err != nil {
-		return nil, internalError(err)
+		return map[string]any{"status": "join_failed", "member": member, "error": apiErr.Error, "channel": s.channelSnapshot(ctx, member.ChannelID)}, nil
 	}
 	return map[string]any{"status": "joined", "room_id": member.RoomID, "member": member, "channel": s.channelSnapshot(ctx, member.ChannelID)}, nil
+}
+
+func (s *Service) ensureRemoteApprovedChannelInvite(ctx context.Context, member memberRecord, params map[string]any) *apiError {
+	if s.transport == nil {
+		return nil
+	}
+	if trimString(params["requester_node_base_url"]) == "" &&
+		trimString(params["applicant_node_base_url"]) == "" &&
+		member.RequesterNodeBaseURL == "" {
+		return nil
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	s.mu.Unlock()
+	inviteRoomState, apiErr := s.productInviteRoomState(ctx, "channel", member.RoomID, member.ChannelID)
+	if apiErr != nil {
+		return apiErr
+	}
+	inviteReq := InviteUserRequest{
+		RoomID:          member.RoomID,
+		InviterMXID:     ownerMXID,
+		InviteeMXID:     member.UserID,
+		Reason:          trimString(params["reason"]),
+		InviteRoomState: inviteRoomState,
+	}
+	if err := s.transport.InviteUser(ctx, inviteReq); err != nil {
+		if isAlreadyJoinedRoomError(err) {
+			return s.kickAndInviteStaleJoinedRoomMember(ctx, member, inviteReq)
+		}
+		return transportWriteError(err)
+	}
+	return nil
 }
 
 func (s *Service) notifyRemoteChannelJoinResult(ctx context.Context, member memberRecord, status string, params map[string]any) (map[string]any, *apiError) {
@@ -233,8 +242,25 @@ func (s *Service) notifyRemoteChannelJoinResult(ctx context.Context, member memb
 		"server_names":         channelJoinServerNames(params["server_names"], member.RoomID),
 		"remote_node_base_url": base,
 	}
+	const maxAttempts = 8
 	var remote map[string]any
-	httpStatus, err := s.remotePublicAction(ctx, domainFromMXID(member.UserID), "channels.public.join_result", remoteParams, &remote)
+	var httpStatus int
+	var err error
+retryLoop:
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		remote = nil
+		httpStatus, err = s.remotePublicAction(ctx, domainFromMXID(member.UserID), "channels.public.join_result", remoteParams, &remote)
+		remoteStatus := fallbackString(trimString(remote["status"]), status)
+		if status != "approved" || err != nil || httpStatus != http.StatusOK || !strings.EqualFold(remoteStatus, "join_failed") || attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			break retryLoop
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		}
+	}
 	if err != nil {
 		if status == "approved" {
 			member.Membership = "join_failed"
