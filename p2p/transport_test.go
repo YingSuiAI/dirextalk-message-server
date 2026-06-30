@@ -1590,7 +1590,7 @@ func TestContactReactivateInvitesOnlyRetainedAcceptedPeer(t *testing.T) {
 	}
 }
 
-func TestContactReactivateRecordsPendingInboundForDeletedPeerRequest(t *testing.T) {
+func TestContactReactivateTreatsDeletedPeerAsNotRetained(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "remote.example"}, transport)
 	bootstrapService(t, service)
@@ -1604,20 +1604,18 @@ func TestContactReactivateRecordsPendingInboundForDeletedPeerRequest(t *testing.
 		t.Fatal(err)
 	}
 
-	result := mustHandle[map[string]any](t, service, "contacts.reactivate", map[string]any{
+	if _, apiErr := service.Handle(context.Background(), "contacts.reactivate", map[string]any{
 		"room_id":        "!old-dm:example.com",
 		"requester_mxid": "@owner:example.com",
-	})
-
-	if result["status"] != "pending_inbound" || result["room_id"] != "!old-dm:example.com" {
-		t.Fatalf("expected deleted retained room to become pending inbound, got %#v", result)
+	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
+		t.Fatalf("expected deleted retained room to be unavailable for reactivation, got %#v", apiErr)
 	}
 	contact, ok, err := service.lookupContactByPeer(context.Background(), "@owner:example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok || contact.Status != "pending_inbound" || contact.RoomID != "!old-dm:example.com" {
-		t.Fatalf("expected pending inbound contact in old room, got ok=%v contact=%#v", ok, contact)
+	if !ok || contact.Status != "deleted" || contact.RoomID != "!old-dm:example.com" {
+		t.Fatalf("expected deleted retained contact to remain unchanged, got ok=%v contact=%#v", ok, contact)
 	}
 	if len(transport.inviteRequests) != 0 {
 		t.Fatalf("deleted peer request must not invite from a left sender, got %#v", transport.inviteRequests)
@@ -1636,16 +1634,14 @@ func TestContactReactivateDoesNotTrustCallerProfileFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := mustHandle[map[string]any](t, service, "contacts.reactivate", map[string]any{
+	if _, apiErr := service.Handle(context.Background(), "contacts.reactivate", map[string]any{
 		"room_id":        "!old-dm:example.com",
 		"requester_mxid": "@owner:example.com",
 		"display_name":   "Spoofed Owner",
 		"avatar_url":     "mxc://evil/avatar",
 		"domain":         "evil.example",
-	})
-
-	if result["status"] != "pending_inbound" {
-		t.Fatalf("expected pending inbound result, got %#v", result)
+	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
+		t.Fatalf("expected deleted retained room to be unavailable for reactivation, got %#v", apiErr)
 	}
 	contact, ok, err := service.lookupContactByPeer(context.Background(), "@owner:example.com")
 	if err != nil {
@@ -1654,7 +1650,7 @@ func TestContactReactivateDoesNotTrustCallerProfileFields(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected retained contact")
 	}
-	if contact.DisplayName != "owner" || contact.AvatarURL != "" || contact.Domain != "example.com" {
+	if contact.DisplayName != "" || contact.AvatarURL != "" || contact.Domain != "" || contact.Status != "deleted" {
 		t.Fatalf("contacts.reactivate must not trust caller-supplied profile fields, got %#v", contact)
 	}
 }

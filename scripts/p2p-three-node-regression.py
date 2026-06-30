@@ -457,6 +457,64 @@ def verify_delete_readd(deleter: Node, peer: Node, room_id: str) -> None:
     )
 
 
+def verify_mutual_delete_readd(requester: Node, accepter: Node, room_id: str, suffix: int) -> None:
+    deleted_requester = p2p(requester, "command", "contacts.delete", {"room_id": room_id})
+    expect(deleted_requester.get("status") == "ok", "requester contacts.delete did not return ok")
+    deleted_accepter = p2p(accepter, "command", "contacts.delete", {"room_id": room_id})
+    expect(deleted_accepter.get("status") == "ok", "accepter contacts.delete did not return ok")
+
+    request = p2p(requester, "command", "contacts.request", {"mxid": accepter.mxid, "display_name": accepter.name})
+    request_room = request.get("room_id") or ""
+    expect(request_room, "mutual delete contacts.request did not return room_id")
+    if request.get("status") == "pending_outbound":
+        wait_until(
+            "accepter did not receive mutual-delete inbound contact request",
+            lambda: find_by(
+                list((p2p(accepter, "command", "sync.bootstrap").get("contacts") or [])),
+                peer_mxid=requester.mxid,
+                room_id=request_room,
+                status="pending_inbound",
+            ),
+        )
+        accepted = p2p(
+            accepter,
+            "command",
+            "contacts.requests.accept",
+            {"room_id": request_room, "peer_mxid": requester.mxid, "display_name": requester.name, "domain": requester.server_name},
+        )
+        expect(accepted.get("status") == "accepted", "mutual-delete contacts.requests.accept did not accept")
+    else:
+        expect(request.get("status") == "accepted", f"unexpected mutual delete request status {request.get('status')!r}")
+
+    requester_contact = wait_until(
+        "requester did not converge to accepted contact after mutual-delete accept",
+        lambda: find_by(
+            list((p2p(requester, "command", "sync.bootstrap").get("contacts") or [])),
+            peer_mxid=accepter.mxid,
+            room_id=request_room,
+            status="accepted",
+        ),
+    )
+    wait_until(
+        "accepter did not converge to accepted contact after mutual-delete accept",
+        lambda: find_by(
+            list((p2p(accepter, "command", "sync.bootstrap").get("contacts") or [])),
+            peer_mxid=requester.mxid,
+            room_id=request_room,
+            status="accepted",
+        ),
+    )
+    requester_contacts = list((p2p(requester, "command", "sync.bootstrap").get("contacts") or []))
+    expect(
+        not find_by(requester_contacts, peer_mxid=accepter.mxid, status="pending_inbound"),
+        "requester should not receive a duplicate inbound request after its request is accepted",
+    )
+    text = f"mutual delete readd direct message {suffix}"
+    event_id = matrix_send_text(accepter, requester_contact.get("room_id") or request_room, text)
+    expect(bool(event_id), "Matrix direct send after mutual-delete readd did not return event_id")
+    assert_history(requester, requester_contact.get("room_id") or request_room, text)
+
+
 def rebuild_node_with_empty_volumes(node: Node, suffix: int) -> None:
     close_ws(node)
     suffix_name = node.label.lower()
@@ -656,6 +714,8 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
     )
     expect(bool(post.get("post_id")), "public channel pre-rebuild post did not return post_id")
     wait_public_channel_join(owner, rebuilt_peer, public_channel, "initial")
+    public_chat_channel = create_channel(owner, f"Retained Public Chat {suffix}", "public", "open", "chat")
+    wait_public_channel_join(owner, rebuilt_peer, public_chat_channel, "initial chat")
 
     rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 2)
 
@@ -677,6 +737,14 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
     )
     group_join = p2p(rebuilt_peer, "command", "groups.join", {"room_id": group_room, "server_names": [owner.server_name], "display_name": rebuilt_peer.name, "avatar_url": rebuilt_peer.avatar})
     expect(group_join.get("status") == "ok", f"{rebuilt_peer.label} retained group join failed: {group_join!r}")
+    wait_until(
+        f"{rebuilt_peer.label} groups.list missing retained group after rejoin",
+        lambda: find_by(list((p2p(rebuilt_peer, "command", "groups.list").get("groups") or [])), room_id=group_room),
+        seconds=90,
+    )
+    group_rejoin_text = f"post-rebuild retained group message {suffix}"
+    expect(bool(matrix_send_text(rebuilt_peer, group_room, group_rejoin_text)), "Matrix retained group send after rejoin did not return event_id")
+    assert_history(owner, group_room, group_rejoin_text)
 
     p2p(
         owner,
@@ -708,9 +776,27 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
         },
     )
     expect(private_join.get("status") == "ok", f"{rebuilt_peer.label} retained private channel join failed: {private_join!r}")
+    wait_until(
+        f"{rebuilt_peer.label} channels.list missing retained private channel after rejoin",
+        lambda: find_by(list((p2p(rebuilt_peer, "command", "channels.list").get("channels") or [])), room_id=private_channel.get("room_id")),
+        seconds=90,
+    )
+    private_channel_text = f"post-rebuild private channel message {suffix}"
+    expect(
+        bool(matrix_send_text(rebuilt_peer, private_channel.get("room_id") or "", private_channel_text)),
+        "Matrix private channel send after rejoin did not return event_id",
+    )
+    assert_history(owner, private_channel.get("room_id") or "", private_channel_text)
 
     wait_public_channel_join(owner, rebuilt_peer, public_channel, "retained")
     assert_matrix_channel_content(rebuilt_peer, public_channel.get("room_id") or "", [f"pre-rebuild public post {suffix}"])
+    wait_public_channel_join(owner, rebuilt_peer, public_chat_channel, "retained chat")
+    public_chat_text = f"post-rebuild public chat channel message {suffix}"
+    expect(
+        bool(matrix_send_text(rebuilt_peer, public_chat_channel.get("room_id") or "", public_chat_text)),
+        "Matrix public chat channel send after rejoin did not return event_id",
+    )
+    assert_history(owner, public_chat_channel.get("room_id") or "", public_chat_text)
 
 
 def assert_members(owner: Node, room_id: str, expected: list[Node]) -> None:
@@ -958,14 +1044,16 @@ def main() -> int:
 
     verify_rebuilt_peer_readd(a, c, suffix)
     print("PASS C empty-volume rebuild re-add restores contact, using old room when joinable or replacement room when not")
-    verify_rebuilt_room_reentry(a, c, suffix)
-    print("PASS C empty-volume rebuild requires explicit group/private-channel rejoin and public-channel reapply")
 
     direct_room = ensure_direct(a, b)
     verify_delete_readd(b, a, direct_room)
+    verify_mutual_delete_readd(a, b, direct_room, suffix)
     status, _ = p2p_status(a, "command", "contacts.request", {"mxid": a.mxid, "display_name": a.name})
     expect(status == 400, "contacts.request allowed adding self")
-    print("PASS direct accepted capabilities, delete/re-add old room, self-add guard")
+    print("PASS direct accepted capabilities, delete/re-add old room, mutual-delete accept sync, self-add guard")
+
+    verify_rebuilt_room_reentry(a, c, suffix)
+    print("PASS C empty-volume rebuild requires explicit group/private-channel rejoin and public-channel reapply")
 
     message_group = create_group(b, f"BCA Three Message {suffix}")
     invite_and_join(b, c, message_group)

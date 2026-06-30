@@ -414,6 +414,9 @@ func (s *Service) savePendingInboundContact(ctx context.Context, contact contact
 			}
 			return s.acceptReplacementDirectInvite(ctx, existing, contact)
 		}
+		if strings.EqualFold(strings.TrimSpace(existing.Status), "pending_outbound") {
+			return s.acceptReplacementDirectInvite(ctx, existing, contact)
+		}
 		if !contactDeleted(existing.Status) && !strings.EqualFold(strings.TrimSpace(existing.Status), "rejected") && !strings.EqualFold(strings.TrimSpace(existing.Status), "reject") {
 			return nil
 		}
@@ -455,7 +458,7 @@ func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, con
 			roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, "", false),
 		},
 	}); err != nil {
-		if isAlreadyJoinedRoomError(err) {
+		if isAlreadyJoinedRoomError(err) || isSenderNotJoinedDirexioRoom(err) {
 			return false, nil
 		}
 		return false, err

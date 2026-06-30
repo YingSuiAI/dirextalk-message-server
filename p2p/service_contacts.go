@@ -333,7 +333,7 @@ func (s *Service) restoreDeletedContact(ctx context.Context, contact contactReco
 					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), false)
 				}
 				if contactReactivationNotRetained(apiErr) {
-					return s.requestPeerApprovalInExistingDirectRoom(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain), true)
+					return s.createReplacementDirectContactRequest(ctx, contact, params, fallbackString(fallbackString(trimString(params["domain"]), contact.Domain), fallbackDomain))
 				}
 				return nil, apiErr
 			}
@@ -518,6 +518,9 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 			return nil, statusError(http.StatusNotFound, "retained contact not found")
 		}
 		roomID = contact.RoomID
+	}
+	if contactDeleted(contact.Status) {
+		return nil, statusError(http.StatusNotFound, "retained contact not found")
 	}
 	if !contactAccepted(contact.Status) {
 		if contact.DisplayName == "" {
@@ -809,11 +812,16 @@ func (s *Service) contactList(ctx context.Context) (any, *apiError) {
 }
 
 func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
+	replacedDirectRoomIDs := []string{}
 	s.mu.Lock()
 	if contact.PeerMXID != "" {
 		for roomID, existing := range s.contacts {
 			if roomID != contact.RoomID && existing.PeerMXID == contact.PeerMXID {
 				delete(s.contacts, roomID)
+				if roomID != "" {
+					replacedDirectRoomIDs = append(replacedDirectRoomIDs, roomID)
+					deleteConversationKindByRoomLocked(s.conversations, roomID, conversationKindDirect)
+				}
 			}
 		}
 	}
@@ -826,6 +834,11 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 	if s.store != nil {
 		if err := s.store.UpsertContact(ctx, contact); err != nil {
 			return err
+		}
+		for _, roomID := range replacedDirectRoomIDs {
+			if err := s.deleteStoredConversationKind(ctx, roomID, conversationKindDirect); err != nil {
+				return err
+			}
 		}
 		if contact.RoomID != "" {
 			if err := s.store.DeleteGroup(ctx, contact.RoomID); err != nil {

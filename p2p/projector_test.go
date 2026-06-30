@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
 	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
@@ -542,6 +543,128 @@ func TestProjectDirectInviteCreatesPendingInboundContact(t *testing.T) {
 	}
 	if service.events[0].Payload["peer_mxid"] != remote.ID || service.events[0].Payload["status"] != "pending_inbound" || service.events[0].Payload["remark"] != "我是 Remote，请通过好友申请" {
 		t.Fatalf("unexpected contact request event payload: %#v", service.events[0].Payload)
+	}
+}
+
+func TestProjectDirectInviteAcceptsPendingOutboundReplacementContact(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	room := test.NewRoom(t, remote)
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "test"}, transport)
+	service.ownerMXID = owner.ID
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    remote.ID,
+		DisplayName: "Remote Old",
+		Domain:      domainFromMXID(remote.ID),
+		RoomID:      "!old-direct:test",
+		Status:      "pending_outbound",
+		Remark:      "old request",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	invite := room.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+		"is_direct":  true,
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomState(t, invite, remote.ID, map[string]any{
+		"requester_mxid": remote.ID,
+		"target_mxid":    owner.ID,
+		"display_name":   "Remote Accepted",
+		"avatar_url":     "mxc://test/remote-accepted",
+		"remark":         "replacement request must not surface",
+		"domain":         domainFromMXID(remote.ID),
+	})
+	if err := service.ProjectRoomEvent(context.Background(), invite); err != nil {
+		t.Fatal(err)
+	}
+
+	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
+	contacts := bootstrap["contacts"].([]contactRecord)
+	if len(contacts) != 1 {
+		t.Fatalf("expected one accepted contact, got %#v", contacts)
+	}
+	contact := contacts[0]
+	if contact.PeerMXID != remote.ID || contact.RoomID != room.ID || contact.Status != "accepted" {
+		t.Fatalf("expected replacement invite to accept pending outbound contact, got %#v", contact)
+	}
+	if contact.DisplayName != "Remote Accepted" || contact.AvatarURL != "mxc://test/remote-accepted" || contact.Remark != "" {
+		t.Fatalf("expected replacement invite to refresh profile and clear request remark, got %#v", contact)
+	}
+	pending := bootstrap["pending"].(map[string]any)
+	friendRequests := pending["friend_requests"].([]map[string]any)
+	if len(friendRequests) != 0 {
+		t.Fatalf("expected replacement invite not to create a new inbound request, got %#v", friendRequests)
+	}
+	if len(transport.joins) != 1 || transport.joins[0] != owner.ID+" in "+room.ID {
+		t.Fatalf("expected owner to join replacement direct room, got %#v", transport.joins)
+	}
+}
+
+func TestProjectDirectInviteReplacesAcceptedContactWhenRoomChanges(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	room := test.NewRoom(t, remote)
+	transport := &failingInviteTransport{err: productpolicy.Forbidden("sender is not joined to the direxio room")}
+	service := NewServiceWithTransport(Config{ServerName: "test"}, transport)
+	service.ownerMXID = owner.ID
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    remote.ID,
+		DisplayName: "Remote Old",
+		Domain:      domainFromMXID(remote.ID),
+		RoomID:      "!old-direct:test",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	invite := room.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+		"is_direct":  true,
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomState(t, invite, remote.ID, map[string]any{
+		"requester_mxid": remote.ID,
+		"target_mxid":    owner.ID,
+		"display_name":   "Remote Replacement",
+		"avatar_url":     "mxc://test/remote-replacement",
+		"domain":         domainFromMXID(remote.ID),
+	})
+	if err := service.ProjectRoomEvent(context.Background(), invite); err != nil {
+		t.Fatal(err)
+	}
+
+	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
+	if len(contacts) != 1 {
+		t.Fatalf("expected one contact after replacement, got %#v", contacts)
+	}
+	contact := contacts[0]
+	if contact.PeerMXID != remote.ID || contact.RoomID != room.ID || contact.Status != "accepted" {
+		t.Fatalf("expected changed-room invite to replace accepted contact, got %#v", contact)
+	}
+	if contact.DisplayName != "Remote Replacement" || contact.AvatarURL != "mxc://test/remote-replacement" {
+		t.Fatalf("expected replacement invite to refresh profile, got %#v", contact)
+	}
+	if len(transport.joins) != 1 || transport.joins[0] != owner.ID+" in "+room.ID {
+		t.Fatalf("expected owner to join replacement room, got %#v", transport.joins)
+	}
+	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-direct:test" {
+		t.Fatalf("expected one failed retained-room invite before replacement, got %#v", transport.inviteRequests)
+	}
+	conversations := mustHandle[map[string]any](t, service, "conversations.list", nil)["conversations"].([]conversationView)
+	for _, conversation := range conversations {
+		if conversation.MatrixRoomID == "!old-direct:test" {
+			t.Fatalf("expected old direct conversation to be removed after replacement, got %#v", conversations)
+		}
+	}
+	replacementConversation := false
+	for _, conversation := range conversations {
+		if conversation.MatrixRoomID == room.ID && conversation.RelationshipStatus == "accepted" {
+			replacementConversation = true
+		}
+	}
+	if !replacementConversation {
+		t.Fatalf("expected replacement direct conversation to be accepted, got %#v", conversations)
 	}
 }
 
