@@ -50,28 +50,7 @@ func (s *Service) projectAgentRoomMessage(ctx context.Context, event *types.Head
 	if !s.isAgentRoom(roomID) {
 		return false, nil
 	}
-	if contentHasAgentGatewayMarker(content) {
-		return true, nil
-	}
-	body := trimString(content["body"])
-	msgType := fallbackString(trimString(content["client_type"]), trimString(content["msgtype"]))
-	if msgType == "" {
-		msgType = "m.text"
-	}
-	return true, s.appendP2PEvent(ctx, p2pEvent{
-		Type:      AgentRoomMessageEventType,
-		RoomID:    roomID,
-		EventID:   event.EventID(),
-		DedupeKey: projectedEventDedupeKey(AgentRoomMessageEventType, event.EventID(), ""),
-		Payload: map[string]any{
-			"room_id":          roomID,
-			"event_id":         event.EventID(),
-			"sender_mxid":      string(event.SenderID()),
-			"body":             body,
-			"msgtype":          msgType,
-			"origin_server_ts": int64(event.OriginServerTS()),
-		},
-	})
+	return true, nil
 }
 
 func (s *Service) isAgentRoom(roomID string) bool {
@@ -82,10 +61,6 @@ func (s *Service) isAgentRoom(roomID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return roomID == strings.TrimSpace(s.agentRoomID)
-}
-
-func contentHasAgentGatewayMarker(content map[string]any) bool {
-	return boolParam(content[AgentGatewayContentKey]) || trimString(content[AgentGatewaySourceContentKey]) != ""
 }
 
 func (s *Service) projectConversationActivity(ctx context.Context, event *types.HeaderedEvent, body, msgType string) error {

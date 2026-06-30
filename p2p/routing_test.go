@@ -318,8 +318,8 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	if service.Authorize(agentToken, "contacts.request") {
 		t.Fatal("expected agent token to reject owner product actions")
 	}
-	if !service.Authorize(agentToken, realtimeWSTicketAction) {
-		t.Fatal("expected agent token to create realtime WS tickets")
+	if service.Authorize(agentToken, realtimeWSTicketAction) {
+		t.Fatal("expected agent token to reject realtime WS ticket creation")
 	}
 
 	mcpReq := jsonRequest(t, "/_p2p/query", map[string]any{
@@ -331,6 +331,16 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	router.ServeHTTP(mcpRec, mcpReq)
 	if mcpRec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP MCP action to succeed, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
+	}
+
+	wsTicketReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": realtimeWSTicketAction,
+	})
+	wsTicketReq.Header.Set("Authorization", "Bearer "+agentToken)
+	wsTicketRec := httptest.NewRecorder()
+	router.ServeHTTP(wsTicketRec, wsTicketReq)
+	if wsTicketRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected agent token realtime WS ticket creation to be unauthorized, got %d body=%s", wsTicketRec.Code, wsTicketRec.Body.String())
 	}
 
 	agentRequest := jsonRequest(t, "/_p2p/command", map[string]any{

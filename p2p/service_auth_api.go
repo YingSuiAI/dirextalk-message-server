@@ -179,7 +179,7 @@ func (s *Service) getAgentConfig() any {
 }
 
 func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) (any, *apiError) {
-	statusMayChange := false
+	disableAgent := false
 	s.mu.Lock()
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
@@ -189,7 +189,7 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	}
 	if _, ok := params["enabled"]; ok {
 		s.agentConfig.Enabled = boolParam(params["enabled"])
-		statusMayChange = true
+		disableAgent = !s.agentConfig.Enabled
 	}
 	if model := trimString(params["model"]); model != "" {
 		s.agentConfig.Model = model
@@ -199,7 +199,7 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	}
 	result := agentConfigToMap(s.agentConfig)
 	s.mu.Unlock()
-	if statusMayChange {
+	if disableAgent {
 		if err := s.publishCurrentAgentStatusState(ctx); err != nil {
 			return nil, transportWriteError(err)
 		}

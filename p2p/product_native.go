@@ -21,7 +21,6 @@ const (
 	DirexioMemberPolicyEventType = productpolicy.DirexioMemberPolicyEventType
 	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
 
-	AgentRoomMessageEventType    = "agent_room.message"
 	DirexioAgentStatusEventType  = "io.direxio.agent.status"
 	AgentGatewayContentKey       = "io.direxio.agent_gateway"
 	AgentGatewaySourceContentKey = "io.direxio.gateway_source"

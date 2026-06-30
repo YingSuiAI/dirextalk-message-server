@@ -55,7 +55,7 @@ func TestProjectRoomMessageIgnoresUnknownNonProductRoom(t *testing.T) {
 	}
 }
 
-func TestProjectAgentRoomMessageAppendsGatewayEvent(t *testing.T) {
+func TestProjectAgentRoomMessageDoesNotAppendGatewayEvent(t *testing.T) {
 	user := test.NewUser(t)
 	room := test.NewRoom(t, user)
 	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
@@ -68,15 +68,8 @@ func TestProjectAgentRoomMessageAppendsGatewayEvent(t *testing.T) {
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(service.events) != 1 {
-		t.Fatalf("expected one agent room event, got %#v", service.events)
-	}
-	got := service.events[0]
-	if got.Type != AgentRoomMessageEventType || got.RoomID != room.ID || got.EventID != event.EventID() {
-		t.Fatalf("unexpected agent room event: %#v", got)
-	}
-	if got.Payload["body"] != "hello agent" || got.Payload["sender_mxid"] != user.ID {
-		t.Fatalf("unexpected agent room payload: %#v", got.Payload)
+	if len(service.events) != 0 {
+		t.Fatalf("agent room Matrix messages must not produce P2P events, got %#v", service.events)
 	}
 }
 

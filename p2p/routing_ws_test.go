@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwnerAndAgent(t *testing.T) {
+func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwner(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
@@ -22,19 +21,12 @@ func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwnerAndAgent(t *testing.
 	if ownerTicket == "" {
 		t.Fatal("expected owner ticket")
 	}
-	agentTicket := mustCreateRealtimeWSTicket(t, router, service.AgentToken())
-	if agentTicket == "" {
-		t.Fatal("expected agent ticket")
-	}
 
 	if err := service.consumeRealtimeWSTicket(ownerTicket); err != nil {
 		t.Fatalf("expected owner ticket to be valid once: %v", err)
 	}
 	if err := service.consumeRealtimeWSTicket(ownerTicket); err == nil {
 		t.Fatal("expected owner ticket to be single-use")
-	}
-	if err := service.consumeRealtimeWSTicket(agentTicket); err != nil {
-		t.Fatalf("expected agent ticket to be valid once: %v", err)
 	}
 }
 
@@ -45,6 +37,7 @@ func TestRealtimeWSTicketCreateRejectsMissingOrInvalidBearer(t *testing.T) {
 	for name, token := range map[string]string{
 		"missing": "",
 		"invalid": "not-valid",
+		"agent":   service.AgentToken(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := jsonRequest(t, "/_p2p/command", map[string]any{
@@ -283,39 +276,6 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 		t.Fatalf("expected owner MCP request to require HTTP, got %#v", ownerMCP)
 	}
 
-	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
-	defer agentConn.Close(websocket.StatusNormalClosure, "")
-	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
-		t.Fatalf("expected ready, got %#v", got)
-	}
-	writeRealtimeFrame(t, agentConn, map[string]any{
-		"type":   "client.request",
-		"id":     "req-agent-mcp",
-		"action": "mcp.rooms.search",
-		"params": map[string]any{"q": "none"},
-	})
-	agentMCP := readRealtimeResponse(t, agentConn, "req-agent-mcp")
-	if agentMCP["type"] != "server.response" ||
-		agentMCP["ok"] != false ||
-		int(agentMCP["status"].(float64)) != http.StatusBadRequest ||
-		agentMCP["error"] != "action requires http" {
-		t.Fatalf("expected agent MCP request to require HTTP, got %#v", agentMCP)
-	}
-
-	writeRealtimeFrame(t, agentConn, map[string]any{
-		"type":   "client.request",
-		"id":     "req-agent-owner",
-		"action": "contacts.list",
-		"params": map[string]any{},
-	})
-	frame := readRealtimeResponse(t, agentConn, "req-agent-owner")
-	if frame["type"] != "server.response" ||
-		frame["id"] != "req-agent-owner" ||
-		frame["ok"] != false ||
-		int(frame["status"].(float64)) != http.StatusForbidden {
-		t.Fatalf("expected agent owner action to be forbidden, got %#v", frame)
-	}
 }
 
 func TestRealtimeWSClientRequestValidationErrors(t *testing.T) {
@@ -376,107 +336,6 @@ func TestRealtimeWSClientRequestValidationErrors(t *testing.T) {
 	if handlerErr["ok"] != false || int(handlerErr["status"].(float64)) != http.StatusBadRequest {
 		t.Fatalf("expected handler error response, got %#v", handlerErr)
 	}
-}
-
-func TestRealtimeWSAgentTicketOnlyStreamsAgentRoomMessages(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-	if err := service.appendP2PEvent(context.Background(), p2pEvent{
-		Seq:     1,
-		Type:    "contact.requested",
-		RoomID:  "!room:example.com",
-		EventID: "$contact",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.appendP2PEvent(context.Background(), p2pEvent{
-		Seq:     2,
-		Type:    AgentRoomMessageEventType,
-		RoomID:  "!agent:example.com",
-		EventID: "$agent",
-		Payload: map[string]any{"body": "hello"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(router)
-	defer server.Close()
-	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
-	defer conn.Close(websocket.StatusNormalClosure, "")
-
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
-		t.Fatalf("expected ready, got %#v", got)
-	}
-	frame := readRealtimeFrame(t, conn)
-	if frame["type"] != "server.event" {
-		t.Fatalf("expected server.event, got %#v", frame)
-	}
-	event := frame["event"].(map[string]any)
-	if event["type"] != AgentRoomMessageEventType || int64(event["seq"].(float64)) != 2 {
-		t.Fatalf("expected only agent room message replay, got %#v", event)
-	}
-}
-
-func TestRealtimeWSAgentStreamFanoutToOwner(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	service.mu.Lock()
-	service.agentRoomID = "!agent-room:example.com"
-	service.mu.Unlock()
-	router := newP2PTestRouter(service)
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	ownerConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
-	defer ownerConn.Close(websocket.StatusNormalClosure, "")
-	writeRealtimeFrame(t, ownerConn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, ownerConn); got["type"] != "server.ready" {
-		t.Fatalf("expected owner ready, got %#v", got)
-	}
-
-	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
-	defer agentConn.Close(websocket.StatusNormalClosure, "")
-	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
-		t.Fatalf("expected agent ready, got %#v", got)
-	}
-
-	writeRealtimeFrame(t, agentConn, map[string]any{
-		"type":      "client.agent_stream",
-		"room_id":   "!agent-room:example.com",
-		"stream_id": "turn-1",
-		"seq":       1,
-		"delta":     "Hello",
-		"done":      false,
-	})
-	frame := readRealtimeFrame(t, ownerConn)
-	if frame["type"] != "server.agent_stream" ||
-		frame["room_id"] != "!agent-room:example.com" ||
-		frame["stream_id"] != "turn-1" ||
-		frame["delta"] != "Hello" ||
-		frame["sender_mxid"] != "@agent:example.com" {
-		t.Fatalf("expected owner to receive agent stream frame, got %#v", frame)
-	}
-}
-
-func TestRealtimeWSAgentSessionPublishesBridgePresence(t *testing.T) {
-	transport := &recordingAgentStatusTransport{}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	service.mu.Lock()
-	service.agentRoomID = "!agent-room:example.com"
-	service.mu.Unlock()
-	router := newP2PTestRouter(service)
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
-	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
-		t.Fatalf("expected agent ready, got %#v", got)
-	}
-	waitForRecordedAgentStatus(t, transport, true)
-
-	_ = agentConn.Close(websocket.StatusNormalClosure, "")
-	waitForRecordedAgentStatus(t, transport, false)
 }
 
 func TestRealtimeWSSendsCursorResetForExpiredSince(t *testing.T) {
@@ -605,44 +464,6 @@ func waitForRealtimePushNotSuppressed(t *testing.T, service *Service, roomID str
 		select {
 		case <-deadline:
 			t.Fatalf("expected WS session state to keep normal push for %s", roomID)
-		case <-tick.C:
-		}
-	}
-}
-
-type recordingAgentStatusTransport struct {
-	recordingTransport
-	mu sync.Mutex
-}
-
-func (t *recordingAgentStatusTransport) SendStateEvent(ctx context.Context, req SendStateEventRequest) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.stateEvents = append(t.stateEvents, req)
-	return nil
-}
-
-func (t *recordingAgentStatusTransport) stateEventsSnapshot() []SendStateEventRequest {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return append([]SendStateEventRequest{}, t.stateEvents...)
-}
-
-func waitForRecordedAgentStatus(t *testing.T, transport *recordingAgentStatusTransport, wantOnline bool) {
-	t.Helper()
-	deadline := time.After(time.Second)
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		for _, event := range transport.stateEventsSnapshot() {
-			online, ok := agentStatusOnlineUpdate(event, "!agent-room:example.com", "@agent:example.com", "@agent:example.com")
-			if ok && online == wantOnline {
-				return
-			}
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("expected agent bridge online=%v state event, got %#v", wantOnline, transport.stateEventsSnapshot())
 		case <-tick.C:
 		}
 	}

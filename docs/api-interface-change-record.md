@@ -2,11 +2,13 @@
 
 Last updated: 2026-06-30
 
-## 2026-06-30 Agent Bridge Online State Follows Gateway WS Sessions
+## 2026-06-30 Agent Bridge Transport Returns To Matrix
 
-Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`.
+Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its `@agent:<server>` Matrix session. The server no longer treats `agent.config.enabled=true` or an agent-token WS session as online; startup/agents-room repair and `agent.config.update enabled=false` only publish `online=false` as a fallback.
 
-The server no longer treats `agent.config.enabled=true` as online by itself. Startup or agents-room repair publishes `online=false` unless an agent-token WS gateway session is connected. The server publishes `online=true` when Agent config is enabled and at least one agent-token WS gateway session connects to `GET /_p2p/ws`, and publishes `online=false` when the last such gateway session disconnects or `agent.config.update` disables the Agent.
+`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to fixed `mcp.*` HTTP actions.
+
+Agent room messages, previews, edits, and final replies are transported through Matrix Client-Server APIs as `@agent:<server>`. `agent_room.message`, `client.agent_stream`, and `server.agent_stream` are no longer current protocol frames/events.
 
 No response fields change: `sync.bootstrap` still returns only `agent_room_id` for Agent room discovery and does not return `agent_online`; `agent.status`/`agents.status` remain removed.
 
@@ -97,7 +99,7 @@ Error response frame:
 
 `GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
 
-Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create` and fixed MCP actions. Agent-token WS sessions receive only `agent_room.message` and may send `client.agent_stream` fragments; MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, and local delete.
+Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create` and fixed MCP actions. Agent-token callers cannot create WS sessions; MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, local delete, and Agent bridge room traffic.
 
 HTTP `/query` and `/command` now return an explicit error for non-retained logged-in client actions:
 
@@ -131,25 +133,7 @@ Frame shape:
 
 Successful commands returned `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors returned `server.command_error` with `id`, `status`, and `error`. Current servers map `client.command` to the `client.request` handler and return `server.response`; new clients must use `client.request`. Agent-token WS sessions cannot call owner commands.
 
-Agent-token WS sessions may send `client.agent_stream` frames for the configured real `agent_room_id`; owner WS sessions receive matching `server.agent_stream` frames. This is an ephemeral streaming display path for agent output fragments. It is not persisted in `p2p_events`, not emitted by `GET /_p2p/events`, and not stored as Matrix history. The final durable agent reply must still be sent as a Matrix `m.room.message` from `@agent:<server>`.
-
-Frame shape:
-
-```json
-{
-  "type": "client.agent_stream",
-  "room_id": "!agent:server",
-  "stream_id": "turn-1",
-  "seq": 1,
-  "delta": "partial text",
-  "body": "partial accumulated text",
-  "final_body": "",
-  "done": false,
-  "replace": true
-}
-```
-
-Owner clients should render fragments with the same `stream_id` as one visible agent message. When `done=true`, `final_body` replaces previous intermediate cards or chunks; if `final_body` is absent, the latest `body` is the fallback visible text.
+This transitional agent stream contract was removed later the same day. Current Agent bridge previews and final replies use Matrix Client-Server messages/edits from `@agent:<server>`; current clients must not emit agent stream WS frames and current servers must not expose Agent bridge traffic on Product WS.
 
 ## 2026-06-29 WebSocket Realtime Sync
 
@@ -162,7 +146,7 @@ Added protected body action `realtime.ws_ticket.create`, normally sent to `POST 
 }
 ```
 
-The action accepts owner `access_token` and fixed gateway `agent_token`. It returns:
+The action accepts owner `access_token` only. It returns:
 
 ```json
 {
@@ -188,7 +172,7 @@ Server frames are:
 - `server.pong`
 - `server.error`
 
-Owner WS sessions receive the normal product event stream. Agent-token WS sessions receive only `agent_room.message`, matching the existing agent SSE visibility boundary. `GET /_p2p/events` remains available as the SSE fallback and keeps the same cursor/reset contract.
+Owner WS sessions receive the normal product event stream. The initial implementation also allowed agent-token WS/SSE streams for `agent_room.message`; that path was later removed in favor of Matrix Client-Server bridge sync/send/edit.
 
 Push suppression now prefers fresh WS session state. A connected foreground WS session suppresses unread notification insertion and HTTP push gateway delivery only when its focused room matches the room that produced the push candidate. Background, disconnected, expired, no-focus, or different-room state keeps normal background push behavior. The server timestamps and expires WS session state with server time; clients do not send expiry timestamps.
 
@@ -248,13 +232,13 @@ The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or
 
 Owner clients now receive Agent bridge online state from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`.
 
-The server writes this state when creating or repairing the agents room and when `agent.config.update` changes `enabled`. `sync.bootstrap` still returns the real `agent_room_id` so clients can locate the room, but it no longer returns `agent_online` or any `agent_presence` mirror. `GET /_p2p/events` no longer emits `agent.presence`; Agent-token event streams remain passive gateway event readers. `agent.status` and `agents.status` are removed.
+The server writes this state when creating or repairing the agents room and when `agent.config.update` changes `enabled`. This was later narrowed: the server only writes `online=false` fallbacks, while the running local bridge writes true/false through Matrix. `sync.bootstrap` still returns the real `agent_room_id` so clients can locate the room, but it no longer returns `agent_online` or any `agent_presence` mirror. `agent.status` and `agents.status` are removed.
 
 Matrix `m.presence` is not part of the Agent online contract, and Direxio monolith startup no longer enables Matrix outbound presence for this path. New generated, sample, and Helm configs default both inbound and outbound presence to `false`.
 
 ## 2026-06-25 Agent Token Event Stream Access
 
-`GET /_p2p/events` now accepts bearer `agent_token` as well as owner `access_token`. This is a narrow route-level exception for passive agent gateways that listen for `agent_room.message` and reply through fixed MCP actions.
+`GET /_p2p/events` previously accepted bearer `agent_token` as well as owner `access_token` as a narrow passive gateway exception. This path was later removed with SSE and the Agent bridge returned to Matrix Client-Server transport.
 
 Non-MCP protected body actions still reject `agent_token`; the fixed MCP action allowlist is unchanged.
 
@@ -318,6 +302,8 @@ Every `calls.create`, `calls.incoming`, and `calls.event` write appends a `call.
 Terminal call states are not reopened by later stale `calls.create`, `calls.incoming`, or non-terminal `calls.event` writes with the same `call_id`. Clients that arrive late after `missed`, `ended`, `rejected`, or `failed` receive the terminal snapshot and must not join that call.
 
 ## 2026-06-23 Agents Room Gateway
+
+This section records the original gateway behavior from June 23. Current behavior supersedes it: Agent bridge traffic no longer uses SSE/P2P outbox events and is transported through Matrix Client-Server sync/send/edit as `@agent:<server>`.
 
 Backend startup now creates a real private Matrix agents room when the stored `agent_room_id` is empty or still uses the legacy pseudo form `!agent:<server>`. The real room id is persisted in portal state and written to the bootstrap credentials file as `agent_room_id`. The room contains the portal owner and the local agent user `@agent:<server>`; existing real agents rooms are repaired on startup by joining the local agent user if needed.
 

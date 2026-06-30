@@ -25,11 +25,6 @@ type realtimeWSTicket struct {
 	ExpiresAt time.Time
 }
 
-type realtimeWSSubscriber struct {
-	Role   string
-	Frames chan<- map[string]any
-}
-
 type realtimeWSConnection struct {
 	sessionID string
 	record    realtimeWSTicket
@@ -106,22 +101,6 @@ func realtimeWSHandler(service *Service) http.HandlerFunc {
 		}
 
 		wsConn := newRealtimeWSConnection(sessionID, record)
-		if service.registerRealtimeWSSubscriber(wsConn) {
-			if err := service.publishCurrentAgentStatusState(ctx); err != nil {
-				_ = wsjson.Write(ctx, conn, map[string]any{
-					"type":  "server.error",
-					"error": err.Error(),
-				})
-				return
-			}
-		}
-		defer func() {
-			if service.unregisterRealtimeWSSubscriber(sessionID) {
-				offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				_ = service.publishCurrentAgentStatusState(offlineCtx)
-			}
-		}()
 
 		readDone := make(chan struct{})
 		go func() {
@@ -186,10 +165,6 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
 		case "client.command":
 			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
-		case "client.agent_stream":
-			if response := s.handleRealtimeWSAgentStream(wsConn.record, frame); response != nil {
-				wsConn.send(response)
-			}
 		default:
 			s.touchRealtimeWSSession(sessionID)
 		}
@@ -250,9 +225,6 @@ func (s *Service) streamRealtimeWSEvents(ctx context.Context, conn *websocket.Co
 }
 
 func realtimeWSEventVisible(role string, event p2pEvent) bool {
-	if role == "agent" {
-		return event.Type == AgentRoomMessageEventType
-	}
 	return true
 }
 
@@ -339,102 +311,6 @@ func realtimeWSResponseError(id, action string, status int, message string) map[
 	}
 }
 
-func realtimeWSCommandError(id string, status int, message string) map[string]any {
-	if status <= 0 {
-		status = http.StatusInternalServerError
-	}
-	if strings.TrimSpace(message) == "" {
-		message = "M_UNKNOWN"
-	}
-	return map[string]any{
-		"type":   "server.command_error",
-		"id":     id,
-		"status": status,
-		"error":  message,
-	}
-}
-
-func (s *Service) handleRealtimeWSAgentStream(record realtimeWSTicket, frame map[string]any) map[string]any {
-	if record.Role != "agent" {
-		return realtimeWSCommandError(trimString(frame["id"]), http.StatusForbidden, "M_FORBIDDEN")
-	}
-	streamID := trimString(frame["stream_id"])
-	if streamID == "" {
-		return realtimeWSCommandError(trimString(frame["id"]), http.StatusBadRequest, "stream_id is required")
-	}
-	s.mu.Lock()
-	agentRoomID := strings.TrimSpace(s.agentRoomID)
-	agentMXID := s.agentMXIDLocked()
-	s.mu.Unlock()
-	roomID := fallbackString(trimString(frame["room_id"]), agentRoomID)
-	if agentRoomID == "" || roomID != agentRoomID {
-		return realtimeWSCommandError(trimString(frame["id"]), http.StatusForbidden, "agent stream room is forbidden")
-	}
-	out := map[string]any{
-		"type":        "server.agent_stream",
-		"room_id":     roomID,
-		"stream_id":   streamID,
-		"seq":         int64Param(frame["seq"]),
-		"delta":       trimString(frame["delta"]),
-		"body":        trimString(frame["body"]),
-		"final_body":  trimString(frame["final_body"]),
-		"done":        boolParam(frame["done"]) || boolParam(frame["complete"]),
-		"replace":     boolParam(frame["replace"]),
-		"sender_mxid": fallbackString(strings.TrimSpace(record.UserID), agentMXID),
-		"created_at":  time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	s.broadcastRealtimeWSAgentStream(out)
-	return nil
-}
-
-func (s *Service) registerRealtimeWSSubscriber(conn *realtimeWSConnection) bool {
-	if s == nil || conn == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	wasOnline := s.agentGatewayOnlineLocked()
-	if s.realtimeWSSubscribers == nil {
-		s.realtimeWSSubscribers = map[string]realtimeWSSubscriber{}
-	}
-	s.realtimeWSSubscribers[conn.sessionID] = realtimeWSSubscriber{
-		Role:   conn.record.Role,
-		Frames: conn.outbound,
-	}
-	return !wasOnline && s.agentGatewayOnlineLocked()
-}
-
-func (s *Service) unregisterRealtimeWSSubscriber(sessionID string) bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	wasOnline := s.agentGatewayOnlineLocked()
-	delete(s.realtimeWSSubscribers, strings.TrimSpace(sessionID))
-	return wasOnline && !s.agentGatewayOnlineLocked()
-}
-
-func (s *Service) broadcastRealtimeWSAgentStream(frame map[string]any) {
-	if s == nil || frame == nil {
-		return
-	}
-	s.mu.Lock()
-	subscribers := make([]chan<- map[string]any, 0, len(s.realtimeWSSubscribers))
-	for _, subscriber := range s.realtimeWSSubscribers {
-		if subscriber.Role == "owner" {
-			subscribers = append(subscribers, subscriber.Frames)
-		}
-	}
-	s.mu.Unlock()
-	for _, ch := range subscribers {
-		select {
-		case ch <- frame:
-		default:
-		}
-	}
-}
-
 func (s *Service) createRealtimeWSTicketForToken(token string) (map[string]any, *apiError) {
 	token = strings.TrimSpace(token)
 	s.mu.Lock()
@@ -445,9 +321,6 @@ func (s *Service) createRealtimeWSTicketForToken(token string) (map[string]any, 
 	case token != "" && token == s.accessToken:
 		role = "owner"
 		userID = s.profile.UserID
-	case token != "" && token == s.agentToken:
-		role = "agent"
-		userID = s.agentMXIDLocked()
 	default:
 		return nil, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
 	}

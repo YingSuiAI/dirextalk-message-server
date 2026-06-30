@@ -42,7 +42,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 主链路是 `GET /_p2p/ws` 上的 `client.request`/`server.response`；HTTP `/query` 和 `/command` 保留给 portal bootstrap/auth/status/password、`realtime.ws_ticket.create`、固定 MCP action、以及节点间 public/callback action。`agent_token` 只允许访问固定 `mcp.*` HTTP action 和 `realtime.ws_ticket.create`，供 agent gateway 连接 WS 被动接收 `agent_room.message`，并发送临时 `client.agent_stream` 片段。MCP action 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 WS ticket，不直接接受 bearer token。当前 public action 是：
+Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 主链路是 `GET /_p2p/ws` 上的 `client.request`/`server.response`，并且 `realtime.ws_ticket.create` 只接受 owner `access_token` 创建 owner WS ticket；HTTP `/query` 和 `/command` 保留给 portal bootstrap/auth/status/password、owner WS ticket、固定 MCP action、以及节点间 public/callback action。`agent_token` 只允许访问固定 `mcp.*` HTTP action。MCP action 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 owner WS ticket，不直接接受 bearer token。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -97,7 +97,7 @@ Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer 
 - `io.direxio.member.policy` 投影成员角色与禁言。
 - `io.direxio.join_request` 投影申请审批状态。
 - Matrix `m.room.member membership=join` 是最终 joined 事实。
-- 普通 Matrix timeline 不复制到 P2P 普通消息表；普通消息读写走 Matrix Client-Server API。唯一例外是配置的 agents room：其中的普通消息会投影为 `agent_room.message` 网关事件，供本地 gateway daemon 调用外部智能体并以 `@agent:<server>` 回写最终回复。Agent WS 流式片段只是临时显示通道，不是 Matrix history 或 P2P outbox 事实。
+- 普通 Matrix timeline 不复制到 P2P 普通消息表；普通消息读写走 Matrix Client-Server API。配置的 agents room 也保持 Matrix-native：本地 bridge 使用 `@agent:<server>` Matrix session 通过 `/sync` 接收消息，通过 Matrix send/edit 写入预览和最终回复，不投影为 `agent_room.message`，也不使用 `client.agent_stream` 或 `server.agent_stream`。
 
 ## 5. 用户请求生命周期
 
@@ -112,7 +112,7 @@ P2P action 生命周期：
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
 6. Direxio Message Server roomserver 产生 output event。
 7. `p2p.consumer` 调用 `ProjectRoomEvent` 更新 P2P read model。
-8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Agents room 消息额外发送 `agent_room.message`，客户端或 gateway 刷新对应视图/触发智能体回复。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；`client.command` 只作为兼容期别名映射到同一处理路径；agent-token WS 可用 `client.agent_stream` 向 owner WS 临时转发流式输出。
+8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；`client.command` 只作为兼容期别名映射到同一处理路径。Agents room 消息、预览和回复走 Matrix Client-Server，不通过 P2P event 或 WS stream 转发。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
 
 同步策略：
@@ -221,11 +221,11 @@ Push：
 
 Agent/API：
 
-- Agent token 不再有动态权限表，只能访问固定 `mcp.*` action、以及调用 `realtime.ws_ticket.create` 后连接 `GET /_p2p/ws`，供 gateway 监听 agents room 消息；其他 protected action 只认 owner `access_token`。Agent-token WS 只接收 `agent_room.message`，并可为真实 `agent_room_id` 发送 `client.agent_stream` 临时片段，服务端只转发为 owner WS 的 `server.agent_stream`。
+- Agent token 不再有动态权限表，只能访问固定 `mcp.*` HTTP action，不能调用 `realtime.ws_ticket.create` 创建 WS ticket；其他 protected action 只认 owner `access_token`。本地 bridge 使用 `agent.matrix_session.create` 得到的 Matrix session 监听 agents room 并回写消息。
 - MCP action 是 owner-scoped 代理能力：`agent_token` 只负责授权固定 MCP action，房间搜索、成员身份列表、普通消息默认发送/读取、频道帖子/评论读取和评论创建都按 portal owner 视角操作；普通 `mcp.messages.send` 不能发送到配置的 `agent_room_id`，agent room 回复只能由 gateway 使用 `agent_gateway`/`gateway_source` 标记路径以 `@agent:<server>` 发出；`mcp.messages.list` 复用当前 owner `access_token` 读取 Matrix history，不创建 `DIREXIO_MATRIX_HISTORY` 设备，也不刷新 Matrix session，因此不会导致 owner 手机/浏览器 session 被踢下线；`mcp.messages.list` 返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart`，`mcp.room_members.list` 只允许查询已知 Direxio 产品房间/会话，返回 Matrix 成员身份、角色、头像和 profile fallback 后的展示名。
 - `agent.matrix_session.create` 使用 owner `access_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
-- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。服务端只有在 Agent 配置启用且至少一个 agent-token WS gateway 会话在线时发布 `online=true`；启动或修复 agents room 但没有 gateway 连接时必须发布 `online=false`。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；WS `server.event` 不发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
-- Agent 流式输出的最终可恢复正文必须通过 Matrix `m.room.message` 回写。客户端可把同一 `stream_id` 的临时片段合并为一条可见 Agent 消息；完成时用 `final_body` 或最后 `body` 替换中间片段/卡片。
+- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。运行中的本地 bridge 通过 `@agent:<server>` Matrix session 发布 `online=true/false`；服务端不能从 Agent 配置、`/sync` 或 WS session 推断在线，只在启动/修复 agents room 或禁用 Agent 配置时写 `online=false` 兜底。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；WS `server.event` 不发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
+- Agent 预览和最终可恢复正文都通过 Matrix 消息/编辑回写；客户端展示 Matrix timeline 的聚合编辑结果，不消费 `server.agent_stream`。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。服务会给 owner 的真实 `agent_room_id` 写入默认 room-level 空 actions push rule，使 agent room 默认不走系统推送；已存在的显式同房间 push rule 会保留。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
 

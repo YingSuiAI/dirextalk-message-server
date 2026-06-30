@@ -348,6 +348,25 @@ func TestAgentConfigUpdatePublishesAgentRoomStatusState(t *testing.T) {
 	}
 }
 
+func TestAgentConfigEnableDoesNotPublishOnlineState(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.agentRoomID = "!agents-real:example.com"
+	service.agentConfig.Enabled = false
+	bootstrapService(t, service)
+
+	result := mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"enabled": true,
+	})
+
+	if result["enabled"] != true {
+		t.Fatalf("expected enabled agent config response, got %#v", result)
+	}
+	if len(transport.stateEvents) != 0 {
+		t.Fatalf("enabling config alone must not publish online status, got %#v", transport.stateEvents)
+	}
+}
+
 func TestRoomSendPreservesChannelSharePayload(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)

@@ -15,7 +15,7 @@
 
 - Retain protected body action `realtime.ws_ticket.create` on HTTP.
 - Retain WebSocket route `GET /_p2p/ws?ticket=<ticket>`.
-- A WS ticket is short-lived, server-local, single-use, and issued from an owner `access_token` or an `agent_token`.
+- A WS ticket is short-lived, server-local, single-use, and issued only from an owner `access_token`.
 - Remove `GET /_p2p/events`; there is no SSE fallback.
 - HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, fixed MCP actions, and node-to-node public/callback actions.
 - Logged-in owner clients call product actions through WS:
@@ -50,7 +50,7 @@
 }
 ```
 
-- WS still supports `client.hello`, `client.lifecycle`, `client.focus`, `client.ack`, `client.agent_stream`, `client.ping`, `server.ready`, `server.event`, `server.cursor_reset`, `server.agent_stream`, `server.pong`, and `server.error`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`.
+- WS still supports `client.hello`, `client.lifecycle`, `client.focus`, `client.ack`, `client.ping`, `client.request`, `server.response`, `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, and `server.error`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`.
 - `client.command` remains a one-release compatibility alias and maps internally to `client.request`; new Flutter code sends only `client.request`.
 - Fixed `mcp.*` actions stay HTTP-only. WS `client.request` for `mcp.*` returns `server.response ok=false status=400 error="action requires http"`.
 
@@ -63,7 +63,7 @@
 - Flutter keeps the existing chat timeline and `AgentMessageBody`/`gpt_markdown` rendering stack for agent output. Whole-chat packages such as `flutter_chat_ui` are not introduced in this phase because they would replace current Matrix timeline, local outbox, scroll, read-marker, call-record, and selection behavior.
 - WS session state is server-internal only. It must not expose user-visible presence or focused room information to other users.
 - WS session state is memory-only because it is a connection/session fact. Persistent product facts continue to use existing Matrix state and product stores.
-- Agent stream fragments are memory-only delivery hints. They are not stored in the P2P outbox or Matrix timeline, and they do not replace the final Matrix `m.room.message` reply from `@agent:<server>`.
+- Agent room message intake, previews, edits, and final replies use Matrix Client-Server APIs as `@agent:<server>` and are not transported through product WS frames.
 - Push suppression uses server time. A connected foreground, non-hidden WS session with the same focused room suppresses system push for that room; hidden, background, disconnected, expired, no-focus, or different-room state allows normal push. Lifecycle/focus `flags` are stored as server-side session context for future push decisions, not exposed as user presence. The agents room keeps its default no-system-push rule.
 - Non-idempotent mutations are not automatically retried if the WS connection drops before a matching `server.response` arrives; the UI must show the error/retry state.
 
@@ -71,16 +71,16 @@
 
 - Server route `GET /_p2p/ws` supports ticket authentication, replay from `since`, live P2P event streaming, cursor reset, client lifecycle/focus/ack, heartbeat, `client.request`, and clean disconnect handling.
 - Owner WS sessions can call representative query and command actions through `client.request`, including `contacts.list`, `groups.create`, and `sync.read_marker`/`channels.read_marker`.
-- Agent-token WS sessions receive only `agent_room.message` and send `client.agent_stream` for the configured `agent_room_id`; owner WS sessions receive `server.agent_stream`. MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`.
+- Agent-token callers cannot create WS tickets. MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`; local agent bridge message transport uses Matrix sync/send/edit.
 - Unknown action, malformed request frame, missing `id`, and handler errors return `server.response` with `ok=false`.
 - `GET /_p2p/events` is not registered.
 - HTTP `/query` and `/command` reject non-retained logged-in product actions while retained login/ticket and node public/callback actions still work.
 - Flutter uses `WsAsClient` for logged-in product methods and does not construct SSE fallback transports.
 - Flutter login flow remains HTTP token -> HTTP WS ticket -> WS hello -> WS `sync.bootstrap` on cold start or cursor reset -> `server.event` reducer plus `client.ack`.
 - Flutter resolves/rejects requests from `server.response` and does not auto-retry non-idempotent mutations after a dropped pending response.
-- Flutter renders same-stream agent fragments as one visible agent message and replaces intermediate cards with the final body when the stream completes.
+- Flutter renders Agent output from the Matrix timeline and Matrix edit aggregation; it does not consume `server.agent_stream`.
 - Disconnect, weak network, stale ticket, backend restart, browser refresh, and cursor retention gaps recover without losing product events.
-- Single-node, agent gateway, weak-network, and multi-node public lookup/join_result acceptance paths are covered by automated tests or documented manual validation.
+- Single-node, Matrix agent room bridge, weak-network, and multi-node public lookup/join_result acceptance paths are covered by automated tests or documented manual validation.
 - Server and Flutter repositories are committed separately after verification.
 
 ## Migration Checklist
@@ -141,7 +141,7 @@ Record command evidence here as phases complete.
 - `docker compose -f docker-compose.p2p.yml config` passed.
 - `docker compose -f docker-compose.p2p.yml up -d --build` built and started the single-node stack.
 - `Invoke-RestMethod http://127.0.0.1:8008/_p2p/health` returned `status=ok`.
-- Docker WS smoke used real `realtime.ws_ticket.create` tickets for owner and agent tokens; both connected to `GET /_p2p/ws`, returned `server.ready`, and accepted `client.lifecycle`, `client.focus`, and `client.ack` frames.
+- Docker WS smoke used real owner `realtime.ws_ticket.create` tickets to connect to `GET /_p2p/ws`, returned `server.ready`, and accepted `client.lifecycle`, `client.focus`, and `client.ack` frames. Agent-token WS smoke is no longer a valid acceptance item; Agent bridge traffic is verified through Matrix Client-Server sync/send/edit.
 - `flutter devices` found Windows, Chrome, and Edge targets; no Android/iOS device was connected in this workspace.
 - Chrome Web smoke served `build\web` at `http://127.0.0.1:3001`, logged in against `http://127.0.0.1:8008`, opened the Agent room, and verified browser WS frames: `client.hello`, `client.lifecycle foreground=true`, and `client.focus` for the real `agent_room_id`.
 - Flutter repository commit: `037567e feat: add realtime websocket transport`.

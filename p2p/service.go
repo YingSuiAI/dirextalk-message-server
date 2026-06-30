@@ -96,8 +96,7 @@ type Service struct {
 	nextEventSeq  int64
 	eventNotify   chan struct{}
 
-	realtimeWSTickets     map[string]realtimeWSTicket
-	realtimeWSSubscribers map[string]realtimeWSSubscriber
+	realtimeWSTickets map[string]realtimeWSTicket
 }
 
 type PushRuleManager interface {
@@ -236,7 +235,6 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	ownerAvatarURL := s.profile.AvatarURL
 	agentMXID := s.agentMXIDLocked()
 	agentDisplayName := s.agentDisplayNameLocked()
-	agentOnline := s.agentGatewayOnlineLocked()
 	s.mu.Unlock()
 	if s.transport == nil {
 		return false, nil
@@ -252,7 +250,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 			if err := s.ensureAgentRoomPowerLevels(ctx, currentRoomID, ownerMXID, agentMXID); err != nil {
 				return false, err
 			}
-			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, agentOnline); err != nil {
+			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, false); err != nil {
 				return false, err
 			}
 			if err := s.ensureAgentRoomPushRule(ctx, currentRoomID, ownerMXID); err != nil {
@@ -284,7 +282,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	if err := s.ensureAgentRoomAgentMember(ctx, roomID, ownerMXID, agentMXID, agentDisplayName); err != nil {
 		return false, err
 	}
-	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, agentOnline); err != nil {
+	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, false); err != nil {
 		return false, err
 	}
 	if err := s.ensureAgentRoomPushRule(ctx, roomID, ownerMXID); err != nil {
@@ -556,8 +554,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		inviteGrants:  map[string]channelInviteGrant{},
 		eventNotify:   make(chan struct{}),
 
-		realtimeWSTickets:     map[string]realtimeWSTicket{},
-		realtimeWSSubscribers: map[string]realtimeWSSubscriber{},
+		realtimeWSTickets: map[string]realtimeWSTicket{},
 	}
 	service.actions = service.actionHandlers()
 	return service
@@ -599,9 +596,6 @@ func (s *Service) Authorize(token, action string) bool {
 	if token == s.accessToken {
 		return true
 	}
-	if action == realtimeWSTicketAction {
-		return token == s.agentToken
-	}
 	return token == s.agentToken && serviceapi.AgentAction(action)
 }
 
@@ -609,21 +603,8 @@ func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
 	agentMXID := s.agentMXIDLocked()
-	online := s.agentGatewayOnlineLocked()
 	s.mu.Unlock()
-	return s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, online)
-}
-
-func (s *Service) agentGatewayOnlineLocked() bool {
-	if !s.agentConfig.Enabled {
-		return false
-	}
-	for _, subscriber := range s.realtimeWSSubscribers {
-		if subscriber.Role == "agent" {
-			return true
-		}
-	}
-	return false
+	return s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, false)
 }
 
 func (s *Service) publishAgentStatusState(ctx context.Context, roomID, senderMXID, agentMXID string, online bool) error {
