@@ -220,8 +220,8 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	if len(transport.stateEvents) != 1 {
 		t.Fatalf("expected agent to publish status after joining created room, got %#v", transport.stateEvents)
 	}
-	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
-		t.Fatalf("expected agent to publish online status after join, got %#v", transport.stateEvents[0])
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || online {
+		t.Fatalf("expected agent room repair to publish offline status until gateway connects, got %#v", transport.stateEvents[0])
 	}
 }
 
@@ -286,8 +286,8 @@ func TestEnsureAgentRoomJoinsAgentAndOwnerForExistingRealRoom(t *testing.T) {
 	if level, ok := initialPowerLevelForUser([]RoomStateEvent{transport.stateEvents[0].Event}, "@agent:example.com"); !ok || level < 50 {
 		t.Fatalf("expected repaired power levels to grant @agent state power, level=%d ok=%v state=%#v", level, ok, transport.stateEvents[0])
 	}
-	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[1], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
-		t.Fatalf("expected existing agent room online status state, got %#v", transport.stateEvents[1])
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[1], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || online {
+		t.Fatalf("expected existing agent room status to remain offline until gateway connects, got %#v", transport.stateEvents[1])
 	}
 }
 

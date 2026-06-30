@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -457,6 +458,27 @@ func TestRealtimeWSAgentStreamFanoutToOwner(t *testing.T) {
 	}
 }
 
+func TestRealtimeWSAgentSessionPublishesBridgePresence(t *testing.T) {
+	transport := &recordingAgentStatusTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.mu.Lock()
+	service.agentRoomID = "!agent-room:example.com"
+	service.mu.Unlock()
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	agentConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AgentToken()))
+	writeRealtimeFrame(t, agentConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, agentConn); got["type"] != "server.ready" {
+		t.Fatalf("expected agent ready, got %#v", got)
+	}
+	waitForRecordedAgentStatus(t, transport, true)
+
+	_ = agentConn.Close(websocket.StatusNormalClosure, "")
+	waitForRecordedAgentStatus(t, transport, false)
+}
+
 func TestRealtimeWSSendsCursorResetForExpiredSince(t *testing.T) {
 	service := NewService(Config{
 		ServerName:                    "example.com",
@@ -583,6 +605,44 @@ func waitForRealtimePushNotSuppressed(t *testing.T, service *Service, roomID str
 		select {
 		case <-deadline:
 			t.Fatalf("expected WS session state to keep normal push for %s", roomID)
+		case <-tick.C:
+		}
+	}
+}
+
+type recordingAgentStatusTransport struct {
+	recordingTransport
+	mu sync.Mutex
+}
+
+func (t *recordingAgentStatusTransport) SendStateEvent(ctx context.Context, req SendStateEventRequest) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stateEvents = append(t.stateEvents, req)
+	return nil
+}
+
+func (t *recordingAgentStatusTransport) stateEventsSnapshot() []SendStateEventRequest {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]SendStateEventRequest{}, t.stateEvents...)
+}
+
+func waitForRecordedAgentStatus(t *testing.T, transport *recordingAgentStatusTransport, wantOnline bool) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		for _, event := range transport.stateEventsSnapshot() {
+			online, ok := agentStatusOnlineUpdate(event, "!agent-room:example.com", "@agent:example.com", "@agent:example.com")
+			if ok && online == wantOnline {
+				return
+			}
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected agent bridge online=%v state event, got %#v", wantOnline, transport.stateEventsSnapshot())
 		case <-tick.C:
 		}
 	}

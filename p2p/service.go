@@ -236,7 +236,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	ownerAvatarURL := s.profile.AvatarURL
 	agentMXID := s.agentMXIDLocked()
 	agentDisplayName := s.agentDisplayNameLocked()
-	agentOnline := s.agentConfig.Enabled
+	agentOnline := s.agentGatewayOnlineLocked()
 	s.mu.Unlock()
 	if s.transport == nil {
 		return false, nil
@@ -609,9 +609,21 @@ func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID
 	agentMXID := s.agentMXIDLocked()
-	online := s.agentConfig.Enabled
+	online := s.agentGatewayOnlineLocked()
 	s.mu.Unlock()
 	return s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, online)
+}
+
+func (s *Service) agentGatewayOnlineLocked() bool {
+	if !s.agentConfig.Enabled {
+		return false
+	}
+	for _, subscriber := range s.realtimeWSSubscribers {
+		if subscriber.Role == "agent" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) publishAgentStatusState(ctx context.Context, roomID, senderMXID, agentMXID string, online bool) error {

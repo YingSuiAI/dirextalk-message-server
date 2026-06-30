@@ -2,6 +2,14 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 Agent Bridge Online State Follows Gateway WS Sessions
+
+Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`.
+
+The server no longer treats `agent.config.enabled=true` as online by itself. Startup or agents-room repair publishes `online=false` unless an agent-token WS gateway session is connected. The server publishes `online=true` when Agent config is enabled and at least one agent-token WS gateway session connects to `GET /_p2p/ws`, and publishes `online=false` when the last such gateway session disconnects or `agent.config.update` disables the Agent.
+
+No response fields change: `sync.bootstrap` still returns only `agent_room_id` for Agent room discovery and does not return `agent_online`; `agent.status`/`agents.status` remain removed.
+
 ## 2026-06-30 MCP HTTP Boundary And WS Client State Flags
 
 Fixed MCP actions remain HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they are not migrated into WS `client.request`. Owner `access_token` and fixed `agent_token` may call the existing MCP allowlist over HTTP. If an owner or agent WS session sends a `client.request` for `mcp.*`, the server returns:

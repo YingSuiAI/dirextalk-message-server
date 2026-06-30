@@ -106,8 +106,22 @@ func realtimeWSHandler(service *Service) http.HandlerFunc {
 		}
 
 		wsConn := newRealtimeWSConnection(sessionID, record)
-		service.registerRealtimeWSSubscriber(wsConn)
-		defer service.unregisterRealtimeWSSubscriber(sessionID)
+		if service.registerRealtimeWSSubscriber(wsConn) {
+			if err := service.publishCurrentAgentStatusState(ctx); err != nil {
+				_ = wsjson.Write(ctx, conn, map[string]any{
+					"type":  "server.error",
+					"error": err.Error(),
+				})
+				return
+			}
+		}
+		defer func() {
+			if service.unregisterRealtimeWSSubscriber(sessionID) {
+				offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = service.publishCurrentAgentStatusState(offlineCtx)
+			}
+		}()
 
 		readDone := make(chan struct{})
 		go func() {
@@ -373,12 +387,13 @@ func (s *Service) handleRealtimeWSAgentStream(record realtimeWSTicket, frame map
 	return nil
 }
 
-func (s *Service) registerRealtimeWSSubscriber(conn *realtimeWSConnection) {
+func (s *Service) registerRealtimeWSSubscriber(conn *realtimeWSConnection) bool {
 	if s == nil || conn == nil {
-		return
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasOnline := s.agentGatewayOnlineLocked()
 	if s.realtimeWSSubscribers == nil {
 		s.realtimeWSSubscribers = map[string]realtimeWSSubscriber{}
 	}
@@ -386,15 +401,18 @@ func (s *Service) registerRealtimeWSSubscriber(conn *realtimeWSConnection) {
 		Role:   conn.record.Role,
 		Frames: conn.outbound,
 	}
+	return !wasOnline && s.agentGatewayOnlineLocked()
 }
 
-func (s *Service) unregisterRealtimeWSSubscriber(sessionID string) {
+func (s *Service) unregisterRealtimeWSSubscriber(sessionID string) bool {
 	if s == nil {
-		return
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasOnline := s.agentGatewayOnlineLocked()
 	delete(s.realtimeWSSubscribers, strings.TrimSpace(sessionID))
+	return wasOnline && !s.agentGatewayOnlineLocked()
 }
 
 func (s *Service) broadcastRealtimeWSAgentStream(frame map[string]any) {
