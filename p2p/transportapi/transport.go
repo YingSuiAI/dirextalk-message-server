@@ -76,11 +76,12 @@ type InviteUserRequest struct {
 }
 
 type JoinRoomRequest struct {
-	RoomIDOrAlias string
-	UserMXID      string
-	DisplayName   string
-	AvatarURL     string
-	ServerNames   []string
+	RoomIDOrAlias             string
+	UserMXID                  string
+	DisplayName               string
+	AvatarURL                 string
+	ServerNames               []string
+	DirectContactReactivation bool
 }
 
 type JoinRoomResult struct {

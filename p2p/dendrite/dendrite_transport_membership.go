@@ -103,7 +103,9 @@ func (t *DendriteTransport) JoinRoom(ctx context.Context, req JoinRoomRequest) (
 			if !isDirectRoomJoinRequiresInvite(err) {
 				return JoinRoomResult{}, err
 			}
-			directInvitePolicyErr = err
+			if !req.DirectContactReactivation {
+				directInvitePolicyErr = err
+			}
 		}
 	}
 	serverNames := make([]spec.ServerName, 0, len(req.ServerNames))

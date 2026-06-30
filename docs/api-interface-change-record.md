@@ -2,6 +2,12 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 Contact Re-Request Replacement Room
+
+When both sides of a direct contact have left the retained old direct room, or the peer node no longer retains the old relationship, a new `contacts.request` creates a replacement direct request room instead of binding the pending request to the old room. The returned contact `room_id` may therefore differ from the previous direct room. Clients should use the latest `room_id` from `contacts.request`, `contacts.list`, `sync.bootstrap.contacts`, or contact mutation responses when accepting or opening the conversation.
+
+For historical pending requests that still point at an unrejoinable old direct room, `contacts.requests.accept` falls back to creating a replacement direct room and returns the accepted contact with the new `room_id`.
+
 ## 2026-06-30 Contact Display Name Override
 
 `contacts.update` now marks the supplied `display_name` as a local contact remark. Contact records returned from `contacts.update`, `contacts.list`, and `sync.bootstrap.contacts` may include `display_name_override: true` when the displayed name is owner-managed.

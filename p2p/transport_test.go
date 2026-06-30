@@ -601,8 +601,8 @@ func TestAcceptedContactRequestCreatesPendingInviteWhenPeerNoLongerRetainsOldRoo
 		"remote_node_base_url": remote.URL + "/_p2p",
 	})
 
-	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
-		t.Fatalf("expected peer-deleted re-request to wait for approval in the old room, got %#v", contact)
+	if contact.Status != "pending_outbound" || contact.RoomID != "!fresh-dm:example.com" {
+		t.Fatalf("expected peer-deleted re-request to create a replacement direct room, got %#v", contact)
 	}
 	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
 		t.Fatalf("expected one peer reactivation probe, got %#v", remoteActions)
@@ -610,19 +610,18 @@ func TestAcceptedContactRequestCreatesPendingInviteWhenPeerNoLongerRetainsOldRoo
 	if len(transport.joinRequests) != 0 {
 		t.Fatalf("peer-deleted re-request must not join the old room before approval, got %#v", transport.joinRequests)
 	}
-	if len(transport.createRooms) != 0 {
-		t.Fatalf("peer-deleted re-request must preserve the old direct room, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 1 ||
+		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		len(transport.createRooms[0].InviteMXIDs) != 1 ||
+		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("peer-deleted re-request must create a replacement direct invite room, got %#v", transport.createRooms)
 	}
-	if len(transport.inviteRequests) != 1 ||
-		transport.inviteRequests[0].RoomID != "!old-dm:remote.example" ||
-		transport.inviteRequests[0].InviterMXID != "@owner:example.com" ||
-		transport.inviteRequests[0].InviteeMXID != "@alice:remote.example" ||
-		!transport.inviteRequests[0].IsDirect {
-		t.Fatalf("expected pending invite in old direct room, got %#v", transport.inviteRequests)
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("replacement room creation carries the invite, must not send old-room invite, got %#v", transport.inviteRequests)
 	}
 }
 
-func TestAcceptedContactRequestKeepsPendingWhenOldRoomInviteSenderLeft(t *testing.T) {
+func TestAcceptedContactRequestCreatesReplacementWhenOldRoomInviteSenderLeft(t *testing.T) {
 	remoteActions := []string{}
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req envelope
@@ -662,17 +661,20 @@ func TestAcceptedContactRequestKeepsPendingWhenOldRoomInviteSenderLeft(t *testin
 		"remote_node_base_url": remote.URL + "/_p2p",
 	})
 
-	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
-		t.Fatalf("expected left-sender re-request to wait for approval in the old room, got %#v", contact)
+	if contact.Status != "pending_outbound" || contact.RoomID != "!recorded:example.com" {
+		t.Fatalf("expected left-sender re-request to create a replacement direct room, got %#v", contact)
 	}
 	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
 		t.Fatalf("expected one peer reactivation probe, got %#v", remoteActions)
 	}
-	if len(transport.createRooms) != 0 {
-		t.Fatalf("left-sender re-request must preserve the old direct room, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 1 ||
+		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		len(transport.createRooms[0].InviteMXIDs) != 1 ||
+		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("left-sender re-request must create a replacement direct invite room, got %#v", transport.createRooms)
 	}
-	if len(transport.inviteRequests) != 1 || transport.inviteRequests[0].RoomID != "!old-dm:remote.example" {
-		t.Fatalf("expected one old-room invite attempt, got %#v", transport.inviteRequests)
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("replacement room creation carries the invite, must not send old-room invite, got %#v", transport.inviteRequests)
 	}
 }
 
@@ -917,6 +919,82 @@ func TestContactAcceptJoinsDirectRoomThroughTransport(t *testing.T) {
 	if transport.joinRequests[0].DisplayName != "Owner B" || transport.joinRequests[0].AvatarURL != "mxc://example.com/owner-b" {
 		t.Fatalf("expected accept join to carry accepting owner profile, got %#v", transport.joinRequests[0])
 	}
+	if !transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected accept join to be marked as direct contact reactivation, got %#v", transport.joinRequests[0])
+	}
+}
+
+func TestContactAcceptUsesDirectReactivationJoinWhenInviteIsGone(t *testing.T) {
+	transport := &directReactivationJoinTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "pending_inbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted := mustHandle[contactRecord](t, service, "contacts.requests.accept", map[string]any{
+		"room_id":      "!old-dm:remote.example",
+		"peer_mxid":    "@alice:remote.example",
+		"server_names": []string{"remote.example"},
+	})
+
+	if accepted.Status != "accepted" || accepted.RoomID != "!old-dm:remote.example" {
+		t.Fatalf("expected accept to restore pending inbound contact in old room, got %#v", accepted)
+	}
+	if len(transport.joinRequests) != 1 || !transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected accept to use direct reactivation join, got %#v", transport.joinRequests)
+	}
+	if transport.joinRequests[0].ServerNames[0] != "remote.example" {
+		t.Fatalf("expected accept to preserve remote server names, got %#v", transport.joinRequests[0])
+	}
+}
+
+func TestContactAcceptCreatesReplacementDirectRoomWhenOldRoomCannotBeRejoined(t *testing.T) {
+	transport := &failOnceJoinTransport{
+		recordingTransport: recordingTransport{roomID: "!replacement-dm:example.com"},
+		err:                productpolicy.Forbidden("direct room join requires invite"),
+		failures:           100,
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
+		"display_name": "Owner B",
+		"avatar_url":   "mxc://example.com/owner-b",
+	})
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!old-dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "pending_inbound",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted := mustHandle[contactRecord](t, service, "contacts.requests.accept", map[string]any{
+		"room_id":   "!old-dm:remote.example",
+		"peer_mxid": "@alice:remote.example",
+	})
+
+	if accepted.Status != "accepted" || accepted.RoomID != "!replacement-dm:example.com" {
+		t.Fatalf("expected accept to create replacement direct room when old room cannot be rejoined, got %#v", accepted)
+	}
+	if len(transport.joinRequests) != 1 || !transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected accept to try old-room direct reactivation first, got %#v", transport.joinRequests)
+	}
+	if len(transport.createRooms) != 1 {
+		t.Fatalf("expected one replacement direct room, got %#v", transport.createRooms)
+	}
+	room := transport.createRooms[0]
+	if room.CreatorMXID != "@owner:example.com" || len(room.InviteMXIDs) != 1 || room.InviteMXIDs[0] != "@alice:remote.example" || !room.IsDirect || room.RoomType != DirexioRoomTypeDirect {
+		t.Fatalf("unexpected replacement direct room request: %#v", room)
+	}
 }
 
 func TestContactAcceptAlreadyAcceptedDoesNotJoinDirectRoomThroughTransport(t *testing.T) {
@@ -971,6 +1049,33 @@ func TestContactDeleteLeavesDirectRoomThroughTransport(t *testing.T) {
 	}
 	if len(transport.leaves) != 1 || transport.leaves[0] != "@owner:example.com from !dm:remote.example" {
 		t.Fatalf("expected contact delete to leave direct room through transport, got %#v", transport.leaves)
+	}
+}
+
+func TestContactDeleteMarksDeletedWhenMatrixMembershipAlreadyLeft(t *testing.T) {
+	transport := &failingLeaveTransport{err: errors.New(`user "@owner:example.com" is not joined to the room (membership is "leave"`)}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:      "!dm:remote.example",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "contacts.delete", map[string]any{
+		"room_id": "!dm:remote.example",
+	})
+
+	if result["status"] != "ok" {
+		t.Fatalf("expected delete ok when Matrix membership is already leave, got %#v", result)
+	}
+	contact, ok, err := service.lookupContactByRoom(context.Background(), "!dm:remote.example")
+	if err != nil || !ok || contact.Status != "deleted" {
+		t.Fatalf("expected contact to be marked deleted, ok=%v contact=%#v err=%v", ok, contact, err)
 	}
 }
 
@@ -1164,8 +1269,8 @@ func TestDeletedContactRequestCreatesFreshRequestWhenPeerNoLongerRetainsOldRoom(
 		"remote_node_base_url": remote.URL + "/_p2p",
 	})
 
-	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
-		t.Fatalf("expected both-deleted re-add to wait for approval in the old room, got %#v", contact)
+	if contact.Status != "pending_outbound" || contact.RoomID != "!fresh-dm:example.com" {
+		t.Fatalf("expected both-deleted re-add to create a replacement direct room, got %#v", contact)
 	}
 	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
 		t.Fatalf("expected one peer reactivation probe, got %#v", remoteActions)
@@ -1173,17 +1278,18 @@ func TestDeletedContactRequestCreatesFreshRequestWhenPeerNoLongerRetainsOldRoom(
 	if len(transport.joinRequests) != 0 {
 		t.Fatalf("expected retained-contact probe to avoid old-room join before pending invite, got %#v", transport.joinRequests)
 	}
-	if len(transport.createRooms) != 0 {
-		t.Fatalf("both-deleted re-add must preserve the old direct room, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 1 ||
+		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		len(transport.createRooms[0].InviteMXIDs) != 1 ||
+		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("both-deleted re-add must create a replacement direct invite room, got %#v", transport.createRooms)
 	}
-	if len(transport.inviteRequests) != 1 ||
-		transport.inviteRequests[0].RoomID != "!old-dm:remote.example" ||
-		transport.inviteRequests[0].InviteeMXID != "@alice:remote.example" {
-		t.Fatalf("expected pending invite in old direct room, got %#v", transport.inviteRequests)
+	if len(transport.inviteRequests) != 0 {
+		t.Fatalf("replacement room creation carries the invite, must not send old-room invite, got %#v", transport.inviteRequests)
 	}
 }
 
-func TestDeletedContactRequestKeepsPendingWhenPeerRecordsInboundRequest(t *testing.T) {
+func TestDeletedContactRequestCreatesReplacementRoomWhenPeerRecordsInboundRequest(t *testing.T) {
 	remoteActions := []string{}
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req envelope
@@ -1228,8 +1334,8 @@ func TestDeletedContactRequestKeepsPendingWhenPeerRecordsInboundRequest(t *testi
 		"remote_node_base_url": remote.URL + "/_p2p",
 	})
 
-	if contact.Status != "pending_outbound" || contact.RoomID != "!old-dm:remote.example" {
-		t.Fatalf("expected peer-recorded re-request to wait for approval in the old room, got %#v", contact)
+	if contact.Status != "pending_outbound" || contact.RoomID != "!fresh-dm:example.com" {
+		t.Fatalf("expected peer-recorded re-request to create a replacement direct room, got %#v", contact)
 	}
 	if len(remoteActions) != 1 || remoteActions[0] != "contacts.reactivate" {
 		t.Fatalf("expected one peer reactivation call, got %#v", remoteActions)
@@ -1237,11 +1343,14 @@ func TestDeletedContactRequestKeepsPendingWhenPeerRecordsInboundRequest(t *testi
 	if len(transport.joinRequests) != 0 {
 		t.Fatalf("peer-recorded pending request must not join old direct room, got %#v", transport.joinRequests)
 	}
-	if len(transport.createRooms) != 0 {
-		t.Fatalf("peer-recorded pending request must preserve the old direct room, got %#v", transport.createRooms)
+	if len(transport.createRooms) != 1 ||
+		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		len(transport.createRooms[0].InviteMXIDs) != 1 ||
+		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("peer-recorded pending request must create a replacement direct invite room, got %#v", transport.createRooms)
 	}
 	if len(transport.inviteRequests) != 0 {
-		t.Fatalf("peer-recorded pending request must not invite from a left sender, got %#v", transport.inviteRequests)
+		t.Fatalf("replacement room creation carries the invite, must not send old-room invite, got %#v", transport.inviteRequests)
 	}
 }
 
@@ -3216,6 +3325,16 @@ func (t *failingRedactTransport) RedactEvent(ctx context.Context, req RedactEven
 	return RedactEventResult{}, t.err
 }
 
+type failingLeaveTransport struct {
+	recordingTransport
+	err error
+}
+
+func (t *failingLeaveTransport) LeaveRoom(ctx context.Context, req LeaveRoomRequest) error {
+	t.leaves = append(t.leaves, req.UserMXID+" from "+req.RoomID)
+	return t.err
+}
+
 type failOnceJoinTransport struct {
 	recordingTransport
 	err      error
@@ -3233,6 +3352,19 @@ func (t *failOnceJoinTransport) JoinRoom(ctx context.Context, req JoinRoomReques
 	}
 	if t.attempts <= failures {
 		return JoinRoomResult{}, t.err
+	}
+	return JoinRoomResult{RoomID: req.RoomIDOrAlias}, nil
+}
+
+type directReactivationJoinTransport struct {
+	recordingTransport
+}
+
+func (t *directReactivationJoinTransport) JoinRoom(ctx context.Context, req JoinRoomRequest) (JoinRoomResult, error) {
+	t.joins = append(t.joins, req.UserMXID+" in "+req.RoomIDOrAlias)
+	t.joinRequests = append(t.joinRequests, req)
+	if !req.DirectContactReactivation {
+		return JoinRoomResult{}, productpolicy.Forbidden("direct room join requires invite")
 	}
 	return JoinRoomResult{RoomID: req.RoomIDOrAlias}, nil
 }
