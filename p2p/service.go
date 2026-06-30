@@ -605,22 +605,6 @@ func (s *Service) Authorize(token, action string) bool {
 	return token == s.agentToken && serviceapi.AgentAction(action)
 }
 
-func (s *Service) AuthorizeEventStream(token string) bool {
-	return s.authorizeEventStream(token)
-}
-
-func (s *Service) authorizeEventStream(token string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if token == "" {
-		return false
-	}
-	if token == s.accessToken {
-		return true
-	}
-	return token == s.agentToken
-}
-
 func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {
 	s.mu.Lock()
 	roomID := s.agentRoomID

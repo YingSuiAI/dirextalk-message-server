@@ -2,19 +2,15 @@ package p2p
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/gorilla/mux"
 )
 
-func TestCommandUsesBodyActionAndBearerAuth(t *testing.T) {
+func TestHTTPProductActionRequiresWebSocketAfterLogin(t *testing.T) {
 	service := NewService(Config{
 		ServerName: "example.com",
 	})
@@ -30,44 +26,29 @@ func TestCommandUsesBodyActionAndBearerAuth(t *testing.T) {
 
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["user_id"] == "" {
-		t.Fatalf("expected owner profile response, got %#v", got)
+	if rec.Code != http.StatusBadRequest || got["error"] != "action requires websocket" {
+		t.Fatalf("expected websocket-only error, got %d body=%#v", rec.Code, got)
 	}
 }
 
 func TestAgentMatrixSessionCreateRejectsAgentToken(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	issuer := &recordingMatrixSessionIssuer{}
-	service.SetMatrixSessionIssuer(issuer)
+	if service.Authorize(service.AgentToken(), "agent.matrix_session.create") {
+		t.Fatal("expected agent token to reject agent.matrix_session.create")
+	}
+}
+
+func TestProtectedHTTPRetainedActionRejectsMissingBearer(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
 	req := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "agent.matrix_session.create",
-		"params": map[string]any{"device_id": "DIREXIO_CLI"},
-	})
-	req.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	rec := httptest.NewRecorder()
-
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestProtectedQueryRejectsMissingBearer(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-
-	req := jsonRequest(t, "/_p2p/query", map[string]any{
-		"action": "profile.get",
+		"action": "portal.password",
+		"params": map[string]any{},
 	})
 	rec := httptest.NewRecorder()
 
@@ -78,82 +59,17 @@ func TestProtectedQueryRejectsMissingBearer(t *testing.T) {
 	}
 }
 
-func TestEventsEndpointKeepsConnectionOpenUntilClientDisconnect(t *testing.T) {
+func TestEventsEndpointIsRemoved(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	rec, cancel, done := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
-
-	select {
-	case <-done:
-		t.Fatalf("events endpoint returned before client disconnect; body=%s", rec.BodyString())
-	case <-time.After(50 * time.Millisecond):
+	req := httptest.NewRequest(http.MethodGet, "/_p2p/events?since=0", nil)
+	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected removed events endpoint to return 404, got %d body=%s", rec.Code, rec.Body.String())
 	}
-
-	cancel()
-	waitForEventStreamDone(t, done)
-	if rec.Code() != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code(), rec.BodyString())
-	}
-	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
-		t.Fatalf("expected SSE content type, got %q", got)
-	}
-}
-
-func TestEventsEndpointStreamsAppendedEvents(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-
-	rec, cancel, done := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
-	defer cancel()
-
-	if err := service.appendP2PEvent(context.Background(), p2pEvent{
-		Type:    "test.event",
-		RoomID:  "!room:example.com",
-		EventID: "$event",
-		Payload: map[string]any{"ok": true},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	waitForEventStreamBody(t, rec, "event: test.event")
-	cancel()
-	waitForEventStreamDone(t, done)
-}
-
-func TestEventsEndpointSignalsExpiredCursor(t *testing.T) {
-	service := NewService(Config{
-		ServerName:                    "example.com",
-		P2PEventRetentionMaxRows:      2,
-		P2PEventRetentionPruneOnWrite: true,
-	})
-	router := newP2PTestRouter(service)
-
-	for seq := int64(1); seq <= 4; seq++ {
-		if err := service.appendP2PEvent(context.Background(), p2pEvent{
-			Seq:     seq,
-			Type:    "test.event",
-			RoomID:  "!room:example.com",
-			EventID: "$event",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	rec, cancel, done := startEventStreamTest(t, router, service, "/_p2p/events?since=1")
-	defer cancel()
-
-	waitForEventStreamBody(t, rec, "event: p2p.cursor_reset")
-	if got := rec.Header().Get("X-Direxio-P2P-Events-Cursor-Reset"); got != "true" {
-		t.Fatalf("expected cursor reset header, got %q", got)
-	}
-	body := rec.BodyString()
-	if !strings.Contains(body, `"since":1`) || !strings.Contains(body, `"min_seq":3`) || !strings.Contains(body, `"max_seq":4`) {
-		t.Fatalf("expected cursor reset payload with since/min/max, body=%s", body)
-	}
-
-	cancel()
-	waitForEventStreamDone(t, done)
 }
 
 func TestBootstrapAndAuthAreBodyActions(t *testing.T) {
@@ -252,12 +168,9 @@ func TestPortalOwnerWellKnownIsPublic(t *testing.T) {
 	Register(router.PathPrefix(PathPrefix).Subrouter(), service)
 	RegisterWellKnown(router.PathPrefix("/.well-known/portal/").Subrouter(), service)
 
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "profile.update",
-		"params": map[string]any{
-			"display_name": "Alice",
-			"avatar_url":   "mxc://example.com/avatar",
-		},
+	mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
+		"display_name": "Alice",
+		"avatar_url":   "mxc://example.com/avatar",
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/portal/owner.json", nil)
@@ -283,80 +196,48 @@ func TestPortalOwnerWellKnownIsPublic(t *testing.T) {
 
 func TestChannelMembersQueryFiltersStatusAndReturnsLegacyFields(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
 
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "portal.bootstrap",
-		"params": map[string]any{"password": service.password},
+	mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
+	channelRaw := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "approval",
+		"room_id":     "!approval:example.com",
+		"name":        "Approval",
+		"join_policy": "approval",
 	})
-	channelRaw := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.create",
-		"params": map[string]any{
-			"channel_id":  "approval",
-			"room_id":     "!approval:example.com",
-			"name":        "Approval",
-			"join_policy": "approval",
-		},
-	})
-	channelID := channelRaw["channel_id"].(string)
-	roomID := channelRaw["room_id"].(string)
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.public.join_request",
-		"params": map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"},
-	})
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.public.join_request",
-		"params": map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@bob:example.com"},
-	})
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.join_request.approve",
-		"params": map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"},
-	})
+	channelID := channelRaw.ChannelID
+	roomID := channelRaw.RoomID
+	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
+	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@bob:example.com"})
+	mustHandle[map[string]any](t, service, "channels.join_request.approve", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
 
-	list := mustRoute(t, router, service, "/_p2p/query", map[string]any{
-		"action": "channels.members",
-		"params": map[string]any{"channel_id": channelID, "status": "pending"},
-	})
-	members := list["members"].([]any)
+	list := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": channelID, "status": "pending"})
+	members := list["members"].([]memberRecord)
 	if len(members) != 1 {
 		t.Fatalf("expected one pending member, got %#v", list)
 	}
-	member := members[0].(map[string]any)
-	if member["user_mxid"] != "@bob:example.com" || member["status"] != "pending" || member["user_id"] != "@bob:example.com" || member["membership"] != "pending" {
+	member := members[0]
+	if member.UserID != "@bob:example.com" || member.Membership != "pending" {
 		t.Fatalf("expected legacy and unified member fields, got %#v", member)
 	}
 }
 
 func TestChannelJoinRequestResolutionReturnsChannelForClientRefresh(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
 
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "portal.bootstrap",
-		"params": map[string]any{"password": service.password},
+	mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
+	channelRaw := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "approval",
+		"room_id":     "!approval:example.com",
+		"name":        "Approval",
+		"join_policy": "approval",
 	})
-	channelRaw := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.create",
-		"params": map[string]any{
-			"channel_id":  "approval",
-			"room_id":     "!approval:example.com",
-			"name":        "Approval",
-			"join_policy": "approval",
-		},
-	})
-	channelID := channelRaw["channel_id"].(string)
-	roomID := channelRaw["room_id"].(string)
-	mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.public.join_request",
-		"params": map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"},
-	})
+	channelID := channelRaw.ChannelID
+	roomID := channelRaw.RoomID
+	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
 
-	approved := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.join_request.approve",
-		"params": map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"},
-	})
-	channel := approved["channel"].(map[string]any)
-	if approved["status"] != "approved" || channel["channel_id"] != channelID || channel["pending_join_count"] != float64(0) {
+	approved := mustHandle[map[string]any](t, service, "channels.join_request.approve", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
+	channel := approved["channel"].(channel)
+	if approved["status"] != "approved" || channel.ChannelID != channelID || channel.PendingJoinCount != 0 {
 		t.Fatalf("expected approved status and refreshed channel, got %#v", approved)
 	}
 }
@@ -364,17 +245,14 @@ func TestChannelJoinRequestResolutionReturnsChannelForClientRefresh(t *testing.T
 func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
-	channelRaw := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "channels.create",
-		"params": map[string]any{
-			"channel_id":  "public-news",
-			"room_id":     "!public-news:example.com",
-			"name":        "Public News",
-			"visibility":  "public",
-			"join_policy": "approval",
-		},
+	channelRaw := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "public-news",
+		"room_id":     "!public-news:example.com",
+		"name":        "Public News",
+		"visibility":  "public",
+		"join_policy": "approval",
 	})
-	roomID := channelRaw["room_id"].(string)
+	roomID := channelRaw.RoomID
 
 	detailReq := jsonRequest(t, "/_p2p/query", map[string]any{
 		"action": "channels.public.get",
@@ -432,11 +310,17 @@ func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
-	session := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "portal.auth",
-		"params": map[string]any{"password": service.password},
-	})
-	agentToken := session["agent_token"].(string)
+	agentToken := service.AgentToken()
+
+	if !service.Authorize(agentToken, "mcp.rooms.search") {
+		t.Fatal("expected agent token to authorize MCP actions")
+	}
+	if service.Authorize(agentToken, "contacts.request") {
+		t.Fatal("expected agent token to reject owner product actions")
+	}
+	if !service.Authorize(agentToken, realtimeWSTicketAction) {
+		t.Fatal("expected agent token to create realtime WS tickets")
+	}
 
 	mcpReq := jsonRequest(t, "/_p2p/query", map[string]any{
 		"action": "mcp.rooms.search",
@@ -445,8 +329,8 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	mcpReq.Header.Set("Authorization", "Bearer "+agentToken)
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
-	if mcpRec.Code != http.StatusOK {
-		t.Fatalf("expected Agent token to call MCP action, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
+	if mcpRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP MCP action to require websocket, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
 	}
 
 	agentRequest := jsonRequest(t, "/_p2p/command", map[string]any{
@@ -456,26 +340,8 @@ func TestAgentTokenCanOnlyCallMCPActions(t *testing.T) {
 	agentRequest.Header.Set("Authorization", "Bearer "+agentToken)
 	agentRec := httptest.NewRecorder()
 	router.ServeHTTP(agentRec, agentRequest)
-	if agentRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected non-MCP Agent action to fail, got %d body=%s", agentRec.Code, agentRec.Body.String())
-	}
-
-	agentEventsRec, cancel, done := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", agentToken)
-	cancel()
-	waitForEventStreamDone(t, done)
-	if agentEventsRec.Code() != http.StatusOK {
-		t.Fatalf("expected Agent token to subscribe to events stream, got %d body=%s", agentEventsRec.Code(), agentEventsRec.BodyString())
-	}
-	if got := agentEventsRec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
-		t.Fatalf("expected Agent token events request to receive SSE content type, got %q", got)
-	}
-
-	adminRequest := mustRoute(t, router, service, "/_p2p/command", map[string]any{
-		"action": "contacts.request",
-		"params": map[string]any{"mxid": "@admin-still-ok:example.com"},
-	})
-	if adminRequest["room_id"] == "" {
-		t.Fatalf("expected access token to call non-MCP action, got %#v", adminRequest)
+	if agentRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected owner action over HTTP to require websocket, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
 
 	removed := mustRouteError(t, router, service, "/_p2p/command", map[string]any{"action": "apis.list"})
@@ -496,31 +362,14 @@ func TestAgentStatusActionRemoved(t *testing.T) {
 
 func TestSyncBootstrapOmitsDeprecatedAgentOnline(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
 
-	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
+	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
 	if _, ok := bootstrap["agent_online"]; ok {
 		t.Fatalf("expected sync.bootstrap to omit deprecated agent_online, got %#v", bootstrap)
 	}
 	if _, ok := bootstrap["agent_presence"]; ok {
 		t.Fatalf("expected sync.bootstrap to omit deprecated agent_presence, got %#v", bootstrap["agent_presence"])
 	}
-}
-
-func TestAgentTokenEventStreamIsPassive(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-
-	_, cancelAgent, agentDone := startEventStreamTestWithToken(t, router, "/_p2p/events?since=0", service.AgentToken())
-	defer cancelAgent()
-
-	bootstrap := mustRoute(t, router, service, "/_p2p/query", map[string]any{"action": "sync.bootstrap"})
-	if _, ok := bootstrap["agent_online"]; ok {
-		t.Fatalf("expected Agent token event stream not to create deprecated agent_online, got %#v", bootstrap)
-	}
-
-	cancelAgent()
-	waitForEventStreamDone(t, agentDone)
 }
 
 func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
@@ -571,116 +420,4 @@ func newP2PTestRouter(service *Service) *mux.Router {
 	router := mux.NewRouter()
 	Register(router.PathPrefix(PathPrefix).Subrouter(), service)
 	return router
-}
-
-type sseTestResponseWriter struct {
-	header    http.Header
-	mu        sync.Mutex
-	status    int
-	body      bytes.Buffer
-	flushed   chan struct{}
-	flushOnce sync.Once
-}
-
-func newSSETestResponseWriter() *sseTestResponseWriter {
-	return &sseTestResponseWriter{
-		header:  make(http.Header),
-		flushed: make(chan struct{}),
-	}
-}
-
-func (w *sseTestResponseWriter) Header() http.Header {
-	return w.header
-}
-
-func (w *sseTestResponseWriter) WriteHeader(status int) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.status == 0 {
-		w.status = status
-	}
-}
-
-func (w *sseTestResponseWriter) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
-	return w.body.Write(data)
-}
-
-func (w *sseTestResponseWriter) Flush() {
-	w.flushOnce.Do(func() {
-		close(w.flushed)
-	})
-}
-
-func (w *sseTestResponseWriter) Code() int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.status == 0 {
-		return http.StatusOK
-	}
-	return w.status
-}
-
-func (w *sseTestResponseWriter) BodyString() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.body.String()
-}
-
-func startEventStreamTest(t *testing.T, router http.Handler, service *Service, path string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
-	t.Helper()
-	return startEventStreamTestWithToken(t, router, path, service.AccessToken())
-}
-
-func startEventStreamTestWithToken(t *testing.T, router http.Handler, path, token string) (*sseTestResponseWriter, context.CancelFunc, <-chan struct{}) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := newSSETestResponseWriter()
-	done := make(chan struct{})
-	go func() {
-		router.ServeHTTP(rec, req)
-		close(done)
-	}()
-	select {
-	case <-rec.flushed:
-	case <-done:
-		cancel()
-		t.Fatalf("events endpoint returned before flushing SSE headers; body=%s", rec.BodyString())
-	case <-time.After(time.Second):
-		cancel()
-		t.Fatal("events endpoint did not flush SSE headers")
-	}
-	return rec, cancel, done
-}
-
-func waitForEventStreamBody(t *testing.T, rec *sseTestResponseWriter, want string) {
-	t.Helper()
-	deadline := time.After(time.Second)
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if strings.Contains(rec.BodyString(), want) {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("event stream body did not contain %q; body=%s", want, rec.BodyString())
-		case <-tick.C:
-		}
-	}
-}
-
-func waitForEventStreamDone(t *testing.T, done <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("events endpoint did not stop after client disconnect")
-	}
 }

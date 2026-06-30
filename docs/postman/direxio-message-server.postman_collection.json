@@ -7,33 +7,8 @@
   },
   "item": [
     {
-      "name": "P2P Event Stream（P2P事件流）",
-      "description": "P2P 投影事件和 agents room 网关事件的 SSE 流接口。普通消息使用 Matrix Client-Server sync/history/search API；配置的 agents room 中的普通消息可以额外发出 `agent_room.message` 网关事件。\n\nSSE endpoint for projected Direxio product events and the agents room gateway event. Ordinary messages use Matrix Client-Server sync/history/search APIs except messages in the configured agents room, which can emit agent_room.message for local gateways.",
-      "item": [
-        {
-          "name": "events.stream（P2P事件流）",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "text/event-stream"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}",
-                "type": "text"
-              }
-            ],
-            "url": "{{baseUrl}}/_p2p/events?since=0",
-            "description": "从持久 outbox 流式读取 P2P 投影事件。可通过 `Last-Event-ID` 或 `since` 查询参数在重连后回放漏掉的事件。\n\nStream projected P2P events from the durable outbox.\n\nEndpoint: `GET /_p2p/events?since=<seq>`\nAuth: Protected endpoint; use access_token or agent_token.\n\nThe stream may include `agent_room.message` for ordinary messages in the configured agents room. Agent online/offline display is not emitted here; owner clients read `io.direxio.agent.status` from the real `agent_room_id` Matrix room state. Gateway-marked replies from `mcp.messages.send` are not re-emitted.\n\nUse `Last-Event-ID` or the `since` query parameter to replay missed events after reconnecting. If a non-zero cursor is older than the retained event window, the stream first emits `event: p2p.cursor_reset` and sets `X-Direxio-P2P-Events-Cursor-Reset: true` plus retained min/max/count headers. Clients should clear local product projections, call `sync.bootstrap` once, then resume from the newest handled `seq`."
-          }
-        }
-      ]
-    },
-    {
       "name": "P2P Realtime WebSocket（实时WebSocket）",
-      "description": "Realtime WS is the primary product-event stream and client session-state path. Create a short-lived ticket with `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions may send read-marker `client.command` frames. Agent-token sessions may send ephemeral `client.agent_stream` fragments for owner WS display. SSE `GET /_p2p/events` remains the fallback.",
+      "description": "Realtime WS is the logged-in product request/response, product-event stream, and client session-state path. Create a short-lived ticket with `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions send product actions as `client.request` frames and receive `server.response`. Agent-token sessions may call fixed `mcp.*` actions and send ephemeral `client.agent_stream` fragments for owner WS display.",
       "item": [
         {
           "name": "realtime.ws_ticket.create（创建WS票据）",
@@ -73,14 +48,14 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/_p2p/ws?ticket={{wsTicket}}",
-            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Owner sessions may send `client.command` for `sync.read_marker` or `channels.read_marker`; server replies with `server.command_result` or `server.command_error`. Agent-token sessions may send `client.agent_stream`; owner sessions receive `server.agent_stream` as ephemeral stream fragments. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
+            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Owner sessions send product actions as `client.request` frames and receive `server.response`; `client.command` remains a one-release compatibility alias. Agent-token sessions may send `client.agent_stream`; owner sessions receive `server.agent_stream` as ephemeral stream fragments. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
           }
         }
       ]
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。请求统一使用 `{ \"action\": \"...\", \"params\": { ... } }` 包装；除公开 action 外，默认使用 `access_token`；MCP 类 action、`/_p2p/events` 和 `realtime.ws_ticket.create` 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 使用 WS `client.request`；HTTP `/query` 和 `/command` 只保留 portal bootstrap/auth/status/password、`realtime.ws_ticket.create`、以及节点间 public/callback action。除公开 action 外，默认使用 `access_token`；MCP 类 action 和 `realtime.ws_ticket.create` 可使用 `agent_token`。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -303,7 +278,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新通话会话状态。event 支持 connected、ended、rejected、missed、failed；写入后会通过 /_p2p/events 推送 call.changed。\n\nUpdate call session state. Events support connected, ended, rejected, missed, and failed; writes emit call.changed through /_p2p/events.\n\nAction: `calls.event`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
+                "description": "更新通话会话状态。event 支持 connected、ended、rejected、missed、failed；写入后会通过 WS `server.event` 推送 call.changed。\n\nUpdate call session state. Events support connected, ended, rejected, missed, and failed; writes emit call.changed through WS `server.event`.\n\nAction: `calls.event`\nEndpoint: `POST /_p2p/command` for retained HTTP/internal callers, or WS `client.request` for logged-in clients\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"calls.event\",\n  \"params\": {\n    \"call_id\": \"{{callID}}\",\n    \"event\": \"rejected\",\n    \"media_type\": \"voice\",\n    \"reason\": \"user_reject\",\n    \"duration_ms\": 0\n  }\n}",

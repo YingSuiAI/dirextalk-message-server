@@ -1,8 +1,8 @@
 # Feature Inventory
 
-Last updated: 2026-06-22
+Last updated: 2026-06-30
 
-`p2p.Service.Handle` is the source of truth for the product body-action surface. The current code exposes **85** P2P actions plus the SSE event stream endpoint.
+`p2p.Service.Handle` is the source of truth for the product action surface. The current code exposes **85** P2P actions plus the WS product request/event endpoint.
 
 ## Current Feature Areas
 

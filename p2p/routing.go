@@ -2,10 +2,8 @@ package p2p
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,15 +14,6 @@ const PathPrefix = "/_p2p/"
 
 const (
 	eventStreamHeartbeat = 25 * time.Second
-	eventStreamRetryMS   = 3000
-)
-
-const (
-	eventCursorResetType         = "p2p.cursor_reset"
-	eventCursorResetHeader       = "X-Direxio-P2P-Events-Cursor-Reset"
-	eventCursorResetMinSeqHeader = "X-Direxio-P2P-Events-Min-Seq"
-	eventCursorResetMaxSeqHeader = "X-Direxio-P2P-Events-Max-Seq"
-	eventCursorResetCountHeader  = "X-Direxio-P2P-Events-Count"
 )
 
 type envelope struct {
@@ -40,7 +29,6 @@ type apiError struct {
 func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/query", handle(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", handle(service)).Methods(http.MethodPost, http.MethodOptions)
-	router.HandleFunc("/events", eventsHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r)
@@ -50,163 +38,6 @@ func Register(router *mux.Router, service *Service) {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet, http.MethodOptions)
-}
-
-//nolint:gocyclo // SSE handler keeps auth, cursor parsing, backlog replay, and live streaming in one HTTP closure.
-func eventsHandler(service *Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		setCORSHeaders(w, r)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		authorized := service.authorizeEventStream(bearerToken(r.Header.Get("Authorization")))
-		if !authorized {
-			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
-			return
-		}
-		since := int64(0)
-		if raw := strings.TrimSpace(r.URL.Query().Get("since")); raw != "" {
-			value, err := strconv.ParseInt(raw, 10, 64)
-			if err != nil || value < 0 {
-				writeError(w, badRequest("since must be a non-negative integer"))
-				return
-			}
-			since = value
-		} else if raw := strings.TrimSpace(r.Header.Get("Last-Event-ID")); raw != "" {
-			value, err := strconv.ParseInt(raw, 10, 64)
-			if err != nil || value < 0 {
-				writeError(w, badRequest("Last-Event-ID must be a non-negative integer"))
-				return
-			}
-			since = value
-		}
-		limit := 100
-		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-			value, err := strconv.Atoi(raw)
-			if err != nil || value <= 0 || value > 500 {
-				writeError(w, badRequest("limit must be between 1 and 500"))
-				return
-			}
-			limit = value
-		}
-		cursorStatus, err := service.p2pEventCursorStatus(r.Context(), since)
-		if err != nil {
-			writeError(w, internalError(err))
-			return
-		}
-		events, err := service.listP2PEvents(r.Context(), since, limit)
-		if err != nil {
-			writeError(w, internalError(err))
-			return
-		}
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			writeError(w, internalError(errors.New("response writer does not support streaming")))
-			return
-		}
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache, no-transform")
-		w.Header().Set("X-Accel-Buffering", "no")
-		if cursorStatus.Expired {
-			w.Header().Set(eventCursorResetHeader, "true")
-			w.Header().Set(eventCursorResetMinSeqHeader, strconv.FormatInt(cursorStatus.Bounds.MinSeq, 10))
-			w.Header().Set(eventCursorResetMaxSeqHeader, strconv.FormatInt(cursorStatus.Bounds.MaxSeq, 10))
-			w.Header().Set(eventCursorResetCountHeader, strconv.FormatInt(cursorStatus.Bounds.Count, 10))
-		}
-		w.WriteHeader(http.StatusOK)
-		encoder := json.NewEncoder(w)
-		if _, err := w.Write([]byte("retry: " + strconv.Itoa(eventStreamRetryMS) + "\n\n")); err != nil {
-			return
-		}
-		if cursorStatus.Expired {
-			if err := writeSSECursorReset(w, encoder, cursorStatus); err != nil {
-				return
-			}
-		}
-		if len(events) == 0 {
-			if _, err := w.Write([]byte(": connected\n\n")); err != nil {
-				return
-			}
-		}
-		for _, event := range events {
-			if err := writeSSEEvent(w, encoder, event); err != nil {
-				return
-			}
-			since = event.Seq
-		}
-		flusher.Flush()
-
-		heartbeat := time.NewTicker(eventStreamHeartbeat)
-		defer heartbeat.Stop()
-		for {
-			waitForEvent := service.p2pEventWaiter()
-			events, err := service.listP2PEvents(r.Context(), since, limit)
-			if err != nil {
-				return
-			}
-			if len(events) > 0 {
-				for _, event := range events {
-					if err := writeSSEEvent(w, encoder, event); err != nil {
-						return
-					}
-					since = event.Seq
-				}
-				flusher.Flush()
-				continue
-			}
-			select {
-			case <-r.Context().Done():
-				return
-			case <-waitForEvent:
-				continue
-			case <-heartbeat.C:
-				if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
-					return
-				}
-				flusher.Flush()
-			}
-		}
-	}
-}
-
-func writeSSECursorReset(w http.ResponseWriter, encoder *json.Encoder, status p2pEventCursorStatus) error {
-	if _, err := w.Write([]byte("event: " + eventCursorResetType + "\n")); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte("data: ")); err != nil {
-		return err
-	}
-	if err := encoder.Encode(map[string]any{
-		"type":     eventCursorResetType,
-		"since":    status.Since,
-		"min_seq":  status.Bounds.MinSeq,
-		"max_seq":  status.Bounds.MaxSeq,
-		"count":    status.Bounds.Count,
-		"recovery": "bootstrap_required",
-	}); err != nil {
-		return err
-	}
-	_, err := w.Write([]byte("\n"))
-	return err
-}
-
-func writeSSEEvent(w http.ResponseWriter, encoder *json.Encoder, event p2pEvent) error {
-	if _, err := w.Write([]byte("id: " + strconv.FormatInt(event.Seq, 10) + "\n")); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte("event: " + event.Type + "\n")); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte("data: ")); err != nil {
-		return err
-	}
-	if err := encoder.Encode(event); err != nil {
-		return err
-	}
-	_, err := w.Write([]byte("\n"))
-	return err
 }
 
 func RegisterWellKnown(router *mux.Router, service *Service) {
@@ -241,6 +72,14 @@ func handle(service *Service) http.HandlerFunc {
 			writeError(w, badRequest("action is required"))
 			return
 		}
+		if !httpProductActionAllowed(req.Action) {
+			if _, ok := service.actions[strings.TrimSpace(req.Action)]; !ok {
+				writeError(w, badRequest("unknown action"))
+				return
+			}
+			writeError(w, statusError(http.StatusBadRequest, "action requires websocket"))
+			return
+		}
 		token := bearerToken(r.Header.Get("Authorization"))
 		if !publicAction(req.Action) && !service.Authorize(token, req.Action) {
 			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
@@ -262,6 +101,19 @@ func handle(service *Service) http.HandlerFunc {
 		}
 		response = responseForRequest(r, response)
 		writeJSON(w, http.StatusOK, response)
+	}
+}
+
+func httpProductActionAllowed(action string) bool {
+	action = strings.TrimSpace(action)
+	if publicAction(action) {
+		return true
+	}
+	switch action {
+	case "portal.password", realtimeWSTicketAction:
+		return true
+	default:
+		return false
 	}
 }
 

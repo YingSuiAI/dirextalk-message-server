@@ -2,9 +2,63 @@
 
 Last updated: 2026-06-30
 
-## 2026-06-30 Realtime WS Commands And Agent Stream Frames
+## 2026-06-30 WS Product API Full Migration
 
-`GET /_p2p/ws` now accepts owner-session `client.command` frames for lightweight product commands. The initial allowlist is:
+Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain only for portal bootstrap/auth/status/password, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
+
+Client request frame:
+
+```json
+{
+  "type": "client.request",
+  "id": "req-1",
+  "action": "contacts.list",
+  "params": {}
+}
+```
+
+Successful response frame:
+
+```json
+{
+  "type": "server.response",
+  "id": "req-1",
+  "action": "contacts.list",
+  "ok": true,
+  "result": {}
+}
+```
+
+Error response frame:
+
+```json
+{
+  "type": "server.response",
+  "id": "req-1",
+  "action": "contacts.list",
+  "ok": false,
+  "status": 401,
+  "error": "M_UNKNOWN_TOKEN"
+}
+```
+
+`client.command` is retained only as a one-release compatibility alias and maps to the same `server.response` path. New Flutter code sends only `client.request`.
+
+`GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
+
+Owner WS sessions may call all protected logged-in product actions except `realtime.ws_ticket.create`. Agent-token WS sessions may call only fixed `mcp.*` actions, receive only `agent_room.message`, and send `client.agent_stream` fragments. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, and local delete.
+
+HTTP `/query` and `/command` now return an explicit error for non-retained logged-in client actions:
+
+```json
+{
+  "error": "action requires websocket"
+}
+```
+
+## 2026-06-30 Transitional Realtime WS Commands And Agent Stream Frames
+
+This transitional contract was superseded later the same day by the WS Product API full migration above. During the transition, `GET /_p2p/ws` accepted owner-session `client.command` frames for lightweight product commands. The initial allowlist was:
 
 - `sync.read_marker`
 - `channels.read_marker`
@@ -24,7 +78,7 @@ Frame shape:
 }
 ```
 
-Successful commands return `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors return `server.command_error` with `id`, `status`, and `error`. Agent-token WS sessions cannot call owner commands.
+Successful commands returned `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors returned `server.command_error` with `id`, `status`, and `error`. Current servers map `client.command` to the `client.request` handler and return `server.response`; new clients must use `client.request`. Agent-token WS sessions cannot call owner commands.
 
 Agent-token WS sessions may send `client.agent_stream` frames for the configured real `agent_room_id`; owner WS sessions receive matching `server.agent_stream` frames. This is an ephemeral streaming display path for agent output fragments. It is not persisted in `p2p_events`, not emitted by `GET /_p2p/events`, and not stored as Matrix history. The final durable agent reply must still be sent as a Matrix `m.room.message` from `@agent:<server>`.
 

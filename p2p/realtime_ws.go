@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
+	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
@@ -154,8 +155,10 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 			})
 		case "client.ping":
 			s.touchRealtimeWSSession(sessionID)
+		case "client.request":
+			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
 		case "client.command":
-			wsConn.send(s.handleRealtimeWSCommand(ctx, wsConn.record, frame))
+			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
 		case "client.agent_stream":
 			if response := s.handleRealtimeWSAgentStream(wsConn.record, frame); response != nil {
 				wsConn.send(response)
@@ -226,36 +229,56 @@ func realtimeWSEventVisible(role string, event p2pEvent) bool {
 	return true
 }
 
-func (s *Service) handleRealtimeWSCommand(ctx context.Context, record realtimeWSTicket, frame map[string]any) map[string]any {
+func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWSTicket, frame map[string]any) map[string]any {
 	id := trimString(frame["id"])
 	action := trimString(frame["action"])
-	if record.Role != "owner" {
-		return realtimeWSCommandError(id, http.StatusForbidden, "M_FORBIDDEN")
+	if id == "" {
+		return realtimeWSResponseError(id, action, http.StatusBadRequest, "id is required")
 	}
-	switch action {
-	case "sync.read_marker", "channels.read_marker":
-	default:
-		return realtimeWSCommandError(id, http.StatusBadRequest, "M_UNSUPPORTED_ACTION")
+	if action == "" {
+		return realtimeWSResponseError(id, action, http.StatusBadRequest, "action is required")
 	}
 	params := map[string]any{}
 	if rawParams, ok := frame["params"].(map[string]any); ok {
 		params = rawParams
 	} else if rawParams, ok := frame["params"].(map[string]interface{}); ok {
 		params = rawParams
+	} else if frame["params"] != nil {
+		return realtimeWSResponseError(id, action, http.StatusBadRequest, "params must be an object")
 	}
-	handler := s.actions[action]
-	if handler == nil {
-		return realtimeWSCommandError(id, http.StatusBadRequest, "M_UNSUPPORTED_ACTION")
+	if action == realtimeWSTicketAction {
+		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
-	result, apiErr := handler(ctx, params)
+	if record.Role != "owner" && !(record.Role == "agent" && serviceapi.AgentAction(action)) {
+		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
+	}
+	result, apiErr := s.Handle(ctx, action, params)
 	if apiErr != nil {
-		return realtimeWSCommandError(id, apiErr.Status, apiErr.Error)
+		return realtimeWSResponseError(id, action, apiErr.Status, apiErr.Error)
 	}
 	return map[string]any{
-		"type":   "server.command_result",
+		"type":   "server.response",
 		"id":     id,
 		"action": action,
+		"ok":     true,
 		"result": result,
+	}
+}
+
+func realtimeWSResponseError(id, action string, status int, message string) map[string]any {
+	if status <= 0 {
+		status = http.StatusInternalServerError
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "M_UNKNOWN"
+	}
+	return map[string]any{
+		"type":   "server.response",
+		"id":     id,
+		"action": action,
+		"ok":     false,
+		"status": status,
+		"error":  message,
 	}
 }
 

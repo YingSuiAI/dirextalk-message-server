@@ -143,7 +143,7 @@ func TestRealtimeWSStreamsLiveEventsAndTracksClientState(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSCommandUpdatesReadMarker(t *testing.T) {
+func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
@@ -156,7 +156,35 @@ func TestRealtimeWSCommandUpdatesReadMarker(t *testing.T) {
 		t.Fatalf("expected ready, got %#v", got)
 	}
 	writeRealtimeFrame(t, conn, map[string]any{
-		"type":   "client.command",
+		"type":   "client.request",
+		"id":     "req-contacts-1",
+		"action": "contacts.list",
+		"params": map[string]any{},
+	})
+	contacts := readRealtimeResponse(t, conn, "req-contacts-1")
+	if contacts["type"] != "server.response" || contacts["ok"] != true || contacts["action"] != "contacts.list" {
+		t.Fatalf("expected contacts.list response, got %#v", contacts)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-group-1",
+		"action": "groups.create",
+		"params": map[string]any{
+			"name": "WS Group",
+		},
+	})
+	groupResponse := readRealtimeResponse(t, conn, "req-group-1")
+	if groupResponse["ok"] != true || groupResponse["action"] != "groups.create" {
+		t.Fatalf("expected groups.create response, got %#v", groupResponse)
+	}
+	groupResult, ok := groupResponse["result"].(map[string]any)
+	if !ok || groupResult["room_id"] == "" {
+		t.Fatalf("expected created group result, got %#v", groupResponse)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
 		"id":     "cmd-read-1",
 		"action": "sync.read_marker",
 		"params": map[string]any{
@@ -165,9 +193,9 @@ func TestRealtimeWSCommandUpdatesReadMarker(t *testing.T) {
 			"origin_server_ts": int64(1710000000000),
 		},
 	})
-	frame := readRealtimeFrame(t, conn)
-	if frame["type"] != "server.command_result" || frame["id"] != "cmd-read-1" {
-		t.Fatalf("expected command result for read marker, got %#v", frame)
+	frame := readRealtimeResponse(t, conn, "cmd-read-1")
+	if frame["type"] != "server.response" || frame["id"] != "cmd-read-1" || frame["ok"] != true {
+		t.Fatalf("expected response for read marker, got %#v", frame)
 	}
 	result, ok := frame["result"].(map[string]any)
 	if !ok || result["status"] != "ok" {
@@ -181,7 +209,34 @@ func TestRealtimeWSCommandUpdatesReadMarker(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSCommandRejectsAgentRole(t *testing.T) {
+func TestRealtimeWSClientCommandAliasUsesServerResponse(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.command",
+		"id":     "cmd-read-alias",
+		"action": "channels.read_marker",
+		"params": map[string]any{
+			"room_id":  "!room:example.com",
+			"event_id": "$event",
+		},
+	})
+	frame := readRealtimeResponse(t, conn, "cmd-read-alias")
+	if frame["type"] != "server.response" || frame["ok"] != true || frame["action"] != "channels.read_marker" {
+		t.Fatalf("expected command alias to use server.response, got %#v", frame)
+	}
+}
+
+func TestRealtimeWSAgentCanOnlyRequestMCPActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
@@ -194,19 +249,88 @@ func TestRealtimeWSCommandRejectsAgentRole(t *testing.T) {
 		t.Fatalf("expected ready, got %#v", got)
 	}
 	writeRealtimeFrame(t, conn, map[string]any{
-		"type":   "client.command",
-		"id":     "cmd-agent-read",
-		"action": "sync.read_marker",
-		"params": map[string]any{
-			"room_id":  "!room:example.com",
-			"event_id": "$event",
-		},
+		"type":   "client.request",
+		"id":     "req-agent-mcp",
+		"action": "mcp.rooms.search",
+		"params": map[string]any{"q": "none"},
 	})
-	frame := readRealtimeFrame(t, conn)
-	if frame["type"] != "server.command_error" ||
-		frame["id"] != "cmd-agent-read" ||
+	mcp := readRealtimeResponse(t, conn, "req-agent-mcp")
+	if mcp["type"] != "server.response" || mcp["ok"] != true || mcp["action"] != "mcp.rooms.search" {
+		t.Fatalf("expected agent MCP request to succeed, got %#v", mcp)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-agent-owner",
+		"action": "contacts.list",
+		"params": map[string]any{},
+	})
+	frame := readRealtimeResponse(t, conn, "req-agent-owner")
+	if frame["type"] != "server.response" ||
+		frame["id"] != "req-agent-owner" ||
+		frame["ok"] != false ||
 		int(frame["status"].(float64)) != http.StatusForbidden {
-		t.Fatalf("expected agent command to be forbidden, got %#v", frame)
+		t.Fatalf("expected agent owner action to be forbidden, got %#v", frame)
+	}
+}
+
+func TestRealtimeWSClientRequestValidationErrors(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-unknown",
+		"action": "does.not.exist",
+		"params": map[string]any{},
+	})
+	unknown := readRealtimeResponse(t, conn, "req-unknown")
+	if unknown["ok"] != false || int(unknown["status"].(float64)) != http.StatusBadRequest || unknown["error"] != "unknown action" {
+		t.Fatalf("expected unknown action response, got %#v", unknown)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-bad-params",
+		"action": "contacts.list",
+		"params": []any{},
+	})
+	badParams := readRealtimeResponse(t, conn, "req-bad-params")
+	if badParams["ok"] != false || int(badParams["status"].(float64)) != http.StatusBadRequest {
+		t.Fatalf("expected malformed params response, got %#v", badParams)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"action": "contacts.list",
+		"params": map[string]any{},
+	})
+	missingID := readRealtimeFrame(t, conn)
+	if missingID["type"] != "server.response" ||
+		missingID["ok"] != false ||
+		int(missingID["status"].(float64)) != http.StatusBadRequest ||
+		missingID["error"] != "id is required" {
+		t.Fatalf("expected missing id response, got %#v", missingID)
+	}
+
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.request",
+		"id":     "req-handler-error",
+		"action": "sync.read_marker",
+		"params": map[string]any{"room_id": "!room:example.com"},
+	})
+	handlerErr := readRealtimeResponse(t, conn, "req-handler-error")
+	if handlerErr["ok"] != false || int(handlerErr["status"].(float64)) != http.StatusBadRequest {
+		t.Fatalf("expected handler error response, got %#v", handlerErr)
 	}
 }
 
@@ -375,6 +499,16 @@ func readRealtimeFrame(t *testing.T, conn *websocket.Conn) map[string]any {
 		t.Fatalf("read frame: %v", err)
 	}
 	return frame
+}
+
+func readRealtimeResponse(t *testing.T, conn *websocket.Conn, id string) map[string]any {
+	t.Helper()
+	for {
+		frame := readRealtimeFrame(t, conn)
+		if frame["type"] == "server.response" && frame["id"] == id {
+			return frame
+		}
+	}
 }
 
 func waitForRealtimePushSuppressed(t *testing.T, service *Service, roomID string) {

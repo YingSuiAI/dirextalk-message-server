@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
@@ -197,39 +196,6 @@ func trustedStateEvent(t *testing.T, roomID, sender, eventType, stateKey string,
 		t.Fatal(err)
 	}
 	return &types.HeaderedEvent{PDU: pdu}
-}
-
-func TestEventsEndpointDoesNotReplayOrdinaryMessagesAsSSE(t *testing.T) {
-	user := test.NewUser(t)
-	room := test.NewRoom(t, user)
-	service := NewService(Config{ServerName: "test"})
-	router := newP2PTestRouter(service)
-
-	if err := service.saveGroup(context.Background(), groupRecord{RoomID: room.ID, Name: "Known Product Room"}); err != nil {
-		t.Fatal(err)
-	}
-	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
-		"msgtype": "m.text",
-		"body":    "event stream hello",
-	})
-	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
-		t.Fatal(err)
-	}
-
-	rec, cancel, done := startEventStreamTest(t, router, service, "/_p2p/events?since=0")
-	cancel()
-	waitForEventStreamDone(t, done)
-
-	if rec.Code() != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code(), rec.BodyString())
-	}
-	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
-		t.Fatalf("expected SSE content type, got %q", got)
-	}
-	body := rec.BodyString()
-	if strings.Contains(body, "room.message.projected") || strings.Contains(body, event.EventID()) {
-		t.Fatalf("ordinary Matrix message must not be projected into P2P SSE body, got %s", body)
-	}
 }
 
 func TestRoomSendUsesProductPolicyForDisabledChannelComments(t *testing.T) {
