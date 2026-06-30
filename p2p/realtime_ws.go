@@ -15,7 +15,7 @@ import (
 
 const (
 	realtimeWSTicketAction = "realtime.ws_ticket.create"
-	realtimeWSTicketTTL    = 30 * time.Second
+	realtimeWSTicketTTL    = 120 * time.Second
 	realtimeWSBatchLimit   = 100
 )
 
@@ -57,8 +57,7 @@ func realtimeWSHandler(service *Service) http.HandlerFunc {
 			return
 		}
 		ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
-		record, err := service.consumeRealtimeWSTicketRecord(ticket)
-		if err != nil {
+		if _, err := service.lookupRealtimeWSTicketRecord(ticket); err != nil {
 			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
 			return
 		}
@@ -66,6 +65,11 @@ func realtimeWSHandler(service *Service) http.HandlerFunc {
 			InsecureSkipVerify: true,
 		})
 		if err != nil {
+			return
+		}
+		record, err := service.consumeRealtimeWSTicketRecord(ticket)
+		if err != nil {
+			_ = conn.Close(websocket.StatusPolicyViolation, "M_UNKNOWN_TOKEN")
 			return
 		}
 		defer conn.Close(websocket.StatusInternalError, "connection closed")
@@ -369,6 +373,23 @@ func (s *Service) consumeRealtimeWSTicketRecord(ticket string) (realtimeWSTicket
 		return realtimeWSTicket{}, errors.New("ticket invalid")
 	}
 	delete(s.realtimeWSTickets, ticket)
+	if time.Now().UTC().After(record.ExpiresAt) {
+		return realtimeWSTicket{}, errors.New("ticket expired")
+	}
+	return record, nil
+}
+
+func (s *Service) lookupRealtimeWSTicketRecord(ticket string) (realtimeWSTicket, error) {
+	ticket = strings.TrimSpace(ticket)
+	if ticket == "" {
+		return realtimeWSTicket{}, errors.New("ticket is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.realtimeWSTickets[ticket]
+	if !ok {
+		return realtimeWSTicket{}, errors.New("ticket invalid")
+	}
 	if time.Now().UTC().After(record.ExpiresAt) {
 		return realtimeWSTicket{}, errors.New("ticket expired")
 	}

@@ -2,6 +2,16 @@
 
 Last updated: 2026-06-30
 
+## 2026-06-30 Owner HTTP Fallback For Product Actions
+
+Logged-in client product actions now use ready-WS first instead of WS-only. Clients should use owner `GET /_p2p/ws` `client.request` only after the realtime transport has received `server.ready`. When WS is not ready or disconnected at click time, clients should send the same body-action envelope to `POST /_p2p/query` or `POST /_p2p/command` with `Authorization: Bearer <access_token>` immediately and let realtime WS reconnect in the background. Transport failure before a response may also use owner HTTP fallback for safe repeated actions.
+
+Business errors returned by WS, such as permission or validation failures, should not be retried over HTTP. Clients should also de-duplicate identical in-flight user actions such as `contacts.requests.accept` or `groups.join` so duplicate taps do not send duplicate mutations or show duplicate success UI. If a WS request was already sent and the response is lost, clients should only HTTP-fallback actions that are safe to repeat, such as contact decisions, joins, read markers, and product queries.
+
+`agent_token` permissions do not change: it remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. `agent.matrix_session.create` and fixed MCP actions remain HTTP-only and still return `action requires http` if sent over WS.
+
+Realtime WS owner tickets now advertise `expires_in_ms: 120000` to tolerate mobile weak-network upgrade delays. A failed HTTP request to `GET /_p2p/ws?ticket=...` that never completes the WebSocket upgrade no longer consumes the ticket; accepted WebSocket upgrades remain single-use.
+
 ## 2026-06-30 Retained Room Reactivation For Rebuilt Members
 
 Added internal public action `rooms.reactivate` for node-to-node recovery when a group or private-channel member node has been rebuilt and lost local product/Matrix projections while the owner node still retains the member in the Matrix room. It is not a normal client workflow entry.
@@ -80,6 +90,8 @@ Push suppression requires a fresh foreground WS session that is not hidden and h
 ## 2026-06-30 WS Product API Full Migration
 
 Logged-in Direxio client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, `agent.matrix_session.create`, fixed MCP actions, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
+
+This WS-only HTTP rejection rule was superseded later on 2026-06-30 by the owner HTTP fallback contract above. Current clients are WS-first, not WS-only.
 
 Client request frame:
 
@@ -173,11 +185,11 @@ The action accepts owner `access_token` only. It returns:
 ```json
 {
   "ticket": "ws_ticket_...",
-  "expires_in_ms": 30000
+  "expires_in_ms": 120000
 }
 ```
 
-The ticket is server-local, short-lived, and single-use. It is consumed by `GET /_p2p/ws?ticket=<ticket>`. The WS route does not accept bearer tokens directly.
+The ticket is server-local, short-lived, and single-use. It is consumed only after `GET /_p2p/ws?ticket=<ticket>` completes WebSocket upgrade. The WS route does not accept bearer tokens directly.
 
 The first client text frame must be `client.hello` with optional `since`, `client`, and `platform` fields. Subsequent client frames are:
 

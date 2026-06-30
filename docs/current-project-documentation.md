@@ -42,7 +42,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 主链路是 `GET /_p2p/ws` 上的 `client.request`/`server.response`，并且 `realtime.ws_ticket.create` 只接受 owner `access_token` 创建 owner WS ticket；HTTP `/query` 和 `/command` 保留给 portal bootstrap/auth/status/password、owner WS ticket、`agent.matrix_session.create`、固定 MCP action、以及节点间 public/callback action。`agent_token` 只允许访问 `agent.matrix_session.create` 和固定 `mcp.*` HTTP action。MCP action 与 `agent.matrix_session.create` 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 owner WS ticket，不直接接受 bearer token。当前 public action 是：
+Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 在 WS 已收到 `server.ready` 时优先走 `GET /_p2p/ws` 上的 `client.request`/`server.response`；点击时 WS 未 ready 或已断线时，当前 action 立即用 `POST /_p2p/query` 或 `POST /_p2p/command` 作为 owner HTTP fallback，同时 realtime WS 在后台继续重连。已发出 WS request 后响应丢失时，只对可安全重复的 action 做 HTTP fallback。`realtime.ws_ticket.create` 只接受 owner `access_token` 创建 owner WS ticket。`agent_token` 只允许访问 `agent.matrix_session.create` 和固定 `mcp.*` HTTP action，不能通过 HTTP fallback 调用 owner product action。MCP action 与 `agent.matrix_session.create` 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 owner WS ticket，不直接接受 bearer token。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -104,7 +104,7 @@ Protected action 通过保留 HTTP route 调用时需要 `Authorization: Bearer 
 
 P2P action 生命周期：
 
-1. 登录后客户端通过 `GET /_p2p/ws` 发送 `client.request`；保留 HTTP route 只接收登录/票据/public/callback 类 `/query` 或 `/command` envelope。
+1. 登录后客户端在 WS 已收到 `server.ready` 时通过 `GET /_p2p/ws` 发送 `client.request`；点击时 WS 未 ready 或断线时，同一 `{ "action": "...", "params": ... }` envelope 立即通过 HTTP `/query` 或 `/command` 作为 owner fallback，realtime WS 后台重连恢复事件流。portal/auth/password、WS ticket、MCP、`agent.matrix_session.create`、public/callback action 仍按各自 HTTP/WS 边界执行。
 2. route 或 WS request 处理器调用 `Service.Authorize`：
    - public action 直接放行；
    - protected action 校验 owner access token；`agent_token` 仅允许 `agent.matrix_session.create` 和固定 MCP action。
@@ -119,8 +119,8 @@ P2P action 生命周期：
 同步策略：
 
 - `sync.bootstrap` 是冷启动、登录后恢复、本地缓存不可用或事件缺口兜底用的基线快照；不要在每个事件后全量刷新。
-- 日常弱网/断线恢复使用 `GET /_p2p/ws` 增量追平。客户端先通过 `realtime.ws_ticket.create` 创建 ticket，连接后发送 `client.hello` 的 `since=<last_seq>`，并持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才通过 WS `client.request` 拉一次 `sync.bootstrap`。
-- 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，WS 会先发送 `server.cursor_reset`。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存、通过 WS `client.request` 调用一次 `sync.bootstrap`，再用最新 `seq` 继续订阅增量。
+- 日常弱网/断线恢复使用 `GET /_p2p/ws` 增量追平。客户端先通过 `realtime.ws_ticket.create` 创建 ticket，连接后发送 `client.hello` 的 `since=<last_seq>`，并持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才拉一次 `sync.bootstrap`。WS ready 时可通过 `client.request` 拉取；WS 不可用时可通过 owner HTTP fallback 立即拉取。
+- 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，WS 会先发送 `server.cursor_reset`。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存，优先通过 WS `client.request` 调用一次 `sync.bootstrap`，WS 不 ready 时可用 owner HTTP fallback 拉取，再用最新 `seq` 继续订阅增量。
 
 Matrix Client-Server 写入生命周期：
 

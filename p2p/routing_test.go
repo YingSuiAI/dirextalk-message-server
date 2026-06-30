@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func TestHTTPProductActionRequiresWebSocketAfterLogin(t *testing.T) {
+func TestHTTPProductActionAllowsOwnerFallbackAfterLogin(t *testing.T) {
 	service := NewService(Config{
 		ServerName: "example.com",
 	})
@@ -30,8 +30,8 @@ func TestHTTPProductActionRequiresWebSocketAfterLogin(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Code != http.StatusBadRequest || got["error"] != "action requires websocket" {
-		t.Fatalf("expected websocket-only error, got %d body=%#v", rec.Code, got)
+	if rec.Code != http.StatusOK || got["user_id"] != "@owner:example.com" {
+		t.Fatalf("expected owner HTTP fallback to succeed, got %d body=%#v", rec.Code, got)
 	}
 }
 
@@ -379,8 +379,8 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 	agentRequest.Header.Set("Authorization", "Bearer "+agentToken)
 	agentRec := httptest.NewRecorder()
 	router.ServeHTTP(agentRec, agentRequest)
-	if agentRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected owner action over HTTP to require websocket, got %d body=%s", agentRec.Code, agentRec.Body.String())
+	if agentRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected agent token to be unauthorized for owner HTTP fallback, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
 
 	removed := mustRouteError(t, router, service, "/_p2p/command", map[string]any{"action": "apis.list"})

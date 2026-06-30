@@ -17,7 +17,14 @@ func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwner(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	ownerTicket := mustCreateRealtimeWSTicket(t, router, service.AccessToken())
+	ticketResponse := mustCreateRealtimeWSTicketResponse(t, router, service.AccessToken())
+	if int64(ticketResponse["expires_in_ms"].(float64)) != int64(realtimeWSTicketTTL/time.Millisecond) {
+		t.Fatalf("expected ticket TTL to be exposed as %dms, got %#v", int64(realtimeWSTicketTTL/time.Millisecond), ticketResponse)
+	}
+	if int64(ticketResponse["expires_in_ms"].(float64)) != 120000 {
+		t.Fatalf("expected weak-network ticket TTL to be 120000ms, got %#v", ticketResponse)
+	}
+	ownerTicket, _ := ticketResponse["ticket"].(string)
 	if ownerTicket == "" {
 		t.Fatal("expected owner ticket")
 	}
@@ -27,6 +34,20 @@ func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwner(t *testing.T) {
 	}
 	if err := service.consumeRealtimeWSTicket(ownerTicket); err == nil {
 		t.Fatal("expected owner ticket to be single-use")
+	}
+}
+
+func TestRealtimeWSUpgradeFailureDoesNotConsumeTicket(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	ticket := mustCreateRealtimeWSTicket(t, router, service.AccessToken())
+
+	req := httptest.NewRequest(http.MethodGet, "/_p2p/ws?ticket="+ticket, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if err := service.consumeRealtimeWSTicket(ticket); err != nil {
+		t.Fatalf("expected failed websocket upgrade to leave ticket usable: %v", err)
 	}
 }
 
@@ -419,6 +440,13 @@ func TestRealtimeWSSendsCursorResetForExpiredSince(t *testing.T) {
 
 func mustCreateRealtimeWSTicket(t *testing.T, router http.Handler, token string) string {
 	t.Helper()
+	got := mustCreateRealtimeWSTicketResponse(t, router, token)
+	ticket, _ := got["ticket"].(string)
+	return ticket
+}
+
+func mustCreateRealtimeWSTicketResponse(t *testing.T, router http.Handler, token string) map[string]any {
+	t.Helper()
 	req := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": realtimeWSTicketAction,
 		"params": map[string]any{},
@@ -433,8 +461,7 @@ func mustCreateRealtimeWSTicket(t *testing.T, router http.Handler, token string)
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := got["ticket"].(string)
-	return ticket
+	return got
 }
 
 func dialRealtimeWS(t *testing.T, serverURL, ticket string) *websocket.Conn {

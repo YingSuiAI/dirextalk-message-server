@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
 	"github.com/gorilla/mux"
 )
 
@@ -69,15 +68,17 @@ func handle(service *Service) http.HandlerFunc {
 		if req.Params == nil {
 			req.Params = map[string]any{}
 		}
-		if strings.TrimSpace(req.Action) == "" {
+		action := strings.TrimSpace(req.Action)
+		if action == "" {
 			writeError(w, badRequest("action is required"))
 			return
 		}
-		if !httpProductActionAllowed(req.Action) {
-			if _, ok := service.actions[strings.TrimSpace(req.Action)]; !ok {
-				writeError(w, badRequest("unknown action"))
-				return
-			}
+		if _, ok := service.actions[action]; !ok && action != realtimeWSTicketAction {
+			writeError(w, badRequest("unknown action"))
+			return
+		}
+		req.Action = action
+		if !httpProductActionAllowed(action) {
 			writeError(w, statusError(http.StatusBadRequest, "action requires websocket"))
 			return
 		}
@@ -107,18 +108,7 @@ func handle(service *Service) http.HandlerFunc {
 
 func httpProductActionAllowed(action string) bool {
 	action = strings.TrimSpace(action)
-	if publicAction(action) {
-		return true
-	}
-	if serviceapi.AgentAction(action) {
-		return true
-	}
-	switch action {
-	case "portal.password", realtimeWSTicketAction:
-		return true
-	default:
-		return false
-	}
+	return action != ""
 }
 
 func responseForRequest(r *http.Request, response any) any {

@@ -15,7 +15,7 @@
 
 - Retain protected body action `realtime.ws_ticket.create` on HTTP.
 - Retain WebSocket route `GET /_p2p/ws?ticket=<ticket>`.
-- A WS ticket is short-lived, server-local, single-use, and issued only from an owner `access_token`.
+- A WS ticket is short-lived, server-local, single-use after accepted WebSocket upgrade, and issued only from an owner `access_token`.
 - Remove `GET /_p2p/events`; there is no SSE fallback.
 - HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, `agent.matrix_session.create`, fixed MCP actions, and node-to-node public/callback actions.
 - Logged-in owner clients call product actions through WS:
@@ -58,8 +58,8 @@
 
 - Matrix `/sync` remains the source for ordinary room timeline, Matrix state, membership, account data, and agent room state.
 - Matrix Client-Server APIs remain responsible for ordinary text/media send, history, search, redaction, and local delete.
-- WS `client.request` is the primary product request/response API after login, excluding MCP.
-- `/_p2p/query` and `/_p2p/command` reject non-retained client product actions with an explicit "action requires websocket" error.
+- WS `client.request` is the primary product request/response API after login, excluding MCP, when WS has already sent `server.ready`.
+- Owner clients use HTTP `/_p2p/query` and `/_p2p/command` immediately for the same non-MCP product action envelope when WS is not ready or disconnected at click time, while realtime WS reconnects in the background. If WS fails before a response, HTTP fallback is allowed only for safe repeated actions. WS business errors are not retried over HTTP.
 - Flutter keeps the existing chat timeline and `AgentMessageBody`/`gpt_markdown` rendering stack for agent output. Whole-chat packages such as `flutter_chat_ui` are not introduced in this phase because they would replace current Matrix timeline, local outbox, scroll, read-marker, call-record, and selection behavior.
 - WS session state is server-internal only. It must not expose user-visible presence or focused room information to other users.
 - WS session state is memory-only because it is a connection/session fact. Persistent product facts continue to use existing Matrix state and product stores.
@@ -69,15 +69,15 @@
 
 ## Acceptance Criteria
 
-- Server route `GET /_p2p/ws` supports ticket authentication, replay from `since`, live P2P event streaming, cursor reset, client lifecycle/focus/ack, heartbeat, `client.request`, and clean disconnect handling.
+- Server route `GET /_p2p/ws` supports ticket authentication, does not consume tickets on failed HTTP upgrade, replays from `since`, streams live P2P events, emits cursor reset, accepts client lifecycle/focus/ack, heartbeat, `client.request`, and handles clean disconnects.
 - Owner WS sessions can call representative query and command actions through `client.request`, including `contacts.list`, `groups.create`, and `sync.read_marker`/`channels.read_marker`.
 - Agent-token callers cannot create WS tickets. `agent.matrix_session.create` and MCP calls remain HTTP actions authorized by `agent_token` or owner `access_token`; local agent bridge message transport uses Matrix sync/send/edit.
 - Unknown action, malformed request frame, missing `id`, and handler errors return `server.response` with `ok=false`.
 - `GET /_p2p/events` is not registered.
-- HTTP `/query` and `/command` reject non-retained logged-in product actions while retained login/ticket and node public/callback actions still work.
+- HTTP `/query` and `/command` accept owner-token fallback for logged-in product actions while retained login/ticket, MCP, agent session, and node public/callback actions still work. `agent_token` remains limited to `agent.matrix_session.create` and fixed MCP actions.
 - Flutter uses `WsAsClient` for logged-in product methods and does not construct SSE fallback transports.
 - Flutter login flow remains HTTP token -> HTTP WS ticket -> WS hello -> WS `sync.bootstrap` on cold start or cursor reset -> `server.event` reducer plus `client.ack`.
-- Flutter resolves/rejects requests from `server.response` and does not auto-retry non-idempotent mutations after a dropped pending response.
+- Flutter waits for `server.ready` before sending `client.request`, uses HTTP immediately when WS is not ready, resolves/rejects requests from `server.response`, and does not auto-retry non-idempotent mutations after a dropped pending response.
 - Flutter renders Agent output from the Matrix timeline and Matrix edit aggregation; it does not consume `server.agent_stream`.
 - Disconnect, weak network, stale ticket, backend restart, browser refresh, and cursor retention gaps recover without losing product events.
 - Single-node, Matrix agent room bridge, weak-network, and multi-node public lookup/join_result acceptance paths are covered by automated tests or documented manual validation.
@@ -107,7 +107,7 @@
 - [x] Phase 17: Run Phase 2 server and Flutter verification.
 - [x] Phase 18: Review diffs and commit server and Flutter Phase 2 repositories.
 - [x] Phase 19: Implement server WS `client.request`/`server.response` action dispatch.
-- [x] Phase 20: Remove server SSE route/authorization/tests and make HTTP product routes reject non-retained client actions.
+- [x] Phase 20: Remove server SSE route/authorization/tests. The earlier HTTP rejection rule for non-retained client actions was later replaced by owner HTTP fallback.
 - [x] Phase 21: Implement Flutter WS-backed `AsClient` and remove SSE fallback transports.
 - [x] Phase 22: Update Flutter event-stream provider and auth/bootstrap paths to use WS product requests.
 - [x] Phase 23: Sync docs, API change record, Postman, project rules, and this acceptance checklist for WS Product API full migration.
@@ -172,7 +172,7 @@ Record command evidence here as phases complete.
 - `git diff --check` passed in the server repository.
 - `docker compose -f docker-compose.p2p.yml config` and `docker compose -f docker-compose.p2p-dual.yml config` passed with `P2P_DUAL_PUBLIC_HOST=host.docker.internal`.
 - `docker compose -f docker-compose.p2p.yml up -d --build` rebuilt and started the single-node stack from the current server code.
-- Docker owner WS smoke passed: health `ok`, real owner ticket connected to `GET /_p2p/ws`, `client.hello` returned `server.ready`, `client.request contacts.list` returned `server.response ok=true`, `GET /_p2p/events` returned `404`, and HTTP `contacts.list` returned `action requires websocket`.
+- Docker owner WS smoke passed: health `ok`, real owner ticket connected to `GET /_p2p/ws`, `client.hello` returned `server.ready`, `client.request contacts.list` returned `server.response ok=true`, `GET /_p2p/events` returned `404`, and owner HTTP `contacts.list` fallback returned `200`.
 - Docker agent WS smoke passed in the full-migration commit, then MCP was corrected back to HTTP-only: real agent tickets connect to `GET /_p2p/ws`; `mcp.rooms.search` over WS returns `server.response status=400 error=action requires http`, while HTTP `mcp.rooms.search` remains available to `agent_token`; `contacts.list` over agent WS returns `server.response status=403`.
 - `dart format --set-exit-if-changed ...` passed for touched Flutter files.
 - `flutter test --no-pub test\as_realtime_transport_test.dart test\http_as_client_test.dart test\as_event_stream_refresh_controller_test.dart test\as_bootstrap_store_test.dart test\as_event_cursor_store_test.dart` passed.
