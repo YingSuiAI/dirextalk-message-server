@@ -291,6 +291,37 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 	}
 }
 
+func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
+	registered := NewService(Config{ServerName: "example.com"}).actionHandlers()
+	service := &Service{actions: map[string]actionHandler{}}
+	for action := range registered {
+		action := action
+		service.actions[action] = func(context.Context, map[string]any) (any, *apiError) {
+			return map[string]any{"action": action}, nil
+		}
+	}
+	record := realtimeWSTicket{Role: "owner", UserID: "@owner:example.com"}
+	for action := range registered {
+		frame := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
+			"type":   "client.request",
+			"id":     "req-" + strings.ReplaceAll(action, ".", "-"),
+			"action": action,
+			"params": map[string]any{},
+		})
+		if realtimeWSHTTPOnlyAction(action) {
+			if frame["ok"] != false ||
+				int(frame["status"].(int)) != http.StatusBadRequest ||
+				frame["error"] != "action requires http" {
+				t.Fatalf("expected %s to stay HTTP-only, got %#v", action, frame)
+			}
+			continue
+		}
+		if frame["ok"] != true || frame["action"] != action {
+			t.Fatalf("expected %s to be callable over WS, got %#v", action, frame)
+		}
+	}
+}
+
 func TestRealtimeWSClientRequestValidationErrors(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)

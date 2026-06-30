@@ -248,7 +248,7 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	if action == realtimeWSTicketAction {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
-	if serviceapi.AgentAction(action) {
+	if realtimeWSHTTPOnlyAction(action) {
 		return realtimeWSResponseError(id, action, http.StatusBadRequest, "action requires http")
 	}
 	if record.Role != "owner" {
@@ -264,6 +264,19 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 		"action": action,
 		"ok":     true,
 		"result": result,
+	}
+}
+
+func realtimeWSHTTPOnlyAction(action string) bool {
+	action = strings.TrimSpace(action)
+	if serviceapi.AgentAction(action) {
+		return true
+	}
+	switch action {
+	case "portal.bootstrap", "portal.auth", "portal.status", "portal.password":
+		return true
+	default:
+		return false
 	}
 }
 
