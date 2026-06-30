@@ -402,6 +402,8 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 	}
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
+	ownerDisplayName := s.profile.DisplayName
+	ownerAvatarURL := s.profile.AvatarURL
 	s.mu.Unlock()
 	if requesterMXID == ownerMXID {
 		return nil, badRequest("requester_mxid must be a remote peer")
@@ -414,17 +416,11 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 		return nil, statusError(http.StatusNotFound, "retained contact not found")
 	}
 	if !contactAccepted(contact.Status) {
-		if displayName := trimString(params["display_name"]); contact.DisplayName == "" && displayName != "" {
-			contact.DisplayName = displayName
+		if contact.DisplayName == "" {
+			contact.DisplayName = displayNameFromMXID(requesterMXID)
 		}
-		if avatarURL := trimString(params["avatar_url"]); contact.AvatarURL == "" && avatarURL != "" {
-			contact.AvatarURL = avatarURL
-		}
-		if domain := trimString(params["domain"]); contact.Domain == "" && domain != "" {
-			contact.Domain = domain
-		}
-		if remark := contactRequestRemark(params); remark != "" {
-			contact.Remark = remark
+		if contact.Domain == "" {
+			contact.Domain = domainFromMXID(requesterMXID)
 		}
 		contact.Status = "pending_inbound"
 		if err := s.saveContact(ctx, contact); err != nil {
@@ -437,13 +433,14 @@ func (s *Service) contactReactivate(ctx context.Context, params map[string]any) 
 		return result, nil
 	}
 	if s.transport != nil {
+		directName := fallbackString(ownerDisplayName, ownerMXID)
 		if err := s.transport.InviteUser(ctx, InviteUserRequest{
 			RoomID:      roomID,
 			InviterMXID: ownerMXID,
 			InviteeMXID: requesterMXID,
 			IsDirect:    true,
 			InviteRoomState: []RoomStateEvent{
-				roomProfileForDirect(contact.DisplayName, requesterMXID, ownerMXID, contact.DisplayName, contact.AvatarURL, contact.Remark, false),
+				roomProfileForDirect(directName, ownerMXID, requesterMXID, ownerDisplayName, ownerAvatarURL, "", false),
 			},
 		}); err != nil {
 			return nil, transportWriteError(err)

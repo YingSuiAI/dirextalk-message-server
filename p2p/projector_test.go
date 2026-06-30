@@ -611,6 +611,42 @@ func TestProjectNativeDirectProfileInviteCreatesPendingInboundContact(t *testing
 	}
 }
 
+func TestProjectNativeDirectProfileInviteUsesActualSenderIdentity(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	spoofed := "@b:spoofed.example"
+	room := test.NewRoom(t, remote)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = owner.ID
+
+	invite := room.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomProfileState(t, invite, spoofed, map[string]any{
+		"room_type":      DirexioRoomTypeDirect,
+		"requester_mxid": spoofed,
+		"target_mxid":    owner.ID,
+		"display_name":   "Spoofed B",
+		"avatar_url":     "mxc://test/spoofed",
+		"domain":         "spoofed.example",
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), invite); err != nil {
+		t.Fatal(err)
+	}
+
+	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
+	if len(contacts) != 1 {
+		t.Fatalf("expected one pending contact, got %#v", contacts)
+	}
+	if contacts[0].PeerMXID != remote.ID || contacts[0].Domain != domainFromMXID(remote.ID) {
+		t.Fatalf("expected contact identity to come from actual Matrix sender %s, got %#v", remote.ID, contacts[0])
+	}
+	if contacts[0].PeerMXID == spoofed || contacts[0].Domain == "spoofed.example" {
+		t.Fatalf("direct invite must not trust spoofed profile identity, got %#v", contacts[0])
+	}
+}
+
 func TestProjectDirectInviteUsesSenderProfileFromInviteState(t *testing.T) {
 	owner := test.NewUser(t)
 	remote := test.NewUser(t)
@@ -647,6 +683,54 @@ func TestProjectDirectInviteUsesSenderProfileFromInviteState(t *testing.T) {
 	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
 	if len(contacts) != 1 || contacts[0].PeerMXID != remote.ID || contacts[0].DisplayName != "Remote Profile Nick" || contacts[0].AvatarURL != "mxc://test/remote" || contacts[0].Domain != domainFromMXID(remote.ID) {
 		t.Fatalf("expected direct invite to use sender profile from invite state, got %#v", contacts)
+	}
+}
+
+func TestProjectDirectInviteReinvitesAcceptedPeerToRetainedRoom(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	spoofed := test.NewUser(t)
+	newRoom := test.NewRoom(t, remote)
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "test"}, transport)
+	service.ownerMXID = owner.ID
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    remote.ID,
+		DisplayName: "Remote",
+		Domain:      domainFromMXID(remote.ID),
+		RoomID:      "!old-direct:test",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	invite := newRoom.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+		"is_direct":  true,
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomState(t, invite, spoofed.ID, map[string]any{
+		"requester_mxid": spoofed.ID,
+		"target_mxid":    owner.ID,
+		"display_name":   "Spoofed Request",
+		"domain":         domainFromMXID(spoofed.ID),
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), invite); err != nil {
+		t.Fatal(err)
+	}
+
+	contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
+	if len(contacts) != 1 || contacts[0].PeerMXID != remote.ID || contacts[0].RoomID != "!old-direct:test" || contacts[0].Status != "accepted" {
+		t.Fatalf("expected accepted retained contact to stay on old room, got %#v", contacts)
+	}
+	if len(transport.inviteRequests) != 1 {
+		t.Fatalf("expected one reactivation invite to retained direct room, got %#v", transport.inviteRequests)
+	}
+	if inviteReq := transport.inviteRequests[0]; inviteReq.RoomID != "!old-direct:test" || inviteReq.InviterMXID != owner.ID || inviteReq.InviteeMXID != remote.ID {
+		t.Fatalf("expected retained-room invite to actual sender, got %#v", inviteReq)
+	}
+	if len(service.events) != 0 {
+		t.Fatalf("accepted peer reactivation must not create a new pending request event, got %#v", service.events)
 	}
 }
 

@@ -312,7 +312,7 @@ func (s *Service) contactRequestFromInvite(event *types.HeaderedEvent) (contactR
 	}
 	for _, state := range unsigned.InviteRoomState {
 		if state.Type == DirexioRoomProfileEventType && trimString(state.Content["room_type"]) == DirexioRoomTypeDirect {
-			if contact, ok := s.contactRequestFromContent(event.RoomID().String(), state.Sender, state.Content); ok {
+			if contact, ok := s.contactRequestFromContent(event.RoomID().String(), string(event.SenderID()), state.Content); ok {
 				return contact, true
 			}
 		}
@@ -366,10 +366,7 @@ func (s *Service) directContactFromInvite(event *types.HeaderedEvent) (contactRe
 }
 
 func (s *Service) contactRequestFromContent(roomID, sender string, content map[string]any) (contactRecord, bool) {
-	requester := trimString(content["requester_mxid"])
-	if requester == "" {
-		requester = strings.TrimSpace(sender)
-	}
+	requester := strings.TrimSpace(sender)
 	if requester == "" || requester == s.ownerMXID {
 		return contactRecord{}, false
 	}
@@ -377,14 +374,26 @@ func (s *Service) contactRequestFromContent(roomID, sender string, content map[s
 	if target != "" && target != s.ownerMXID {
 		return contactRecord{}, false
 	}
+	trustedProfile := true
+	if claimedRequester := trimString(content["requester_mxid"]); claimedRequester != "" && claimedRequester != requester {
+		trustedProfile = false
+	}
+	displayName := displayNameFromMXID(requester)
+	avatarURL := ""
+	remark := ""
+	if trustedProfile {
+		displayName = fallbackString(trimString(content["display_name"]), displayName)
+		avatarURL = trimString(content["avatar_url"])
+		remark = contactRequestRemark(content)
+	}
 	return contactRecord{
 		PeerMXID:    requester,
-		DisplayName: fallbackString(trimString(content["display_name"]), displayNameFromMXID(requester)),
-		AvatarURL:   trimString(content["avatar_url"]),
-		Domain:      fallbackString(trimString(content["domain"]), domainFromMXID(requester)),
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Domain:      domainFromMXID(requester),
 		RoomID:      roomID,
 		Status:      "pending_inbound",
-		Remark:      contactRequestRemark(content),
+		Remark:      remark,
 	}, true
 }
 
@@ -399,7 +408,7 @@ func (s *Service) savePendingInboundContact(ctx context.Context, contact contact
 			continue
 		}
 		if contactAccepted(existing.Status) {
-			return nil
+			return s.reinviteAcceptedContactToRetainedRoom(ctx, existing)
 		}
 		if !contactDeleted(existing.Status) && !strings.EqualFold(strings.TrimSpace(existing.Status), "rejected") && !strings.EqualFold(strings.TrimSpace(existing.Status), "reject") {
 			return nil
@@ -419,6 +428,27 @@ func (s *Service) savePendingInboundContact(ctx context.Context, contact contact
 			"domain":       contact.Domain,
 			"status":       contact.Status,
 			"remark":       contact.Remark,
+		},
+	})
+}
+
+func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, contact contactRecord) error {
+	if s.transport == nil || strings.TrimSpace(contact.RoomID) == "" || strings.TrimSpace(contact.PeerMXID) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	ownerDisplayName := s.profile.DisplayName
+	ownerAvatarURL := s.profile.AvatarURL
+	s.mu.Unlock()
+	directName := fallbackString(ownerDisplayName, ownerMXID)
+	return s.transport.InviteUser(ctx, InviteUserRequest{
+		RoomID:      contact.RoomID,
+		InviterMXID: ownerMXID,
+		InviteeMXID: contact.PeerMXID,
+		IsDirect:    true,
+		InviteRoomState: []RoomStateEvent{
+			roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, "", false),
 		},
 	})
 }

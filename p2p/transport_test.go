@@ -1227,6 +1227,41 @@ func TestContactReactivateRecordsPendingInboundForDeletedPeerRequest(t *testing.
 	}
 }
 
+func TestContactReactivateDoesNotTrustCallerProfileFields(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "remote.example"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID:   "!old-dm:example.com",
+		PeerMXID: "@owner:example.com",
+		Status:   "deleted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "contacts.reactivate", map[string]any{
+		"room_id":        "!old-dm:example.com",
+		"requester_mxid": "@owner:example.com",
+		"display_name":   "Spoofed Owner",
+		"avatar_url":     "mxc://evil/avatar",
+		"domain":         "evil.example",
+	})
+
+	if result["status"] != "pending_inbound" {
+		t.Fatalf("expected pending inbound result, got %#v", result)
+	}
+	contact, ok, err := service.lookupContactByPeer(context.Background(), "@owner:example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("expected retained contact")
+	}
+	if contact.DisplayName != "owner" || contact.AvatarURL != "" || contact.Domain != "example.com" {
+		t.Fatalf("contacts.reactivate must not trust caller-supplied profile fields, got %#v", contact)
+	}
+}
+
 func TestContactReactivateRejectsSelfInvite(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "remote.example"}, transport)
