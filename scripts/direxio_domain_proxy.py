@@ -13,6 +13,12 @@ ROUTES = {
     "c.ai": ("127.0.0.1", 38008),
 }
 
+SERVER_NAME_ROUTES = {
+    ("host.docker.internal", "18448"): ("127.0.0.1", 18008),
+    ("host.docker.internal", "28448"): ("127.0.0.1", 28008),
+    ("host.docker.internal", "38448"): ("127.0.0.1", 38008),
+}
+
 
 class DirexioDomainProxy(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -38,10 +44,11 @@ class DirexioDomainProxy(BaseHTTPRequestHandler):
     def _proxy(self):
         parsed = urlsplit(self.path)
         host_header = parsed.netloc or self.headers.get("Host", "")
-        hostname = host_header.split("@")[-1].split(":")[0].lower()
-        target = ROUTES.get(hostname)
+        host_authority = host_header.split("@")[-1].lower()
+        hostname, _, host_port = host_authority.partition(":")
+        target = SERVER_NAME_ROUTES.get((hostname, host_port)) or ROUTES.get(hostname)
         if target is None:
-            self.send_error(502, f"unknown host: {hostname}")
+            self.send_error(502, f"unknown host: {host_authority}")
             return
 
         path = parsed.path or "/"

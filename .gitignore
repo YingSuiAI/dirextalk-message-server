@@ -1,2 +1,4 @@
 .codegraph/
 .idea
+.local-certs/
+__pycache__/

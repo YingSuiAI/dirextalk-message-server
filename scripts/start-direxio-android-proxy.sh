@@ -10,6 +10,7 @@ ADB="${ADB:-}"
 HTTP_PORT="${HTTP_PORT:-9444}"
 HTTPS_PORT="${HTTPS_PORT:-9443}"
 DOMAINS=("a.ai" "b.ai" "c.ai")
+SERVER_NAME_DOMAINS=("host.docker.internal")
 
 mkdir -p "${CERT_DIR}" "${RUN_DIR}" "${HOME}/.local/bin"
 
@@ -57,7 +58,7 @@ PY
 
 generate_certs() {
   cat > "${CERT_DIR}/server.ext" <<'EOF'
-subjectAltName = DNS:a.ai,DNS:b.ai,DNS:c.ai
+subjectAltName = DNS:a.ai,DNS:b.ai,DNS:c.ai,DNS:host.docker.internal
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 basicConstraints = CA:FALSE
@@ -71,7 +72,7 @@ EOF
       -subj "/C=CN/O=Direxio Local Dev/CN=Direxio Local Dev CA"
   fi
 
-  log "generating ${DOMAINS[*]} server certificate"
+  log "generating ${DOMAINS[*]} ${SERVER_NAME_DOMAINS[*]} server certificate"
   openssl genrsa -out "${CERT_DIR}/server.key" 2048 >/dev/null 2>&1
   openssl req -new -key "${CERT_DIR}/server.key" -out "${CERT_DIR}/server.csr" \
     -subj "/C=CN/O=Direxio Local Dev/CN=a.ai" >/dev/null 2>&1
@@ -137,6 +138,21 @@ device_list() {
   "${ADB}" devices | tr -d '\r' | awk 'NR > 1 && $2 == "device" { print $1 }'
 }
 
+adb_host_path() {
+  local path="$1"
+  if [[ "${ADB}" == *.exe ]]; then
+    if command -v wslpath >/dev/null 2>&1; then
+      wslpath -w "${path}"
+      return
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+      cygpath -w "${path}"
+      return
+    fi
+  fi
+  printf '%s\n' "${path}"
+}
+
 wait_for_device() {
   local device="$1"
   local attempts="${2:-20}"
@@ -156,20 +172,21 @@ wait_for_device() {
 
 configure_device_trust() {
   local device="$1"
-  local hash cert_file
+  local hash cert_file adb_cert_file
   hash="$(openssl x509 -inform PEM -subject_hash_old -in "${CERT_DIR}/ca.pem" -noout)"
-  cert_file="/tmp/${hash}.0"
+  cert_file="${RUN_DIR}/${hash}.0"
   cp "${CERT_DIR}/ca.pem" "${cert_file}"
+  adb_cert_file="$(adb_host_path "${cert_file}")"
 
   "${ADB}" -s "${device}" root >/dev/null 2>&1 || true
   wait_for_device "${device}"
-  "${ADB}" -s "${device}" push "${cert_file}" "/data/local/tmp/${hash}.0" >/dev/null
+  "${ADB}" -s "${device}" push "${adb_cert_file}" "/data/local/tmp/${hash}.0" >/dev/null
 
   local configure_system
   configure_system="$(cat <<EOF
 mount -o rw,remount /system 2>/dev/null || mount -o rw,remount /dev/block/sda6 /system 2>/dev/null || true
 cp -f /system/etc/hosts /system/etc/hosts.direxio.bak 2>/dev/null || true
-printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       a.ai b.ai c.ai\n' > /system/etc/hosts
+printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       a.ai b.ai c.ai host.docker.internal\n' > /system/etc/hosts
 chmod 0644 /system/etc/hosts
 mkdir -p /system/etc/security/cacerts
 cp -f /data/local/tmp/${hash}.0 /system/etc/security/cacerts/${hash}.0
@@ -187,7 +204,7 @@ EOF
   local configure_bind
   configure_bind="$(cat <<EOF
 set -e
-printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       a.ai b.ai c.ai\n' > /data/local/tmp/direxio-hosts
+printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       a.ai b.ai c.ai host.docker.internal\n' > /data/local/tmp/direxio-hosts
 chmod 0644 /data/local/tmp/direxio-hosts
 rm -rf /data/local/tmp/direxio-cacerts
 cp -a /system/etc/security/cacerts /data/local/tmp/direxio-cacerts
@@ -207,6 +224,9 @@ configure_device_reverse() {
   "${ADB}" -s "${device}" reverse tcp:18008 "tcp:${HTTP_PORT}" >/dev/null
   "${ADB}" -s "${device}" reverse tcp:28008 "tcp:${HTTP_PORT}" >/dev/null
   "${ADB}" -s "${device}" reverse tcp:38008 "tcp:${HTTP_PORT}" >/dev/null
+  "${ADB}" -s "${device}" reverse tcp:18448 "tcp:${HTTP_PORT}" >/dev/null
+  "${ADB}" -s "${device}" reverse tcp:28448 "tcp:${HTTP_PORT}" >/dev/null
+  "${ADB}" -s "${device}" reverse tcp:38448 "tcp:${HTTP_PORT}" >/dev/null
   "${ADB}" -s "${device}" shell settings delete global http_proxy >/dev/null 2>&1 || true
   "${ADB}" -s "${device}" shell settings delete global global_http_proxy_host >/dev/null 2>&1 || true
   "${ADB}" -s "${device}" shell settings delete global global_http_proxy_port >/dev/null 2>&1 || true
@@ -223,6 +243,9 @@ curl -fsS --max-time 8 https://c.ai/_p2p/health >/dev/null
 curl -fsS --max-time 8 http://a.ai:18008/_matrix/client/versions >/dev/null
 curl -fsS --max-time 8 http://b.ai:28008/_matrix/client/versions >/dev/null
 curl -fsS --max-time 8 http://c.ai:38008/_matrix/client/versions >/dev/null
+curl -fsS --max-time 8 http://host.docker.internal:18448/_p2p/health >/dev/null
+curl -fsS --max-time 8 http://host.docker.internal:28448/_p2p/health >/dev/null
+curl -fsS --max-time 8 http://host.docker.internal:38448/_p2p/health >/dev/null
 '
 }
 
