@@ -3283,6 +3283,53 @@ func TestChannelPublicJoinResultApprovedJoinsRequesterAfterInviteProjection(t *t
 	}
 }
 
+func TestChannelPublicJoinResultCreatesConversationFromRefreshedChannel(t *testing.T) {
+	transport := &recordingTransport{
+		roomID: "!remote:remote.example",
+		roomChannel: channel{
+			ChannelID:       "remote_ch",
+			RoomID:          "!remote:remote.example",
+			Name:            "Remote Public",
+			Visibility:      "public",
+			JoinPolicy:      "approval",
+			ChannelType:     "chat",
+			CommentsEnabled: true,
+		},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)
+	bootstrapService(t, service)
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     "!remote:remote.example",
+		ChannelID:  "remote_ch",
+		UserID:     "@owner:local.example",
+		Domain:     "local.example",
+		Membership: "pending",
+		Role:       "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_result", map[string]any{
+		"room_id":      "!remote:remote.example",
+		"channel_id":   "remote_ch",
+		"user_id":      "@owner:local.example",
+		"status":       "approved",
+		"server_names": []string{"remote.example"},
+	})
+	if result["status"] != "joined" {
+		t.Fatalf("expected approved join result to join requester node, got %#v", result)
+	}
+
+	list := mustHandle[map[string]any](t, service, "conversations.list", nil)
+	conversations := list["conversations"].([]conversationView)
+	if len(conversations) != 1 || conversations[0].MatrixRoomID != "!remote:remote.example" || conversations[0].Kind != conversationKindChannel {
+		t.Fatalf("expected refreshed joined channel to create channel conversation, got %#v", conversations)
+	}
+	if conversations[0].Membership != "join" || conversations[0].Title != "Remote Public" {
+		t.Fatalf("expected joined channel conversation facts, got %#v", conversations[0])
+	}
+}
+
 func TestChannelPublicJoinResultApprovedFallsBackToRoomServerName(t *testing.T) {
 	transport := &recordingTransport{roomID: "!remote:remote.example"}
 	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)

@@ -649,6 +649,10 @@ def invite_channel_and_join(owner: Node, invitee: Node, channel: dict[str, Any])
         f"{invitee.label} channels.list missing joined channel",
         lambda: find_by(list((p2p(invitee, "command", "channels.list").get("channels") or [])), room_id=room_id),
     )
+    wait_until(
+        f"{invitee.label} conversations missing joined channel",
+        lambda: conversation_for(invitee, room_id),
+    )
 
 
 def public_channel_join_request(owner: Node, joiner: Node, channel: dict[str, Any]) -> dict[str, Any]:
@@ -671,23 +675,27 @@ def public_channel_join_request(owner: Node, joiner: Node, channel: dict[str, An
 def wait_public_channel_join(owner: Node, joiner: Node, channel: dict[str, Any], label: str) -> dict[str, Any]:
     last: dict[str, Any] = public_channel_join_request(owner, joiner, channel)
     initial = last
-    if last.get("status") == "joined":
-        return last
+    if last.get("status") != "joined":
+        def joined():
+            nonlocal last
+            current = find_by(list((p2p(joiner, "command", "channels.list").get("channels") or [])), room_id=channel.get("room_id"))
+            if current:
+                last = current
+                if current.get("member_status") in ("join", "joined", ""):
+                    return current
+            return None
 
-    def joined():
-        nonlocal last
-        current = find_by(list((p2p(joiner, "command", "channels.list").get("channels") or [])), room_id=channel.get("room_id"))
-        if current:
-            last = current
-            if current.get("member_status") in ("join", "joined", ""):
-                return current
-        return None
-
-    return wait_until(
-        f"{joiner.label} {label} public channel join did not reach joined, initial={initial!r} last={last!r}",
-        joined,
+        last = wait_until(
+            f"{joiner.label} {label} public channel join did not reach joined, initial={initial!r} last={last!r}",
+            joined,
+            seconds=120,
+        )
+    wait_until(
+        f"{joiner.label} {label} conversations missing joined public channel",
+        lambda: conversation_for(joiner, channel.get("room_id")),
         seconds=120,
     )
+    return last
 
 
 def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) -> None:

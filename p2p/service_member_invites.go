@@ -444,13 +444,8 @@ func (s *Service) refreshRoomChannel(ctx context.Context, roomID string) (string
 	} else if exists {
 		mergeRefreshedChannel(&ch, existing)
 	}
-	s.mu.Lock()
-	s.channels[ch.ChannelID] = ch
-	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertChannel(ctx, ch); err != nil {
-			return "", err
-		}
+	if err := s.saveChannel(ctx, ch); err != nil {
+		return "", err
 	}
 	return ch.ChannelID, nil
 }

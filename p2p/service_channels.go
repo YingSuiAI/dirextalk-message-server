@@ -623,7 +623,7 @@ func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID stri
 	}
 	target.MemberCount = memberCount
 	target.PendingJoinCount = pendingJoinCount
-	return s.store.UpsertChannel(ctx, target)
+	return s.saveChannel(ctx, target)
 }
 
 func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) error {
