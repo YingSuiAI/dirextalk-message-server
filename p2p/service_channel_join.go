@@ -113,8 +113,9 @@ func (s *Service) channelJoinResult(ctx context.Context, params map[string]any) 
 	if !ok {
 		return nil, statusError(404, "join request not found")
 	}
-	switch strings.ToLower(strings.TrimSpace(member.Membership)) {
-	case "pending", "approved", "joining", "join_failed":
+	memberStatus := strings.ToLower(strings.TrimSpace(member.Membership))
+	switch memberStatus {
+	case "pending", "approved", "joining", "join_failed", "invite":
 	default:
 		return nil, statusError(404, "join request not found")
 	}
@@ -124,6 +125,9 @@ func (s *Service) channelJoinResult(ctx context.Context, params map[string]any) 
 	s.applyLocalOwnerMemberProfile(&member)
 	switch strings.ToLower(trimString(params["status"])) {
 	case "rejected":
+		if memberStatus == "invite" {
+			return nil, statusError(404, "join request not found")
+		}
 		member.Membership = "reject"
 		if err := s.saveMember(ctx, member); err != nil {
 			return nil, internalError(err)

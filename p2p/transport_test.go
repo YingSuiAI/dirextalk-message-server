@@ -3236,6 +3236,53 @@ func TestChannelPublicJoinResultApprovedJoinsRequesterNode(t *testing.T) {
 	}
 }
 
+func TestChannelPublicJoinResultApprovedJoinsRequesterAfterInviteProjection(t *testing.T) {
+	transport := &recordingTransport{roomID: "!remote:remote.example"}
+	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)
+	bootstrapService(t, service)
+	ch := channel{
+		ChannelID:  "remote_ch",
+		RoomID:     "!remote:remote.example",
+		Name:       "Remote Public",
+		Visibility: "public",
+		JoinPolicy: "approval",
+	}
+	if err := service.saveChannel(context.Background(), ch); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID:     ch.RoomID,
+		ChannelID:  ch.ChannelID,
+		UserID:     "@owner:local.example",
+		Domain:     "local.example",
+		Membership: "invite",
+		Role:       "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "channels.public.join_result", map[string]any{
+		"room_id":      ch.RoomID,
+		"channel_id":   ch.ChannelID,
+		"user_id":      "@owner:local.example",
+		"status":       "approved",
+		"server_names": []string{"remote.example"},
+	})
+	if result["status"] != "joined" {
+		t.Fatalf("expected approved invite projection to join requester node, got %#v", result)
+	}
+	if len(transport.joins) != 1 || transport.joins[0] != "@owner:local.example in !remote:remote.example" {
+		t.Fatalf("expected requester node Matrix join, got %#v", transport.joins)
+	}
+	member, ok, err := service.lookupMember(context.Background(), ch.RoomID, "@owner:local.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || member.Membership != "join" {
+		t.Fatalf("expected requester member to become joined, ok=%v member=%#v", ok, member)
+	}
+}
+
 func TestChannelPublicJoinResultApprovedFallsBackToRoomServerName(t *testing.T) {
 	transport := &recordingTransport{roomID: "!remote:remote.example"}
 	service := NewServiceWithTransport(Config{ServerName: "local.example"}, transport)
