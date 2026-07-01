@@ -11,6 +11,7 @@ type PortalState struct {
 	OwnerMXID      string
 	AgentRoomID    string
 	Profile        OwnerProfile
+	AgentConfig    AgentConfig
 }
 
 type OwnerProfile struct {
@@ -25,11 +26,13 @@ type OwnerProfile struct {
 }
 
 type AgentConfig struct {
-	DisplayName   string `json:"display_name"`
-	ContextWindow int64  `json:"context_window"`
-	Enabled       bool   `json:"enabled"`
-	Model         string `json:"model"`
-	SystemPrompt  string `json:"system_prompt"`
+	DisplayName       string   `json:"display_name"`
+	AvatarURL         string   `json:"avatar_url"`
+	ContextWindow     int64    `json:"context_window"`
+	Enabled           bool     `json:"enabled"`
+	Model             string   `json:"model"`
+	SystemPrompt      string   `json:"system_prompt"`
+	MCPBlockedRoomIDs []string `json:"mcp_blocked_room_ids"`
 }
 
 type ReadMarker struct {

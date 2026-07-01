@@ -512,6 +512,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if state.Profile.Domain == "" {
 		state.Profile.Domain = serverName
 	}
+	state.AgentConfig = normalizeAgentConfig(state.AgentConfig)
 	realtimeSessions := cfg.RealtimeSessions
 	if realtimeSessions == nil {
 		realtimeSessions = realtime.DefaultSessionStore
@@ -536,28 +537,49 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		ownerMXID:                  state.OwnerMXID,
 		agentRoomID:                state.AgentRoomID,
 		profile:                    state.Profile,
-		agentConfig: agentConfig{
-			DisplayName:   "Agent",
-			ContextWindow: 30,
-			Enabled:       true,
-		},
-		readMarkers:   map[string]readMarker{},
-		channels:      map[string]channel{},
-		contacts:      map[string]contactRecord{},
-		groups:        map[string]groupRecord{},
-		calls:         map[string]callRecord{},
-		favorites:     map[int64]favoriteRecord{},
-		follows:       map[string]followRecord{},
-		reactions:     map[string]reactionRecord{},
-		members:       map[string]memberRecord{},
-		conversations: map[string]conversationRecord{},
-		inviteGrants:  map[string]channelInviteGrant{},
-		eventNotify:   make(chan struct{}),
+		agentConfig:                state.AgentConfig,
+		readMarkers:                map[string]readMarker{},
+		channels:                   map[string]channel{},
+		contacts:                   map[string]contactRecord{},
+		groups:                     map[string]groupRecord{},
+		calls:                      map[string]callRecord{},
+		favorites:                  map[int64]favoriteRecord{},
+		follows:                    map[string]followRecord{},
+		reactions:                  map[string]reactionRecord{},
+		members:                    map[string]memberRecord{},
+		conversations:              map[string]conversationRecord{},
+		inviteGrants:               map[string]channelInviteGrant{},
+		eventNotify:                make(chan struct{}),
 
 		realtimeWSTickets: map[string]realtimeWSTicket{},
 	}
 	service.actions = service.actionHandlers()
 	return service
+}
+
+func normalizeAgentConfig(cfg agentConfig) agentConfig {
+	empty := strings.TrimSpace(cfg.DisplayName) == "" &&
+		strings.TrimSpace(cfg.AvatarURL) == "" &&
+		cfg.ContextWindow == 0 &&
+		!cfg.Enabled &&
+		strings.TrimSpace(cfg.Model) == "" &&
+		strings.TrimSpace(cfg.SystemPrompt) == "" &&
+		len(cfg.MCPBlockedRoomIDs) == 0
+	if empty {
+		cfg.DisplayName = "Agent"
+		cfg.ContextWindow = 30
+		cfg.Enabled = true
+		return cfg
+	}
+	cfg.DisplayName = fallbackString(cfg.DisplayName, "Agent")
+	cfg.AvatarURL = strings.TrimSpace(cfg.AvatarURL)
+	if cfg.ContextWindow <= 0 {
+		cfg.ContextWindow = 30
+	}
+	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt)
+	cfg.MCPBlockedRoomIDs = normalizedStringSlice(cfg.MCPBlockedRoomIDs)
+	return cfg
 }
 
 func (s *Service) AccessToken() string {

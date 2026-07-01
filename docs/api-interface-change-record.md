@@ -1,6 +1,21 @@
 # API Interface Change Record
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
+
+## 2026-07-01 Agent Config Avatar And MCP Room Blacklist
+
+`agent.config.get` and `agent.config.update` now include two owner-managed fields:
+
+```json
+{
+  "avatar_url": "mxc://example/agent",
+  "mcp_blocked_room_ids": ["!room:example.com"]
+}
+```
+
+`avatar_url` is a display-only Agent profile setting for clients. `mcp_blocked_room_ids` is a durable room blacklist under Agent config. `agent.config.update` replaces the blacklist with the supplied normalized list; omitted fields keep their previous values.
+
+Fixed MCP actions remain HTTP-only and owner-scoped. Rooms in `mcp_blocked_room_ids` are not returned by `mcp.rooms.search`; direct MCP access to blocked rooms through ordinary message send/list, member list, channel post list, channel comment list, or channel comment creation is rejected with `403 room is blocked for MCP`.
 
 ## 2026-06-30 Owner HTTP Fallback For Product Actions
 

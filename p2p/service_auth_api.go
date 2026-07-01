@@ -184,6 +184,9 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	if displayName := trimString(params["display_name"]); displayName != "" {
 		s.agentConfig.DisplayName = displayName
 	}
+	if _, ok := params["avatar_url"]; ok {
+		s.agentConfig.AvatarURL = trimString(params["avatar_url"])
+	}
 	if contextWindow := int64Param(params["context_window"]); contextWindow > 0 {
 		s.agentConfig.ContextWindow = contextWindow
 	}
@@ -197,8 +200,18 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	if systemPrompt := trimString(params["system_prompt"]); systemPrompt != "" {
 		s.agentConfig.SystemPrompt = systemPrompt
 	}
+	if _, ok := params["mcp_blocked_room_ids"]; ok {
+		s.agentConfig.MCPBlockedRoomIDs = stringSliceParam(params["mcp_blocked_room_ids"])
+	}
+	s.agentConfig = normalizeAgentConfig(s.agentConfig)
 	result := agentConfigToMap(s.agentConfig)
+	state := s.portalStateLocked()
 	s.mu.Unlock()
+	if s.store != nil {
+		if err := s.store.SavePortal(ctx, state); err != nil {
+			return nil, internalError(err)
+		}
+	}
 	if disableAgent {
 		if err := s.publishCurrentAgentStatusState(ctx); err != nil {
 			return nil, transportWriteError(err)
@@ -208,11 +221,14 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 }
 
 func agentConfigToMap(cfg agentConfig) map[string]any {
+	blockedRoomIDs := append([]string(nil), cfg.MCPBlockedRoomIDs...)
 	return map[string]any{
-		"display_name":   cfg.DisplayName,
-		"context_window": cfg.ContextWindow,
-		"enabled":        cfg.Enabled,
-		"model":          cfg.Model,
-		"system_prompt":  cfg.SystemPrompt,
+		"display_name":         cfg.DisplayName,
+		"avatar_url":           cfg.AvatarURL,
+		"context_window":       cfg.ContextWindow,
+		"enabled":              cfg.Enabled,
+		"model":                cfg.Model,
+		"system_prompt":        cfg.SystemPrompt,
+		"mcp_blocked_room_ids": blockedRoomIDs,
 	}
 }

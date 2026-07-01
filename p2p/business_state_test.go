@@ -2209,17 +2209,23 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 	bootstrapService(t, service)
 
 	cfg := mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
-		"display_name":   "Ops Agent",
-		"context_window": float64(64),
-		"enabled":        true,
-		"model":          "local-model",
-		"system_prompt":  "help users",
+		"display_name":         "Ops Agent",
+		"avatar_url":           "mxc://example.com/agent",
+		"context_window":       float64(64),
+		"enabled":              true,
+		"model":                "local-model",
+		"system_prompt":        "help users",
+		"mcp_blocked_room_ids": []any{"!secret:example.com", " !group:example.com ", "!secret:example.com", ""},
 	})
-	if cfg["display_name"] != "Ops Agent" || int64Param(cfg["context_window"]) != 64 || cfg["enabled"] != true {
+	if cfg["display_name"] != "Ops Agent" || cfg["avatar_url"] != "mxc://example.com/agent" || int64Param(cfg["context_window"]) != 64 || cfg["enabled"] != true {
 		t.Fatalf("expected updated agent config, got %#v", cfg)
 	}
+	blockedRooms, ok := cfg["mcp_blocked_room_ids"].([]string)
+	if !ok || len(blockedRooms) != 2 || blockedRooms[0] != "!secret:example.com" || blockedRooms[1] != "!group:example.com" {
+		t.Fatalf("expected normalized blocked room ids, got %#v", cfg["mcp_blocked_room_ids"])
+	}
 	cfg = mustHandle[map[string]any](t, service, "agent.config.get", nil)
-	if cfg["display_name"] != "Ops Agent" || cfg["model"] != "local-model" {
+	if cfg["display_name"] != "Ops Agent" || cfg["avatar_url"] != "mxc://example.com/agent" || cfg["model"] != "local-model" {
 		t.Fatalf("expected persisted agent config, got %#v", cfg)
 	}
 

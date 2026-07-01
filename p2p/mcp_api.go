@@ -61,6 +61,9 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		if summary.RoomID == "" {
 			continue
 		}
+		if s.mcpRoomBlocked(summary.RoomID) {
+			continue
+		}
 		if kind != "all" && summary.Type != kind {
 			continue
 		}
@@ -108,6 +111,9 @@ func (s *Service) mcpMessagesSend(ctx context.Context, params map[string]any) (a
 	msg := fallbackString(trimString(params["msg"]), trimString(params["text"]))
 	if roomID == "" {
 		return nil, badRequest("room_id is required")
+	}
+	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
+		return nil, apiErr
 	}
 	if msg == "" {
 		return nil, badRequest("msg is required")
@@ -167,6 +173,9 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	roomID := trimString(params["room_id"])
 	if roomID == "" {
 		return nil, badRequest("room_id is required")
+	}
+	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
+		return nil, apiErr
 	}
 	fromTS := int64Param(params["from_ts"])
 	toTS := int64Param(params["to_ts"])
@@ -340,6 +349,9 @@ func (s *Service) mcpRoomMembersList(ctx context.Context, params map[string]any)
 	}
 	if !knownRoom {
 		return nil, statusError(http.StatusNotFound, "room not found")
+	}
+	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
+		return nil, apiErr
 	}
 	members, err := s.membersForProduct(ctx, roomID, channelID)
 	if err != nil {
@@ -596,6 +608,9 @@ func (s *Service) mcpChannelPostsList(ctx context.Context, params map[string]any
 	if roomID == "" {
 		return nil, badRequest("room_id is required")
 	}
+	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
+		return nil, apiErr
+	}
 	ch, ok, err := s.channelByIDOrRoom(ctx, "", roomID)
 	if err != nil {
 		return nil, internalError(err)
@@ -635,10 +650,15 @@ func (s *Service) mcpChannelCommentsList(ctx context.Context, params map[string]
 	if postID == "" {
 		return nil, badRequest("post_id is required")
 	}
-	if _, ok, err := s.channelPostByID(ctx, postID, ""); err != nil {
+	post, ok, err := s.channelPostByID(ctx, postID, "")
+	if err != nil {
 		return nil, internalError(err)
-	} else if !ok {
+	}
+	if !ok {
 		return nil, statusError(http.StatusNotFound, "post not found")
+	}
+	if apiErr := s.requireMCPRoomAllowed(post.RoomID); apiErr != nil {
+		return nil, apiErr
 	}
 	commentsAny := s.channelComments(ctx, map[string]any{"post_id": postID})
 	rawComments := commentsAny.(map[string]any)["comments"].([]channelCommentRecord)
@@ -682,6 +702,9 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 	if !ok {
 		return nil, statusError(http.StatusNotFound, "post not found")
 	}
+	if apiErr := s.requireMCPRoomAllowed(post.RoomID); apiErr != nil {
+		return nil, apiErr
+	}
 	commentAny, apiErr := s.channelComment(ctx, map[string]any{
 		"channel_id":   post.ChannelID,
 		"room_id":      post.RoomID,
@@ -703,6 +726,28 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 
 func (s *Service) MatrixHistoryAccessToken(ctx context.Context) (string, error) {
 	return s.matrixHistoryAccessToken(ctx)
+}
+
+func (s *Service) requireMCPRoomAllowed(roomID string) *apiError {
+	if s.mcpRoomBlocked(roomID) {
+		return statusError(http.StatusForbidden, "room is blocked for MCP")
+	}
+	return nil
+}
+
+func (s *Service) mcpRoomBlocked(roomID string) bool {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, blockedRoomID := range s.agentConfig.MCPBlockedRoomIDs {
+		if roomID == strings.TrimSpace(blockedRoomID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) matrixHistoryAccessToken(_ context.Context) (string, error) {

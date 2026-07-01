@@ -77,6 +77,29 @@ func TestMCPSearchRoomsUsesMatrixMemberCountWhenProductCountIsStale(t *testing.T
 	}
 }
 
+func TestMCPBlockedRoomsAreFilteredFromRoomSearch(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!visible:example.com",
+		"name":    "Visible Group",
+	})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!blocked:example.com",
+		"name":    "Blocked Group",
+	})
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
+	})
+
+	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+		"type": "group",
+	})
+	rooms := result["rooms"].([]mcpRoomSummary)
+	if len(rooms) != 1 || rooms[0].RoomID != "!visible:example.com" {
+		t.Fatalf("expected blocked room to be filtered from MCP search, got %#v", rooms)
+	}
+}
+
 func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
@@ -141,6 +164,34 @@ func TestMCPMessagesSendRejectsOwnerSendToAgentRoom(t *testing.T) {
 	}
 	if len(transport.messages) != 0 {
 		t.Fatalf("owner MCP send to agent room must not write Matrix messages, got %#v", transport.messages)
+	}
+}
+
+func TestMCPMessagesRejectBlockedRooms(t *testing.T) {
+	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
+		{TS: 1710000000000, Sender: "Alice", Msg: "secret", SenderMXID: "@alice:example.com"},
+	}})
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
+	})
+
+	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+		"room_id": "!blocked:example.com",
+	})
+	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
+		t.Fatalf("expected blocked room list to fail, got %#v", apiErr)
+	}
+	_, apiErr = service.Handle(context.Background(), "mcp.messages.send", map[string]any{
+		"room_id": "!blocked:example.com",
+		"msg":     "secret",
+	})
+	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
+		t.Fatalf("expected blocked room send to fail, got %#v", apiErr)
+	}
+	if len(transport.messages) != 0 {
+		t.Fatalf("blocked MCP send must not write Matrix messages, got %#v", transport.messages)
 	}
 }
 
@@ -473,6 +524,24 @@ func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T)
 	}
 }
 
+func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!blocked:example.com",
+		"name":    "Blocked Group",
+	})
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"mcp_blocked_room_ids": []any{group.RoomID},
+	})
+
+	_, apiErr := service.Handle(context.Background(), "mcp.room_members.list", map[string]any{
+		"room_id": group.RoomID,
+	})
+	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
+		t.Fatalf("expected blocked room member list to fail, got %#v", apiErr)
+	}
+}
+
 func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.agentRoomID = "!agents:example.com"
@@ -533,5 +602,41 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 	gotComments := comments["comments"].([]mcpCommentSummary)
 	if len(gotComments) != 1 || gotComments[0].Msg != "comment body" {
 		t.Fatalf("unexpected comment summaries: %#v", gotComments)
+	}
+}
+
+func TestMCPChannelContentRejectsBlockedRooms(t *testing.T) {
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, &recordingTransport{
+		eventID: "$post:event",
+		ts:      1710000000000,
+	})
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "product",
+		"room_id":          "!blocked-channel:example.com",
+		"name":             "Product Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": ch.ChannelID,
+		"room_id":    ch.RoomID,
+		"body":       "post body",
+	})
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"mcp_blocked_room_ids": []any{ch.RoomID},
+	})
+
+	for _, tc := range []struct {
+		action string
+		params map[string]any
+	}{
+		{"mcp.channel_posts.list", map[string]any{"room_id": ch.RoomID}},
+		{"mcp.channel_comments.list", map[string]any{"post_id": post.PostID}},
+		{"mcp.channel_comments.create", map[string]any{"post_id": post.PostID, "msg": "blocked"}},
+	} {
+		_, apiErr := service.Handle(context.Background(), tc.action, tc.params)
+		if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
+			t.Fatalf("expected %s to reject blocked room, got %#v", tc.action, apiErr)
+		}
 	}
 }

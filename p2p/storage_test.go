@@ -823,6 +823,15 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	mustHandle[map[string]any](t, service, "channels.mute", map[string]any{"channel_id": ch.ChannelID})
 	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{"channel_id": ch.ChannelID, "body": "post body"})
 	mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{"channel_id": ch.ChannelID, "post_id": post.PostID, "body": "comment body"})
+	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
+		"display_name":         "Storage Agent",
+		"avatar_url":           "mxc://example.com/storage-agent",
+		"context_window":       float64(96),
+		"enabled":              true,
+		"model":                "storage-model",
+		"system_prompt":        "stored prompt",
+		"mcp_blocked_room_ids": []any{"!secret:example.com", ch.RoomID},
+	})
 
 	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
 	if err != nil {
@@ -841,6 +850,18 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	profile := mustHandle[ownerProfile](t, reloaded, "profile.get", nil)
 	if profile.DisplayName != "Owner Name" || profile.Email != "owner@example.com" {
 		t.Fatalf("expected profile to survive reload, got %#v", profile)
+	}
+	agentConfig := mustHandle[map[string]any](t, reloaded, "agent.config.get", nil)
+	blockedRooms := agentConfig["mcp_blocked_room_ids"].([]string)
+	if agentConfig["display_name"] != "Storage Agent" ||
+		agentConfig["avatar_url"] != "mxc://example.com/storage-agent" ||
+		agentConfig["model"] != "storage-model" ||
+		agentConfig["system_prompt"] != "stored prompt" ||
+		int64Param(agentConfig["context_window"]) != 96 ||
+		len(blockedRooms) != 2 ||
+		blockedRooms[0] != "!secret:example.com" ||
+		blockedRooms[1] != ch.RoomID {
+		t.Fatalf("expected agent config to survive reload, got %#v", agentConfig)
 	}
 	channels := mustHandle[map[string]any](t, reloaded, "channels.list", nil)
 	if got, ok := channels["channels"].([]channel); !ok || len(got) != 1 || got[0].Name != "News" || !got[0].Muted {

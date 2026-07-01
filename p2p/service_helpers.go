@@ -35,6 +35,7 @@ func (s *Service) portalStateLocked() portalState {
 		OwnerMXID:      s.ownerMXID,
 		AgentRoomID:    s.agentRoomID,
 		Profile:        s.profile,
+		AgentConfig:    s.agentConfig,
 	}
 }
 
@@ -42,8 +43,42 @@ func trimString(value any) string {
 	switch v := value.(type) {
 	case string:
 		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
 	default:
 		return ""
+	}
+}
+
+func normalizedStringSlice(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func stringSliceParam(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		return normalizedStringSlice(v)
+	case []any:
+		values := make([]string, 0, len(v))
+		for _, item := range v {
+			values = append(values, trimString(item))
+		}
+		return normalizedStringSlice(values)
+	default:
+		return nil
 	}
 }
 
@@ -124,23 +159,6 @@ func int64SliceParam(value any) []int64 {
 		if n := int64Param(value); n != 0 {
 			return []int64{n}
 		}
-		return nil
-	}
-}
-
-func stringSliceParam(value any) []string {
-	switch v := value.(type) {
-	case []string:
-		return append([]string{}, v...)
-	case []any:
-		result := make([]string, 0, len(v))
-		for _, item := range v {
-			if text := trimString(item); text != "" {
-				result = append(result, text)
-			}
-		}
-		return result
-	default:
 		return nil
 	}
 }

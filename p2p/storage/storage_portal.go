@@ -3,20 +3,23 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 func (s *DatabaseStore) LoadPortal(ctx context.Context) (portalState, bool, error) {
 	var state portalState
 	var initialized int64
+	var agentConfigJSON string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT initialized, password, access_token, matrix_device_id, agent_token,
 			owner_mxid, agent_room_id, user_id, display_name, domain,
-			avatar_url, gender, birthday, phone, email
+			avatar_url, gender, birthday, phone, email, agent_config_json
 		FROM p2p_portal WHERE id = $1
 	`, "owner").Scan(
 		&initialized, &state.Password, &state.AccessToken, &state.MatrixDeviceID, &state.AgentToken,
 		&state.OwnerMXID, &state.AgentRoomID, &state.Profile.UserID, &state.Profile.DisplayName, &state.Profile.Domain,
 		&state.Profile.AvatarURL, &state.Profile.Gender, &state.Profile.Birthday, &state.Profile.Phone, &state.Profile.Email,
+		&agentConfigJSON,
 	)
 	if err == sql.ErrNoRows {
 		return portalState{}, false, nil
@@ -25,17 +28,26 @@ func (s *DatabaseStore) LoadPortal(ctx context.Context) (portalState, bool, erro
 		return portalState{}, false, err
 	}
 	state.Initialized = initialized == 1
+	if agentConfigJSON != "" {
+		if err := json.Unmarshal([]byte(agentConfigJSON), &state.AgentConfig); err != nil {
+			return portalState{}, false, err
+		}
+	}
 	return state, true, nil
 }
 
 func (s *DatabaseStore) SavePortal(ctx context.Context, state portalState) error {
+	agentConfigJSON, err := json.Marshal(state.AgentConfig)
+	if err != nil {
+		return err
+	}
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_portal (
 				id, initialized, password, access_token, matrix_device_id, agent_token,
 				owner_mxid, agent_room_id, user_id, display_name, domain,
-				avatar_url, gender, birthday, phone, email
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+				avatar_url, gender, birthday, phone, email, agent_config_json
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 			ON CONFLICT(id) DO UPDATE SET
 				initialized = EXCLUDED.initialized,
 				password = EXCLUDED.password,
@@ -51,10 +63,12 @@ func (s *DatabaseStore) SavePortal(ctx context.Context, state portalState) error
 				gender = EXCLUDED.gender,
 				birthday = EXCLUDED.birthday,
 				phone = EXCLUDED.phone,
-				email = EXCLUDED.email
+				email = EXCLUDED.email,
+				agent_config_json = EXCLUDED.agent_config_json
 		`, "owner", boolInt(state.Initialized), state.Password, state.AccessToken, state.MatrixDeviceID, state.AgentToken,
 			state.OwnerMXID, state.AgentRoomID, state.Profile.UserID, state.Profile.DisplayName, state.Profile.Domain,
-			state.Profile.AvatarURL, state.Profile.Gender, state.Profile.Birthday, state.Profile.Phone, state.Profile.Email)
+			state.Profile.AvatarURL, state.Profile.Gender, state.Profile.Birthday, state.Profile.Phone, state.Profile.Email,
+			string(agentConfigJSON))
 		return err
 	})
 }

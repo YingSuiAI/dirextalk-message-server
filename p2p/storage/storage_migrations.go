@@ -513,6 +513,20 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return err
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: portal agent config json v29",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_portal")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return nil
+			}
+			_, err = txn.ExecContext(ctx, `ALTER TABLE p2p_portal ADD COLUMN IF NOT EXISTS agent_config_json TEXT NOT NULL DEFAULT ''`)
+			return err
+		},
+	})
 	return m.Up(ctx)
 }
 
