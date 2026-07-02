@@ -295,7 +295,7 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	}
 }
 
-func TestNotifyLocalOnlySuppressesFreshForegroundNotifications(t *testing.T) {
+func TestNotifyLocalOnlySuppressesFreshFocusedForegroundRoom(t *testing.T) {
 	ctx := context.Background()
 	localpart := "test"
 	serverName := spec.ServerName("localhost")
@@ -323,7 +323,7 @@ func TestNotifyLocalOnlySuppressesFreshForegroundNotifications(t *testing.T) {
 
 		foregroundEvent := mustCreateEvent(t, `{
 			"type":"m.room.message",
-			"room_id":"!foreground:example.com",
+			"room_id":"!other:example.com",
 			"sender":"@alice:example.com",
 			"content":{"body":"visible","msgtype":"m.text"}
 		}`)
@@ -334,8 +334,33 @@ func TestNotifyLocalOnlySuppressesFreshForegroundNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if count != 0 {
-			t.Fatalf("fresh foreground app context must not create unread notifications, got %d", count)
+		if count != 1 {
+			t.Fatalf("foreground app context without focused room must create a notification, got %d", count)
+		}
+
+		focusedData := json.RawMessage(`{
+			"foreground": true,
+			"expires_at_ms": 4102444800000,
+			"current_room_id": "!focused:example.com"
+		}`)
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", focusedData); err != nil {
+			t.Fatal(err)
+		}
+		focusedEvent := mustCreateEvent(t, `{
+			"type":"m.room.message",
+			"room_id":"!focused:example.com",
+			"sender":"@alice:example.com",
+			"content":{"body":"focused","msgtype":"m.text"}
+		}`)
+		if err := consumer.notifyLocal(ctx, focusedEvent, mem, 2, "Focused", 101); err != nil {
+			t.Fatalf("notifyLocal returned error for focused foreground room: %v", err)
+		}
+		count, err = db.GetNotificationCount(ctx, localpart, serverName, tables.AllNotifications)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("focused foreground room must not create another notification, got %d", count)
 		}
 
 		backgroundData := json.RawMessage(`{"foreground": false}`)
@@ -348,14 +373,14 @@ func TestNotifyLocalOnlySuppressesFreshForegroundNotifications(t *testing.T) {
 			"sender":"@alice:example.com",
 			"content":{"body":"background","msgtype":"m.text"}
 		}`)
-		if err := consumer.notifyLocal(ctx, backgroundEvent, mem, 2, "Background", 101); err != nil {
+		if err := consumer.notifyLocal(ctx, backgroundEvent, mem, 2, "Background", 102); err != nil {
 			t.Fatalf("notifyLocal returned error for background app: %v", err)
 		}
 		count, err = db.GetNotificationCount(ctx, localpart, serverName, tables.AllNotifications)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if count != 1 {
+		if count != 2 {
 			t.Fatalf("background app context must create a notification, got %d", count)
 		}
 	})

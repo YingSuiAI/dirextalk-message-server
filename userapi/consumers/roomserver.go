@@ -695,8 +695,11 @@ func applyPushNotificationMetadata(notification *pushgateway.Notification, metad
 }
 
 type direxioPushContext struct {
-	Foreground  bool  `json:"foreground"`
-	ExpiresAtMS int64 `json:"expires_at_ms"`
+	Foreground    bool   `json:"foreground"`
+	ExpiresAtMS   int64  `json:"expires_at_ms"`
+	CurrentRoomID string `json:"current_room_id"`
+	FocusedRoomID string `json:"focused_room_id"`
+	RoomID        string `json:"room_id"`
 }
 
 func (s *OutputRoomEventConsumer) suppressPushForForegroundContext(ctx context.Context, event *rstypes.HeaderedEvent, mem *localMembership) (bool, error) {
@@ -726,10 +729,21 @@ func (s *OutputRoomEventConsumer) suppressPushForForegroundContext(ctx context.C
 	if pushContext.ExpiresAtMS <= now.UnixMilli() {
 		return false, nil
 	}
+	focusedRoomID := strings.TrimSpace(pushContext.FocusedRoomID)
+	if focusedRoomID == "" {
+		focusedRoomID = strings.TrimSpace(pushContext.CurrentRoomID)
+	}
+	if focusedRoomID == "" {
+		focusedRoomID = strings.TrimSpace(pushContext.RoomID)
+	}
+	if focusedRoomID == "" || focusedRoomID != event.RoomID().String() {
+		return false, nil
+	}
 	log.WithFields(log.Fields{
-		"event_id":  event.EventID(),
-		"room_id":   event.RoomID().String(),
-		"localpart": mem.Localpart,
+		"event_id":        event.EventID(),
+		"room_id":         event.RoomID().String(),
+		"focused_room_id": focusedRoomID,
+		"localpart":       mem.Localpart,
 	}).Trace("Suppressing push for fresh foreground app context")
 	return true, nil
 }
