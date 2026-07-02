@@ -2,8 +2,12 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
@@ -92,6 +96,143 @@ func TestProjectAgentRoomMessageIgnoresGatewayMarkedReply(t *testing.T) {
 	if len(service.events) != 0 {
 		t.Fatalf("gateway-marked replies must not loop through P2P events, got %#v", service.events)
 	}
+}
+
+func TestProjectAgentRoomMessageDispatchesToProductAgent(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	received := make(chan productAgentNewMessageRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/message-server/new-message" {
+			t.Fatalf("unexpected product-agent path %q", r.URL.Path)
+		}
+		var payload productAgentNewMessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode product-agent request: %v", err)
+		}
+		received <- payload
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"reply": "agent says hi",
+			"outbound_message": map[string]any{
+				"conversation_id": room.ID,
+				"content":         "agent says hi",
+			},
+		})
+	}))
+	defer server.Close()
+	transport := newAgentReplyRecordingTransport()
+	service := NewServiceWithTransport(Config{
+		ServerName:                 "test",
+		ProductAgentURL:            server.URL,
+		ProductAgentRequestTimeout: time.Second,
+	}, transport)
+	service.agentRoomID = room.ID
+	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text",
+		"body":    "hello agent",
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	var gotPayload productAgentNewMessageRequest
+	select {
+	case gotPayload = <-received:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for product-agent request")
+	}
+	if gotPayload.NodeID != "test" ||
+		gotPayload.ConversationType != "agent" ||
+		gotPayload.ConversationID != room.ID ||
+		gotPayload.RoomID != room.ID ||
+		gotPayload.SenderID != user.ID ||
+		gotPayload.SenderKind != "user" ||
+		gotPayload.Content != "hello agent" ||
+		gotPayload.Task != "chat" ||
+		gotPayload.MessageID != event.EventID() ||
+		gotPayload.OriginServerTS != int64(event.OriginServerTS()) {
+		t.Fatalf("unexpected product-agent request: %#v", gotPayload)
+	}
+	var gotMessage SendMessageRequest
+	select {
+	case gotMessage = <-transport.sent:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for agent reply")
+	}
+	if gotMessage.SenderMXID != "@agent:test" ||
+		gotMessage.RoomID != room.ID ||
+		gotMessage.MessageType != "text" ||
+		gotMessage.Content["msgtype"] != "m.text" ||
+		gotMessage.Content["body"] != "agent says hi" ||
+		gotMessage.Content[AgentGatewayContentKey] != true ||
+		gotMessage.Content[AgentGatewaySourceContentKey] != productAgentGatewaySource {
+		t.Fatalf("unexpected agent reply message: %#v", gotMessage)
+	}
+	if len(service.events) != 0 {
+		t.Fatalf("agent room Matrix messages must not produce P2P events, got %#v", service.events)
+	}
+}
+
+func TestProjectAgentRoomMessageDoesNotDispatchGatewayMarkedReply(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	called := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called <- struct{}{}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	transport := newAgentReplyRecordingTransport()
+	service := NewServiceWithTransport(Config{ServerName: "test", ProductAgentURL: server.URL}, transport)
+	service.agentRoomID = room.ID
+	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype":                    "m.text",
+		"body":                       "agent reply",
+		AgentGatewayContentKey:       true,
+		AgentGatewaySourceContentKey: productAgentGatewaySource,
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-called:
+		t.Fatal("gateway-marked reply must not be sent back to product-agent")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := transport.messageCount(); got != 0 {
+		t.Fatalf("gateway-marked reply must not create a new agent reply, got %d", got)
+	}
+}
+
+type agentReplyRecordingTransport struct {
+	recordingTransport
+	mu   sync.Mutex
+	sent chan SendMessageRequest
+}
+
+func newAgentReplyRecordingTransport() *agentReplyRecordingTransport {
+	return &agentReplyRecordingTransport{
+		sent: make(chan SendMessageRequest, 1),
+	}
+}
+
+func (t *agentReplyRecordingTransport) SendMessage(ctx context.Context, req SendMessageRequest) (SendMessageResult, error) {
+	t.mu.Lock()
+	t.messages = append(t.messages, req)
+	t.mu.Unlock()
+	select {
+	case t.sent <- req:
+	default:
+	}
+	return SendMessageResult{EventID: "$agent-reply:test", OriginServerTS: 1770000000123}, nil
+}
+
+func (t *agentReplyRecordingTransport) messageCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.messages)
 }
 
 func TestProjectRoomMessageUpdatesConversationActivity(t *testing.T) {

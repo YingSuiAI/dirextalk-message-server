@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	appserviceAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
 	"github.com/YingSuiAI/direxio-message-server/clientapi"
@@ -86,6 +87,8 @@ func (m *Monolith) AddAllPublicRoutes(
 		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
 		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
 		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
+		ProductAgentURL:                 p2pProductAgentURLFromEnv(),
+		ProductAgentRequestTimeout:      p2pProductAgentRequestTimeoutFromEnv(),
 		PushRules:                       m.UserAPI,
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
@@ -174,6 +177,23 @@ func p2pEventRetentionPruneOnWriteFromEnv() bool {
 	if err != nil {
 		logrus.WithField("value", value).Warn("Ignoring invalid P2P_EVENT_RETENTION_PRUNE_ON_WRITE value")
 		return false
+	}
+	return parsed
+}
+
+func p2pProductAgentURLFromEnv() string {
+	return strings.TrimSpace(os.Getenv("DIREXIO_PRODUCT_AGENT_URL"))
+}
+
+func p2pProductAgentRequestTimeoutFromEnv() time.Duration {
+	value := strings.TrimSpace(os.Getenv("DIREXIO_PRODUCT_AGENT_TIMEOUT"))
+	if value == "" {
+		return 0
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		logrus.WithField("value", value).Warn("Ignoring invalid DIREXIO_PRODUCT_AGENT_TIMEOUT value")
+		return 0
 	}
 	return parsed
 }

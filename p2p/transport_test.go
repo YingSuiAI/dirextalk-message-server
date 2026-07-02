@@ -225,6 +225,28 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentRoomPublishesOnlineWhenProductAgentBridgeConfigured(t *testing.T) {
+	transport := &recordingTransport{roomID: "!agents-real:example.com"}
+	service := NewServiceWithTransport(Config{
+		ServerName:      "example.com",
+		ProductAgentURL: "http://agent-service:8797",
+	}, transport)
+
+	changed, err := service.ensureAgentRoom(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected agent room to be created")
+	}
+	if len(transport.stateEvents) != 1 {
+		t.Fatalf("expected agent to publish one status state, got %#v", transport.stateEvents)
+	}
+	if online, ok := agentStatusOnlineUpdate(transport.stateEvents[0], "!agents-real:example.com", "@agent:example.com", "@agent:example.com"); !ok || !online {
+		t.Fatalf("expected configured product-agent bridge to publish online status, got %#v", transport.stateEvents[0])
+	}
+}
+
 func TestEnsureAgentRoomMutesOwnerPushRuleByDefault(t *testing.T) {
 	transport := &recordingTransport{roomID: "!agents-real:example.com"}
 	pushRules := &recordingPushRuleManager{

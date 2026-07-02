@@ -23,6 +23,9 @@ type Config struct {
 	RemoteNodeAllowPrivateBaseURLs  bool
 	P2PEventRetentionMaxRows        int64
 	P2PEventRetentionPruneOnWrite   bool
+	ProductAgentURL                 string
+	ProductAgentRequestTimeout      time.Duration
+	ProductAgentHTTPClient          *http.Client
 	PushRules                       PushRuleManager
 	RealtimeSessions                *realtime.SessionStore
 }
@@ -62,6 +65,8 @@ type Service struct {
 	matrixProfiles             matrixProfileResolver
 	remoteHTTPClient           *http.Client
 	remoteAllowPrivate         bool
+	productAgentURL            string
+	productAgentHTTPClient     *http.Client
 	storeMode                  string
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
@@ -235,6 +240,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	ownerAvatarURL := s.profile.AvatarURL
 	agentMXID := s.agentMXIDLocked()
 	agentDisplayName := s.agentDisplayNameLocked()
+	agentOnline := s.productAgentBridgeOnlineLocked()
 	s.mu.Unlock()
 	if s.transport == nil {
 		return false, nil
@@ -250,7 +256,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 			if err := s.ensureAgentRoomPowerLevels(ctx, currentRoomID, ownerMXID, agentMXID); err != nil {
 				return false, err
 			}
-			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, false); err != nil {
+			if err := s.publishAgentStatusState(ctx, currentRoomID, agentMXID, agentMXID, agentOnline); err != nil {
 				return false, err
 			}
 			if err := s.ensureAgentRoomPushRule(ctx, currentRoomID, ownerMXID); err != nil {
@@ -282,7 +288,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 	if err := s.ensureAgentRoomAgentMember(ctx, roomID, ownerMXID, agentMXID, agentDisplayName); err != nil {
 		return false, err
 	}
-	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, false); err != nil {
+	if err := s.publishAgentStatusState(ctx, roomID, agentMXID, agentMXID, agentOnline); err != nil {
 		return false, err
 	}
 	if err := s.ensureAgentRoomPushRule(ctx, roomID, ownerMXID); err != nil {
@@ -525,6 +531,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		pushRules:                  cfg.PushRules,
 		remoteHTTPClient:           newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
 		remoteAllowPrivate:         cfg.RemoteNodeAllowPrivateBaseURLs,
+		productAgentURL:            normalizedProductAgentURL(cfg.ProductAgentURL),
+		productAgentHTTPClient:     productAgentHTTPClient(cfg),
 		storeMode:                  storeMode(store),
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,

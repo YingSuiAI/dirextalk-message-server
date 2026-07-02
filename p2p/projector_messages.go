@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/sirupsen/logrus"
 )
 
 type eventProjectionMeta struct {
@@ -50,7 +51,52 @@ func (s *Service) projectAgentRoomMessage(ctx context.Context, event *types.Head
 	if !s.isAgentRoom(roomID) {
 		return false, nil
 	}
+	if !s.shouldForwardAgentRoomMessage(event, content) {
+		return true, nil
+	}
+	body := trimString(content["body"])
+	if body == "" {
+		return true, nil
+	}
+	dispatchCtx := context.WithoutCancel(ctx)
+	go func() {
+		if err := s.dispatchProductAgentMessage(dispatchCtx, productAgentDispatch{
+			RoomID:    roomID,
+			EventID:   event.EventID(),
+			SenderID:  string(event.SenderID()),
+			Body:      body,
+			CreatedAt: int64(event.OriginServerTS()),
+		}); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"room_id":  roomID,
+				"event_id": event.EventID(),
+			}).Warn("Product agent bridge failed to handle agent room message")
+		}
+	}()
 	return true, nil
+}
+
+func (s *Service) shouldForwardAgentRoomMessage(event *types.HeaderedEvent, content map[string]any) bool {
+	if event == nil {
+		return false
+	}
+	if boolParam(content[AgentGatewayContentKey]) || trimString(content[AgentGatewaySourceContentKey]) != "" {
+		return false
+	}
+	msgType := strings.ToLower(trimString(content["msgtype"]))
+	if msgType != "" && msgType != "m.text" && msgType != "text" {
+		return false
+	}
+	sender := strings.TrimSpace(string(event.SenderID()))
+	s.mu.Lock()
+	agentMXID := s.agentMXIDLocked()
+	enabled := s.agentConfig.Enabled
+	productAgentURL := strings.TrimSpace(s.productAgentURL)
+	s.mu.Unlock()
+	if !enabled || productAgentURL == "" {
+		return false
+	}
+	return sender == "" || sender != agentMXID
 }
 
 func (s *Service) isAgentRoom(roomID string) bool {
