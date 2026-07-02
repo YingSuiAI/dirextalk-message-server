@@ -12,7 +12,7 @@ Last updated: 2026-06-30
 | Profile | Owner profile read/update and propagation to Matrix room member state. |
 | Sync | Bootstrap metadata, read markers, and pending notices. Ordinary message sync/history/search uses Matrix APIs. |
 | Contacts | Direct invite request/accept/reject/delete, remark update, inbound invite projection, contact reactivation. |
-| Blocks | Owner-managed blacklist for contacts, groups, and channels, with display names for settings lists and blocked application/invite attempts rejected before Matrix writes. |
+| Blocks | Owner-managed blacklist for contacts, with display names for the settings list and blocked friend requests rejected before Matrix writes. |
 | Matrix Messages | Text/media send, history, search, unread data, local hiding, and redaction use Matrix Client-Server APIs. |
 | Groups | Create/update/list/invite/join/members/mute/leave/remove/dissolve/invite policy/invite reject. |
 | Channels | Create/update/list/invite/join/invite grants/members/moderation/mute/read-marker/dissolve. |

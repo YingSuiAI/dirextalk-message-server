@@ -3,23 +3,13 @@ package p2p
 import (
 	"context"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestBlockActionsListByTypeAndRemove(t *testing.T) {
+func TestBlockActionsListContactsAndRemove(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
-	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
-		"room_id": "!group:example.com",
-		"name":    "Blocked Group",
-	})
-	channel := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id": "blocked_channel",
-		"room_id":    "!channel:example.com",
-		"name":       "Blocked Channel",
-	})
 
 	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
 		"target_type":  "contact",
@@ -27,86 +17,64 @@ func TestBlockActionsListByTypeAndRemove(t *testing.T) {
 		"display_name": "Alice",
 		"avatar_url":   "mxc://remote.example/alice",
 	})
-	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
-		"target_type": "group",
-		"room_id":     group.RoomID,
-	})
-	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
-		"target_type": "channel",
-		"room_id":     channel.RoomID,
-	})
 
 	list := mustHandle[map[string]any](t, service, "blocks.list", nil)
 	if _, ok := list["blocks"]; ok {
-		t.Fatalf("blocks.list should only return grouped contacts/groups/channels, got %#v", list)
+		t.Fatalf("blocks.list should only return contacts, got %#v", list)
 	}
-	if sliceLen(list["contacts"]) != 1 || sliceLen(list["groups"]) != 1 || sliceLen(list["channels"]) != 1 {
-		t.Fatalf("expected blacklist grouped by contact/group/channel, got %#v", list)
+	if _, ok := list["groups"]; ok {
+		t.Fatalf("blocks.list should not return groups, got %#v", list)
 	}
-	contactBlocks := list["contacts"].([]blockRecord)
-	if contactBlocks[0].DisplayName != "Alice" || contactBlocks[0].AvatarURL != "mxc://remote.example/alice" {
-		t.Fatalf("expected contact block display snapshot, got %#v", contactBlocks[0])
+	if _, ok := list["channels"]; ok {
+		t.Fatalf("blocks.list should not return channels, got %#v", list)
 	}
-	groupBlocks := list["groups"].([]blockRecord)
-	if groupBlocks[0].DisplayName != "Blocked Group" {
-		t.Fatalf("expected group block display name, got %#v", groupBlocks[0])
+	contacts, ok := list["contacts"].([]blockRecord)
+	if !ok || len(contacts) != 1 {
+		t.Fatalf("expected blacklist contacts list, got %#v", list)
 	}
-	channelBlocks := list["channels"].([]blockRecord)
-	if channelBlocks[0].TargetID != channel.RoomID || channelBlocks[0].RoomID != channel.RoomID || channelBlocks[0].ChannelID != "" || channelBlocks[0].DisplayName != "Blocked Channel" {
-		t.Fatalf("expected channel block to be keyed only by room_id, got %#v", channelBlocks[0])
+	if contacts[0].DisplayName != "Alice" || contacts[0].AvatarURL != "mxc://remote.example/alice" {
+		t.Fatalf("expected contact block display snapshot, got %#v", contacts[0])
 	}
 
 	removed := mustHandle[map[string]any](t, service, "blocks.remove", map[string]any{
-		"target_type": "group",
-		"room_id":     group.RoomID,
+		"target_type": "contact",
+		"peer_mxid":   "@alice:remote.example",
 	})
 	if removed["status"] != "ok" || removed["removed"] != true {
-		t.Fatalf("expected group block removal response, got %#v", removed)
+		t.Fatalf("expected contact block removal response, got %#v", removed)
 	}
 	list = mustHandle[map[string]any](t, service, "blocks.list", nil)
-	if sliceLen(list["contacts"]) != 1 || sliceLen(list["groups"]) != 0 || sliceLen(list["channels"]) != 1 {
-		t.Fatalf("expected group block removed from grouped list, got %#v", list)
+	contacts, ok = list["contacts"].([]blockRecord)
+	if !ok || len(contacts) != 0 {
+		t.Fatalf("expected contact block removed from list, got %#v", list)
 	}
 }
 
-func TestBlockedTargetsRejectApplications(t *testing.T) {
+func TestBlockActionsRejectNonContactTargets(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
-	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
-		"room_id": "!blocked-group:example.com",
-		"name":    "Blocked Group",
-	})
-	channel := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":  "blocked_channel",
-		"room_id":     "!blocked-channel:example.com",
-		"name":        "Blocked Channel",
-		"visibility":  "public",
-		"join_policy": "approval",
-	})
+	for _, params := range []map[string]any{
+		{"target_type": "group", "room_id": "!group:example.com"},
+		{"target_type": "channel", "room_id": "!channel:example.com"},
+		{"target_type": "room", "room_id": "!room:example.com"},
+	} {
+		if _, apiErr := service.Handle(context.Background(), "blocks.add", params); apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "target_type must be contact") {
+			t.Fatalf("expected non-contact block target to be rejected, params=%#v err=%#v", params, apiErr)
+		}
+	}
+}
+
+func TestBlockedContactsRejectApplications(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
 
 	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
 		"target_type": "contact",
 		"peer_mxid":   "@alice:remote.example",
 	})
-	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
-		"target_type": "group",
-		"room_id":     group.RoomID,
-	})
-	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
-		"target_type": "channel",
-		"room_id":     channel.RoomID,
-	})
 
 	assertAlreadyBlocked(t, service, "contacts.request", map[string]any{
 		"mxid": "@alice:remote.example",
-	})
-	assertAlreadyBlocked(t, service, "groups.join", map[string]any{
-		"room_id": group.RoomID,
-	})
-	assertAlreadyBlocked(t, service, "channels.public.join_request", map[string]any{
-		"channel_id": channel.ChannelID,
-		"room_id":    channel.RoomID,
-		"user_mxid":  "@bob:remote.example",
 	})
 }
 
@@ -143,12 +111,4 @@ func assertAlreadyBlocked(t *testing.T, service *Service, action string, params 
 	if apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "already blocked") {
 		t.Fatalf("expected %s to fail with already blocked 403, got %#v", action, apiErr)
 	}
-}
-
-func sliceLen(value any) int {
-	v := reflect.ValueOf(value)
-	if !v.IsValid() || v.Kind() != reflect.Slice {
-		return -1
-	}
-	return v.Len()
 }

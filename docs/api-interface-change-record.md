@@ -4,9 +4,9 @@ Last updated: 2026-07-02
 
 ## 2026-07-02 Owner Blocks
 
-Added protected owner actions `blocks.add`, `blocks.list`, and `blocks.remove` for the user blacklist. `blocks.add` accepts `target_type: "contact" | "group" | "channel"` with `peer_mxid`/`mxid` for contacts and `room_id` for groups/channels. Channel block keys are room IDs so clients can cache by Matrix room ID. Each block stores a `display_name` and `avatar_url` display snapshot; when omitted, the server fills it from existing contact/group/channel metadata or falls back to the target ID. `blocks.list` returns grouped `contacts`, `groups`, and `channels` arrays so clients can render user settings by tag. `blocks.remove` cancels a block using the same identifiers.
+Added protected owner actions `blocks.add`, `blocks.list`, and `blocks.remove` for the user contact blacklist. `blocks.add` accepts `target_type: "contact"` with `peer_mxid`/`mxid`; group, channel, and room targets are not part of the current product contract. Each block stores a `display_name` and `avatar_url` display snapshot; when omitted, the server fills it from existing contact metadata or falls back to the target ID. `blocks.list` returns a `contacts` array for the user settings blacklist. `blocks.remove` cancels a contact block using the same identifiers.
 
-When an owner tries to send a friend request, join a group, send or accept a group/channel invite, or create a public channel join request against an already blocked target, the action fails before Matrix writes with:
+When an owner tries to send a friend request to an already blocked contact, the action fails before Matrix writes with:
 
 ```json
 {
@@ -16,7 +16,7 @@ When an owner tries to send a friend request, join a group, send or accept a gro
 
 The HTTP/WS response status is `403`. These actions require owner `access_token`; they are not public actions and are not available to `agent_token`.
 
-Inbound Matrix invites from blocked contacts, groups, or channels are ignored by projection and do not appear as pending friend, group, or channel requests.
+Inbound Matrix direct invites from blocked contacts are ignored by projection and do not appear as pending friend requests.
 
 ## 2026-07-01 Agent Config Avatar And MCP Room Blacklist
 

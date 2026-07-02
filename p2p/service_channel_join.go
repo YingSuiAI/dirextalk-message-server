@@ -33,9 +33,6 @@ func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any)
 	}
 	roomID = ch.RoomID
 	channelID = ch.ChannelID
-	if apiErr := s.rejectIfBlocked(ctx, "channel", roomID); apiErr != nil {
-		return nil, apiErr
-	}
 	if !strings.EqualFold(ch.Visibility, "public") {
 		return nil, statusError(403, "channel is private")
 	}

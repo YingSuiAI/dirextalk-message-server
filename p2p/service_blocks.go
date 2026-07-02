@@ -39,29 +39,24 @@ func (s *Service) blockListAction(ctx context.Context, _ map[string]any) (any, *
 		return nil, internalError(err)
 	}
 	contacts := make([]blockRecord, 0)
-	groups := make([]blockRecord, 0)
-	channels := make([]blockRecord, 0)
 	for _, block := range blocks {
-		switch block.TargetType {
-		case "contact":
+		if block.TargetType == "contact" {
 			contacts = append(contacts, block)
-		case "group":
-			groups = append(groups, block)
-		case "channel":
-			channels = append(channels, block)
 		}
 	}
 	return map[string]any{
 		"contacts": contacts,
-		"groups":   groups,
-		"channels": channels,
 	}, nil
 }
 
 func (s *Service) blockRecordFromParams(ctx context.Context, params map[string]any) (blockRecord, *apiError) {
-	targetType := normalizeBlockTargetType(fallbackString(trimString(params["target_type"]), trimString(params["type"])))
-	if targetType == "" {
+	rawTargetType := fallbackString(trimString(params["target_type"]), trimString(params["type"]))
+	if rawTargetType == "" {
 		return blockRecord{}, badRequest("target_type is required")
+	}
+	targetType := normalizeBlockTargetType(rawTargetType)
+	if targetType == "" {
+		return blockRecord{}, badRequest("target_type must be contact")
 	}
 	block := blockRecord{
 		TargetType:  targetType,
@@ -87,38 +82,8 @@ func (s *Service) blockRecordFromParams(ctx context.Context, params map[string]a
 		}
 		block.TargetID = block.PeerMXID
 		block.DisplayName = fallbackString(block.DisplayName, displayNameFromMXID(block.PeerMXID))
-	case "group":
-		block.RoomID = fallbackString(block.RoomID, block.TargetID)
-		if block.RoomID == "" {
-			return blockRecord{}, badRequest("room_id is required")
-		}
-		if group, ok, err := s.groupByRoom(ctx, block.RoomID); err != nil {
-			return blockRecord{}, internalError(err)
-		} else if ok {
-			block.DisplayName = fallbackString(block.DisplayName, group.Name)
-			block.AvatarURL = fallbackString(block.AvatarURL, group.AvatarURL)
-		}
-		block.TargetID = block.RoomID
-		block.DisplayName = fallbackString(block.DisplayName, block.RoomID)
-	case "channel":
-		if block.RoomID == "" && block.TargetID != "" && strings.HasPrefix(block.TargetID, "!") {
-			block.RoomID = block.TargetID
-		}
-		if block.RoomID == "" {
-			return blockRecord{}, badRequest("room_id is required")
-		}
-		if ch, ok, err := s.channelByIDOrRoom(ctx, "", block.RoomID); err != nil {
-			return blockRecord{}, internalError(err)
-		} else if ok {
-			block.RoomID = fallbackString(block.RoomID, ch.RoomID)
-			block.DisplayName = fallbackString(block.DisplayName, ch.Name)
-			block.AvatarURL = fallbackString(block.AvatarURL, ch.AvatarURL)
-		}
-		block.ChannelID = ""
-		block.TargetID = block.RoomID
-		block.DisplayName = fallbackString(block.DisplayName, block.RoomID)
 	default:
-		return blockRecord{}, badRequest("target_type must be contact, group, or channel")
+		return blockRecord{}, badRequest("target_type must be contact")
 	}
 	return block, nil
 }
@@ -127,10 +92,6 @@ func normalizeBlockTargetType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "friend", "user", "member", "contact":
 		return "contact"
-	case "room", "group":
-		return "group"
-	case "channel":
-		return "channel"
 	default:
 		return ""
 	}

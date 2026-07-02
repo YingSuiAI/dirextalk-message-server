@@ -190,12 +190,12 @@ Contacts：
 
 Blocks：
 
-- `blocks.add`、`blocks.list`、`blocks.remove` 是 owner protected action，用于管理当前用户拉黑的联系人、群聊和频道。
-- 联系人拉黑使用 `target_type=contact` 与 `peer_mxid`/`mxid`；群聊拉黑使用 `target_type=group` 与 `room_id`；频道拉黑使用 `target_type=channel` 与 `room_id`，客户端本地可直接用 room_id 做索引。
-- 每条黑名单记录保存 `display_name` 与 `avatar_url` 展示快照；客户端没有传昵称时，服务端从现有好友/群/频道资料回填，仍为空则回退到目标 id，避免黑名单只展示 id。
-- `blocks.list` 只按 `contacts`、`groups`、`channels` 分组返回，供用户设置页分 tag 展示。客户端可在好友、群聊、频道设置页调用 `blocks.add`，在黑名单列表中调用 `blocks.remove` 取消拉黑。
-- 对已拉黑联系人发起好友申请、邀请已拉黑用户、加入已拉黑群聊/频道、或向已拉黑频道发起公开加入申请时，服务端在 Matrix 写入前返回 `403 already blocked`，客户端应提示“已经拉黑”。
-- 被拉黑联系人、群聊、频道对应的 inbound Matrix invite 不会投影成 pending 好友/群聊/频道申请。
+- `blocks.add`、`blocks.list`、`blocks.remove` 是 owner protected action，用于管理当前用户拉黑的联系人，不提供群聊或频道拉黑。
+- 联系人拉黑使用 `target_type=contact` 与 `peer_mxid`/`mxid`；`target_type=group/channel/room` 不是当前产品能力，应返回参数错误。
+- 每条黑名单记录保存 `display_name` 与 `avatar_url` 展示快照；客户端没有传昵称时，服务端从现有好友资料回填，仍为空则回退到目标 id，避免黑名单只展示 id。
+- `blocks.list` 只返回 `contacts` 列表，供用户设置页展示；客户端可在好友设置页调用 `blocks.add`，在黑名单列表中调用 `blocks.remove` 取消拉黑。
+- 对已拉黑联系人发起好友申请或邀请已拉黑用户加入群聊/频道时，服务端在 Matrix 写入前返回 `403 already blocked`，客户端应提示“已经拉黑”。
+- 被拉黑联系人对应的 inbound Matrix direct invite 不会投影成 pending 好友申请。
 
 Groups：
 

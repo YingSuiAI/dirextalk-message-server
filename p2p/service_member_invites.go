@@ -24,9 +24,6 @@ func (s *Service) inviteMembers(ctx context.Context, scope string, params map[st
 			roomID = ch.RoomID
 		}
 	}
-	if apiErr := s.rejectIfBlocked(ctx, scope, roomID, channelID); apiErr != nil {
-		return nil, apiErr
-	}
 	inviteRoomState, apiErr := s.productInviteRoomState(ctx, scope, roomID, channelID)
 	if apiErr != nil {
 		return nil, apiErr
@@ -292,9 +289,6 @@ func (s *Service) joinMember(ctx context.Context, scope string, params map[strin
 			roomID = ch.RoomID
 			params["room_id"] = roomID
 		}
-	}
-	if apiErr := s.rejectIfBlocked(ctx, scope, roomID, channelID); apiErr != nil {
-		return nil, apiErr
 	}
 	userID := firstMemberID(params)
 	if userID == "" {

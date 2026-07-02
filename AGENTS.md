@@ -71,7 +71,7 @@ Rules:
   - `initialized` means the generated initial password has been changed through `portal.password`; profile completion must not affect it.
 - Profile: owner profile read/update, Matrix-facing profile storage, member profile propagation.
 - Contacts: direct room invite, inbound/outbound request projection, accept/reject/delete/reactivate, remark update.
-- Blocks: owner-managed contact/group/channel blacklist through `blocks.add`, `blocks.list`, and `blocks.remove`. Blacklist rows must keep display fields such as `display_name`/`avatar_url`; group and channel blocks are keyed by `room_id`. Attempts to request or join an already blocked contact, group, or channel must fail before Matrix writes with `403 already blocked`.
+- Blocks: owner-managed contact blacklist through `blocks.add`, `blocks.list`, and `blocks.remove`. Blacklist rows must keep display fields such as `display_name`/`avatar_url`; `blocks.list` returns only `contacts`. Attempts to request an already blocked contact must fail before Matrix writes with `403 already blocked`. Group and channel blacklist targets are not current product behavior.
 - Rooms/messages: ordinary text/media send, history, search, local hiding, and redaction through Matrix APIs.
 - Groups: create, update, invite, join, leave, dissolve, mute/unmute, invite policy, member moderation.
 - Channels: create, update, list, public search/detail, public join request, approval/rejection callbacks, automatic Matrix join after approval, invite/join/leave/dissolve, members, moderation, read markers.

@@ -274,7 +274,7 @@ Backend product actions include:
 
 Contact, group/channel invite, and member mutation actions return `operation` and, when a ProductCore conversation exists, the hydrated `conversation` so clients can refresh, open, or close the current route without reconstructing room state from names, member counts, or Matrix room metadata.
 
-Owner block actions persist a contact/group/channel blacklist in the P2P store. Group and channel blocks are keyed by `room_id`; contacts are keyed by `peer_mxid`. Each row stores `display_name` and `avatar_url` for client display, filled from existing metadata when omitted. `blocks.list` returns `contacts`, `groups`, and `channels` grouped arrays for the user settings page. Friend requests, inbound direct invite projection, group/channel joins, group/channel invites, and public channel join requests check the blacklist before Matrix writes or pending request projection and return `403 already blocked` when the target has already been blocked.
+Owner block actions persist a contact blacklist in the P2P store. Contacts are keyed by `peer_mxid`. Each row stores `display_name` and `avatar_url` for client display, filled from existing contact metadata when omitted. `blocks.list` returns a `contacts` array for the user settings page. Friend requests, inbound direct invite projection, and inviting a blocked user to a group/channel check the blacklist before Matrix writes or pending request projection and return `403 already blocked` when the contact has already been blocked.
 
 Agent authorization is fixed: owner `access_token` may call protected actions and create realtime WS tickets, while `agent_token` may call only `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Dynamic Agent permission endpoints are removed.
 
