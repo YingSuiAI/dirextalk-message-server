@@ -161,6 +161,14 @@ func (s *Service) projectMember(ctx context.Context, event *types.HeaderedEvent)
 			})
 		}
 	}
+	if strings.EqualFold(member.Membership, "invite") &&
+		!boolParam(content["is_direct"]) &&
+		userID == s.ownerMXID {
+		blocked, err := s.productInviteBlocked(ctx, event, member)
+		if err != nil || blocked {
+			return err
+		}
+	}
 	if err := s.saveMember(ctx, member); err != nil {
 		return err
 	}
@@ -189,6 +197,23 @@ func (s *Service) projectMember(ctx context.Context, event *types.HeaderedEvent)
 		}
 	}
 	return nil
+}
+
+func (s *Service) productInviteBlocked(ctx context.Context, event *types.HeaderedEvent, member memberRecord) (bool, error) {
+	content, ok := s.productInviteFromInvite(event)
+	if !ok {
+		return s.blockExists(ctx, "group", event.RoomID().String(), member.RoomID)
+	}
+	roomID := fallbackString(trimString(content["room_id"]), event.RoomID().String())
+	switch trimString(content["room_type"]) {
+	case DirexioRoomTypeGroup:
+		return s.blockExists(ctx, "group", roomID)
+	case DirexioRoomTypeChannel:
+		channelID := fallbackString(trimString(content["channel_id"]), member.ChannelID)
+		return s.blockExists(ctx, "channel", roomID, channelID)
+	default:
+		return false, nil
+	}
 }
 
 func (s *Service) projectDirectContactMember(ctx context.Context, member memberRecord, content map[string]any) error {
@@ -398,6 +423,13 @@ func (s *Service) contactRequestFromContent(roomID, sender string, content map[s
 }
 
 func (s *Service) savePendingInboundContact(ctx context.Context, contact contactRecord) error {
+	blocked, err := s.blockExists(ctx, "contact", contact.PeerMXID)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return nil
+	}
 	contact.Status = "pending_inbound"
 	contacts, err := s.rawContacts(ctx)
 	if err != nil {

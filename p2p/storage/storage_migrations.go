@@ -527,6 +527,26 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return err
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: owner blocks v30",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_blocks (
+					target_type TEXT NOT NULL,
+					target_id TEXT NOT NULL,
+					room_id TEXT NOT NULL DEFAULT '',
+					peer_mxid TEXT NOT NULL DEFAULT '',
+					display_name TEXT NOT NULL DEFAULT '',
+					avatar_url TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL DEFAULT 0,
+					PRIMARY KEY (target_type, target_id)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_blocks_type_idx ON p2p_blocks(target_type, display_name, target_id)`,
+				`CREATE INDEX IF NOT EXISTS p2p_blocks_room_idx ON p2p_blocks(room_id)`,
+				`CREATE INDEX IF NOT EXISTS p2p_blocks_peer_idx ON p2p_blocks(peer_mxid)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

@@ -1392,6 +1392,108 @@
           "description": "频道帖子和评论点赞/互动，以及当前用户互动记录接口。"
         },
         {
+          "name": "blocks（黑名单）",
+          "item": [
+            {
+              "name": "blocks.add（新增拉黑）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "新增拉黑联系人、群聊或频道。\n\nBlock a contact, group, or channel\n\nAction: `blocks.add`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.\n\n`target_type` is `contact`, `group`, or `channel`. Contact blocks use `peer_mxid`/`mxid`; group and channel blocks use `room_id`. Each block stores `display_name` and `avatar_url` as a client display snapshot; when omitted, the server uses existing contact/group/channel metadata or falls back to the id. Requests or joins against an already blocked target fail with `403 already blocked`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"blocks.add\",\n  \"params\": {\n    \"target_type\": \"contact\",\n    \"peer_mxid\": \"{{peerUserID}}\",\n    \"display_name\": \"Peer\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "blocks.list（查看黑名单）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "查看黑名单，响应只包含 contacts/groups/channels 分组；每条记录带 display_name/avatar_url 展示快照。\n\nList blocked contacts, groups, and channels\n\nAction: `blocks.list`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"blocks.list\",\n  \"params\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "blocks.remove（取消拉黑）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "取消拉黑联系人、群聊或频道。\n\nRemove a contact, group, or channel from the block list\n\nAction: `blocks.remove`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"blocks.remove\",\n  \"params\": {\n    \"target_type\": \"contact\",\n    \"peer_mxid\": \"{{peerUserID}}\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "description": "用户黑名单接口。客户端可在好友、群聊、频道设置页调用 blocks.add；在用户设置页调用 blocks.list 后按 contacts/groups/channels 分 tag 展示 display_name/avatar_url，并通过 blocks.remove 取消拉黑。频道黑名单 key 使用 room_id。"
+        },
+        {
           "name": "contacts（联系人）",
           "item": [
             {

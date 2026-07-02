@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-30
 
-`p2p.Service.Handle` is the source of truth for the product action surface. The current code exposes **90** P2P body actions plus the WS product request/event endpoint.
+`p2p.Service.Handle` is the source of truth for the product action surface. The current code exposes **93** P2P body actions plus the WS product request/event endpoint.
 
 ## Current Feature Areas
 
@@ -12,6 +12,7 @@ Last updated: 2026-06-30
 | Profile | Owner profile read/update and propagation to Matrix room member state. |
 | Sync | Bootstrap metadata, read markers, and pending notices. Ordinary message sync/history/search uses Matrix APIs. |
 | Contacts | Direct invite request/accept/reject/delete, remark update, inbound invite projection, contact reactivation. |
+| Blocks | Owner-managed blacklist for contacts, groups, and channels, with display names for settings lists and blocked application/invite attempts rejected before Matrix writes. |
 | Matrix Messages | Text/media send, history, search, unread data, local hiding, and redaction use Matrix Client-Server APIs. |
 | Groups | Create/update/list/invite/join/members/mute/leave/remove/dissolve/invite policy/invite reject. |
 | Channels | Create/update/list/invite/join/invite grants/members/moderation/mute/read-marker/dissolve. |
@@ -51,6 +52,7 @@ Protected action groups:
 - Agent/MCP: `agent.config.get`, `agent.config.update`, `agent.password`, `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.room_members.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, `mcp.channel_comments.create`
 - Portal/Profile/Sync: `portal.password`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`
 - Contacts: `contacts.request`, `contacts.list`, `contacts.update`, `contacts.delete`, `contacts.requests.accept`, `contacts.requests.reject`, `contacts.requests.delete`
+- Blocks: `blocks.add`, `blocks.list`, `blocks.remove`
 - Conversations: `conversations.list`, `conversations.get`
 - Groups: `groups.create`, `groups.update`, `groups.invite`, `groups.invite.reject`, `groups.join`, `groups.list`, `groups.members`, `groups.leave`, `groups.dissolve`, `groups.mute`, `groups.unmute`, `groups.invite_policy.update`, `groups.member.remove`, `groups.member.mute`, `groups.member.unmute`
 - Channels: `channels.create`, `channels.update`, `channels.invite`, `channels.invite_grant.create`, `channels.join`, `channels.list`, `channels.members`, `channels.leave`, `channels.dissolve`, `channels.mute`, `channels.unmute`, `channels.read_marker`, `channels.join_request.approve`, `channels.join_request.reject`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`

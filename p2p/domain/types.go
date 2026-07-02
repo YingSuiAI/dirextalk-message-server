@@ -119,6 +119,17 @@ type ContactRecord struct {
 	Conversation        *ConversationView `json:"conversation,omitempty"`
 }
 
+type BlockRecord struct {
+	TargetType  string `json:"target_type"`
+	TargetID    string `json:"target_id"`
+	RoomID      string `json:"room_id"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	PeerMXID    string `json:"peer_mxid"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 type GroupRecord struct {
 	RoomID       string            `json:"room_id"`
 	Name         string            `json:"name"`

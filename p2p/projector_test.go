@@ -1147,6 +1147,61 @@ func TestProjectOutputNewInviteCreatesGroupAndChannelPendingItems(t *testing.T) 
 	}
 }
 
+func TestBlockedGroupAndChannelInviteProjectionIsIgnored(t *testing.T) {
+	owner := test.NewUser(t)
+	remote := test.NewUser(t)
+	groupRoom := test.NewRoom(t, remote)
+	channelRoom := test.NewRoom(t, remote)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = owner.ID
+	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
+		"target_type": "group",
+		"room_id":     groupRoom.ID,
+	})
+	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
+		"target_type": "channel",
+		"channel_id":  "remote_channel",
+		"room_id":     channelRoom.ID,
+	})
+
+	groupInvite := groupRoom.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomProfileState(t, groupInvite, remote.ID, map[string]any{
+		"room_type": DirexioRoomTypeGroup,
+		"room_id":   groupRoom.ID,
+		"name":      "Blocked Group",
+	})
+	channelInvite := channelRoom.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+		"membership": "invite",
+	}, test.WithStateKey(owner.ID))
+	setInviteRoomProfileState(t, channelInvite, remote.ID, map[string]any{
+		"room_type":  DirexioRoomTypeChannel,
+		"channel_id": "remote_channel",
+		"room_id":    channelRoom.ID,
+		"name":       "Blocked Channel",
+	})
+	for _, invite := range []*types.HeaderedEvent{groupInvite, channelInvite} {
+		if err := service.ProjectOutputEvent(context.Background(), roomserverAPI.OutputEvent{
+			Type: roomserverAPI.OutputTypeNewInviteEvent,
+			NewInviteEvent: &roomserverAPI.OutputNewInviteEvent{
+				Event: invite,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
+	pending := bootstrap["pending"].(map[string]any)
+	if got := pending["group_invites"].([]map[string]any); len(got) != 0 {
+		t.Fatalf("expected blocked group invite to be ignored, got %#v", got)
+	}
+	if got := pending["channel_notices"].([]map[string]any); len(got) != 0 {
+		t.Fatalf("expected blocked channel invite to be ignored, got %#v", got)
+	}
+}
+
 func setInviteRoomState(t *testing.T, event *types.HeaderedEvent, sender string, content map[string]any) {
 	t.Helper()
 	native := map[string]any{"room_type": DirexioRoomTypeDirect}

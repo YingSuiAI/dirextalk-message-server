@@ -39,6 +39,9 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_channel_comments_event_idx",
 		"p2p_contacts_peer_idx",
 		"p2p_contacts_status_idx",
+		"p2p_blocks_type_idx",
+		"p2p_blocks_room_idx",
+		"p2p_blocks_peer_idx",
 		"p2p_calls_room_idx",
 		"p2p_calls_state_idx",
 		"p2p_favorites_type_idx",
@@ -125,6 +128,67 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 		VALUES ($1, $2, $3, $4, $5)
 	`, "!third:example.com", "@alice:remote.example", "Alice Duplicate", "remote.example", "pending_outbound"); err == nil {
 		t.Fatalf("expected raw duplicate contact insert to fail unique peer constraint")
+	}
+}
+
+func TestDatabaseStorePersistsBlocks(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	block := blockRecord{
+		TargetType:  "channel",
+		TargetID:    "!blocked:example.com",
+		RoomID:      "!blocked:example.com",
+		DisplayName: "Blocked Channel",
+		AvatarURL:   "mxc://example.com/blocked",
+		CreatedAt:   123,
+	}
+	if err := store.UpsertBlock(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertBlock(ctx, blockRecord{
+		TargetType:  "channel",
+		TargetID:    "!blocked:example.com",
+		RoomID:      "!blocked:example.com",
+		DisplayName: "Blocked Channel Updated",
+		CreatedAt:   456,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloaded.Close()
+	blocks, err := reloaded.ListBlocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 || blocks[0].TargetID != "!blocked:example.com" || blocks[0].ChannelID != "" || blocks[0].DisplayName != "Blocked Channel Updated" || blocks[0].CreatedAt != 123 {
+		t.Fatalf("expected one persisted block preserving original created_at, got %#v", blocks)
+	}
+	removed, err := reloaded.DeleteBlock(ctx, "channel", "!blocked:example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatalf("expected persisted block to be removed")
+	}
+	blocks, err = reloaded.ListBlocks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("expected no blocks after removal, got %#v", blocks)
 	}
 }
 

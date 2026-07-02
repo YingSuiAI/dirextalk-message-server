@@ -33,6 +33,9 @@ func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any)
 	}
 	roomID = ch.RoomID
 	channelID = ch.ChannelID
+	if apiErr := s.rejectIfBlocked(ctx, "channel", roomID); apiErr != nil {
+		return nil, apiErr
+	}
 	if !strings.EqualFold(ch.Visibility, "public") {
 		return nil, statusError(403, "channel is private")
 	}
@@ -41,6 +44,9 @@ func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any)
 	}
 	if userID == "" {
 		return nil, badRequest("user_id is required")
+	}
+	if apiErr := s.rejectIfBlocked(ctx, "contact", userID); apiErr != nil {
+		return nil, apiErr
 	}
 	existing, ok, err := s.lookupMember(ctx, roomID, userID)
 	if err != nil {

@@ -84,6 +84,7 @@ type Service struct {
 	posts         []channelPostRecord
 	comments      []channelCommentRecord
 	contacts      map[string]contactRecord
+	blocks        map[string]blockRecord
 	groups        map[string]groupRecord
 	calls         map[string]callRecord
 	favorites     map[int64]favoriteRecord
@@ -126,6 +127,9 @@ type Store interface {
 	UpsertContact(ctx context.Context, contact contactRecord) error
 	ListContacts(ctx context.Context) ([]contactRecord, error)
 	DeleteContact(ctx context.Context, roomID string) error
+	UpsertBlock(ctx context.Context, block blockRecord) error
+	DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error)
+	ListBlocks(ctx context.Context) ([]blockRecord, error)
 	UpsertGroup(ctx context.Context, group groupRecord) error
 	DeleteGroup(ctx context.Context, roomID string) error
 	ListGroups(ctx context.Context) ([]groupRecord, error)
@@ -178,6 +182,7 @@ type channelInviteGrant = domain.ChannelInviteGrant
 type channelPostRecord = domain.ChannelPostRecord
 type channelCommentRecord = domain.ChannelCommentRecord
 type contactRecord = domain.ContactRecord
+type blockRecord = domain.BlockRecord
 type groupRecord = domain.GroupRecord
 type callRecord = domain.CallRecord
 type favoriteRecord = domain.FavoriteRecord
@@ -541,6 +546,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		readMarkers:                map[string]readMarker{},
 		channels:                   map[string]channel{},
 		contacts:                   map[string]contactRecord{},
+		blocks:                     map[string]blockRecord{},
 		groups:                     map[string]groupRecord{},
 		calls:                      map[string]callRecord{},
 		favorites:                  map[int64]favoriteRecord{},

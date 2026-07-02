@@ -26,6 +26,9 @@ func (s *Service) contactRequest(ctx context.Context, params map[string]any) (an
 	if mxid == ownerMXID {
 		return nil, badRequest("mxid must be a remote peer")
 	}
+	if apiErr := s.rejectIfBlocked(ctx, "contact", mxid); apiErr != nil {
+		return nil, apiErr
+	}
 	domain := trimString(params["domain"])
 	if domain == "" && strings.Contains(mxid, ":") {
 		domain = mxid[strings.Index(mxid, ":")+1:]
