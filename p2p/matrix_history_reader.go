@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 type HTTPMatrixHistoryReader = matrixhistory.HTTPMessageReader

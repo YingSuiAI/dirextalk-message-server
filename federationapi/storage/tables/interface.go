@@ -10,7 +10,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

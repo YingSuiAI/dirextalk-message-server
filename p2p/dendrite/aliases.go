@@ -1,16 +1,16 @@
 package dendrite
 
 import (
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
-	"github.com/YingSuiAI/direxio-message-server/p2p/transportapi"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/transportapi"
 )
 
 const (
-	DirexioRoomTypeChannel       = productpolicy.DirexioRoomTypeChannel
-	DirexioRoomProfileEventType  = productpolicy.DirexioRoomProfileEventType
-	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
-	DirexioMemberPolicyEventType = productpolicy.DirexioMemberPolicyEventType
+	DirextalkRoomTypeChannel       = productpolicy.DirextalkRoomTypeChannel
+	DirextalkRoomProfileEventType  = productpolicy.DirextalkRoomProfileEventType
+	DirextalkJoinRequestEventType  = productpolicy.DirextalkJoinRequestEventType
+	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType
 )
 
 type channel = domain.Channel

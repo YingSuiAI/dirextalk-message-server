@@ -201,7 +201,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a Direxio P2P capacity smoke against one node.")
+    parser = argparse.ArgumentParser(description="Run a Dirextalk P2P capacity smoke against one node.")
     parser.add_argument("--base-url", required=True, help="Node base URL, for example http://localhost:8008")
     parser.add_argument("--access-token", default="", help="Portal owner access token")
     parser.add_argument("--password", default="", help="Portal owner password; used only when access token is omitted")

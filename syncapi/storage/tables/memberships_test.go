@@ -8,14 +8,14 @@ import (
 
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/postgres"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/sqlite3"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func newMembershipsTable(t *testing.T, dbType test.DBType) (tables.Memberships, *sql.DB, func()) {

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	api2 "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/producers"
+	api2 "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/producers"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -25,12 +25,12 @@ import (
 	"github.com/nats-io/nats.go"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
 )
 
 const (
@@ -168,7 +168,7 @@ func TestQueryProfile(t *testing.T) {
 
 // TestPasswordlessLoginFails ensures that a passwordless account cannot
 // be logged into using an arbitrary password (effectively a regression test
-// for https://github.com/YingSuiAI/direxio-message-server/issues/2780).
+// for https://github.com/YingSuiAI/dirextalk-message-server/issues/2780).
 func TestPasswordlessLoginFails(t *testing.T) {
 	ctx := context.Background()
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {

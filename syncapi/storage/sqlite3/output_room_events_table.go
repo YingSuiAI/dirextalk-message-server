@@ -15,16 +15,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/sqlite3/deltas"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/matrix-org/gomatrixserverlib"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 )
 
 const outputRoomEventsSchema = `

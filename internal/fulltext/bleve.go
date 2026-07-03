@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/blevesearch/bleve/v2"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
@@ -41,7 +41,7 @@ import (
 	_ "github.com/blevesearch/bleve/v2/analysis/lang/tr"
 	"github.com/blevesearch/bleve/v2/mapping"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // Search contains all existing bleve.Index

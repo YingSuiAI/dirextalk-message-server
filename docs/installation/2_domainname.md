@@ -37,10 +37,10 @@ not be accepted by other homeservers.)
 Automating the renewal of TLS certificates is best practice. There are many tools for this,
 but the simplest way to achieve TLS automation is to have your reverse proxy do it for you.
 [Caddy](https://caddyserver.com) is recommended as a production-grade reverse proxy with
-automatic TLS which is commonly used in front of Direxio Message Server. It obtains and renews TLS certificates
+automatic TLS which is commonly used in front of Dirextalk Message Server. It obtains and renews TLS certificates
 automatically and by default as long as your domain name is pointed at your server first.
 Although the finer details of [configuring Caddy](https://caddyserver.com/docs/) is not described
-here, in general, you must reverse proxy all `/_matrix` paths to your Direxio Message Server server. For example,
+here, in general, you must reverse proxy all `/_matrix` paths to your Dirextalk Message Server server. For example,
 with Caddy:
 
 ```
@@ -52,11 +52,11 @@ domain delegation is configured to point to port TCP/443.
 
 ## Delegation
 
-Delegation allows you to specify the server name and port that your Direxio Message Server installation is
-reachable at, or to host the Direxio Message Server server at a different server name to the domain that
+Delegation allows you to specify the server name and port that your Dirextalk Message Server installation is
+reachable at, or to host the Dirextalk Message Server server at a different server name to the domain that
 is being delegated.
 
-For example, if your Direxio Message Server installation is actually reachable at `matrix.example.com` port 8448,
+For example, if your Dirextalk Message Server installation is actually reachable at `matrix.example.com` port 8448,
 you will be able to delegate from `example.com` to `matrix.example.com` so that your users will have
 `@user:example.com` user names instead of `@user:matrix.example.com` usernames.
 
@@ -66,7 +66,7 @@ Delegation can be performed in one of two ways:
   name that you want to use, pointing to your server on `matrix.example.com` port 8448;
 * **DNS SRV delegation (not recommended)**: See the SRV delegation section below for details.
 
-If you are using a reverse proxy to forward `/_matrix` to Direxio Message Server, your well-known or delegation
+If you are using a reverse proxy to forward `/_matrix` to Dirextalk Message Server, your well-known or delegation
 must refer to the hostname and port that the reverse proxy is listening on instead.
 
 ## Well-known delegation
@@ -74,7 +74,7 @@ must refer to the hostname and port that the reverse proxy is listening on inste
 Using well-known delegation requires that you are running a web server at `example.com` which
 is listening on the standard HTTPS port TCP/443.
 
-Assuming that your Direxio Message Server installation is listening for HTTPS connections at `matrix.example.com`
+Assuming that your Dirextalk Message Server installation is listening for HTTPS connections at `matrix.example.com`
 on port 8448, the delegation file must be served at `https://example.com/.well-known/matrix/server`
 and contain the following JSON document:
 
@@ -100,8 +100,8 @@ handle /.well-known/matrix/client {
 }
 ```
 
-You can also serve `.well-known` with Direxio Message Server itself by setting the `well_known_server_name` config
-option to the value you want for `m.server`. This is primarily useful if Direxio Message Server is exposed on
+You can also serve `.well-known` with Dirextalk Message Server itself by setting the `well_known_server_name` config
+option to the value you want for `m.server`. This is primarily useful if Dirextalk Message Server is exposed on
 `example.com:443` and you don't want to set up a separate webserver just for serving the `.well-known`
 file.
 

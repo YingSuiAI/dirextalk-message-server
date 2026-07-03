@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

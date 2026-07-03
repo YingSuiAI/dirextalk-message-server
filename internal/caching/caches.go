@@ -7,7 +7,7 @@
 package caching
 
 import (
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 )

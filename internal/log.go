@@ -23,7 +23,7 @@ import (
 	"github.com/matrix-org/dugong"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // logrus is using a global variable when we're using `logrus.AddHook`

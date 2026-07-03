@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 )
 
 func (s *DatabaseStore) migrate(ctx context.Context) error {

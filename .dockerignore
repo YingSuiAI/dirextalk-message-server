@@ -12,7 +12,7 @@ coverage/
 *.out
 *.test
 *.prof
-/direxio-message-server-*
+/dirextalk-message-server-*
 
 # Local runtime data and generated configs.
 *.db

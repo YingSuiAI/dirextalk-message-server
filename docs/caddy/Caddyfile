@@ -1,4 +1,4 @@
-# Sample Caddyfile for using Caddy in front of Direxio Message Server.
+# Sample Caddyfile for using Caddy in front of Dirextalk Message Server.
 #
 # Customize email address and domain names.
 # Optional settings commented out.
@@ -52,6 +52,6 @@ example.com {
 
 # The actual domain name whereby your Matrix server is accessed.
 matrix.example.com {
-	# Set localhost:8008 to the address of your Direxio Message Server server, if different
+	# Set localhost:8008 to the address of your Dirextalk Message Server server, if different
 	reverse_proxy /_matrix/* localhost:8008
 }

@@ -11,19 +11,19 @@ func TestConversationKindFromContentUsesExplicitRoomType(t *testing.T) {
 		{
 			name: "direct profile with invite policy stays direct",
 			in: map[string]any{
-				"room_type":     DirexioRoomTypeDirect,
+				"room_type":     DirextalkRoomTypeDirect,
 				"invite_policy": "member",
 			},
 			want: conversationKindDirect,
 		},
 		{
 			name: "group profile",
-			in:   map[string]any{"room_type": DirexioRoomTypeGroup},
+			in:   map[string]any{"room_type": DirextalkRoomTypeGroup},
 			want: conversationKindGroup,
 		},
 		{
 			name: "channel profile",
-			in:   map[string]any{"room_type": DirexioRoomTypeChannel},
+			in:   map[string]any{"room_type": DirextalkRoomTypeChannel},
 			want: conversationKindChannel,
 		},
 	}

@@ -11,7 +11,7 @@ package state
 import (
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func TestFindDuplicateStateKeys(t *testing.T) {

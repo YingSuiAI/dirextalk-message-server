@@ -23,16 +23,16 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	fsAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rsAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/helpers"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/input"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/query"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	fsAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rsAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/helpers"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/input"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/query"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 type Joiner struct {

@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 var dummyMigrations = []sqlutil.Migration{

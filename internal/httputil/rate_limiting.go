@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 )

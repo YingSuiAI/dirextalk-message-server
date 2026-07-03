@@ -70,7 +70,7 @@ global:
   kafka:
     addresses:
     - localhost:2181
-    topic_prefix: DirexioMessageServer
+    topic_prefix: DirextalkMessageServer
     use_naffka: true
     naffka_database:
       connection_string: file:naffka.db

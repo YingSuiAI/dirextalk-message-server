@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
 func (s *Service) channelResult(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -50,7 +50,7 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 			Name:         fallbackString(trimString(params["name"]), channelID),
 			Topic:        trimString(params["description"]),
 			Visibility:   fallbackString(trimString(params["visibility"]), "public"),
-			RoomType:     DirexioRoomTypeChannel,
+			RoomType:     DirextalkRoomTypeChannel,
 			IsDirect:     false,
 			InitialState: initialState,
 		})
@@ -451,7 +451,7 @@ func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, s
 		RoomID:     roomID,
 		SenderMXID: senderMXID,
 		Event: RoomStateEvent{
-			Type:     DirexioJoinRequestEventType,
+			Type:     DirextalkJoinRequestEventType,
 			StateKey: productpolicy.UserStateKey(userID),
 			Content:  content,
 		},
@@ -475,7 +475,7 @@ func (s *Service) publishMemberPolicyState(ctx context.Context, member memberRec
 		RoomID:     member.RoomID,
 		SenderMXID: senderMXID,
 		Event: RoomStateEvent{
-			Type:     DirexioMemberPolicyEventType,
+			Type:     DirextalkMemberPolicyEventType,
 			StateKey: productpolicy.UserStateKey(member.UserID),
 			Content: map[string]any{
 				"role":    fallbackString(member.Role, "member"),

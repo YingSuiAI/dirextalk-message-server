@@ -7,21 +7,21 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 const (
-	DirexioRoomTypeDirect  = "io.direxio.room.direct"
-	DirexioRoomTypeGroup   = "io.direxio.room.group"
-	DirexioRoomTypeChannel = "io.direxio.room.channel"
+	DirextalkRoomTypeDirect  = "io.dirextalk.room.direct"
+	DirextalkRoomTypeGroup   = "io.dirextalk.room.group"
+	DirextalkRoomTypeChannel = "io.dirextalk.room.channel"
 
-	DirexioRoomProfileEventType  = "io.direxio.room.profile"
-	DirexioMemberPolicyEventType = "io.direxio.member.policy"
-	DirexioJoinRequestEventType  = "io.direxio.join_request"
+	DirextalkRoomProfileEventType  = "io.dirextalk.room.profile"
+	DirextalkMemberPolicyEventType = "io.dirextalk.member.policy"
+	DirextalkJoinRequestEventType  = "io.dirextalk.join_request"
 )
 
 const (
@@ -104,21 +104,21 @@ func ValidateClientEvent(ctx context.Context, querier CurrentStateQuerier, req C
 		return nil
 	}
 	if room.Dissolved {
-		return Forbidden("direxio room is dissolved")
+		return Forbidden("dirextalk room is dissolved")
 	}
 	if !room.SenderJoined {
-		return Forbidden("sender is not joined to the direxio room")
+		return Forbidden("sender is not joined to the dirextalk room")
 	}
 	if room.SenderMuted {
-		return Forbidden("sender is muted in the direxio room")
+		return Forbidden("sender is muted in the dirextalk room")
 	}
-	if room.RoomType == DirexioRoomTypeDirect && !room.DirectPeerJoined {
-		return Forbidden("direct room peer is not joined to the direxio room")
+	if room.RoomType == DirextalkRoomTypeDirect && !room.DirectPeerJoined {
+		return Forbidden("direct room peer is not joined to the dirextalk room")
 	}
-	if room.RoomType == DirexioRoomTypeChannel && !room.SenderPrivileged() {
+	if room.RoomType == DirextalkRoomTypeChannel && !room.SenderPrivileged() {
 		switch {
 		case isChannelPostEvent(req.Content):
-			return Forbidden("sender cannot create channel posts in this direxio room")
+			return Forbidden("sender cannot create channel posts in this dirextalk room")
 		case !room.CommentsEnabled && isChannelCommentEvent(eventType, req.Content):
 			return Forbidden("channel comments are disabled")
 		}
@@ -138,13 +138,13 @@ func ValidateClientRedaction(ctx context.Context, querier RedactionQuerier, req 
 		return nil
 	}
 	if room.Dissolved {
-		return Forbidden("direxio room is dissolved")
+		return Forbidden("dirextalk room is dissolved")
 	}
 	if !room.SenderJoined {
-		return Forbidden("sender is not joined to the direxio room")
+		return Forbidden("sender is not joined to the dirextalk room")
 	}
 	if room.SenderMuted {
-		return Forbidden("sender is muted in the direxio room")
+		return Forbidden("sender is muted in the dirextalk room")
 	}
 	target, err := queryTargetEvent(ctx, querier, req.RoomID, req.TargetEventID)
 	if err != nil || target == nil {
@@ -153,7 +153,7 @@ func ValidateClientRedaction(ctx context.Context, querier RedactionQuerier, req 
 	if string(target.SenderID()) == req.SenderMXID || room.SenderPrivileged() {
 		return nil
 	}
-	return Forbidden("sender cannot redact another sender in direxio room")
+	return Forbidden("sender cannot redact another sender in dirextalk room")
 }
 
 func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, req ClientMembershipRequest) error {
@@ -170,7 +170,7 @@ func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, 
 	membership := strings.ToLower(strings.TrimSpace(req.Membership))
 	if membership == string(spec.Join) && strings.TrimSpace(req.SenderMXID) == strings.TrimSpace(req.TargetMXID) {
 		if room.Dissolved {
-			return Forbidden("direxio room is dissolved")
+			return Forbidden("dirextalk room is dissolved")
 		}
 		return validateJoin(room)
 	}
@@ -178,17 +178,17 @@ func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, 
 		return nil
 	}
 	if room.Dissolved {
-		return Forbidden("direxio room is dissolved")
+		return Forbidden("dirextalk room is dissolved")
 	}
 	if !room.SenderJoined {
-		return Forbidden("sender is not joined to the direxio room")
+		return Forbidden("sender is not joined to the dirextalk room")
 	}
 	switch membership {
 	case string(spec.Invite):
 		if room.DirectPeerInvite(req.SenderMXID, req.TargetMXID) {
 			return nil
 		}
-		if room.RoomType == DirexioRoomTypeDirect {
+		if room.RoomType == DirextalkRoomTypeDirect {
 			wasMember, err := priorRoomMember(ctx, querier, req.RoomID, req.TargetMXID)
 			if err != nil {
 				return err
@@ -197,23 +197,23 @@ func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, 
 				return nil
 			}
 		}
-		if room.RoomType == DirexioRoomTypeGroup && strings.EqualFold(room.InvitePolicy, "member") {
+		if room.RoomType == DirextalkRoomTypeGroup && strings.EqualFold(room.InvitePolicy, "member") {
 			return nil
 		}
 		if room.SenderPrivileged() {
 			return nil
 		}
-		return Forbidden("sender cannot invite members to this direxio room")
+		return Forbidden("sender cannot invite members to this dirextalk room")
 	case string(spec.Ban):
 		if room.SenderPrivileged() {
 			return nil
 		}
-		return Forbidden("sender cannot ban members in this direxio room")
+		return Forbidden("sender cannot ban members in this dirextalk room")
 	case string(spec.Leave):
 		if room.SenderPrivileged() {
 			return nil
 		}
-		return Forbidden("sender cannot remove another member from this direxio room")
+		return Forbidden("sender cannot remove another member from this dirextalk room")
 	default:
 		return nil
 	}
@@ -227,7 +227,7 @@ func validateJoin(room roomPolicy) error {
 		return nil
 	}
 	switch room.RoomType {
-	case DirexioRoomTypeChannel:
+	case DirextalkRoomTypeChannel:
 		if strings.EqualFold(room.JoinPolicy, "open") {
 			return nil
 		}
@@ -235,12 +235,12 @@ func validateJoin(room roomPolicy) error {
 			return nil
 		}
 		return Forbidden("channel join requires approved join request")
-	case DirexioRoomTypeGroup:
+	case DirextalkRoomTypeGroup:
 		return Forbidden("group join requires invite")
-	case DirexioRoomTypeDirect:
+	case DirextalkRoomTypeDirect:
 		return Forbidden("direct room join requires invite")
 	default:
-		return Forbidden("sender is not joined to the direxio room")
+		return Forbidden("sender is not joined to the dirextalk room")
 	}
 }
 
@@ -304,7 +304,7 @@ func (p roomPolicy) SenderPrivileged() bool {
 }
 
 func (p roomPolicy) DirectPeerInvite(senderMXID, targetMXID string) bool {
-	if p.RoomType != DirexioRoomTypeDirect {
+	if p.RoomType != DirextalkRoomTypeDirect {
 		return false
 	}
 	requester := strings.TrimSpace(p.DirectRequester)
@@ -316,18 +316,18 @@ func (p roomPolicy) DirectPeerInvite(senderMXID, targetMXID string) bool {
 			(senderMXID == target && targetMXID == requester))
 }
 
-//nolint:gocyclo // Resolves all supported Matrix and Direxio room policy state in one snapshot query.
+//nolint:gocyclo // Resolves all supported Matrix and Dirextalk room policy state in one snapshot query.
 func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, senderMXID string) (roomPolicy, error) {
 	var res api.QueryCurrentStateResponse
 	if err := querier.QueryCurrentState(ctx, &api.QueryCurrentStateRequest{
 		RoomID: roomID,
 		StateTuples: []gomatrixserverlib.StateKeyTuple{
 			{EventType: spec.MRoomCreate, StateKey: ""},
-			{EventType: DirexioRoomProfileEventType, StateKey: ""},
-			{EventType: DirexioMemberPolicyEventType, StateKey: senderMXID},
-			{EventType: DirexioMemberPolicyEventType, StateKey: UserStateKey(senderMXID)},
-			{EventType: DirexioJoinRequestEventType, StateKey: senderMXID},
-			{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(senderMXID)},
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""},
+			{EventType: DirextalkMemberPolicyEventType, StateKey: senderMXID},
+			{EventType: DirextalkMemberPolicyEventType, StateKey: UserStateKey(senderMXID)},
+			{EventType: DirextalkJoinRequestEventType, StateKey: senderMXID},
+			{EventType: DirextalkJoinRequestEventType, StateKey: UserStateKey(senderMXID)},
 			{EventType: spec.MRoomMember, StateKey: senderMXID},
 		},
 	}, &res); err != nil {
@@ -347,7 +347,7 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 	if err != nil {
 		return roomPolicy{}, err
 	}
-	if roomType := stringValue(createContent["type"]); isDirexioRoomType(roomType) {
+	if roomType := stringValue(createContent["type"]); isDirextalkRoomType(roomType) {
 		policy.Product = true
 		policy.RoomType = roomType
 		if stringValue(createContent["creator"]) == senderMXID {
@@ -355,12 +355,12 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 		}
 	}
 
-	if event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioRoomProfileEventType, StateKey: ""}]; event != nil {
+	if event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkRoomProfileEventType, StateKey: ""}]; event != nil {
 		content, contentErr := eventContent(event)
 		if contentErr != nil {
 			return roomPolicy{Product: true}, contentErr
 		}
-		if roomType := stringValue(content["room_type"]); isDirexioRoomType(roomType) {
+		if roomType := stringValue(content["room_type"]); isDirextalkRoomType(roomType) {
 			policy.Product = true
 			policy.RoomType = roomType
 		}
@@ -373,9 +373,9 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 		return policy, nil
 	}
 
-	memberPolicyEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioMemberPolicyEventType, StateKey: UserStateKey(senderMXID)}]
+	memberPolicyEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkMemberPolicyEventType, StateKey: UserStateKey(senderMXID)}]
 	if memberPolicyEvent == nil {
-		memberPolicyEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioMemberPolicyEventType, StateKey: senderMXID}]
+		memberPolicyEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkMemberPolicyEventType, StateKey: senderMXID}]
 	}
 	memberPolicy, err := eventContent(memberPolicyEvent)
 	if err != nil {
@@ -387,9 +387,9 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 	if boolValue(memberPolicy["muted"]) {
 		policy.SenderMuted = true
 	}
-	joinRequestEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(senderMXID)}]
+	joinRequestEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkJoinRequestEventType, StateKey: UserStateKey(senderMXID)}]
 	if joinRequestEvent == nil {
-		joinRequestEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioJoinRequestEventType, StateKey: senderMXID}]
+		joinRequestEvent = res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkJoinRequestEventType, StateKey: senderMXID}]
 	}
 	joinRequest, err := eventContent(joinRequestEvent)
 	if err != nil {
@@ -400,7 +400,7 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 	if err != nil {
 		return roomPolicy{Product: true}, err
 	}
-	if policy.RoomType == DirexioRoomTypeDirect {
+	if policy.RoomType == DirextalkRoomTypeDirect {
 		policy.DirectPeerJoined, err = directPeerJoined(ctx, querier, roomID, senderMXID)
 		if err != nil {
 			return roomPolicy{Product: true}, err
@@ -458,7 +458,7 @@ func applyRoomPolicyContent(policy *roomPolicy, content map[string]any, requireC
 	if _, ok := content["dissolved"]; ok {
 		policy.Dissolved = boolValue(content["dissolved"])
 	}
-	if policy.RoomType == DirexioRoomTypeChannel {
+	if policy.RoomType == DirextalkRoomTypeChannel {
 		if _, ok := content["comments_enabled"]; ok || requireChannelComments {
 			policy.CommentsEnabled = boolValue(content["comments_enabled"])
 		}
@@ -469,7 +469,7 @@ func applyRoomPolicyContent(policy *roomPolicy, content map[string]any, requireC
 	if joinPolicy := stringValue(content["join_policy"]); joinPolicy != "" {
 		policy.JoinPolicy = joinPolicy
 	}
-	if policy.RoomType == DirexioRoomTypeDirect {
+	if policy.RoomType == DirextalkRoomTypeDirect {
 		if requester := stringValue(content["requester_mxid"]); requester != "" {
 			policy.DirectRequester = requester
 		}
@@ -555,9 +555,9 @@ func eventContent(event *types.HeaderedEvent) (map[string]any, error) {
 	return content, nil
 }
 
-func isDirexioRoomType(value string) bool {
+func isDirextalkRoomType(value string) bool {
 	switch strings.TrimSpace(value) {
-	case DirexioRoomTypeDirect, DirexioRoomTypeGroup, DirexioRoomTypeChannel:
+	case DirextalkRoomTypeDirect, DirextalkRoomTypeGroup, DirextalkRoomTypeChannel:
 		return true
 	default:
 		return false

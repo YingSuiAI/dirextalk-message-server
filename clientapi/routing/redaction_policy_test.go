@@ -9,17 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	dendritetest "github.com/YingSuiAI/direxio-message-server/test"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	dendritetest "github.com/YingSuiAI/dirextalk-message-server/test"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
-func TestSendRedactionAppliesDirexioProductPolicy(t *testing.T) {
+func TestSendRedactionAppliesDirextalkProductPolicy(t *testing.T) {
 	owner := dendritetest.NewUser(t)
 	member := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
@@ -35,8 +35,8 @@ func TestSendRedactionAppliesDirexioProductPolicy(t *testing.T) {
 		"redact":         0,
 		"invite":         0,
 	}, dendritetest.WithStateKey(""))
-	room.CreateAndInsert(t, owner, "io.direxio.room.profile", map[string]any{
-		"room_type":        "io.direxio.room.channel",
+	room.CreateAndInsert(t, owner, "io.dirextalk.room.profile", map[string]any{
+		"room_type":        "io.dirextalk.room.channel",
 		"comments_enabled": true,
 	}, dendritetest.WithStateKey(""))
 	target := room.CreateAndInsert(t, owner, "m.room.message", map[string]any{"msgtype": "m.text", "body": "owned"})
@@ -55,7 +55,7 @@ func TestSendRedactionAppliesDirexioProductPolicy(t *testing.T) {
 	resp := SendRedaction(req, &userapi.Device{UserID: member.ID}, room.ID, target.EventID(), &config.ClientAPI{}, rsAPI, nil, nil)
 
 	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected Direxio product policy 403, got %d with %#v", resp.Code, resp.JSON)
+		t.Fatalf("expected Dirextalk product policy 403, got %d with %#v", resp.Code, resp.JSON)
 	}
 	if rsAPI.signingIdentityCalled {
 		t.Fatalf("expected product policy to reject before signing redaction event")

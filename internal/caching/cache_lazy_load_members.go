@@ -1,7 +1,7 @@
 package caching
 
 import (
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 type lazyLoadingCacheKey struct {

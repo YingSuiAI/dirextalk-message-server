@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -146,7 +146,7 @@ func (t *DendriteTransport) SendStateEvent(ctx context.Context, req SendStateEve
 	if err != nil {
 		return err
 	}
-	if !isDirexioPolicyStateEvent(req.Event.Type) {
+	if !isDirextalkPolicyStateEvent(req.Event.Type) {
 		if err = gomatrixserverlib.Allowed(event.PDU, provider, func(roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
 			return t.rsAPI.QueryUserIDForSender(ctx, *validRoomID, senderID)
 		}); err != nil {
@@ -166,9 +166,9 @@ func (t *DendriteTransport) SendStateEvent(ctx context.Context, req SendStateEve
 	)
 }
 
-func isDirexioPolicyStateEvent(eventType string) bool {
+func isDirextalkPolicyStateEvent(eventType string) bool {
 	switch eventType {
-	case DirexioJoinRequestEventType, DirexioMemberPolicyEventType:
+	case DirextalkJoinRequestEventType, DirextalkMemberPolicyEventType:
 		return true
 	default:
 		return false

@@ -12,10 +12,10 @@ import (
 	"database/sql"
 
 	// Import the postgres database driver.
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/postgres/deltas"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/shared"
 	_ "github.com/lib/pq"
 )
 

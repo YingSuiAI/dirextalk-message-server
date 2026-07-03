@@ -9,12 +9,12 @@ package mediaapi
 import (
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/routing"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/routing"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 )

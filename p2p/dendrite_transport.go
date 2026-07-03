@@ -3,8 +3,8 @@ package p2p
 import (
 	"crypto/ed25519"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/dendrite"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/dendrite"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

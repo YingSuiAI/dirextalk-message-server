@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 )
 
 const relayQueueJSONSchema = `

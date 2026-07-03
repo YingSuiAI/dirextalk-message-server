@@ -33,7 +33,7 @@ docker run --rm --name sytest -v "/Users/kegan/github/sytest:/sytest" \
 ```
 
 This will generate a folder `covdatafiles` in each server's directory, e.g `server-0/covdatafiles`. To parse them,
-ensure your working directory is under the Direxio Message Server repository then run:
+ensure your working directory is under the Dirextalk Message Server repository then run:
 
  ```bash
  go tool covdata func -i="$(find -name 'covmeta*' -type f -exec dirname {} \; | uniq | paste -s -d ',' -)"
@@ -54,7 +54,7 @@ total                                    (statements)         64.0%
 ```
 (after running Sytest for Postgres _and_ SQLite)
 
-The total coverage for this run is the last line at the bottom. However, this value is misleading because Direxio Message Server can run in different configurations,
+The total coverage for this run is the last line at the bottom. However, this value is misleading because Dirextalk Message Server can run in different configurations,
 which will never be tested in a single test run (e.g sqlite or postgres). To get a more accurate value, you'll need run Sytest for Postgres and SQLite (see commands above).
 Additional processing is required also to remove packages which will never be tested and extension MSCs:
 
@@ -83,7 +83,7 @@ First you'll need a docker image compatible with Complement, one can be built us
 ```bash
 docker build -t complement-dendrite -f build/scripts/Complement.Dockerfile .
 ```
-from within the Direxio Message Server repository.
+from within the Dirextalk Message Server repository.
 
 Clone complement to a directory of your liking:
 ```bash
@@ -111,7 +111,7 @@ COMPLEMENT_POST_TEST_SCRIPT=$(pwd)/posttest.sh \
   go test -tags dendrite_blacklist ./tests/... -count=1 -v -timeout=30m -failfast=false
 ```
 
-Once this is done, you can copy the resulting `covdatafiles` files to your Direxio Message Server repository for the next step.
+Once this is done, you can copy the resulting `covdatafiles` files to your Dirextalk Message Server repository for the next step.
 ```bash
 cp -pr /tmp/Complement/logs PathToYourDendriteRepository
 ```
@@ -123,7 +123,7 @@ go tool covdata func -i="$(find /tmp/Complement -name 'covmeta*' -type f -exec d
 
 ## Combining the results of (almost) all runs
 
-Now that we have all our `covdatafiles` files within the Direxio Message Server repository, you can now execute the following command, to get the coverage
+Now that we have all our `covdatafiles` files within the Dirextalk Message Server repository, you can now execute the following command, to get the coverage
 overall (excluding unit tests):
 ```bash
 go tool covdata func -i="$(find -name 'covmeta*' -type f -exec dirname {} \; | uniq | paste -s -d ',' -)"

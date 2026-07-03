@@ -10,7 +10,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

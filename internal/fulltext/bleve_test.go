@@ -10,12 +10,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/fulltext"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/fulltext"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 func mustOpenIndex(t *testing.T, tempDir string) (*fulltext.Search, *process.ProcessContext) {

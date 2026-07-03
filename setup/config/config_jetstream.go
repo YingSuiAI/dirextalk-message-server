@@ -38,7 +38,7 @@ func (c *JetStream) Durable(name string) string {
 
 func (c *JetStream) Defaults(opts DefaultOpts) {
 	c.Addresses = []string{}
-	c.TopicPrefix = "DirexioMessageServer"
+	c.TopicPrefix = "DirextalkMessageServer"
 	if opts.Generate {
 		c.StoragePath = Path("./")
 		c.NoLog = true

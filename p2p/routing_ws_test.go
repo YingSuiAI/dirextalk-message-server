@@ -301,7 +301,7 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 		"type":   "client.request",
 		"id":     "req-agent-session",
 		"action": "agent.matrix_session.create",
-		"params": map[string]any{"device_id": "DIREXIO_AGENT_GATEWAY"},
+		"params": map[string]any{"device_id": "DIREXTALK_AGENT_GATEWAY"},
 	})
 	agentSession := readRealtimeResponse(t, ownerConn, "req-agent-session")
 	if agentSession["type"] != "server.response" ||

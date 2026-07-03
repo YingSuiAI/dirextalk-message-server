@@ -17,11 +17,11 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userAPI "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userAPI "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

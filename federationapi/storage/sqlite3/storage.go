@@ -10,11 +10,11 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/sqlite3/deltas"
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/sqlite3/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

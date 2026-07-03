@@ -3,9 +3,9 @@ package deltas
 import (
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )

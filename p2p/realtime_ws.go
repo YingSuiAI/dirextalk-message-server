@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
-	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )

@@ -9,19 +9,19 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 // Ideally, when we have both events we should redact the event JSON and forget about the redaction, but we currently

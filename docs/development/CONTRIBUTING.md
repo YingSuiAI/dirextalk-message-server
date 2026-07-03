@@ -5,9 +5,9 @@ nav_order: 1
 permalink: /development/contributing
 ---
 
-# Contributing to Direxio Message Server
+# Contributing to Dirextalk Message Server
 
-Everyone is welcome to contribute to Direxio Message Server! We aim to make it as easy as
+Everyone is welcome to contribute to Dirextalk Message Server! We aim to make it as easy as
 possible to get started.
 
 ## Contribution types
@@ -28,7 +28,7 @@ We will accept the following with caveats:
 The following items are at risk of not being accepted:
  - Configuration or CLI changes, particularly ones which increase the overall configuration surface.
 
-The following items are unlikely to be accepted into a main Direxio Message Server release for now:
+The following items are unlikely to be accepted into a main Dirextalk Message Server release for now:
  - New MSC implementations.
  - New features which are not in the specification.
 
@@ -81,7 +81,7 @@ Git allows you to add this signoff automatically when using the `-s` flag to `gi
 ## Getting up and running
 
 See the [Installation](../installation) section for information on how to build an
-instance of Direxio Message Server. You will likely need this in order to test your changes.
+instance of Dirextalk Message Server. You will likely need this in order to test your changes.
 
 ## Code style
 
@@ -104,7 +104,7 @@ We also have some special tags which we use for searchability. These are:
 
 ## Linting
 
-We use [golangci-lint](https://github.com/golangci/golangci-lint) to lint Direxio Message Server
+We use [golangci-lint](https://github.com/golangci/golangci-lint) to lint Dirextalk Message Server
 which can be executed via:
 
 ```bash
@@ -158,7 +158,7 @@ code is functioning as intended is great, and to ensure that we will find out qu
 in the future if any regressions happen.
 
 We use the standard [Go testing package](https://gobyexample.com/testing) for this,
-alongside some helper functions in our own [`test` package](https://pkg.go.dev/github.com/YingSuiAI/direxio-message-server/test).
+alongside some helper functions in our own [`test` package](https://pkg.go.dev/github.com/YingSuiAI/dirextalk-message-server/test).
 
 ## Continuous integration
 
@@ -170,7 +170,7 @@ test suites ([Complement](https://github.com/matrix-org/complement) and
 [SyTest](https://github.com/matrix-org/sytest)).
 
 You can see the progress of any CI jobs at the bottom of the Pull Request page, or by
-looking at the [Actions](https://github.com/YingSuiAI/direxio-message-server/actions) tab of the Direxio Message Server
+looking at the [Actions](https://github.com/YingSuiAI/dirextalk-message-server/actions) tab of the Dirextalk Message Server
 repository.
 
 We generally won't accept a submission unless all of the CI jobs are passing. We
@@ -191,7 +191,7 @@ significant amount of CPU and RAM.
 
 Once the code builds, run [Sytest](https://github.com/matrix-org/sytest)
 according to the guide in
-[docs/development/sytest.md](https://github.com/YingSuiAI/direxio-message-server/blob/main/docs/development/sytest.md#using-a-sytest-docker-image)
+[docs/development/sytest.md](https://github.com/YingSuiAI/dirextalk-message-server/blob/main/docs/development/sytest.md#using-a-sytest-docker-image)
 so you can see whether something is being broken and whether there are newly
 passing tests.
 
@@ -201,22 +201,22 @@ tests.
 ## Picking things to do
 
 If you're new then feel free to pick up an issue labelled [good first
-issue](https://github.com/YingSuiAI/direxio-message-server/labels/good%20first%20issue).
+issue](https://github.com/YingSuiAI/dirextalk-message-server/labels/good%20first%20issue).
 These should be well-contained, small pieces of work that can be picked up to
 help you get familiar with the code base.
 
-Once you're comfortable with hacking on Direxio Message Server there are issues labelled as
-[help wanted](https://github.com/YingSuiAI/direxio-message-server/labels/help-wanted),
+Once you're comfortable with hacking on Dirextalk Message Server there are issues labelled as
+[help wanted](https://github.com/YingSuiAI/dirextalk-message-server/labels/help-wanted),
 these are often slightly larger or more complicated pieces of work but are
 hopefully nonetheless fairly well-contained.
 
-We ask people who are familiar with Direxio Message Server to leave the [good first
-issue](https://github.com/YingSuiAI/direxio-message-server/labels/good%20first%20issue)
+We ask people who are familiar with Dirextalk Message Server to leave the [good first
+issue](https://github.com/YingSuiAI/dirextalk-message-server/labels/good%20first%20issue)
 issues so that there is always a way for new people to come and get involved.
 
 ## Getting help
 
-For questions related to developing on Direxio Message Server we have a dedicated room on
+For questions related to developing on Dirextalk Message Server we have a dedicated room on
 Matrix [#dendrite-dev:matrix.org](https://matrix.to/#/#dendrite-dev:matrix.org)
 where we're happy to help.
 

@@ -44,9 +44,9 @@ def reset_dual_stack(build: bool) -> None:
 
 def setup_nodes(suffix: int) -> tuple[Any, Any, Any]:
     nodes = [
-        reg.Node("A", "http://127.0.0.1:18008", "direxio-p2p-dual-dendrite-a-1", f"{reg.PUBLIC_HOST}:18448", "", ""),
-        reg.Node("B", "http://127.0.0.1:28008", "direxio-p2p-dual-dendrite-b-1", f"{reg.PUBLIC_HOST}:28448", "", ""),
-        reg.Node("C", "http://127.0.0.1:38008", "direxio-p2p-dual-dendrite-c-1", f"{reg.PUBLIC_HOST}:38448", "", ""),
+        reg.Node("A", "http://127.0.0.1:18008", "dirextalk-p2p-dual-dendrite-a-1", f"{reg.PUBLIC_HOST}:18448", "", ""),
+        reg.Node("B", "http://127.0.0.1:28008", "dirextalk-p2p-dual-dendrite-b-1", f"{reg.PUBLIC_HOST}:28448", "", ""),
+        reg.Node("C", "http://127.0.0.1:38008", "dirextalk-p2p-dual-dendrite-c-1", f"{reg.PUBLIC_HOST}:38448", "", ""),
     ]
     for node in nodes:
         node.mxid = f"@owner:{node.server_name}"

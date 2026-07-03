@@ -4,7 +4,7 @@ Last updated: 2026-06-30
 
 ## Scope
 
-This audit covers the current checkout of the Direxio Message Server backend. It verifies that exposed product features are backed by real code, records completed functionality, checks multi-node communication paths, and lists optimization opportunities. Runtime behavior changes from the hardening pass are recorded in `docs/api-interface-change-record.md`.
+This audit covers the current checkout of the Dirextalk Message Server backend. It verifies that exposed product features are backed by real code, records completed functionality, checks multi-node communication paths, and lists optimization opportunities. Runtime behavior changes from the hardening pass are recorded in `docs/api-interface-change-record.md`.
 
 Primary sources:
 
@@ -23,13 +23,13 @@ Generated/maintained outputs:
 
 - `AGENTS.md`
 - `docs/feature-inventory.md`
-- `docs/postman/direxio-message-server.postman_collection.json`
+- `docs/postman/dirextalk-message-server.postman_collection.json`
 - `docs/api-interface-change-record.md`
 
 ## Summary
 
 - Current P2P product API exposes 81 actions from `p2p.Service.Handle`.
-- Current Postman collection includes the live P2P product action requests plus Matrix/Direxio Message Server route-index requests.
+- Current Postman collection includes the live P2P product action requests plus Matrix/Dirextalk Message Server route-index requests.
 - The P2P API is not a placeholder implementation. Requests pass through real handler validation, action dispatch, optional Bearer authorization, service logic, persistence, Matrix transport, and roomserver projection.
 - The P2P store has concrete PostgreSQL/SQLite-compatible migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, and follows. Ordinary messages use Matrix/syncapi storage only. User-facing reports are handled by the signed imadmin public API.
 - Multi-node communication is implemented through Matrix federation for room/member/message/redaction/state events and a narrow unauthenticated public-action proxy for public channel discovery and join requests. Product projections cover group/channel lifecycle and channel post/comment state; ordinary message history remains Matrix-native.
@@ -47,7 +47,7 @@ Goal for this server-side pass:
 
 Current assumptions:
 
-- Target small deployment is one 2 CPU / 2 GB instance running the Direxio Message Server monolith plus PostgreSQL and embedded JetStream.
+- Target small deployment is one 2 CPU / 2 GB instance running the Dirextalk Message Server monolith plus PostgreSQL and embedded JetStream.
 - PostgreSQL is the intended production store; SQLite remains a development fallback.
 - Product room membership remains Matrix-backed and projected into P2P read models.
 
@@ -110,7 +110,7 @@ Projector batching/backpressure notes:
 - Redaction projection deletes by post/comment id or Matrix event id and uses affected row counts, avoiding a full `p2p_channel_posts` / `p2p_channel_comments` scan.
 - Reaction target resolution uses direct post/comment id and Matrix event-id lookups, avoiding list-and-filter scans as channel content grows.
 - Projected `p2p_events` use an internal non-JSON `dedupe_key` persisted in `p2p_events`, so duplicate JetStream delivery of the same source event does not create duplicate product delta rows.
-- P2P projector consumer metrics are exposed under `direxio_message_server_p2p_projector_*`: `consumer_events_total{result}`, `consumer_consecutive_failures`, `consumer_last_success_unixtime`, `consumer_last_failure_unixtime`, and `consumer_last_message_age_seconds`.
+- P2P projector consumer metrics are exposed under `dirextalk_message_server_p2p_projector_*`: `consumer_events_total{result}`, `consumer_consecutive_failures`, `consumer_last_success_unixtime`, `consumer_last_failure_unixtime`, and `consumer_last_message_age_seconds`.
 - Keep strict per-room ordering if this consumer is ever changed from sequential batch processing to concurrent workers.
 
 ### Deferred Client Optimization Checklist
@@ -142,7 +142,7 @@ Implemented areas:
 - Owner profile read/update and member-profile propagation
 - Bootstrap sync metadata and read markers
 - Contact request/accept/reject/delete/update
-- Matrix-native room send/media/history/search/unread/redaction, plus Direxio Matrix local history hiding
+- Matrix-native room send/media/history/search/unread/redaction, plus Dirextalk Matrix local history hiding
 - Group create/update/list/invite/join/members/mute/unmute/invite policy/member moderation/leave/dissolve
 - Channel create/update/list/invite/invite grant/join/members/mute/unmute/read marker/member moderation/leave/dissolve
 - Public channel search/detail/join request and public channels by user
@@ -188,9 +188,9 @@ The service writes through store methods for business state that must survive re
 - writes owner profile changes as `m.room.member`
 - sends product group/channel metadata and dissolve state events
 - sends product post/comment redactions as `m.room.redaction`; ordinary chat recall uses Matrix Client-Server redaction directly
-- reads native `io.direxio.room.profile` and room members from roomserver current state
+- reads native `io.dirextalk.room.profile` and room members from roomserver current state
 
-This confirms product actions are integrated with Direxio Message Server rather than being a detached in-memory API.
+This confirms product actions are integrated with Dirextalk Message Server rather than being a detached in-memory API.
 
 ### Projection
 
@@ -199,10 +199,10 @@ This confirms product actions are integrated with Direxio Message Server rather 
 - channel posts/comments from `p2p_kind`
 - `m.reaction` to `p2p_reactions`
 - `m.room.member` to `p2p_members`
-- native `io.direxio.room.profile` to `p2p_channels` and `p2p_groups`
-- native `io.direxio.member.policy` to `p2p_members` role/mute policy
-- native `io.direxio.join_request` to pending/approved/rejected channel member state
-- native `io.direxio.room.profile` to channel/group projections
+- native `io.dirextalk.room.profile` to `p2p_channels` and `p2p_groups`
+- native `io.dirextalk.member.policy` to `p2p_members` role/mute policy
+- native `io.dirextalk.join_request` to pending/approved/rejected channel member state
+- native `io.dirextalk.room.profile` to channel/group projections
 - direct contact invites to pending inbound contacts
 - redacted events to channel post/comment projection removal
 - ordinary `m.room.message` events stay in Matrix storage and are not mirrored into P2P message tables
@@ -216,7 +216,7 @@ This is the critical read-side bridge that keeps local P2P state synchronized wi
 Two-node communication uses two mechanisms:
 
 - Product public lookup proxy: `remotePublicAction` posts public actions only to the request-provided `remote_node_base_url` after URL validation.
-- Matrix federation: room creation, invites, joins, member state, messages, reactions, and redactions flow through Direxio Message Server federation. Product state is projected back into P2P tables by the roomserver consumer; ordinary message history remains Matrix-native.
+- Matrix federation: room creation, invites, joins, member state, messages, reactions, and redactions flow through Dirextalk Message Server federation. Product state is projected back into P2P tables by the roomserver consumer; ordinary message history remains Matrix-native.
 
 The dual-node smoke script validates:
 
@@ -236,13 +236,13 @@ The dual-node smoke script validates:
 - Agent token/API permission behavior
 - all actions present in `Service.Handle` are exercised by the smoke script's coverage check
 
-### Integration Fit With Direxio Message Server
+### Integration Fit With Dirextalk Message Server
 
 The new P2P service fits the existing framework well:
 
 - It mounts through `httputil.Routers` and uses the same external HTTP server as other components.
-- It reuses Direxio Message Server database connection management and migration utilities.
-- It uses roomserver APIs for Matrix-side writes instead of bypassing Direxio Message Server internals.
+- It reuses Dirextalk Message Server database connection management and migration utilities.
+- It uses roomserver APIs for Matrix-side writes instead of bypassing Dirextalk Message Server internals.
 - It consumes JetStream roomserver output with its own durable consumer.
 - It leaves Matrix client/federation/media routes unchanged.
 - It keeps product API routing isolated under `/_p2p/*`.
@@ -289,7 +289,7 @@ Remaining operational guidance:
 
 ### P1: Federated Channel Metadata Can Be Overwritten With Defaults - Fixed
 
-Channel creation/update now publishes full native `io.direxio.room.profile` metadata, including visibility, join policy, type, comments setting, and dissolved state. Removed legacy Matrix product state is ignored by current read/project paths. Sparse remote state preserves known values or defaults conservatively to private/invite.
+Channel creation/update now publishes full native `io.dirextalk.room.profile` metadata, including visibility, join policy, type, comments setting, and dissolved state. Removed legacy Matrix product state is ignored by current read/project paths. Sparse remote state preserves known values or defaults conservatively to private/invite.
 
 ### P1: `calls.active` Terminal-State Filter Looks Incomplete - Fixed
 
@@ -338,7 +338,7 @@ Recommended improvement:
 
 ### P2: Duplicate P2P Message Sync Surface - Fixed
 
-The duplicate P2P ordinary-message sync/search/send/delete/recall surface was removed. Clients use Matrix Client-Server APIs for ordinary message send, incremental sync, history, search, unread data, and redaction, with Direxio Matrix `local_delete` for per-user local hiding.
+The duplicate P2P ordinary-message sync/search/send/delete/recall surface was removed. Clients use Matrix Client-Server APIs for ordinary message send, incremental sync, history, search, unread data, and redaction, with Dirextalk Matrix `local_delete` for per-user local hiding.
 
 ### P2: Public Remote Action Error Detail Is Collapsed - Fixed
 
@@ -388,7 +388,7 @@ Remaining operational guidance:
 
 No P2P product action was found to be a pure placeholder. The code contains real validation, state mutation, persistence calls, or Matrix transport/projection behavior for each current action. The main gaps are not empty handlers; they are cross-node consistency, trust-boundary hardening, and operational visibility issues.
 
-Repo-wide TODO/FIXME comments still exist in inherited Direxio Message Server areas, including user-interactive auth, sync filtering/redaction comments, and federation housekeeping. These are not newly added P2P placeholders, but they are inherited maintenance items.
+Repo-wide TODO/FIXME comments still exist in inherited Dirextalk Message Server areas, including user-interactive auth, sync filtering/redaction comments, and federation housekeeping. These are not newly added P2P placeholders, but they are inherited maintenance items.
 
 ## Interface Change Impact
 

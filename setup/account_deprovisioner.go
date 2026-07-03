@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/sirupsen/logrus"
 )
 
@@ -66,7 +66,7 @@ func (d *accountDeprovisioner) scheduleShutdown() {
 	}
 	go func() {
 		time.Sleep(accountDeprovisionShutdownDelay)
-		logrus.Warn("Direxio account deprovision complete; shutting down message server")
+		logrus.Warn("Dirextalk account deprovision complete; shutting down message server")
 		d.processCtx.ShutdownDendrite()
 	}()
 }

@@ -11,7 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 	"github.com/lib/pq"
 	"github.com/matrix-org/util"
 )

@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 

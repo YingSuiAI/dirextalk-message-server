@@ -8,7 +8,7 @@ package routing
 import (
 	"net/http"
 
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/util"
 )
 

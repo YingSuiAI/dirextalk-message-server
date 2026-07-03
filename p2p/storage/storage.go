@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 type DatabaseStore struct {

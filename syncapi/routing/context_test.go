@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 )
 
 func Test_parseContextParams(t *testing.T) {

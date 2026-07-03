@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"sync"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/google/uuid"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"

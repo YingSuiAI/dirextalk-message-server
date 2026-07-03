@@ -11,7 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/util"
 )

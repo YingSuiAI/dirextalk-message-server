@@ -9,7 +9,7 @@ import (
 
 func TestHTTPMatrixProfileResolverReturnsProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/_matrix/client/v3/profile/@owner:t7.direxio.ai" {
+		if r.URL.Path != "/_matrix/client/v3/profile/@owner:t7.dirextalk.ai" {
 			t.Fatalf("unexpected profile path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -18,7 +18,7 @@ func TestHTTPMatrixProfileResolverReturnsProfile(t *testing.T) {
 	defer server.Close()
 
 	resolver := NewHTTPMatrixProfileResolver(server.URL, server.Client())
-	profile, err := resolver.ResolveMatrixProfile(context.Background(), "@owner:t7.direxio.ai")
+	profile, err := resolver.ResolveMatrixProfile(context.Background(), "@owner:t7.dirextalk.ai")
 	if err != nil {
 		t.Fatalf("ResolveMatrixProfile failed: %v", err)
 	}

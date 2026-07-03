@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // ParseFileURI returns the filepath in the given file: URI. Specifically, this will handle

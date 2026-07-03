@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -34,8 +34,8 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 	localpart := "alice"
 	otherLocalpart := "bob"
 	serverName := spec.ServerName("localhost")
-	androidAppID := "com.direxio.ai"
-	iosAppID := "com.direxio.app"
+	androidAppID := "com.dirextalk.ai"
+	iosAppID := "com.dirextalk.app"
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		db, closeDB := mustCreateUserDatabase(t, dbType)
@@ -48,12 +48,12 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 					PushKey:           pushKey,
 					Kind:              api.HTTPKind,
 					AppID:             androidAppID,
-					AppDisplayName:    "Direxio",
+					AppDisplayName:    "Dirextalk",
 					DeviceDisplayName: "Android",
 					Language:          "zh-CN",
 					Data: map[string]interface{}{
 						"format": "event_id_only",
-						"url":    "https://push.direxio.ai/_matrix/push/v1/notify",
+						"url":    "https://push.dirextalk.ai/_matrix/push/v1/notify",
 					},
 				},
 				Localpart:  localpart,
@@ -69,12 +69,12 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 				PushKey:           "ios-token",
 				Kind:              api.HTTPKind,
 				AppID:             iosAppID,
-				AppDisplayName:    "Direxio",
+				AppDisplayName:    "Dirextalk",
 				DeviceDisplayName: "iPhone",
 				Language:          "zh-CN",
 				Data: map[string]interface{}{
 					"format": "event_id_only",
-					"url":    "https://push.direxio.ai/_matrix/push/v1/notify",
+					"url":    "https://push.dirextalk.ai/_matrix/push/v1/notify",
 				},
 			},
 			Localpart:  localpart,
@@ -89,12 +89,12 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 				PushKey:           "bob-token",
 				Kind:              api.HTTPKind,
 				AppID:             androidAppID,
-				AppDisplayName:    "Direxio",
+				AppDisplayName:    "Dirextalk",
 				DeviceDisplayName: "Android",
 				Language:          "zh-CN",
 				Data: map[string]interface{}{
 					"format": "event_id_only",
-					"url":    "https://push.direxio.ai/_matrix/push/v1/notify",
+					"url":    "https://push.dirextalk.ai/_matrix/push/v1/notify",
 				},
 			},
 			Localpart:  otherLocalpart,
@@ -126,15 +126,15 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 	})
 }
 
-func TestPerformPusherSetStoresLatestDirexioPusherData(t *testing.T) {
+func TestPerformPusherSetStoresLatestDirextalkPusherData(t *testing.T) {
 	ctx := context.Background()
 	localpart := "alice"
 	serverName := spec.ServerName("localhost")
 
 	const (
-		iosAppID       = "com.direxio.app"
-		androidAppID   = "com.direxio.ai"
-		gatewayURL     = "https://push.direxio.ai/_matrix/push/v1/notify"
+		iosAppID       = "com.dirextalk.app"
+		androidAppID   = "com.dirextalk.ai"
+		gatewayURL     = "https://push.dirextalk.ai/_matrix/push/v1/notify"
 		oldAPNsToken   = "old-apns-device-token"
 		newAPNsToken   = "new-apns-device-token"
 		androidFCMKey  = "android-fcm-device-token"
@@ -152,7 +152,7 @@ func TestPerformPusherSetStoresLatestDirexioPusherData(t *testing.T) {
 					PushKey:           pushKey,
 					Kind:              api.HTTPKind,
 					AppID:             iosAppID,
-					AppDisplayName:    "Direxio",
+					AppDisplayName:    "Dirextalk",
 					DeviceDisplayName: "iPhone",
 					Language:          "zh-CN",
 					Data: map[string]interface{}{
@@ -175,7 +175,7 @@ func TestPerformPusherSetStoresLatestDirexioPusherData(t *testing.T) {
 				PushKey:           androidFCMKey,
 				Kind:              api.HTTPKind,
 				AppID:             androidAppID,
-				AppDisplayName:    "Direxio",
+				AppDisplayName:    "Dirextalk",
 				DeviceDisplayName: "Android",
 				Language:          "zh-CN",
 				Data: map[string]interface{}{

@@ -7,12 +7,12 @@ permalink: /development/sytest
 
 # SyTest
 
-Direxio Message Server uses [SyTest](https://github.com/matrix-org/sytest) for its
+Dirextalk Message Server uses [SyTest](https://github.com/matrix-org/sytest) for its
 integration testing. When creating a new PR, add the test IDs (see below) that
 your PR should allow to pass to `sytest-whitelist` in dendrite's root
 directory. Not all PRs need to make new tests pass. If we find your PR should
 be making a test pass we may ask you to add to that file, as generally
-Direxio Message Server's progress can be tracked through the amount of SyTest tests it
+Dirextalk Message Server's progress can be tracked through the amount of SyTest tests it
 passes.
 
 ## Finding out which tests to add
@@ -28,7 +28,7 @@ go build -o bin/ ./cmd/...
 ```
 
 If you are fixing an issue marked with
-[Are We Synapse Yet](https://github.com/YingSuiAI/direxio-message-server/labels/are-we-synapse-yet)
+[Are We Synapse Yet](https://github.com/YingSuiAI/dirextalk-message-server/labels/are-we-synapse-yet)
 then there will be a list of Sytests that you should add to the whitelist when you
 have fixed that issue. This MUST be included in your PR to ensure that the issue
 is fully resolved.

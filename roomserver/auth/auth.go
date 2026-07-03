@@ -8,7 +8,7 @@ package auth
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

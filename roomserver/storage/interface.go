@@ -10,14 +10,14 @@ import (
 	"context"
 	"crypto/ed25519"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 type Database interface {

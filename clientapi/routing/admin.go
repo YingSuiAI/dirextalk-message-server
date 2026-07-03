@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
 	"github.com/gorilla/mux"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -20,13 +20,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/exp/constraints"
 
-	clientapi "github.com/YingSuiAI/direxio-message-server/clientapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	clientapi "github.com/YingSuiAI/dirextalk-message-server/clientapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 var validRegistrationTokenRegex = regexp.MustCompile("^[[:ascii:][:digit:]_]*$")

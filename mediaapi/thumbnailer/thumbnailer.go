@@ -16,9 +16,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 type thumbnailFitness struct {

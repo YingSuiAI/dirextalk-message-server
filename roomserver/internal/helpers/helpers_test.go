@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func mustCreateDatabase(t *testing.T, dbType test.DBType) (storage.Database, func()) {

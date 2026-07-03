@@ -16,11 +16,11 @@ import (
 	// Import the postgres database driver.
 	_ "github.com/lib/pq"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/postgres/deltas"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // A Database is used to store room events and stream offsets.

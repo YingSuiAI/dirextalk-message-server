@@ -12,7 +12,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

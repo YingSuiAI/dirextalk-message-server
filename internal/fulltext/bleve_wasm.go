@@ -9,7 +9,7 @@ package fulltext
 import (
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 type Search struct{}

@@ -10,10 +10,10 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/sqlite3/deltas"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 )
 
 const publishedSchema = `

@@ -19,30 +19,30 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/getsentry/sentry-go"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/appservice"
-	"github.com/YingSuiAI/direxio-message-server/cmd/dendrite-demo-yggdrasil/embed"
-	"github.com/YingSuiAI/direxio-message-server/cmd/dendrite-demo-yggdrasil/signing"
-	"github.com/YingSuiAI/direxio-message-server/cmd/dendrite-demo-yggdrasil/yggconn"
-	"github.com/YingSuiAI/direxio-message-server/cmd/dendrite-demo-yggdrasil/yggrooms"
-	"github.com/YingSuiAI/direxio-message-server/federationapi"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver"
-	"github.com/YingSuiAI/direxio-message-server/setup"
-	basepkg "github.com/YingSuiAI/direxio-message-server/setup/base"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/mscs"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/userapi"
+	"github.com/YingSuiAI/dirextalk-message-server/appservice"
+	"github.com/YingSuiAI/dirextalk-message-server/cmd/dendrite-demo-yggdrasil/embed"
+	"github.com/YingSuiAI/dirextalk-message-server/cmd/dendrite-demo-yggdrasil/signing"
+	"github.com/YingSuiAI/dirextalk-message-server/cmd/dendrite-demo-yggdrasil/yggconn"
+	"github.com/YingSuiAI/dirextalk-message-server/cmd/dendrite-demo-yggdrasil/yggrooms"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver"
+	"github.com/YingSuiAI/dirextalk-message-server/setup"
+	basepkg "github.com/YingSuiAI/dirextalk-message-server/setup/base"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/mscs"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
@@ -155,7 +155,7 @@ func main() {
 	internal.SetupHookLogging(cfg.Logging)
 	internal.SetupPprof()
 
-	logrus.Infof("Direxio Message Server version %s", internal.VersionString())
+	logrus.Infof("Dirextalk Message Server version %s", internal.VersionString())
 
 	if !cfg.ClientAPI.RegistrationDisabled && cfg.ClientAPI.OpenRegistrationWithoutVerificationEnabled {
 		logrus.Warn("Open registration is enabled")
@@ -174,7 +174,7 @@ func main() {
 			Environment:      cfg.Global.Sentry.Environment,
 			Debug:            true,
 			ServerName:       string(cfg.Global.ServerName),
-			Release:          "direxio-message-server@" + internal.VersionString(),
+			Release:          "dirextalk-message-server@" + internal.VersionString(),
 			AttachStacktrace: true,
 		})
 		if err != nil {

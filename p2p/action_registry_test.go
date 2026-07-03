@@ -3,7 +3,7 @@ package p2p
 import (
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 )
 
 func TestActionRegistryCoversPublicAndAgentActions(t *testing.T) {

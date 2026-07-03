@@ -17,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 	lSyslog "github.com/sirupsen/logrus/hooks/syslog"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // SetupHookLogging configures the logging hooks defined in the configuration.
@@ -87,7 +87,7 @@ func setupStdLogHook(level logrus.Level) {
 }
 
 func setupSyslogHook(hook config.LogrusHook, level logrus.Level) {
-	syslogHook, err := lSyslog.NewSyslogHook(hook.Params["protocol"].(string), hook.Params["address"].(string), syslog.LOG_INFO, "direxio-message-server")
+	syslogHook, err := lSyslog.NewSyslogHook(hook.Params["protocol"].(string), hook.Params["address"].(string), syslog.LOG_INFO, "dirextalk-message-server")
 	if err == nil {
 		logrus.AddHook(&logLevelHook{level, syslogHook})
 	}

@@ -9,7 +9,7 @@ package helpers
 import (
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func benchmarkStateEntryMapLookup(entries, lookups int64, b *testing.B) {

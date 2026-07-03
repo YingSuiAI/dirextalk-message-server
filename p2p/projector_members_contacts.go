@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) projectReaction(ctx context.Context, event *types.HeaderedEvent) error {
@@ -233,7 +233,7 @@ func (s *Service) projectProductInvite(ctx context.Context, event *types.Headere
 		return member, false, nil
 	}
 	switch trimString(content["room_type"]) {
-	case DirexioRoomTypeGroup:
+	case DirextalkRoomTypeGroup:
 		group := groupRecord{
 			RoomID:       fallbackString(trimString(content["room_id"]), event.RoomID().String()),
 			Name:         fallbackString(trimString(content["name"]), event.RoomID().String()),
@@ -247,7 +247,7 @@ func (s *Service) projectProductInvite(ctx context.Context, event *types.Headere
 		member.RoomID = group.RoomID
 		member.ChannelID = ""
 		return member, true, nil
-	case DirexioRoomTypeChannel:
+	case DirextalkRoomTypeChannel:
 		ch := channel{
 			ChannelID:       fallbackString(trimString(content["channel_id"]), event.RoomID().String()),
 			RoomID:          fallbackString(trimString(content["room_id"]), event.RoomID().String()),
@@ -286,9 +286,9 @@ func (s *Service) productInviteFromInvite(event *types.HeaderedEvent) (map[strin
 		return nil, false
 	}
 	for _, state := range unsigned.InviteRoomState {
-		if state.Type == DirexioRoomProfileEventType {
+		if state.Type == DirextalkRoomProfileEventType {
 			switch trimString(state.Content["room_type"]) {
-			case DirexioRoomTypeGroup, DirexioRoomTypeChannel:
+			case DirextalkRoomTypeGroup, DirextalkRoomTypeChannel:
 				return state.Content, true
 			}
 		}
@@ -311,7 +311,7 @@ func (s *Service) contactRequestFromInvite(event *types.HeaderedEvent) (contactR
 		return contactRecord{}, false
 	}
 	for _, state := range unsigned.InviteRoomState {
-		if state.Type == DirexioRoomProfileEventType && trimString(state.Content["room_type"]) == DirexioRoomTypeDirect {
+		if state.Type == DirextalkRoomProfileEventType && trimString(state.Content["room_type"]) == DirextalkRoomTypeDirect {
 			if contact, ok := s.contactRequestFromContent(event.RoomID().String(), string(event.SenderID()), state.Content); ok {
 				return contact, true
 			}
@@ -465,7 +465,7 @@ func (s *Service) reinviteAcceptedContactToRetainedRoom(ctx context.Context, con
 			roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, "", false),
 		},
 	}); err != nil {
-		if isAlreadyJoinedRoomError(err) || isSenderNotJoinedDirexioRoom(err) {
+		if isAlreadyJoinedRoomError(err) || isSenderNotJoinedDirextalkRoom(err) {
 			return false, nil
 		}
 		return false, err

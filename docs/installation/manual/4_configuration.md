@@ -1,17 +1,17 @@
 ---
-title: Configuring Direxio Message Server
+title: Configuring Dirextalk Message Server
 parent: Manual
 grand_parent: Installation
 nav_order: 4
 permalink: /installation/manual/configuration
 ---
 
-# Configuring Direxio Message Server
+# Configuring Dirextalk Message Server
 
-A YAML configuration file is used to configure Direxio Message Server. A sample configuration file is
-present in the top level of the Direxio Message Server repository:
+A YAML configuration file is used to configure Dirextalk Message Server. A sample configuration file is
+present in the top level of the Dirextalk Message Server repository:
 
-* [`message-server-sample.yaml`](https://github.com/YingSuiAI/direxio-message-server/blob/main/message-server-sample.yaml)
+* [`message-server-sample.yaml`](https://github.com/YingSuiAI/dirextalk-message-server/blob/main/message-server-sample.yaml)
 
 You will need to duplicate the sample, calling it `message-server.yaml` for example, and then
 tailor it to your installation. At a minimum, you will need to populate the following
@@ -33,7 +33,7 @@ global:
 
 ## Server signing keys
 
-Next, you should tell Direxio Message Server where to find your [server signing keys](signingkeys).
+Next, you should tell Dirextalk Message Server where to find your [server signing keys](signingkeys).
 
 In the `global` section, set the `private_key` to the path to your server signing key:
 
@@ -45,7 +45,7 @@ global:
 
 ## JetStream configuration
 
-Direxio Message Server deployments can use the built-in NATS Server rather than running a standalone
+Dirextalk Message Server deployments can use the built-in NATS Server rather than running a standalone
 server. If you want to use a standalone NATS Server anyway, you can also configure that too.
 
 ### Built-in NATS Server
@@ -58,7 +58,7 @@ global:
   # ...
   jetstream:
     storage_path: /path/to/storage/folder
-    topic_prefix: Direxio Message Server
+    topic_prefix: Dirextalk Message Server
 ```
 
 ### Standalone NATS Server
@@ -72,7 +72,7 @@ global:
   jetstream:
     addresses:
       - localhost:4222
-    topic_prefix: Direxio Message Server
+    topic_prefix: Dirextalk Message Server
 ```
 
 You do not need to configure the `storage_path` when using a standalone NATS Server instance.
@@ -101,11 +101,11 @@ these will override the `global` database configuration.
 
 ## Full-text search
 
-Direxio Message Server supports full-text indexing using [Bleve](https://github.com/blevesearch/bleve). It is configured in the `sync_api` section as follows.
+Dirextalk Message Server supports full-text indexing using [Bleve](https://github.com/blevesearch/bleve). It is configured in the `sync_api` section as follows.
 
 Depending on the language most likely to be used on the server, it might make sense to change the `language` used when indexing,
 to ensure the returned results match the expectations. A full list of possible languages
-can be found [here](https://github.com/YingSuiAI/direxio-message-server/blob/5b73592f5a4dddf64184fcbe33f4c1835c656480/internal/fulltext/bleve.go#L25-L46).
+can be found [here](https://github.com/YingSuiAI/dirextalk-message-server/blob/5b73592f5a4dddf64184fcbe33f4c1835c656480/internal/fulltext/bleve.go#L25-L46).
 
 ```yaml
 sync_api:
@@ -119,7 +119,7 @@ sync_api:
 ## Other sections
 
 There are other options which may be useful so review them all. In particular, if you are
-trying to federate from your Direxio Message Server instance into public rooms then configuring the
+trying to federate from your Dirextalk Message Server instance into public rooms then configuring the
 `key_perspectives` (like `matrix.org` in the sample) can help to improve reliability
 considerably by allowing your homeserver to fetch public keys for dead homeservers from
 another living server.

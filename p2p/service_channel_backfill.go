@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 const maxChannelContentBackfillEvents = 5000

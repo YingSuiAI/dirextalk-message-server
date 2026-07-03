@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"net/http"
 
-	appserviceAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 )

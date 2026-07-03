@@ -7,16 +7,16 @@
 package roomserver
 
 import (
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
 )
 
 // NewInternalAPI returns a concrete implementation of the internal API.

@@ -17,12 +17,12 @@ import (
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/queue"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	syncTypes "github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/queue"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	syncTypes "github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 // OutputSendToDeviceConsumer consumes events that originate in the clientapi.

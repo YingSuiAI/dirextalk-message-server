@@ -11,10 +11,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

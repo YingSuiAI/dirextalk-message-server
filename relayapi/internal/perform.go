@@ -9,9 +9,9 @@ package internal
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/shared/receipt"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/relayapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/shared/receipt"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/relayapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"

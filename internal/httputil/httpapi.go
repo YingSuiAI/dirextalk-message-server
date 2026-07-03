@@ -23,9 +23,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -242,7 +242,7 @@ func MakeHTTPAPI(metricsName string, userAPI userapi.QueryAcccessTokenAPI, enabl
 			prometheus.CounterOpts{
 				Name:      metricsName,
 				Help:      "Total number of http requests for HTML resources",
-				Namespace: "direxio_message_server",
+				Namespace: "dirextalk_message_server",
 			},
 			[]string{"code"},
 		),

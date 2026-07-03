@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 func (d *Database) HideLocalEvents(ctx context.Context, userID, roomID string, eventIDs []string) error {

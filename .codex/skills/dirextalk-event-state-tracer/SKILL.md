@@ -1,0 +1,51 @@
+---
+name: dirextalk-event-state-tracer
+description: Trace Dirextalk behavior through Matrix events, state, membership, profile data, redactions, sync output, federation, product policy, transport writes, consumers, projected read models, and multi-node flows.
+---
+
+# Dirextalk Event State Tracer
+
+Use this skill when correctness depends on Matrix events or state becoming visible through another API, node, read model, or client sync.
+
+## Trace Paths
+
+For user/API-originated writes, trace the relevant path:
+
+1. HTTP route or product action handler.
+2. Authorization and `internal/productpolicy`.
+3. Matrix write path: Client-Server route or `p2p.Transport`.
+4. Roomserver input and output event.
+5. Consumers in `syncapi`, `federationapi`, `userapi`, `appservice`, and Dirextalk projection.
+6. Persistent stores and read models.
+7. Client-visible read path: `/sync`, history, search, federation response, Dirextalk action read, `/_p2p/ws`, or `/_p2p/events`.
+
+For inbound or federated behavior, start at roomserver/federation output and trace consumers forward to visible state.
+
+## State Rules
+
+- Product room type lives in `m.room.create.content.type` with Dirextalk direct, group, and channel room types.
+- Product metadata uses `io.dirextalk.room.profile`.
+- Member policy uses `io.dirextalk.member.policy`.
+- Public channel approval uses `io.dirextalk.join_request`.
+- Matrix `m.room.member membership=join` is the joined fact. Approval state is not joined state.
+- New group rooms and chat/text channel rooms write `m.room.history_visibility=joined`. Post channels (`channel_type=post`) write `m.room.history_visibility=shared` on creation and existing-room binding. Channel type is immutable; `channels.update` ignores `channel_type` for old-client compatibility. Do not change existing rooms retroactively unless explicitly requested.
+- Malformed optional product metadata must not block unrelated later projection events.
+- Non-product Matrix rooms must not pollute Dirextalk product lists unless the bridge is intentional.
+- Profile changes must keep Matrix-facing profile storage and Dirextalk profile/member views aligned when both are read.
+
+## Dirextalk Checks
+
+- Membership and invitation flows must cover owner, requester, local user, remote user, leave/kick/ban, deleted direct-contact recovery, and idempotent already-applied paths.
+- Deleted direct contacts keep the old direct room for recovery. If a rebuilt node cannot rejoin the retained direct room because old Matrix room/key state is gone, including missing local room version after database loss, it may create a replacement direct request room; a peer re-request stays pending until the deleting side explicitly accepts.
+- `portal.account.delete` must publish the critical Matrix leave/dissolve facts before local database reset: accepted direct contacts first publish an `io.dirextalk.room.profile` account-deleted dissolve state so peers hide the deleted account, then leave their rooms; owner-created groups/channels publish dissolved `io.dirextalk.room.profile`; member-only groups/channels leave through `p2p.Transport`. If any critical write fails, do not reset local databases.
+- Local delete hides for one user; recall/redaction propagates as Matrix redaction.
+- Ordinary timeline messages must not create a second product message source of truth.
+- Channel posts, comments, and reactions are product projections backed by Matrix events and redactions.
+- Agent online state is native Matrix room state in the real `agent_room_id`: event type `io.dirextalk.agent.status`, state key `@agent:<server>`, content field `online`. The running local Agent bridge writes true/false through its Matrix `@agent:<server>` session; the server may write false during startup/repair or when Agent config is disabled, but must not infer true from Agent config, `/sync`, or WS sessions. Do not mirror it through `sync.bootstrap.agent_online`, `agent.presence` SSE, Matrix `m.presence`, or agent-token event streams.
+- Agent room message intake, streaming previews, edits, and final replies use Matrix Client-Server APIs as `@agent:<server>`. Do not project agent room messages into P2P outbox and do not introduce `agent_room.message`, `client.agent_stream`, or `server.agent_stream` as current behavior.
+- App foreground/background is not inferred from `/sync`, read receipts, or pusher registration. Current clients report lifecycle and focused room through `GET /_p2p/ws` using `client.lifecycle` and `client.focus`; lifecycle may include `state`, `hidden`, and `flags`, and focus may include `focused` and `flags`. Session state is server-clocked and expires after 60 seconds. Fresh foreground, non-hidden WS state suppresses userapi notification insertion and HTTP push gateway delivery only for the same focused room, while hidden, background, disconnected, expired, no-focus, or different-room state keeps normal push behavior. Global Matrix account data `io.dirextalk.push.context` remains a fallback only when no fresh WS session exists.
+- The real `agent_room_id` defaults to no system push for the portal owner through a room-level Matrix push rule with empty actions. Preserve an existing explicit room push rule for that room.
+- Public channel remote approval must not report joined until the requester node performs the Matrix join successfully.
+- Federation tests must use real compose users such as `@owner:dendrite-a:8448` and `@owner:dendrite-b:8448`, not fabricated remote Matrix users.
+
+Use `dirextalk-targeted-verification` to choose package, Docker, and multi-node checks for the traced surface.

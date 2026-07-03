@@ -10,8 +10,8 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/types"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/types"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 // FederationInternalAPI is used to query information from the federation sender.

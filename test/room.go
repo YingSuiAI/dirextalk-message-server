@@ -16,8 +16,8 @@ import (
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 type Preset int

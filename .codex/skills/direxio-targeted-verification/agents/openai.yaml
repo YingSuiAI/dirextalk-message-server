@@ -1,4 +1,0 @@
-interface:
-  display_name: "Direxio Targeted Verification"
-  short_description: "Pick focused Direxio checks"
-  default_prompt: "Use $direxio-targeted-verification to choose focused Go, JSON, Postman, compose, skill, build, or regression checks for a Direxio server change."

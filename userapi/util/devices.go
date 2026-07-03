@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushgateway"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	log "github.com/sirupsen/logrus"
 )

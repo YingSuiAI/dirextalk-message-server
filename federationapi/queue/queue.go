@@ -20,11 +20,11 @@ import (
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/shared/receipt"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/shared/receipt"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 )
 
 // OutgoingQueues is a collection of queues for sending transactions to other
@@ -50,7 +50,7 @@ func init() {
 
 var destinationQueueTotal = prometheus.NewGauge(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "federationapi",
 		Name:      "destination_queues_total",
 	},
@@ -58,7 +58,7 @@ var destinationQueueTotal = prometheus.NewGauge(
 
 var destinationQueueRunning = prometheus.NewGauge(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "federationapi",
 		Name:      "destination_queues_running",
 	},
@@ -66,7 +66,7 @@ var destinationQueueRunning = prometheus.NewGauge(
 
 var destinationQueueBackingOff = prometheus.NewGauge(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "federationapi",
 		Name:      "destination_queues_backing_off",
 	},

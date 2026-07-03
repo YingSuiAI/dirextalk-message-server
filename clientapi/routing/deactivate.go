@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

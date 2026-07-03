@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	federationAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	relayServerAPI "github.com/YingSuiAI/direxio-message-server/relayapi/api"
+	federationAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	relayServerAPI "github.com/YingSuiAI/dirextalk-message-server/relayapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/sirupsen/logrus"
 )

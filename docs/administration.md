@@ -7,4 +7,4 @@ permalink: /administration
 
 # Administration
 
-This section contains documentation on managing your existing Direxio Message Server deployment.
+This section contains documentation on managing your existing Dirextalk Message Server deployment.

@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func TestProjectRoomMessageDoesNotCreateP2PMessageRecord(t *testing.T) {
@@ -140,8 +140,8 @@ func TestProjectRoomProfileCreatesConversation(t *testing.T) {
 	user := test.NewUser(t)
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
-	event := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type": DirexioRoomTypeGroup,
+	event := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type": DirextalkRoomTypeGroup,
 		"name":      "Launch Group",
 	}, test.WithStateKey(""))
 
@@ -161,7 +161,7 @@ func TestProjectRoomProfileRequiresExplicitRoomType(t *testing.T) {
 	user := test.NewUser(t)
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
-	event := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
+	event := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
 		"invite_policy": "member",
 		"topic":         "must not imply group",
 	}, test.WithStateKey(""))
@@ -179,8 +179,8 @@ func TestProjectChannelStateAndPostKinds(t *testing.T) {
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
 
-	state := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":    DirexioRoomTypeChannel,
+	state := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":    DirextalkRoomTypeChannel,
 		"channel_id":   "ch_remote",
 		"channel_type": "post",
 		"name":         "Remote Posts",
@@ -229,8 +229,8 @@ func TestProjectChannelStateAndPostKinds(t *testing.T) {
 		t.Fatalf("expected projected channel comment, got %#v", comments)
 	}
 
-	dissolved := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":    DirexioRoomTypeChannel,
+	dissolved := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":    DirextalkRoomTypeChannel,
 		"channel_id":   "ch_remote",
 		"channel_type": "post",
 		"name":         "Remote Posts",
@@ -252,8 +252,8 @@ func TestProjectGroupStateAndDissolve(t *testing.T) {
 	user := test.NewUser(t)
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
-	state := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":     DirexioRoomTypeGroup,
+	state := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":     DirextalkRoomTypeGroup,
 		"name":          "Remote Group",
 		"topic":         "Topic",
 		"avatar_url":    "mxc://test/group",
@@ -270,8 +270,8 @@ func TestProjectGroupStateAndDissolve(t *testing.T) {
 		t.Fatalf("expected projected group state, got %#v", groups)
 	}
 
-	dissolved := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type": DirexioRoomTypeGroup,
+	dissolved := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type": DirextalkRoomTypeGroup,
 		"name":      "Remote Group",
 		"dissolved": true,
 	}, test.WithStateKey(""))
@@ -305,8 +305,8 @@ func TestProjectSparseChannelProfilePreservesLocalMute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":  DirexioRoomTypeChannel,
+	state := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":  DirextalkRoomTypeChannel,
 		"channel_id": "ch_sparse",
 		"name":       "Renamed Channel",
 	}, test.WithStateKey(""))
@@ -358,8 +358,8 @@ func TestProjectNativeDirectProfileStateDoesNotCreateGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	profile := room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":      DirexioRoomTypeDirect,
+	profile := room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":      DirextalkRoomTypeDirect,
 		"name":           "Remote Direct",
 		"visibility":     "private",
 		"join_policy":    "invite",
@@ -380,7 +380,7 @@ func TestProjectNativeDirectProfileStateDoesNotCreateGroup(t *testing.T) {
 	if len(groups) != 0 {
 		t.Fatalf("direct room profile must not be projected as group, got %#v", groups)
 	}
-	if len(service.events) != 1 || service.events[0].Type != "profile.changed" || service.events[0].Payload["room_type"] != DirexioRoomTypeDirect {
+	if len(service.events) != 1 || service.events[0].Type != "profile.changed" || service.events[0].Payload["room_type"] != DirextalkRoomTypeDirect {
 		t.Fatalf("expected direct profile change event, got %#v", service.events)
 	}
 }
@@ -606,7 +606,7 @@ func TestProjectDirectInviteReplacesAcceptedContactWhenRoomChanges(t *testing.T)
 	owner := test.NewUser(t)
 	remote := test.NewUser(t)
 	room := test.NewRoom(t, remote)
-	transport := &failingInviteTransport{err: productpolicy.Forbidden("sender is not joined to the direxio room")}
+	transport := &failingInviteTransport{err: productpolicy.Forbidden("sender is not joined to the dirextalk room")}
 	service := NewServiceWithTransport(Config{ServerName: "test"}, transport)
 	service.ownerMXID = owner.ID
 	if err := service.saveContact(context.Background(), contactRecord{
@@ -711,7 +711,7 @@ func TestProjectNativeDirectProfileInviteCreatesPendingInboundContact(t *testing
 		"membership": "invite",
 	}, test.WithStateKey(owner.ID))
 	setInviteRoomProfileState(t, invite, remote.ID, map[string]any{
-		"room_type":      DirexioRoomTypeDirect,
+		"room_type":      DirextalkRoomTypeDirect,
 		"requester_mxid": remote.ID,
 		"target_mxid":    owner.ID,
 		"display_name":   "Remote Native Nick",
@@ -746,7 +746,7 @@ func TestProjectNativeDirectProfileInviteUsesActualSenderIdentity(t *testing.T) 
 		"membership": "invite",
 	}, test.WithStateKey(owner.ID))
 	setInviteRoomProfileState(t, invite, spoofed, map[string]any{
-		"room_type":      DirexioRoomTypeDirect,
+		"room_type":      DirextalkRoomTypeDirect,
 		"requester_mxid": spoofed,
 		"target_mxid":    owner.ID,
 		"display_name":   "Spoofed B",
@@ -787,7 +787,7 @@ func TestProjectDirectInviteUsesSenderProfileFromInviteState(t *testing.T) {
 		"sender":    remote.ID,
 		"content": map[string]any{
 			"creator": remote.ID,
-			"type":    DirexioRoomTypeDirect,
+			"type":    DirextalkRoomTypeDirect,
 		},
 	}, {
 		"type":      "m.room.member",
@@ -1107,7 +1107,7 @@ func TestProjectOutputNewInviteCreatesGroupAndChannelPendingItems(t *testing.T) 
 		"membership": "invite",
 	}, test.WithStateKey(owner.ID))
 	setInviteRoomProfileState(t, groupInvite, remote.ID, map[string]any{
-		"room_type": DirexioRoomTypeGroup,
+		"room_type": DirextalkRoomTypeGroup,
 		"room_id":   groupRoom.ID,
 		"name":      "远端群聊",
 	})
@@ -1115,7 +1115,7 @@ func TestProjectOutputNewInviteCreatesGroupAndChannelPendingItems(t *testing.T) 
 		"membership": "invite",
 	}, test.WithStateKey(owner.ID))
 	setInviteRoomProfileState(t, channelInvite, remote.ID, map[string]any{
-		"room_type":        DirexioRoomTypeChannel,
+		"room_type":        DirextalkRoomTypeChannel,
 		"channel_id":       "remote_channel",
 		"room_id":          channelRoom.ID,
 		"name":             "远端频道",
@@ -1149,7 +1149,7 @@ func TestProjectOutputNewInviteCreatesGroupAndChannelPendingItems(t *testing.T) 
 
 func setInviteRoomState(t *testing.T, event *types.HeaderedEvent, sender string, content map[string]any) {
 	t.Helper()
-	native := map[string]any{"room_type": DirexioRoomTypeDirect}
+	native := map[string]any{"room_type": DirextalkRoomTypeDirect}
 	for key, value := range content {
 		native[key] = value
 	}
@@ -1159,7 +1159,7 @@ func setInviteRoomState(t *testing.T, event *types.HeaderedEvent, sender string,
 func setInviteRoomProfileState(t *testing.T, event *types.HeaderedEvent, sender string, content map[string]any) {
 	t.Helper()
 	setInviteRoomStates(t, event, []map[string]any{{
-		"type":      DirexioRoomProfileEventType,
+		"type":      DirextalkRoomProfileEventType,
 		"state_key": "",
 		"sender":    sender,
 		"content":   content,
@@ -1187,8 +1187,8 @@ func TestProjectMemberUsesKnownChannelForRoom(t *testing.T) {
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
 
-	state := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":    DirexioRoomTypeChannel,
+	state := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":    DirextalkRoomTypeChannel,
 		"channel_id":   "ch_remote",
 		"channel_type": "chat",
 		"name":         "Remote Channel",
@@ -1256,8 +1256,8 @@ func TestProjectSparseMemberEventPreservesProfileAndMute(t *testing.T) {
 	room := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
 
-	state := room.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":  DirexioRoomTypeChannel,
+	state := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":  DirextalkRoomTypeChannel,
 		"channel_id": "ch_member_sparse",
 		"name":       "Remote Channel",
 	}, test.WithStateKey(""))

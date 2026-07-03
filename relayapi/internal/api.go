@@ -9,9 +9,9 @@ package internal
 import (
 	"sync"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/relayapi/storage"
-	rsAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage"
+	rsAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"

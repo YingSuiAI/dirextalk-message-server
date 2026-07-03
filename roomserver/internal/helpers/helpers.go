@@ -11,13 +11,13 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/auth"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/auth"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 // TODO: temporary package which has helper functions used by both internal/perform packages.

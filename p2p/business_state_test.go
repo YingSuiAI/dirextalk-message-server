@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func TestReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
@@ -2299,20 +2299,20 @@ func TestRemovedSyncMessagesIsUnknown(t *testing.T) {
 }
 
 func TestGroupInviteAcceptsInviteArrayAlias(t *testing.T) {
-	service := NewService(Config{ServerName: "im1.direxio.ai"})
+	service := NewService(Config{ServerName: "im1.dirextalk.ai"})
 	bootstrapService(t, service)
-	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"room_id": "!group:im1.direxio.ai", "name": "Group"})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"room_id": "!group:im1.dirextalk.ai", "name": "Group"})
 
 	res, apiErr := service.Handle(context.Background(), "groups.invite", map[string]any{
 		"room_id": group.RoomID,
-		"invite":  []any{"@owner:dm1.direxio.ai"},
+		"invite":  []any{"@owner:dm1.dirextalk.ai"},
 	})
 	if apiErr != nil {
 		t.Fatalf("expected invite array alias to be accepted, got %#v", apiErr)
 	}
 	invite := res.(map[string]any)
 	members := invite["members"].([]memberRecord)
-	if len(members) != 1 || members[0].UserID != "@owner:dm1.direxio.ai" || members[0].Membership != "invite" {
+	if len(members) != 1 || members[0].UserID != "@owner:dm1.dirextalk.ai" || members[0].Membership != "invite" {
 		t.Fatalf("expected invite array alias to create invited member, got %#v", invite)
 	}
 }

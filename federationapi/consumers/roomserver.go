@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	syncAPITypes "github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	syncAPITypes "github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	"github.com/matrix-org/gomatrixserverlib"
@@ -23,13 +23,13 @@ import (
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/queue"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/types"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/queue"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 )
 
 // OutputRoomEventConsumer consumes events that originated in the room server.

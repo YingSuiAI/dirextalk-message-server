@@ -119,14 +119,14 @@ func TestAgentMatrixSessionCreateUsesAgentIdentity(t *testing.T) {
 	issuer := &recordingMatrixSessionIssuer{}
 	service.SetMatrixSessionIssuer(issuer)
 	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
-		"display_name": "Direxio Agent",
+		"display_name": "Dirextalk Agent",
 	})
 
 	session := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
-		"device_id": "DIREXIO_CLI",
+		"device_id": "DIREXTALK_CLI",
 	})
 
-	if issuer.deviceID != "DIREXIO_CLI" {
+	if issuer.deviceID != "DIREXTALK_CLI" {
 		t.Fatalf("expected Matrix issuer to receive CLI device id, got %q", issuer.deviceID)
 	}
 	if issuer.revokeExistingDevices {
@@ -135,16 +135,16 @@ func TestAgentMatrixSessionCreateUsesAgentIdentity(t *testing.T) {
 	if issuer.sessionUser != "@agent:example.com" {
 		t.Fatalf("expected Matrix issuer to create an agent session, got user %q", issuer.sessionUser)
 	}
-	if issuer.sessionName != "Direxio Agent" {
+	if issuer.sessionName != "Dirextalk Agent" {
 		t.Fatalf("expected Matrix issuer to use agent display name, got %q", issuer.sessionName)
 	}
 	if issuer.sessionURL != "" {
 		t.Fatalf("expected agent Matrix session avatar to be empty by default, got %q", issuer.sessionURL)
 	}
-	if session["device_id"] != "DIREXIO_CLI" {
-		t.Fatalf("expected session device id to be DIREXIO_CLI, got %#v", session)
+	if session["device_id"] != "DIREXTALK_CLI" {
+		t.Fatalf("expected session device id to be DIREXTALK_CLI, got %#v", session)
 	}
-	if session["access_token"] != "matrix-token-for-DIREXIO_CLI" {
+	if session["access_token"] != "matrix-token-for-DIREXTALK_CLI" {
 		t.Fatalf("expected Matrix access token in internal session response, got %#v", session)
 	}
 	if session["user_id"] != "@agent:example.com" {
@@ -173,7 +173,7 @@ func TestAgentMatrixSessionDoesNotReplacePortalAccessToken(t *testing.T) {
 	}
 
 	agentSession := mustHandle[map[string]any](t, service, "agent.matrix_session.create", map[string]any{
-		"device_id": "DIREXIO_AGENT_TEST",
+		"device_id": "DIREXTALK_AGENT_TEST",
 	})
 	if agentSession["access_token"] == portalToken {
 		t.Fatalf("expected agent Matrix session to have its own Matrix token")

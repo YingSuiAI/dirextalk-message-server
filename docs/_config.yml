@@ -1,4 +1,4 @@
-title: Direxio Message Server
+title: Dirextalk Message Server
 description: >-
   Second-generation Matrix homeserver written in Go!
 baseurl: "/dendrite" # the subpath of your site, e.g. /blog
@@ -10,7 +10,7 @@ plugins:
   - jekyll-feed
 aux_links:
   "GitHub":
-    - "//github.com/YingSuiAI/direxio-message-server"
+    - "//github.com/YingSuiAI/dirextalk-message-server"
 aux_links_new_tab: true
 sass:
   sass_dir: _sass

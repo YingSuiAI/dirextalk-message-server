@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	relayInternal "github.com/YingSuiAI/direxio-message-server/relayapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	relayInternal "github.com/YingSuiAI/dirextalk-message-server/relayapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/getsentry/sentry-go"
 	"github.com/gorilla/mux"
 	"github.com/matrix-org/gomatrixserverlib"

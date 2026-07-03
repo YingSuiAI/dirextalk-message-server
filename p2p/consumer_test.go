@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/nats-io/nats.go"
 )
 

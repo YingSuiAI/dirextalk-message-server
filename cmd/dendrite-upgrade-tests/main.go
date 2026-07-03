@@ -39,7 +39,7 @@ var (
 	flagDockerHost       = flag.String("docker-host", "localhost", "The hostname of the docker client. 'localhost' if running locally, 'host.docker.internal' if running in Docker.")
 	flagDirect           = flag.Bool("direct", false, "If a direct upgrade from the defined FROM version to TO should be done")
 	flagSqlite           = flag.Bool("sqlite", false, "Test SQLite instead of PostgreSQL")
-	flagRepository       = flag.String("repository", "YingSuiAI/direxio-message-server", "The base repository to use when running upgrade tests.")
+	flagRepository       = flag.String("repository", "YingSuiAI/dirextalk-message-server", "The base repository to use when running upgrade tests.")
 	alphaNumerics        = regexp.MustCompile("[^a-zA-Z0-9]+")
 )
 
@@ -146,7 +146,7 @@ const dendriteUpgradeTestLabel = "dendrite_upgrade_test"
 
 // downloadArchive downloads an arbitrary github archive of the form:
 //
-//	https://github.com/YingSuiAI/direxio-message-server/archive/v0.3.11.tar.gz
+//	https://github.com/YingSuiAI/dirextalk-message-server/archive/v0.3.11.tar.gz
 //
 // and re-tarballs it without the top-level directory which contains branch information. It inserts
 // the contents of `dockerfile` as a root file `Dockerfile` in the re-tarballed directory such that
@@ -529,7 +529,7 @@ func testCreateAccount(dockerClient *client.Client, version *semver.Version, con
 }
 
 func versionToBranchAndBinary(version *semver.Version) (branchName, binary string) {
-	binary = "direxio-message-server"
+	binary = "dirextalk-message-server"
 	branchName = version.Original()
 	if version.GreaterThan(binaryChangeVersion) {
 		binary = "dendrite"

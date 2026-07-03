@@ -20,14 +20,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/fulltext"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/fulltext"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // nolint:gocyclo

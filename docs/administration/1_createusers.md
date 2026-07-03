@@ -7,13 +7,13 @@ nav_order: 1
 
 # Creating user accounts
 
-User accounts can be created on a Direxio Message Server instance in a number of ways.
+User accounts can be created on a Dirextalk Message Server instance in a number of ways.
 
 ## From the command line
 
-The `create-account` tool is built in the `bin` folder when [building](../installation/build) Direxio Message Server.
+The `create-account` tool is built in the `bin` folder when [building](../installation/build) Dirextalk Message Server.
 
-It uses the `message-server.yaml` configuration file to connect to a **running** Direxio Message Server instance and requires
+It uses the `message-server.yaml` configuration file to connect to a **running** Dirextalk Message Server instance and requires
 shared secret registration to be enabled as explained below.
 
 An example of using `create-account` to create a **normal account**:
@@ -30,7 +30,7 @@ To create a new **admin account**, add the `-admin` flag:
 ./bin/create-account -config /path/to/message-server.yaml -username USERNAME -admin
 ```
 
-By default `create-account` uses `http://localhost:8008` to connect to Direxio Message Server, this can be overwritten using
+By default `create-account` uses `http://localhost:8008` to connect to Dirextalk Message Server, this can be overwritten using
 the `-url` flag:
 
 ```bash
@@ -42,7 +42,7 @@ the tool locally if you need this command-line flow, or use shared secret regist
 
 ## Using shared secret registration
 
-Direxio Message Server supports the Synapse-compatible shared secret registration endpoint.
+Dirextalk Message Server supports the Synapse-compatible shared secret registration endpoint.
 
 To enable shared secret registration, you must first enable it in the `message-server.yaml`
 configuration file by specifying a shared secret. In the `client_api` section of the config,

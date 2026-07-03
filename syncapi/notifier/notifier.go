@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	log "github.com/sirupsen/logrus"
 )

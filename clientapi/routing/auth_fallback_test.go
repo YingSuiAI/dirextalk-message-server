@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 func Test_AuthFallback(t *testing.T) {

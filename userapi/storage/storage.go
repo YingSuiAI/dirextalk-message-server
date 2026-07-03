@@ -14,12 +14,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/postgres"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/sqlite3"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/postgres"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/sqlite3"
 )
 
 // NewUserDatabase opens a new Postgres or Sqlite database (based on dataSourceName scheme)

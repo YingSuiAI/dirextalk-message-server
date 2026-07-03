@@ -13,14 +13,14 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/fulltext"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/sync"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/fulltext"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/sync"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // Setup configures the given mux with sync-server listeners
@@ -67,8 +67,8 @@ func Setup(
 		}, httputil.WithAllowGuests()),
 	).Methods(http.MethodGet, http.MethodOptions)
 
-	v1unstablemux.Handle("/io.direxio/rooms/{roomID}/local_delete",
-		httputil.MakeAuthAPI("io_direxio_rooms_local_delete", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
+	v1unstablemux.Handle("/io.dirextalk/rooms/{roomID}/local_delete",
+		httputil.MakeAuthAPI("io_dirextalk_rooms_local_delete", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
 			vars, err := httputil.URLDecodeMapValues(mux.Vars(req))
 			if err != nil {
 				return util.ErrorResponse(err)

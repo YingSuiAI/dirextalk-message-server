@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/shared/receipt"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/shared/receipt"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

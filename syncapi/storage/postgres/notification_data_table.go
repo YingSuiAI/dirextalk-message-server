@@ -12,11 +12,11 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 func NewPostgresNotificationDataTable(db *sql.DB) (tables.NotificationData, error) {

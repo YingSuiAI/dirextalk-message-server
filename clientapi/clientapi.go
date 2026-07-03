@@ -7,18 +7,18 @@
 package clientapi
 
 import (
-	appserviceAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/routing"
-	federationAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/transactions"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/routing"
+	federationAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/transactions"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 )
 

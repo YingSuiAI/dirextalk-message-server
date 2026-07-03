@@ -7,35 +7,35 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/input"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/input"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"github.com/tidwall/gjson"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/acls"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/userapi"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/acls"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi"
 
-	userAPI "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	userAPI "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 
 	"github.com/matrix-org/gomatrixserverlib"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/syncapi"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
 )
 
 var testIsBlacklistedOrBackingOff = func(s spec.ServerName) (*statistics.ServerStatistics, error) {
@@ -1017,7 +1017,7 @@ func TestUpgrade(t *testing.T) {
 			validateFunc: validate,
 		},
 		{
-			name:        "custom state is not taken to the new room", // https://github.com/YingSuiAI/direxio-message-server/issues/2912
+			name:        "custom state is not taken to the new room", // https://github.com/YingSuiAI/dirextalk-message-server/issues/2912
 			upgradeUser: charlie.ID,
 			roomFunc: func(rsAPI api.RoomserverInternalAPI) string {
 				r := test.NewRoom(t, alice, test.RoomVersion(gomatrixserverlib.RoomVersionV6))

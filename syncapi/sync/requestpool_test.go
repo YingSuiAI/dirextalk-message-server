@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

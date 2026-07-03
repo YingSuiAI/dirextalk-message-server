@@ -11,11 +11,11 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 const accountDataSchema = `

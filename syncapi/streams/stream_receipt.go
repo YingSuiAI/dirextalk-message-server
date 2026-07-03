@@ -6,9 +6,9 @@ import (
 
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 type ReceiptStreamProvider struct {

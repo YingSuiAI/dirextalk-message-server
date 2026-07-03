@@ -12,9 +12,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

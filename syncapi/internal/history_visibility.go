@@ -18,9 +18,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
 )
 
 func init() {
@@ -31,7 +31,7 @@ func init() {
 // calculate the history visibility.
 var calculateHistoryVisibilityDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "syncapi",
 		Name:      "calculateHistoryVisibility_duration_millis",
 		Help:      "How long it takes to calculate the history visibility",

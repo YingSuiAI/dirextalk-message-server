@@ -1,4 +1,0 @@
-interface:
-  display_name: "Direxio Change Orchestrator"
-  short_description: "Map Direxio-wide change impact"
-  default_prompt: "Use $direxio-change-orchestrator to map Direxio server entry points, contracts, state, storage, docs, and verification before a cross-package change."

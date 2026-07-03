@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -19,18 +19,18 @@ func (t *DendriteTransport) GetRoomChannel(ctx context.Context, roomID string) (
 	if err := t.rsAPI.QueryCurrentState(ctx, &roomserverAPI.QueryCurrentStateRequest{
 		RoomID: roomID,
 		StateTuples: []gomatrixserverlib.StateKeyTuple{
-			{EventType: DirexioRoomProfileEventType, StateKey: ""},
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""},
 		},
 	}, &res); err != nil {
 		return channel{}, false, err
 	}
-	event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirexioRoomProfileEventType, StateKey: ""}]
+	event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkRoomProfileEventType, StateKey: ""}]
 	if event != nil {
 		content := map[string]any{}
 		if err := json.Unmarshal(event.Content(), &content); err != nil {
 			return channel{}, false, err
 		}
-		if trimString(content["room_type"]) != DirexioRoomTypeChannel {
+		if trimString(content["room_type"]) != DirextalkRoomTypeChannel {
 			return channel{}, false, nil
 		}
 		channelID := trimString(content["channel_id"])

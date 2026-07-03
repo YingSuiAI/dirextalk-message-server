@@ -7,7 +7,7 @@ permalink: /administration/adminapi
 
 # Supported admin APIs
 
-Direxio Message Server supports, at present, a very small number of endpoints that allow
+Dirextalk Message Server supports, at present, a very small number of endpoints that allow
 admin users to perform administrative functions. Please note that there is no
 API stability guarantee on these endpoints at present — they may change shape
 without warning.
@@ -35,7 +35,7 @@ Where `$localpart` is the username only (e.g. `alice`).
 
 ## POST `/_dendrite/admin/evacuateRoom/{roomID}`
 
-This endpoint will instruct Direxio Message Server to part all local users from the given `roomID`
+This endpoint will instruct Dirextalk Message Server to part all local users from the given `roomID`
 in the URL. It may take some time to complete. A JSON body will be returned containing
 the user IDs of all affected users.
 
@@ -44,7 +44,7 @@ be found as the room's "internal ID" in Element Web (Settings -> Advanced)
 
 ## POST `/_dendrite/admin/evacuateUser/{userID}`
 
-This endpoint will instruct Direxio Message Server to part the given local `userID` in the URL from
+This endpoint will instruct Dirextalk Message Server to part the given local `userID` in the URL from
 all rooms which they are currently joined. A JSON body will be returned containing
 the room IDs of all affected rooms.
 
@@ -66,16 +66,16 @@ Request body format:
 
 ## GET `/_dendrite/admin/fulltext/reindex`
 
-This endpoint instructs Direxio Message Server to reindex all searchable events (`m.room.message`, `m.room.topic` and `m.room.name`). An empty JSON body will be returned immediately.
+This endpoint instructs Dirextalk Message Server to reindex all searchable events (`m.room.message`, `m.room.topic` and `m.room.name`). An empty JSON body will be returned immediately.
 Indexing is done in the background, the server logs every 1000 events (or below) when they are being indexed. Once reindexing is done, you'll see something along the lines `Indexed 69586 events in 53.68223182s` in your debug logs.
 
 ## POST `/_dendrite/admin/refreshDevices/{userID}`
 
-This endpoint instructs Direxio Message Server to immediately query `/devices/{userID}` on a federated server. An empty JSON body will be returned on success, updating all locally stored user devices/keys. This can be used to possibly resolve E2EE issues, where the remote user can't decrypt messages.
+This endpoint instructs Dirextalk Message Server to immediately query `/devices/{userID}` on a federated server. An empty JSON body will be returned on success, updating all locally stored user devices/keys. This can be used to possibly resolve E2EE issues, where the remote user can't decrypt messages.
 
 ## POST `/_dendrite/admin/purgeRoom/{roomID}`
 
-This endpoint instructs Direxio Message Server to remove the given room from its database. It does **NOT** remove media files. Depending on the size of the room, this may take a while. Will return an empty JSON once other components were instructed to delete the room.
+This endpoint instructs Dirextalk Message Server to remove the given room from its database. It does **NOT** remove media files. Depending on the size of the room, this may take a while. Will return an empty JSON once other components were instructed to delete the room.
 
 ## GET `/_dendrite/admin/emptyRooms`
 

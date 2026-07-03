@@ -20,15 +20,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 
-	appserviceAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/transactions"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/transactions"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

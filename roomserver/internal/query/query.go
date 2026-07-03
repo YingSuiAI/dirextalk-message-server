@@ -13,25 +13,25 @@ import (
 	"errors"
 	"fmt"
 
-	// "github.com/YingSuiAI/direxio-message-server/roomserver/internal"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	// "github.com/YingSuiAI/dirextalk-message-server/roomserver/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	fsAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/acls"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/helpers"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	fsAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/acls"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/helpers"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 type Queryer struct {

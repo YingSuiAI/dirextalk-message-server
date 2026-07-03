@@ -9,9 +9,9 @@ package storage
 import (
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage/sqlite3"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/sqlite3"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // Open opens a postgres database.

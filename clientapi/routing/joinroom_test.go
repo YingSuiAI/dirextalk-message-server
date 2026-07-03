@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/appservice"
-	"github.com/YingSuiAI/direxio-message-server/roomserver"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
-	"github.com/YingSuiAI/direxio-message-server/userapi"
-	uapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/appservice"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi"
+	uapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 var testIsBlacklistedOrBackingOff = func(s spec.ServerName) (*statistics.ServerStatistics, error) {
@@ -93,7 +93,7 @@ func TestJoinRoomByIDOrAlias(t *testing.T) {
 		if !ok {
 			t.Fatalf("response is not a createRoomResponse: %+v", resp)
 		}
-		creationContent, err := json.Marshal(map[string]any{"type": productpolicy.DirexioRoomTypeChannel})
+		creationContent, err := json.Marshal(map[string]any{"type": productpolicy.DirextalkRoomTypeChannel})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,10 +104,10 @@ func TestJoinRoomByIDOrAlias(t *testing.T) {
 			RoomAliasName:   "approval",
 			CreationContent: creationContent,
 			InitialState: []gomatrixserverlib.FledglingEvent{{
-				Type:     productpolicy.DirexioRoomProfileEventType,
+				Type:     productpolicy.DirextalkRoomProfileEventType,
 				StateKey: "",
 				Content: map[string]any{
-					"room_type":   productpolicy.DirexioRoomTypeChannel,
+					"room_type":   productpolicy.DirextalkRoomTypeChannel,
 					"join_policy": "approval",
 				},
 			}},

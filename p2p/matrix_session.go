@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

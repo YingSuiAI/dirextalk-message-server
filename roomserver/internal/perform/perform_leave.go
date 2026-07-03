@@ -13,21 +13,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
 	"github.com/matrix-org/gomatrix"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"
 
-	fsAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rsAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/helpers"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/input"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	fsAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rsAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/helpers"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/input"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 type Leaver struct {

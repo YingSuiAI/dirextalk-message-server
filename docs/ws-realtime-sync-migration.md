@@ -2,14 +2,14 @@
 
 ## Goal Anchor
 
-- Server repository: `C:\Users\84960\Desktop\direxio\direxio-message-server`
-- Flutter repository: `C:\Users\84960\Desktop\direxio\direxio-flutter`
-- Migration document: `C:\Users\84960\Desktop\direxio\direxio-message-server\docs\ws-realtime-sync-migration.md`
+- Server repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
+- Flutter repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-flutter`
+- Migration document: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server\docs\ws-realtime-sync-migration.md`
 - Server branch: `feature/ws-realtime-sync`
 - Flutter branch: `feature/ws-realtime-sync`
 - Server WebSocket library: existing `github.com/coder/websocket`
 - Flutter WebSocket library: `web_socket_channel`
-- Target result: migrate the logged-in Direxio client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP for startup/session, Agent Matrix session bootstrap, fixed MCP, and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
+- Target result: migrate the logged-in Dirextalk client/product action surface to WebSocket `client.request`/`server.response`, remove `GET /_p2p/events` SSE, keep HTTP for startup/session, Agent Matrix session bootstrap, fixed MCP, and node-to-node public/callback flows, and keep Matrix Client-Server as the ordinary timeline/media/history/search/redaction source of truth.
 
 ## Contract Summary
 
@@ -128,11 +128,11 @@ Record command evidence here as phases complete.
 - `go test ./p2p -run "TestRealtimeWS" -count=1` passed.
 - `go test ./userapi/consumers -run "TestNotifyLocal(OnlySuppressesFreshForegroundNotifications|UsesRealtimeFocusWhenWSSessionExists)" -count=1` passed.
 - `go test ./p2p ./userapi/consumers -count=1` passed.
-- `go build ./cmd/direxio-message-server` passed.
-- `python -m json.tool docs/postman/direxio-message-server.postman_collection.json > $null` passed.
+- `go build ./cmd/dirextalk-message-server` passed.
+- `python -m json.tool docs/postman/dirextalk-message-server.postman_collection.json > $null` passed.
 - `git diff --check` passed in the server repository.
 - `gopls check internal/realtime/session_store.go p2p/realtime_ws.go p2p/routing.go p2p/routing_ws_test.go p2p/service.go userapi/consumers/roomserver.go userapi/consumers/roomserver_test.go` passed with no diagnostics.
-- `flutter pub get` passed in `C:\Users\84960\Desktop\direxio\direxio-flutter`.
+- `flutter pub get` passed in `C:\Users\84960\Desktop\dirextalk\dirextalk-flutter`.
 - `dart format --set-exit-if-changed lib/data/as_realtime_transport.dart lib/data/http_as_client.dart lib/presentation/providers/as_event_stream_provider.dart lib/presentation/providers/push_context_provider.dart lib/presentation/widgets/realtime_room_focus.dart lib/presentation/pages/chat_page.dart lib/presentation/pages/group_chat_page.dart test/as_realtime_transport_test.dart test/as_event_stream_refresh_controller_test.dart` passed.
 - `flutter test --no-pub test/as_event_stream_refresh_controller_test.dart test/as_realtime_transport_test.dart test/matrix_push_context_test.dart` passed.
 - `flutter analyze --no-pub` passed.
@@ -150,10 +150,10 @@ Record command evidence here as phases complete.
 - `go test ./p2p -count=1` passed.
 - `go test ./p2p ./internal/productpolicy -count=1` passed.
 - `go test ./internal/httputil ./setup -count=1` passed.
-- `go build ./cmd/direxio-message-server` passed.
-- `python -m json.tool docs/postman/direxio-message-server.postman_collection.json > $null` passed.
-- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-contract-sync` passed.
-- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-event-state-tracer` passed.
+- `go build ./cmd/dirextalk-message-server` passed.
+- `python -m json.tool docs/postman/dirextalk-message-server.postman_collection.json > $null` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\dirextalk-contract-sync` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\dirextalk-event-state-tracer` passed.
 - `gopls check p2p/realtime_ws.go p2p/routing_ws_test.go p2p/service.go` passed.
 - `git diff --check` passed in the server repository.
 - `flutter test --no-pub test/as_realtime_transport_test.dart` passed.
@@ -166,9 +166,9 @@ Record command evidence here as phases complete.
 - Flutter Phase 2 repository commit: `21b2b97 feat: add websocket read markers and agent stream aggregation`.
 - `go test ./p2p ./internal/productpolicy -count=1` passed.
 - `go test ./internal/httputil ./setup -count=1` passed.
-- `go build ./cmd/direxio-message-server` passed.
+- `go build ./cmd/dirextalk-message-server` passed.
 - `gopls check p2p\routing.go p2p\service.go p2p\realtime_ws.go p2p\routing_test.go p2p\routing_ws_test.go p2p\native_migration_test.go` passed.
-- `python -m json.tool docs\postman\direxio-message-server.postman_collection.json > $null` passed.
+- `python -m json.tool docs\postman\dirextalk-message-server.postman_collection.json > $null` passed.
 - `git diff --check` passed in the server repository.
 - `docker compose -f docker-compose.p2p.yml config` and `docker compose -f docker-compose.p2p-dual.yml config` passed with `P2P_DUAL_PUBLIC_HOST=host.docker.internal`.
 - `docker compose -f docker-compose.p2p.yml up -d --build` rebuilt and started the single-node stack from the current server code.
@@ -183,10 +183,10 @@ Record command evidence here as phases complete.
 - Browser Web smoke served `build\web` at `http://127.0.0.1:3017`, logged in against `http://127.0.0.1:8008`, reached `#/home`, and after the Web SharedPreferences store fix no longer logged `P2P event stream refresh failed: MissingPluginException(... getApplicationSupportDirectory ...)`. Existing unrelated Web file-cache logs remain for chat-clear/conversation-summary/profile providers.
 - Flutter WS Product API migration commit: `3e0d0ba feat: migrate product actions to websocket`.
 - `go test ./p2p ./internal/realtime ./userapi/consumers -count=1` passed.
-- `go build ./cmd/direxio-message-server` passed.
-- `python -m json.tool docs\postman\direxio-message-server.postman_collection.json > $null` passed.
-- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-contract-sync` passed.
-- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\direxio-event-state-tracer` passed.
+- `go build ./cmd/dirextalk-message-server` passed.
+- `python -m json.tool docs\postman\dirextalk-message-server.postman_collection.json > $null` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\dirextalk-contract-sync` passed.
+- `python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .codex\skills\dirextalk-event-state-tracer` passed.
 - `git diff --check` passed in the server repository.
 - `flutter test test/as_realtime_transport_test.dart test/as_event_stream_refresh_controller_test.dart` passed.
 - `flutter analyze` passed.

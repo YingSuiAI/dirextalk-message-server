@@ -58,8 +58,8 @@ func TestMCPSearchRoomsEmptyQueryListsByType(t *testing.T) {
 func TestMCPSearchRoomsUsesMatrixMemberCountWhenProductCountIsStale(t *testing.T) {
 	transport := &recordingTransport{roomMembers: []memberRecord{
 		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
-		{RoomID: "!group:example.com", UserID: "@owner:t7.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
-		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t7.dirextalk.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.dirextalk.ai", DisplayName: "owner", Membership: "join", Role: "member"},
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
@@ -322,18 +322,18 @@ func TestMCPMessagesListEnrichesSenderDisplayNamesFromRoomMembers(t *testing.T) 
 func TestMCPMessagesListEnrichesFallbackSenderNameFromMatrixProfile(t *testing.T) {
 	transport := &recordingTransport{roomMembers: []memberRecord{
 		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
-		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.dirextalk.ai", DisplayName: "owner", Membership: "join", Role: "member"},
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.SetMatrixProfileResolver(&fakeMatrixProfileResolver{profiles: map[string]matrixUserProfile{
-		"@owner:t8.direxio.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
+		"@owner:t8.dirextalk.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
 	}})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
 		{
 			TS:              1710000100000,
 			Sender:          "owner",
-			SenderMXID:      "@owner:t8.direxio.ai",
-			SenderDomain:    "t8.direxio.ai",
+			SenderMXID:      "@owner:t8.dirextalk.ai",
+			SenderDomain:    "t8.dirextalk.ai",
 			SenderLocalpart: "owner",
 			Msg:             "hello from t8",
 		},
@@ -481,13 +481,13 @@ func TestMCPRoomMembersListFiltersMergedMatrixMembers(t *testing.T) {
 func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T) {
 	transport := &recordingTransport{roomMembers: []memberRecord{
 		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
-		{RoomID: "!group:example.com", UserID: "@owner:t7.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
-		{RoomID: "!group:example.com", UserID: "@owner:t8.direxio.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t7.dirextalk.ai", DisplayName: "owner", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@owner:t8.dirextalk.ai", DisplayName: "owner", Membership: "join", Role: "member"},
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.SetMatrixProfileResolver(&fakeMatrixProfileResolver{profiles: map[string]matrixUserProfile{
-		"@owner:t7.direxio.ai": {DisplayName: "liyanan7", AvatarURL: "mxc://t7/avatar"},
-		"@owner:t8.direxio.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
+		"@owner:t7.dirextalk.ai": {DisplayName: "liyanan7", AvatarURL: "mxc://t7/avatar"},
+		"@owner:t8.dirextalk.ai": {DisplayName: "liyanan8", AvatarURL: "mxc://t8/avatar"},
 	}})
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
 		"room_id": "!group:example.com",
@@ -517,9 +517,9 @@ func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T)
 		names[member.UserMXID] = member.DisplayName
 		avatars[member.UserMXID] = member.AvatarURL
 	}
-	if names["@owner:t7.direxio.ai"] != "liyanan7" ||
-		names["@owner:t8.direxio.ai"] != "liyanan8" ||
-		avatars["@owner:t7.direxio.ai"] != "mxc://t7/avatar" {
+	if names["@owner:t7.dirextalk.ai"] != "liyanan7" ||
+		names["@owner:t8.dirextalk.ai"] != "liyanan8" ||
+		avatars["@owner:t7.dirextalk.ai"] != "mxc://t7/avatar" {
 		t.Fatalf("expected profile-enriched member identities, got %s", string(payload))
 	}
 }

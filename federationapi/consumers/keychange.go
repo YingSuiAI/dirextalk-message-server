@@ -16,14 +16,14 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/queue"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/types"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/queue"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/types"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // KeyChangeConsumer consumes events that originate in key server.

@@ -3,8 +3,8 @@ package p2p
 import (
 	"context"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) ProjectOutputEvent(ctx context.Context, output roomserverAPI.OutputEvent) error {
@@ -33,15 +33,15 @@ func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEve
 		if event.StateKey() != nil {
 			return s.projectMember(ctx, event)
 		}
-	case DirexioRoomProfileEventType:
+	case DirextalkRoomProfileEventType:
 		if event.StateKey() != nil {
 			return s.projectRoomProfileState(ctx, event)
 		}
-	case DirexioMemberPolicyEventType:
+	case DirextalkMemberPolicyEventType:
 		if event.StateKey() != nil {
 			return s.projectMemberPolicyState(ctx, event)
 		}
-	case DirexioJoinRequestEventType:
+	case DirextalkJoinRequestEventType:
 		if event.StateKey() != nil {
 			return s.projectJoinRequestState(ctx, event)
 		}

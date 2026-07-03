@@ -1,28 +1,28 @@
-# Direxio Message Server 当前项目文档
+# Dirextalk Message Server 当前项目文档
 
 本文是当前代码与接口的事实源。历史变更记录只用于审计，不作为当前接口或实现依据。
 
 ## 1. 项目定位
 
-本仓库是 Direxio 对 Element Dendrite 的集成式 fork：同一个 Go monolith 同时提供 Matrix homeserver 能力和 Direxio P2P 产品 API。
+本仓库是 Dirextalk 对 Element Dendrite 的集成式 fork：同一个 Go monolith 同时提供 Matrix homeserver 能力和 Dirextalk P2P 产品 API。
 
 当前架构原则：
 
 - Matrix 事件与房间状态是好友、群、频道、成员、普通消息的事实源。
 - P2P action 是产品语义 facade，负责鉴权、参数校验、远端转发、Matrix 写入编排和投影读取。
 - P2P 数据表保留为 projection/read model，不作为成员关系和普通消息的最终事实源。
-- 产品代码不得直接写 Matrix SQL 底表；房间、成员、消息、redaction 等 Matrix 行为必须通过 `p2p.Transport` 或 Matrix Client-Server API 进入 Direxio Message Server。
+- 产品代码不得直接写 Matrix SQL 底表；房间、成员、消息、redaction 等 Matrix 行为必须通过 `p2p.Transport` 或 Matrix Client-Server API 进入 Dirextalk Message Server。
 
 ## 2. 对外入口
 
-Matrix 协议入口保持 Direxio Message Server 原有路径：
+Matrix 协议入口保持 Dirextalk Message Server 原有路径：
 
 - `/_matrix/*`
 - `/_synapse/*`
 - `/_dendrite/*`
 - `/.well-known/matrix/*`
 
-Direxio 产品 API 只暴露 body-action surface：
+Dirextalk 产品 API 只暴露 body-action surface：
 
 - `GET /_p2p/health`
 - `POST /_p2p/query`
@@ -55,7 +55,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 - `channels.public.join_result`
 - `users.public_channels`
 
-`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。`portal.account.delete` 要求 `params.confirm="delete_account"`，会在清库前向 accepted direct contacts 发布带 `account_deleted` 的 `io.direxio.room.profile` 解散状态，让对端隐藏已注销联系人；随后退出直聊、解散 owner 创建的群聊和频道、退出 owner 只是成员的群聊/频道、停用本地 owner/agent Matrix 账号并写入非密钥 deprovision 标记。若关键退出/解散/停用步骤失败，不清库。该动作只清理本机数据库并关闭 message-server 进程，不销毁 AWS/云服务器实例。
+`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。`portal.account.delete` 要求 `params.confirm="delete_account"`，会在清库前向 accepted direct contacts 发布带 `account_deleted` 的 `io.dirextalk.room.profile` 解散状态，让对端隐藏已注销联系人；随后退出直聊、解散 owner 创建的群聊和频道、退出 owner 只是成员的群聊/频道、停用本地 owner/agent Matrix 账号并写入非密钥 deprovision 标记。若关键退出/解散/停用步骤失败，不清库。该动作只清理本机数据库并关闭 message-server 进程，不销毁 AWS/云服务器实例。
 
 `rooms.reactivate` 与 `channels.public.join_result` 是节点间回调，不是客户端常规入口。`rooms.reactivate` 只用于在群/私有频道成员节点重建后恢复对方节点上的邀请/待加入提示，不能让对方静默加入；最终加入仍由对方客户端调用 `groups.join` 或 `channels.join`。
 
@@ -63,7 +63,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 
 核心入口：
 
-- `cmd/direxio-message-server`：生产服务入口，monolith 模式运行。
+- `cmd/dirextalk-message-server`：生产服务入口，monolith 模式运行。
 - `setup/monolith.go`：装配 client、federation、media、sync、relay、P2P routes。
 - `p2p/action_registry.go`：P2P action 到业务 handler 的注册表。
 - `p2p/service_*.go`：P2P 业务编排。
@@ -71,32 +71,32 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 - `p2p/dendrite`：真实 Matrix 写入适配层。
 - `p2p/projector_*.go`、`p2p/projection`：roomserver output 到 P2P projection 的投影。
 - `p2p/consumer.go`：订阅 roomserver 输出并调用 projector。
-- `internal/productpolicy`：Matrix Client-Server 写入前的 Direxio 产品策略校验。
+- `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。
 
-生产持久化优先使用全局 Direxio Message Server 数据库配置；未配置时 P2P store 会回退到 roomserver 数据库。Docker 开发栈使用 PostgreSQL 18。
+生产持久化优先使用全局 Dirextalk Message Server 数据库配置；未配置时 P2P store 会回退到 roomserver 数据库。Docker 开发栈使用 PostgreSQL 18。
 
 ## 4. Matrix Native State
 
-当前产品房间只使用 native Direxio state：
+当前产品房间只使用 native Dirextalk state：
 
 - `m.room.create.content.type`
-  - `io.direxio.room.direct`
-  - `io.direxio.room.group`
-  - `io.direxio.room.channel`
-- `io.direxio.room.profile`
+  - `io.dirextalk.room.direct`
+  - `io.dirextalk.room.group`
+  - `io.dirextalk.room.channel`
+- `io.dirextalk.room.profile`
   - direct/group/channel 的产品元数据。
-- `io.direxio.member.policy`
+- `io.dirextalk.member.policy`
   - role、mute 等成员策略。
-- `io.direxio.join_request`
+- `io.dirextalk.join_request`
   - public channel 申请审批状态。
 - 新建 group room 和 chat/text channel room 会在创建时写 `m.room.history_visibility=joined`，新成员只从自己的 Matrix join 之后接收普通 timeline 消息。`channel_type=post` 的帖子频道是单独规则：创建帖子频道或将已有 room 绑定为帖子频道时显式写 `m.room.history_visibility=shared`，成员需要能看到当前频道已有的所有帖子和评论。频道类型创建后不可修改，`channels.update` 会忽略旧客户端传入的 `channel_type`。当前规则不回溯修改已有房间。
 
 投影规则：
 
-- `io.direxio.room.profile` 投影到 groups/channels read model。
-- direct invite 的 `io.direxio.room.profile` stripped state 投影为 inbound contact request，但联系人身份以 Matrix membership event 的真实 sender 为准；`requester_mxid`、`domain` 或 profile 展示字段不能把申请伪造成另一个用户。
-- `io.direxio.member.policy` 投影成员角色与禁言。
-- `io.direxio.join_request` 投影申请审批状态。
+- `io.dirextalk.room.profile` 投影到 groups/channels read model。
+- direct invite 的 `io.dirextalk.room.profile` stripped state 投影为 inbound contact request，但联系人身份以 Matrix membership event 的真实 sender 为准；`requester_mxid`、`domain` 或 profile 展示字段不能把申请伪造成另一个用户。
+- `io.dirextalk.member.policy` 投影成员角色与禁言。
+- `io.dirextalk.join_request` 投影申请审批状态。
 - Matrix `m.room.member membership=join` 是最终 joined 事实。
 - 普通 Matrix timeline 不复制到 P2P 普通消息表；普通消息读写走 Matrix Client-Server API。配置的 agents room 也保持 Matrix-native：本地 bridge 使用 `@agent:<server>` Matrix session 通过 `/sync` 接收消息，通过 Matrix send/edit 写入预览和最终回复，不投影为 `agent_room.message`，也不使用 `client.agent_stream` 或 `server.agent_stream`。
 
@@ -111,7 +111,7 @@ P2P action 生命周期：
 3. `Service.Handle` 分发到对应业务函数。
 4. 业务函数校验参数、所有者/成员/策略权限。
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
-6. Direxio Message Server roomserver 产生 output event。
+6. Dirextalk Message Server roomserver 产生 output event。
 7. `p2p.consumer` 调用 `ProjectRoomEvent` 更新 P2P read model。
 8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；`client.command` 只作为兼容期别名映射到同一处理路径。Agents room 消息、预览和回复走 Matrix Client-Server，不通过 P2P event 或 WS stream 转发。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
@@ -125,9 +125,9 @@ P2P action 生命周期：
 Matrix Client-Server 写入生命周期：
 
 1. 客户端调用 Matrix send/state/member/redaction API。
-2. Direxio product policy 读取当前 Matrix state。
-3. 如果房间是 Direxio product room，则校验 dissolved、member join、mute、role、join policy 等规则。
-4. 合法事件进入 Direxio Message Server 原生 roomserver。
+2. Dirextalk product policy 读取当前 Matrix state。
+3. 如果房间是 Dirextalk product room，则校验 dissolved、member join、mute、role、join policy 等规则。
+4. 合法事件进入 Dirextalk Message Server 原生 roomserver。
 5. roomserver output 再投影回 P2P read model。
 
 ## 6. 频道公开申请生命周期
@@ -145,19 +145,19 @@ Matrix Client-Server 写入生命周期：
 
 1. 申请人节点先在本地保存 `pending` projection。
 2. 如果频道属于远端 room server，申请人节点把申请转发给频道主节点。
-3. 频道主节点写 `io.direxio.join_request status=pending`。
+3. 频道主节点写 `io.dirextalk.join_request status=pending`。
 4. 频道主节点 projection 中成员为 `pending`。
 
 `channels.join_request.reject`：
 
-1. 频道主节点写 `io.direxio.join_request status=rejected`。
+1. 频道主节点写 `io.dirextalk.join_request status=rejected`。
 2. 本地 projection 更新为 `reject`。
 3. 如果申请人是远端用户，频道主节点调用申请人节点的 `channels.public.join_result`。
 4. 申请人节点更新为 `rejected` 并发送 P2P event。
 
 `channels.join_request.approve`：
 
-1. 频道主节点写 `io.direxio.join_request status=approved`。
+1. 频道主节点写 `io.dirextalk.join_request status=approved`。
 2. 如果申请人属于本节点，频道主节点调用 `Transport.JoinRoom`。
 3. 如果申请人属于远端节点，频道主节点调用申请人节点的 `channels.public.join_result`。
 4. 申请人节点以申请人身份调用 `Transport.JoinRoom`，并带上 `server_names`。
@@ -199,14 +199,14 @@ Blocks：
 
 Groups：
 
-- group create 写 Matrix room type 与 `io.direxio.room.profile`。
+- group create 写 Matrix room type 与 `io.dirextalk.room.profile`。
 - invite/join/leave/remove/mute/unmute/dissolve 通过 `p2p.Transport` 与 native state 进入 Matrix。
 - member list 来自 P2P projection，但最终事实是 Matrix membership。
 - 群聊和频道只有 `owner` 与 `member` 两种产品角色。
 
 Channels：
 
-- channel create/update 写 Matrix room type 与 `io.direxio.room.profile`。
+- channel create/update 写 Matrix room type 与 `io.dirextalk.room.profile`。
 - public search/get 是只读发现，不创建占位记录。
 - invite grant 用于私有或分享卡片加入。
 - public join request 使用上面的申请审批自动 join 生命周期。
@@ -229,14 +229,14 @@ Calls/Favorites/Follows：
 Push：
 
 - 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。
-- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Direxio 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：`client.lifecycle` 至少包含 `foreground`，并可携带 `state`、`hidden` 和 `flags`；`client.focus` 至少包含 `room_id`，并可携带 `focused` 和 `flags`。前台、未 hidden、且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、hidden、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.direxio.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
+- 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Dirextalk 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：`client.lifecycle` 至少包含 `foreground`，并可携带 `state`、`hidden` 和 `flags`；`client.focus` 至少包含 `room_id`，并可携带 `focused` 和 `flags`。前台、未 hidden、且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、hidden、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.dirextalk.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
 
 Agent/API：
 
 - Agent token 不再有动态权限表，只能访问 `agent.matrix_session.create` 和固定 `mcp.*` HTTP action，不能调用 `realtime.ws_ticket.create` 创建 WS ticket；其他 protected action 只认 owner `access_token`。本地 bridge 使用 `agent.matrix_session.create` 得到的 Matrix session 监听 agents room 并回写消息。
-- MCP action 是 owner-scoped 代理能力：`agent_token` 只负责授权固定 MCP action，房间搜索、成员身份列表、普通消息默认发送/读取、频道帖子/评论读取和评论创建都按 portal owner 视角操作；普通 `mcp.messages.send` 不能发送到配置的 `agent_room_id`，agent room 回复只能由 gateway 使用 `agent_gateway`/`gateway_source` 标记路径以 `@agent:<server>` 发出；`mcp.messages.list` 复用当前 owner `access_token` 读取 Matrix history，不创建 `DIREXIO_MATRIX_HISTORY` 设备，也不刷新 Matrix session，因此不会导致 owner 手机/浏览器 session 被踢下线；`mcp.messages.list` 返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart`，`mcp.room_members.list` 只允许查询已知 Direxio 产品房间/会话，返回 Matrix 成员身份、角色、头像和 profile fallback 后的展示名。`agent.config.get/update` 返回和持久化 `avatar_url` 与 `mcp_blocked_room_ids`；黑名单房间不会出现在 `mcp.rooms.search`，其它直接定位黑名单房间或其频道帖子的 MCP 读写会返回 403。
+- MCP action 是 owner-scoped 代理能力：`agent_token` 只负责授权固定 MCP action，房间搜索、成员身份列表、普通消息默认发送/读取、频道帖子/评论读取和评论创建都按 portal owner 视角操作；普通 `mcp.messages.send` 不能发送到配置的 `agent_room_id`，agent room 回复只能由 gateway 使用 `agent_gateway`/`gateway_source` 标记路径以 `@agent:<server>` 发出；`mcp.messages.list` 复用当前 owner `access_token` 读取 Matrix history，不创建 `DIREXTALK_MATRIX_HISTORY` 设备，也不刷新 Matrix session，因此不会导致 owner 手机/浏览器 session 被踢下线；`mcp.messages.list` 返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart`，`mcp.room_members.list` 只允许查询已知 Dirextalk 产品房间/会话，返回 Matrix 成员身份、角色、头像和 profile fallback 后的展示名。`agent.config.get/update` 返回和持久化 `avatar_url` 与 `mcp_blocked_room_ids`；黑名单房间不会出现在 `mcp.rooms.search`，其它直接定位黑名单房间或其频道帖子的 MCP 读写会返回 403。
 - `agent.matrix_session.create` 使用 owner `access_token` 或 `agent_token` 调用，用于本地 cc-connect/gateway 获取 `@agent:<server>` 的 Matrix Client-Server session；它不返回 owner Matrix session，也不回显 `agent_token` 或 portal password。
-- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.direxio.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。运行中的本地 bridge 通过 `@agent:<server>` Matrix session 发布 `online=true/false`；服务端不能从 Agent 配置、`/sync` 或 WS session 推断在线，只在启动/修复 agents room 或禁用 Agent 配置时写 `online=false` 兜底。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；WS `server.event` 不发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
+- Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.dirextalk.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。运行中的本地 bridge 通过 `@agent:<server>` Matrix session 发布 `online=true/false`；服务端不能从 Agent 配置、`/sync` 或 WS session 推断在线，只在启动/修复 agents room 或禁用 Agent 配置时写 `online=false` 兜底。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；WS `server.event` 不发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
 - Agent 预览和最终可恢复正文都通过 Matrix 消息/编辑回写；客户端展示 Matrix timeline 的聚合编辑结果，不消费 `server.agent_stream`。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。服务会给 owner 的真实 `agent_room_id` 写入默认 room-level 空 actions push rule，使 agent room 默认不走系统推送；已存在的显式同房间 push rule 会保留。
 - 新增 MCP action 时必须同步 Agent allowlist、Postman、接口变更记录和相关测试。
@@ -259,7 +259,7 @@ Multi-node：
 
 ```bash
 docker compose -f docker-compose.p2p.yml up --build
-docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p.yml exec message-server cat /var/dirextalk-message-server/p2p/bootstrap.json
 ```
 
 多节点 regression。
@@ -312,8 +312,8 @@ Windows Docker Desktop users should prefer `127.0.0.1` over `localhost` for Post
 gofmt -w <touched go files>
 go test ./p2p ./internal/productpolicy -count=1
 go test ./internal/httputil ./setup -count=1
-go build ./cmd/direxio-message-server
-python3 -m json.tool docs/postman/direxio-message-server.postman_collection.json >/dev/null
+go build ./cmd/dirextalk-message-server
+python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null
 git diff --check
 docker compose -f docker-compose.p2p-dual.yml config
 ```
@@ -321,7 +321,7 @@ docker compose -f docker-compose.p2p-dual.yml config
 ## 9. 代码规范
 
 - Go 代码必须 `gofmt`。
-- 先从全局 Direxio server 视角梳理入口、鉴权、policy、storage、roomserver output、consumer/projection、sync/federation、docs 和验证路径，再把改动落在最小 owning package。
+- 先从全局 Dirextalk server 视角梳理入口、鉴权、policy、storage、roomserver output、consumer/projection、sync/federation、docs 和验证路径，再把改动落在最小 owning package。
 - 不新增 URL-shaped 产品接口；新增产品能力优先使用稳定 action 和 params schema。
 - 不静默改变请求/响应字段；接口变化必须更新 `docs/api-interface-change-record.md`。
 - 必须持久化的产品状态不得放内存-only；扩展 `p2p.Store` 和 migration。
@@ -330,8 +330,8 @@ docker compose -f docker-compose.p2p-dual.yml config
 - public channel membership 不得在 Matrix join 前标记为 joined。
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - Postman JSON 必须保持可导入。
-- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Direxio 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Direxio Message Server 层名拆分。当前全局技能是：`direxio-change-orchestrator`（全链路影响图）、`direxio-contract-sync`（合同/示例同步）、`direxio-event-state-tracer`（Matrix 事件状态规则）、`direxio-storage-migration-guard`（持久化和 migration 规则）和 `direxio-targeted-verification`（本仓库验证命令选择）。
+- 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Dirextalk 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
+- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Dirextalk Message Server 层名拆分。当前全局技能是：`dirextalk-change-orchestrator`（全链路影响图）、`dirextalk-contract-sync`（合同/示例同步）、`dirextalk-event-state-tracer`（Matrix 事件状态规则）、`dirextalk-storage-migration-guard`（持久化和 migration 规则）和 `dirextalk-targeted-verification`（本仓库验证命令选择）。
 
 ## 10. 文档规则
 

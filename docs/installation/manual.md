@@ -8,4 +8,4 @@ permalink: /manual
 
 # Manual Installation
 
-This section contains documentation how to manually install Direxio Message Server
+This section contains documentation how to manually install Dirextalk Message Server

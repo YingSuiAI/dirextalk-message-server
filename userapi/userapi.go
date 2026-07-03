@@ -9,23 +9,23 @@ package userapi
 import (
 	"time"
 
-	fedsenderapi "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	fedsenderapi "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushgateway"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/sirupsen/logrus"
 
-	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/consumers"
-	"github.com/YingSuiAI/direxio-message-server/userapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/userapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/userapi/util"
+	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/consumers"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/util"
 )
 
 // NewInternalAPI returns a concrete implementation of the internal API. Callers

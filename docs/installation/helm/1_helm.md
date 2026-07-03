@@ -7,9 +7,9 @@ nav_order: 1
 permalink: /installation/helm/install
 ---
 
-# Installing Direxio Message Server using Helm
+# Installing Dirextalk Message Server using Helm
 
-To install Direxio Message Server using the Helm chart, you first have to add the repository using the following commands:
+To install Dirextalk Message Server using the Helm chart, you first have to add the repository using the following commands:
 
 ```bash
 helm repo add dendrite https://matrix-org.github.io/dendrite/
@@ -17,7 +17,7 @@ helm repo update
 ```
 
 Next you'll need to create a `values.yaml` file and configure it to your liking. All possible values can be found
-[here](https://github.com/YingSuiAI/direxio-message-server/blob/main/helm/direxio-message-server/values.yaml), but at least you need to configure
+[here](https://github.com/YingSuiAI/dirextalk-message-server/blob/main/helm/dirextalk-message-server/values.yaml), but at least you need to configure
 a `server_name`, otherwise the chart will complain about it:
 
 ```yaml
@@ -40,7 +40,7 @@ dendrite_config:
 
 ## Installing with PostgreSQL
 
-The chart comes with a dependency on Postgres, which can be installed alongside Direxio Message Server, this needs to be enabled in
+The chart comes with a dependency on Postgres, which can be installed alongside Dirextalk Message Server, this needs to be enabled in
 the `values.yaml`:
 
 ```yaml

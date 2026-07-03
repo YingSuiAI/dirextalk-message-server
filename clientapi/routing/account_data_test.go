@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestNormalizeDirexioPushContextUsesServerExpiry(t *testing.T) {
+func TestNormalizeDirextalkPushContextUsesServerExpiry(t *testing.T) {
 	now := time.UnixMilli(1700000000000)
 	body := []byte(`{
 		"foreground": true,
@@ -14,9 +14,9 @@ func TestNormalizeDirexioPushContextUsesServerExpiry(t *testing.T) {
 		"expires_in_ms": 999999
 	}`)
 
-	normalized, err := normalizeDirexioPushContextAccountData(
+	normalized, err := normalizeDirextalkPushContextAccountData(
 		"",
-		direxioPushContextAccountDataType,
+		dirextalkPushContextAccountDataType,
 		body,
 		now,
 	)
@@ -30,7 +30,7 @@ func TestNormalizeDirexioPushContextUsesServerExpiry(t *testing.T) {
 	}
 	want := map[string]interface{}{
 		"foreground":    true,
-		"expires_at_ms": float64(now.Add(direxioPushContextExpiry).UnixMilli()),
+		"expires_at_ms": float64(now.Add(dirextalkPushContextExpiry).UnixMilli()),
 	}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected normalized content: got %#v want %#v", got, want)
@@ -42,10 +42,10 @@ func TestNormalizeDirexioPushContextUsesServerExpiry(t *testing.T) {
 	}
 }
 
-func TestNormalizeDirexioPushContextStoresBackgroundWithoutExpiry(t *testing.T) {
-	normalized, err := normalizeDirexioPushContextAccountData(
+func TestNormalizeDirextalkPushContextStoresBackgroundWithoutExpiry(t *testing.T) {
+	normalized, err := normalizeDirextalkPushContextAccountData(
 		"",
-		direxioPushContextAccountDataType,
+		dirextalkPushContextAccountDataType,
 		[]byte(`{"foreground": false, "expires_at_ms": 4102444800000}`),
 		time.UnixMilli(1700000000000),
 	)

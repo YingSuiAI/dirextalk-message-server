@@ -16,7 +16,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/sirupsen/logrus"

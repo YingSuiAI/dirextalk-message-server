@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/sirupsen/logrus"
 )

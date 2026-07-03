@@ -18,7 +18,7 @@ func (s *Service) ensureProductRoom(ctx context.Context, kind string, req Create
 		}
 		s.mu.Unlock()
 		if req.RoomType == "" {
-			req.RoomType = direxioRoomType(kind)
+			req.RoomType = dirextalkRoomType(kind)
 		}
 		res, err := s.transport.CreateRoom(ctx, req)
 		if err != nil {
@@ -64,7 +64,7 @@ func (s *Service) groupResult(ctx context.Context, params map[string]any) (any, 
 			Name:       fallbackString(name, "Group"),
 			Topic:      trimString(params["topic"]),
 			Visibility: "private",
-			RoomType:   DirexioRoomTypeGroup,
+			RoomType:   DirextalkRoomTypeGroup,
 			IsDirect:   false,
 			InitialState: []RoomStateEvent{
 				joinedHistoryVisibilityStateEvent(),

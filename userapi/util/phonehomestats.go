@@ -18,9 +18,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

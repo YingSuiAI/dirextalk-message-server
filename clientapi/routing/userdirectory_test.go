@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -42,12 +42,12 @@ func (f *userDirectoryFederation) LookupProfile(ctx context.Context, origin, ser
 
 func TestSearchUserDirectoryRefreshesRemoteProfileWhenMXIDMatches(t *testing.T) {
 	rsAPI := &userDirectoryRoomserver{users: []authtypes.FullyQualifiedProfile{{
-		UserID:      "@owner:dm1.direxio.ai",
+		UserID:      "@owner:dm1.dirextalk.ai",
 		DisplayName: "Original Nick",
 		AvatarURL:   "mxc://dm1/original",
 	}}}
 	federation := &userDirectoryFederation{profiles: map[string]fclient.RespProfile{
-		"@owner:dm1.direxio.ai": {
+		"@owner:dm1.dirextalk.ai": {
 			DisplayName: "Custom Nick",
 			AvatarURL:   "mxc://dm1/custom",
 		},
@@ -55,13 +55,13 @@ func TestSearchUserDirectoryRefreshesRemoteProfileWhenMXIDMatches(t *testing.T) 
 
 	res := SearchUserDirectory(
 		context.Background(),
-		&userapi.Device{UserID: "@owner:im1.direxio.ai"},
+		&userapi.Device{UserID: "@owner:im1.dirextalk.ai"},
 		rsAPI,
 		&userDirectoryProfileProvider{},
 		"owner",
 		10,
 		federation,
-		spec.ServerName("im1.direxio.ai"),
+		spec.ServerName("im1.dirextalk.ai"),
 	)
 
 	if res.Code != 200 {
@@ -75,19 +75,19 @@ func TestSearchUserDirectoryRefreshesRemoteProfileWhenMXIDMatches(t *testing.T) 
 	if got.DisplayName != "Custom Nick" || got.AvatarURL != "mxc://dm1/custom" {
 		t.Fatalf("expected refreshed remote profile in search result, got %#v", got)
 	}
-	if len(federation.lookups) != 1 || federation.lookups[0] != "@owner:dm1.direxio.ai" {
+	if len(federation.lookups) != 1 || federation.lookups[0] != "@owner:dm1.dirextalk.ai" {
 		t.Fatalf("expected remote profile lookup, got %#v", federation.lookups)
 	}
 }
 
 func TestSearchUserDirectoryRefreshesRemoteProfileWhenDomainMatches(t *testing.T) {
 	rsAPI := &userDirectoryRoomserver{users: []authtypes.FullyQualifiedProfile{{
-		UserID:      "@owner:dm1.direxio.ai",
+		UserID:      "@owner:dm1.dirextalk.ai",
 		DisplayName: "Original Nick",
 		AvatarURL:   "mxc://dm1/original",
 	}}}
 	federation := &userDirectoryFederation{profiles: map[string]fclient.RespProfile{
-		"@owner:dm1.direxio.ai": {
+		"@owner:dm1.dirextalk.ai": {
 			DisplayName: "Custom Nick",
 			AvatarURL:   "mxc://dm1/custom",
 		},
@@ -95,13 +95,13 @@ func TestSearchUserDirectoryRefreshesRemoteProfileWhenDomainMatches(t *testing.T
 
 	res := SearchUserDirectory(
 		context.Background(),
-		&userapi.Device{UserID: "@owner:im1.direxio.ai"},
+		&userapi.Device{UserID: "@owner:im1.dirextalk.ai"},
 		rsAPI,
 		&userDirectoryProfileProvider{},
-		"dm1.direxio.ai",
+		"dm1.dirextalk.ai",
 		10,
 		federation,
-		spec.ServerName("im1.direxio.ai"),
+		spec.ServerName("im1.dirextalk.ai"),
 	)
 
 	if res.Code != 200 {
@@ -115,7 +115,7 @@ func TestSearchUserDirectoryRefreshesRemoteProfileWhenDomainMatches(t *testing.T
 	if got.DisplayName != "Custom Nick" || got.AvatarURL != "mxc://dm1/custom" {
 		t.Fatalf("expected refreshed remote profile in domain search result, got %#v", got)
 	}
-	if len(federation.lookups) != 1 || federation.lookups[0] != "@owner:dm1.direxio.ai" {
+	if len(federation.lookups) != 1 || federation.lookups[0] != "@owner:dm1.dirextalk.ai" {
 		t.Fatalf("expected remote profile lookup, got %#v", federation.lookups)
 	}
 }

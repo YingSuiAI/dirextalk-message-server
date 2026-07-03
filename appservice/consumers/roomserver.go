@@ -21,12 +21,12 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/nats-io/nats.go"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -243,7 +243,7 @@ func (s *appserviceState) backoffAndPause(err error) error {
 // appserviceIsInterestedInEvent returns a boolean depending on whether a given
 // event falls within one of a given application service's namespaces.
 //
-// TODO: This should be cached, see https://github.com/YingSuiAI/direxio-message-server/issues/1682
+// TODO: This should be cached, see https://github.com/YingSuiAI/dirextalk-message-server/issues/1682
 func (s *OutputRoomEventConsumer) appserviceIsInterestedInEvent(ctx context.Context, event *types.HeaderedEvent, appservice *config.ApplicationService) bool {
 	user := ""
 	userID, err := s.rsAPI.QueryUserIDForSender(ctx, event.RoomID(), event.SenderID())

@@ -18,9 +18,9 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 )
 
 // QueryLatestEventsAndStateRequest is a request to QueryLatestEventsAndState

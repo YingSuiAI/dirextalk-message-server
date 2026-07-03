@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/p2p/projection"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) projectRoomProfileState(ctx context.Context, event *types.HeaderedEvent) error {
@@ -67,7 +67,7 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 		RoomID:    roomID,
 		EventID:   event.EventID(),
 		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), roomID),
-		Payload:   map[string]any{"room_type": DirexioRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
+		Payload:   map[string]any{"room_type": DirextalkRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
 	})
 }
 
@@ -114,7 +114,7 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 		RoomID:    ch.RoomID,
 		EventID:   event.EventID(),
 		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), ch.ChannelID),
-		Payload:   map[string]any{"room_type": DirexioRoomTypeChannel, "channel_id": ch.ChannelID, "dissolved": false},
+		Payload:   map[string]any{"room_type": DirextalkRoomTypeChannel, "channel_id": ch.ChannelID, "dissolved": false},
 	})
 }
 
@@ -133,7 +133,7 @@ func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.H
 		RoomID:    group.RoomID,
 		EventID:   event.EventID(),
 		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), group.RoomID),
-		Payload:   map[string]any{"room_type": DirexioRoomTypeGroup, "dissolved": false},
+		Payload:   map[string]any{"room_type": DirextalkRoomTypeGroup, "dissolved": false},
 	})
 }
 

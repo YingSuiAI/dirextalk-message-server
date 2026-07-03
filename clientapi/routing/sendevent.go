@@ -16,15 +16,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/internal/transactions"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/transactions"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
@@ -44,7 +44,7 @@ var (
 
 var sendEventDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "clientapi",
 		Name:      "sendevent_duration_millis",
 		Help:      "How long it takes to build and submit a new event from the client API to the roomserver",
@@ -272,7 +272,7 @@ func productPolicyJSONResponse(ctx context.Context, err error) util.JSONResponse
 			JSON: spec.Forbidden(policyErr.Message),
 		}
 	}
-	util.GetLogger(ctx).WithError(err).Error("Direxio product policy failed")
+	util.GetLogger(ctx).WithError(err).Error("Dirextalk product policy failed")
 	return util.JSONResponse{
 		Code: http.StatusInternalServerError,
 		JSON: spec.InternalServerError{},

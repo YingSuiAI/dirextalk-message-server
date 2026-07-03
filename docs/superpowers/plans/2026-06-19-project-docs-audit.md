@@ -56,7 +56,7 @@ Include Go formatting, scoped changes, persistence-first behavior, multi-node ve
 ### Task 3: Postman Collection
 
 **Files:**
-- Create: `docs/postman/direxio-message-server.postman_collection.json`
+- Create: `docs/postman/dirextalk-message-server.postman_collection.json`
 
 - [x] **Step 1: Generate P2P action requests**
 
@@ -111,7 +111,7 @@ Define how future interface changes must document affected actions, parameters, 
 
 - [x] **Step 1: Validate JSON**
 
-Run: `python -m json.tool docs/postman/direxio-message-server.postman_collection.json`
+Run: `python -m json.tool docs/postman/dirextalk-message-server.postman_collection.json`
 Expected: valid JSON output with no parse error.
 
 - [x] **Step 2: Run targeted tests**

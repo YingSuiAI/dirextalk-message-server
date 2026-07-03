@@ -1,6 +1,6 @@
 package p2p
 
-import "github.com/YingSuiAI/direxio-message-server/p2p/domain"
+import "github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 
 type conversationKind = domain.ConversationKind
 

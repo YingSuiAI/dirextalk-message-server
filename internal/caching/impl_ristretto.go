@@ -19,8 +19,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 const (
@@ -59,14 +59,14 @@ func NewRistrettoCache(maxCost config.DataUnit, maxAge time.Duration, enableProm
 	}
 	if enablePrometheus {
 		promauto.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: "direxio_message_server",
+			Namespace: "dirextalk_message_server",
 			Subsystem: "caching_ristretto",
 			Name:      "ratio",
 		}, func() float64 {
 			return float64(cache.Metrics.Ratio())
 		})
 		promauto.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: "direxio_message_server",
+			Namespace: "dirextalk_message_server",
 			Subsystem: "caching_ristretto",
 			Name:      "cost",
 		}, func() float64 {

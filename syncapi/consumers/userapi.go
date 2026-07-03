@@ -14,14 +14,14 @@ import (
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/notifier"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/streams"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/notifier"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/streams"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 // OutputNotificationDataConsumer consumes events that originated in

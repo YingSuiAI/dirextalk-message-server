@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"text/template"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/cretz/bine/tor"
 	"github.com/eyedeekay/goSam"
 	"github.com/eyedeekay/onramp"
@@ -30,8 +30,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
-	basepkg "github.com/YingSuiAI/direxio-message-server/setup/base"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	basepkg "github.com/YingSuiAI/dirextalk-message-server/setup/base"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 func client() (*goSam.Client, error) {

@@ -8,4 +8,4 @@ permalink: /helm
 
 # Helm
 
-This section contains documentation how to use [Helm](https://helm.sh/) to install Direxio Message Server on a [Kubernetes](https://kubernetes.io/) cluster.
+This section contains documentation how to use [Helm](https://helm.sh/) to install Dirextalk Message Server on a [Kubernetes](https://kubernetes.io/) cluster.

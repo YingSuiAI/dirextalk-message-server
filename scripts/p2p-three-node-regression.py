@@ -164,7 +164,7 @@ def read_bootstrap(container: str) -> dict[str, Any]:
     last_error = ""
     for _ in range(60):
         try:
-            raw = run(["docker", "exec", container, "cat", "/var/direxio-message-server/p2p/bootstrap.json"])
+            raw = run(["docker", "exec", container, "cat", "/var/dirextalk-message-server/p2p/bootstrap.json"])
             return dict(json.loads(raw))
         except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
             last_error = str(exc)
@@ -534,9 +534,9 @@ def rebuild_node_with_empty_volumes(node: Node, suffix: int) -> None:
     suffix_name = node.label.lower()
     run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "rm", "-f", "-s", "-v", f"dendrite-{suffix_name}", f"dendrite-{suffix_name}-init", f"postgres-{suffix_name}"])
     for volume in [
-        f"direxio-p2p-dual_p2p_dual_postgres_{suffix_name}",
-        f"direxio-p2p-dual_p2p_dual_message_server_{suffix_name}_config",
-        f"direxio-p2p-dual_p2p_dual_message_server_{suffix_name}_data",
+        f"dirextalk-p2p-dual_p2p_dual_postgres_{suffix_name}",
+        f"dirextalk-p2p-dual_p2p_dual_message_server_{suffix_name}_config",
+        f"dirextalk-p2p-dual_p2p_dual_message_server_{suffix_name}_data",
     ]:
         subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
     run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "up", "-d", "--force-recreate", f"dendrite-{suffix_name}"])
@@ -1137,9 +1137,9 @@ def main() -> int:
     os.environ.setdefault("P2P_DUAL_PUBLIC_HOST", PUBLIC_HOST)
     suffix = int(time.time() * 1000)
     nodes = [
-        Node("A", "http://127.0.0.1:18008", "direxio-p2p-dual-dendrite-a-1", f"{PUBLIC_HOST}:18448", "", ""),
-        Node("B", "http://127.0.0.1:28008", "direxio-p2p-dual-dendrite-b-1", f"{PUBLIC_HOST}:28448", "", ""),
-        Node("C", "http://127.0.0.1:38008", "direxio-p2p-dual-dendrite-c-1", f"{PUBLIC_HOST}:38448", "", ""),
+        Node("A", "http://127.0.0.1:18008", "dirextalk-p2p-dual-dendrite-a-1", f"{PUBLIC_HOST}:18448", "", ""),
+        Node("B", "http://127.0.0.1:28008", "dirextalk-p2p-dual-dendrite-b-1", f"{PUBLIC_HOST}:28448", "", ""),
+        Node("C", "http://127.0.0.1:38008", "dirextalk-p2p-dual-dendrite-c-1", f"{PUBLIC_HOST}:38448", "", ""),
     ]
     for node in nodes:
         node.mxid = f"@owner:{node.server_name}"

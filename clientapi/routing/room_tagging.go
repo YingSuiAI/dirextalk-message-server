@@ -10,9 +10,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrix"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

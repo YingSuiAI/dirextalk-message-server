@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -93,7 +93,7 @@ func TestDendriteMatrixSessionIssuerKeepsDevicesForAgentSessions(t *testing.T) {
 		"@owner:example.com",
 		"Owner",
 		"",
-		"DIREXIO_CLI",
+		"DIREXTALK_CLI",
 		false,
 	); err != nil {
 		t.Fatalf("EnsureMatrixSession failed: %v", err)

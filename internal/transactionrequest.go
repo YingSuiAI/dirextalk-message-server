@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/types"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	syncTypes "github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	userAPI "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	syncTypes "github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	userAPI "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/getsentry/sentry-go"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
@@ -30,7 +30,7 @@ import (
 var (
 	PDUCountTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "direxio_message_server",
+			Namespace: "dirextalk_message_server",
 			Subsystem: "federationapi",
 			Name:      "recv_pdus",
 			Help:      "Number of incoming PDUs from remote servers with labels for success",
@@ -39,7 +39,7 @@ var (
 	)
 	EDUCountTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "direxio_message_server",
+			Namespace: "dirextalk_message_server",
 			Subsystem: "federationapi",
 			Name:      "recv_edus",
 			Help:      "Number of incoming EDUs from remote servers",

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func EventTime(event *types.HeaderedEvent) time.Time {
@@ -26,11 +26,11 @@ func ConversationKindFromContent(content map[string]any) (domain.ConversationKin
 
 func ConversationKindFromRoomType(roomType string) domain.ConversationKind {
 	switch strings.ToLower(strings.TrimSpace(roomType)) {
-	case productpolicy.DirexioRoomTypeDirect:
+	case productpolicy.DirextalkRoomTypeDirect:
 		return domain.ConversationKindDirect
-	case productpolicy.DirexioRoomTypeGroup:
+	case productpolicy.DirextalkRoomTypeGroup:
 		return domain.ConversationKindGroup
-	case productpolicy.DirexioRoomTypeChannel:
+	case productpolicy.DirextalkRoomTypeChannel:
 		return domain.ConversationKindChannel
 	default:
 		return ""

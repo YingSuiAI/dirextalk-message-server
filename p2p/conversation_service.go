@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) saveConversation(ctx context.Context, record conversationRecord) error {

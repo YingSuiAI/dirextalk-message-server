@@ -1,6 +1,6 @@
 package storage
 
-import "github.com/YingSuiAI/direxio-message-server/p2p/domain"
+import "github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 
 type portalState = domain.PortalState
 type readMarker = domain.ReadMarker

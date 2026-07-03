@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	basepkg "github.com/YingSuiAI/direxio-message-server/setup/base"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	basepkg "github.com/YingSuiAI/dirextalk-message-server/setup/base"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/stretchr/testify/assert"
 )
 

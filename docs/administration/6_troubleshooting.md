@@ -7,17 +7,17 @@ permalink: /administration/troubleshooting
 
 # Troubleshooting
 
-If your Direxio Message Server installation is acting strangely, there are a few things you should
+If your Dirextalk Message Server installation is acting strangely, there are a few things you should
 check before seeking help.
 
 ## 1. Logs
 
-Direxio Message Server, by default, will log all warnings and errors to stdout, in addition to any
+Dirextalk Message Server, by default, will log all warnings and errors to stdout, in addition to any
 other locations configured in the `message-server.yaml` configuration file. Often there will
 be clues in the logs.
 
 You can increase this log level to the more verbose `debug` level if necessary by adding
-this to the config and restarting Direxio Message Server:
+this to the config and restarting Dirextalk Message Server:
 
 ```yaml
 logging:
@@ -46,13 +46,13 @@ Correct any errors if shown and re-run the federation tester to check the result
 
 Matrix relies heavily on TLS which requires the system time to be correct. If the clock
 drifts then you may find that federation no works reliably (or at all) and clients may
-struggle to connect to your Direxio Message Server server.
+struggle to connect to your Dirextalk Message Server server.
 
 Ensure that your system time is correct and consider syncing to a reliable NTP source.
 
 ## 4. Database connections
 
-If you are using the PostgreSQL database, you should ensure that Direxio Message Server's configured
+If you are using the PostgreSQL database, you should ensure that Dirextalk Message Server's configured
 number of database connections does not exceed the maximum allowed by PostgreSQL.
 
 Open your `postgresql.conf` configuration file and check the value of `max_connections`
@@ -61,16 +61,16 @@ and ensure that in the `global.database` section, `max_open_conns` does not exce
 
 ## 5. File descriptors
 
-Direxio Message Server requires a sufficient number of file descriptors for every connection it makes
+Dirextalk Message Server requires a sufficient number of file descriptors for every connection it makes
 to a remote server, every connection to the database engine and every file it is reading
 or writing to at a given time (media, logs etc). We recommend ensuring that the limit is
-no lower than 65535 for Direxio Message Server.
+no lower than 65535 for Dirextalk Message Server.
 
-Direxio Message Server will check at startup if there are a sufficient number of available descriptors.
+Dirextalk Message Server will check at startup if there are a sufficient number of available descriptors.
 If there aren't, you will see a log lines like this:
 
 ```
-level=warning msg="IMPORTANT: Process file descriptor limit is currently 65535, it is recommended to raise the limit for Direxio Message Server to at least 65535 to avoid issues"
+level=warning msg="IMPORTANT: Process file descriptor limit is currently 65535, it is recommended to raise the limit for Dirextalk Message Server to at least 65535 to avoid issues"
 ```
 
 Follow the [Optimisation](5_optimisation.md) instructions to correct the
@@ -78,7 +78,7 @@ available number of file descriptors.
 
 ## 6. STUN/TURN Server tester
 
-If you are experiencing problems with VoIP or video calls, you should check that Direxio Message Server
+If you are experiencing problems with VoIP or video calls, you should check that Dirextalk Message Server
 is able to successfully connect your TURN server using 
 [Matrix VoIP Tester](https://test.voip.librepush.net/). This can highlight any issues
 that the server may encounter so that you can begin the troubleshooting process.

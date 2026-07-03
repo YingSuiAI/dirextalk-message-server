@@ -7,4 +7,4 @@ permalink: /installation
 
 # Installation
 
-This section contains documentation on installing a new Direxio Message Server deployment.
+This section contains documentation on installing a new Dirextalk Message Server deployment.

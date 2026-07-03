@@ -11,15 +11,15 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/userapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/internal"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 )
 
 // DeviceListUpdateConsumer consumes device list updates that came in over federation.

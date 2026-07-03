@@ -20,13 +20,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 	"github.com/tidwall/gjson"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
-	"github.com/YingSuiAI/direxio-message-server/setup"
+	"github.com/YingSuiAI/dirextalk-message-server/setup"
 )
 
 const usage = `Usage: %s

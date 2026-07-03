@@ -18,23 +18,23 @@ import (
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
-	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
-	userAPITypes "github.com/YingSuiAI/direxio-message-server/userapi/types"
-	"github.com/YingSuiAI/direxio-message-server/userapi/util"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushgateway"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
+	userAPITypes "github.com/YingSuiAI/dirextalk-message-server/userapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/util"
 )
 
 type OutputRoomEventConsumer struct {
@@ -543,18 +543,18 @@ func (s *OutputRoomEventConsumer) roomName(ctx context.Context, event *rstypes.H
 }
 
 var (
-	canonicalAliasTuple     = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCanonicalAlias}
-	roomNameTuple           = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomName}
-	direxioRoomProfileTuple = gomatrixserverlib.StateKeyTuple{EventType: "io.direxio.room.profile", StateKey: ""}
-	roomCreateTuple         = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}
+	canonicalAliasTuple       = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCanonicalAlias}
+	roomNameTuple             = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomName}
+	dirextalkRoomProfileTuple = gomatrixserverlib.StateKeyTuple{EventType: "io.dirextalk.room.profile", StateKey: ""}
+	roomCreateTuple           = gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}
 )
 
 const (
-	direxioRoomTypeDirect  = "io.direxio.room.direct"
-	direxioRoomTypeGroup   = "io.direxio.room.group"
-	direxioRoomTypeChannel = "io.direxio.room.channel"
+	dirextalkRoomTypeDirect  = "io.dirextalk.room.direct"
+	dirextalkRoomTypeGroup   = "io.dirextalk.room.group"
+	dirextalkRoomTypeChannel = "io.dirextalk.room.channel"
 
-	direxioPushContextAccountDataType = "io.direxio.push.context"
+	dirextalkPushContextAccountDataType = "io.dirextalk.push.context"
 
 	pushTypeMessage = "message"
 	pushTypeCall    = "call"
@@ -590,7 +590,7 @@ func unmarshalCanonicalAlias(event *rstypes.HeaderedEvent) (string, error) {
 }
 
 func (s *OutputRoomEventConsumer) pushNotificationMetadata(ctx context.Context, event *rstypes.HeaderedEvent, roomName string) (pushNotificationMetadata, error) {
-	profileContent, createContent := s.direxioRoomStateContent(ctx, event)
+	profileContent, createContent := s.dirextalkRoomStateContent(ctx, event)
 	roomType := strings.TrimSpace(gjson.GetBytes(profileContent, "room_type").Str)
 	if roomType == "" {
 		roomType = strings.TrimSpace(gjson.GetBytes(createContent, "type").Str)
@@ -625,9 +625,9 @@ func (s *OutputRoomEventConsumer) pushNotificationMetadata(ctx context.Context, 
 	return metadata, nil
 }
 
-func (s *OutputRoomEventConsumer) direxioRoomStateContent(ctx context.Context, event *rstypes.HeaderedEvent) (profileContent, createContent []byte) {
+func (s *OutputRoomEventConsumer) dirextalkRoomStateContent(ctx context.Context, event *rstypes.HeaderedEvent) (profileContent, createContent []byte) {
 	switch {
-	case event.Type() == direxioRoomProfileTuple.EventType && event.StateKeyEquals(""):
+	case event.Type() == dirextalkRoomProfileTuple.EventType && event.StateKeyEquals(""):
 		profileContent = event.Content()
 	case event.Type() == spec.MRoomCreate && event.StateKeyEquals(""):
 		createContent = event.Content()
@@ -638,14 +638,14 @@ func (s *OutputRoomEventConsumer) direxioRoomStateContent(ctx context.Context, e
 
 	req := &rsapi.QueryCurrentStateRequest{
 		RoomID:      event.RoomID().String(),
-		StateTuples: []gomatrixserverlib.StateKeyTuple{direxioRoomProfileTuple, roomCreateTuple},
+		StateTuples: []gomatrixserverlib.StateKeyTuple{dirextalkRoomProfileTuple, roomCreateTuple},
 	}
 	var res rsapi.QueryCurrentStateResponse
 	if err := s.rsAPI.QueryCurrentState(ctx, req, &res); err != nil {
 		return profileContent, createContent
 	}
 	if profileContent == nil {
-		if ev := res.StateEvents[direxioRoomProfileTuple]; ev != nil {
+		if ev := res.StateEvents[dirextalkRoomProfileTuple]; ev != nil {
 			profileContent = ev.Content()
 		}
 	}
@@ -659,11 +659,11 @@ func (s *OutputRoomEventConsumer) direxioRoomStateContent(ctx context.Context, e
 
 func pushRoomType(roomType string) string {
 	switch strings.ToLower(strings.TrimSpace(roomType)) {
-	case direxioRoomTypeDirect:
+	case dirextalkRoomTypeDirect:
 		return "direct"
-	case direxioRoomTypeGroup:
+	case dirextalkRoomTypeGroup:
 		return "group"
-	case direxioRoomTypeChannel:
+	case dirextalkRoomTypeChannel:
 		return "channel"
 	default:
 		return ""
@@ -694,7 +694,7 @@ func applyPushNotificationMetadata(notification *pushgateway.Notification, metad
 	}
 }
 
-type direxioPushContext struct {
+type dirextalkPushContext struct {
 	Foreground    bool   `json:"foreground"`
 	ExpiresAtMS   int64  `json:"expires_at_ms"`
 	CurrentRoomID string `json:"current_room_id"`
@@ -715,11 +715,11 @@ func (s *OutputRoomEventConsumer) suppressPushForForegroundContext(ctx context.C
 		}
 		return false, nil
 	}
-	data, err := s.db.GetAccountDataByType(ctx, mem.Localpart, mem.Domain, "", direxioPushContextAccountDataType)
+	data, err := s.db.GetAccountDataByType(ctx, mem.Localpart, mem.Domain, "", dirextalkPushContextAccountDataType)
 	if err != nil || len(data) == 0 {
 		return false, err
 	}
-	var pushContext direxioPushContext
+	var pushContext dirextalkPushContext
 	if err := json.Unmarshal(data, &pushContext); err != nil {
 		return false, nil
 	}

@@ -6,7 +6,7 @@
 
 **Architecture:** Keep ordinary messages on Matrix Client-Server APIs. P2P actions that change product membership must update durable P2P state and Matrix membership/policy state through `p2p.Transport`, so Matrix send/history/search sees the same rules as P2P lists.
 
-**Tech Stack:** Go, Element Dendrite, Direxio P2P service, PostgreSQL 18, Docker Compose, PowerShell.
+**Tech Stack:** Go, Element Dendrite, Dirextalk P2P service, PostgreSQL 18, Docker Compose, PowerShell.
 
 ---
 
@@ -37,13 +37,13 @@ Matrix search failed ... The remote server returned an error: (501) Not Implemen
 In both `dendrite-a-init` and `dendrite-b-init` command blocks, immediately after:
 
 ```sh
-sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
+sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
 ```
 
 add:
 
 ```sh
-sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
+sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
 ```
 
 - [ ] **Step 3: Validate compose config**
@@ -179,5 +179,5 @@ Expected: command exits 0.
 If Postman changes are made, also run:
 
 ```powershell
-Get-Content docs/postman/direxio-message-server.postman_collection.json | ConvertFrom-Json | Out-Null
+Get-Content docs/postman/dirextalk-message-server.postman_collection.json | ConvertFrom-Json | Out-Null
 ```

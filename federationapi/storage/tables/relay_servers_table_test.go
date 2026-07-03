@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/postgres"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/sqlite3"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/postgres"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/sqlite3"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/stretchr/testify/assert"
 )

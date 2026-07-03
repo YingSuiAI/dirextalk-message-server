@@ -5,15 +5,15 @@ nav_order: 4
 permalink: /development/profiling
 ---
 
-# Profiling Direxio Message Server
+# Profiling Dirextalk Message Server
 
-If you are running into problems with Direxio Message Server using excessive resources (e.g. CPU or RAM) then you can use the profiler to work out what is happening.
+If you are running into problems with Dirextalk Message Server using excessive resources (e.g. CPU or RAM) then you can use the profiler to work out what is happening.
 
-Direxio Message Server contains an embedded profiler called `pprof`, which is a part of the standard Go toolchain.
+Dirextalk Message Server contains an embedded profiler called `pprof`, which is a part of the standard Go toolchain.
 
 ## Enable the profiler
 
-To enable the profiler, start Direxio Message Server with the `PPROFLISTEN` environment variable. This variable specifies which address and port to listen on, e.g.
+To enable the profiler, start Dirextalk Message Server with the `PPROFLISTEN` environment variable. This variable specifies which address and port to listen on, e.g.
 
 ```
 PPROFLISTEN=localhost:65432 ./bin/dendrite ...
@@ -56,7 +56,7 @@ If you don't have the Go tools installed but just want to capture the profile to
 curl -O http://localhost:65432/debug/pprof/profile?seconds=30
 ```
 
-This will block for the specified number of seconds, capturing information about what Direxio Message Server is doing, and then produces a `profile` file, which you can send onward.
+This will block for the specified number of seconds, capturing information about what Dirextalk Message Server is doing, and then produces a `profile` file, which you can send onward.
 
 ## Profiling memory usage
 

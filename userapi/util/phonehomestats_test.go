@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
 )
 
 func TestCollect(t *testing.T) {

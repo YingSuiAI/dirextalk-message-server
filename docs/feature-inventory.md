@@ -29,7 +29,7 @@ Last updated: 2026-06-30
 - Public remote channel lookup requires request-provided `remote_node_base_url`.
 - Public channel approval does not expose Matrix invite as the product workflow. Approval triggers Matrix join locally or through `channels.public.join_result` on the requester node.
 - `joined` means Matrix membership has reached join state.
-- Current product Matrix state is `io.direxio.room.profile`, `io.direxio.member.policy`, and `io.direxio.join_request`.
+- Current product Matrix state is `io.dirextalk.room.profile`, `io.dirextalk.member.policy`, and `io.dirextalk.join_request`.
 - P2P tables are projection/read models; Matrix membership and ordinary message timelines are canonical.
 
 ## Action Groups
@@ -61,4 +61,4 @@ Protected action groups:
 - Calls: `calls.create`, `calls.incoming`, `calls.get`, `calls.event`, `calls.active`, `calls.list`
 - Favorites/Follows: `favorites.add`, `favorites.list`, `favorites.delete`, `favorites.delete_batch`, `follows.add`, `follows.list`, `follows.remove`
 
-The importable examples for every action are maintained in `docs/postman/direxio-message-server.postman_collection.json`.
+The importable examples for every action are maintained in `docs/postman/dirextalk-message-server.postman_collection.json`.

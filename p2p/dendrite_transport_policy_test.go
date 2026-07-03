@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	dendritetest "github.com/YingSuiAI/direxio-message-server/test"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	dendritetest "github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -21,8 +21,8 @@ func TestDendriteTransportSendMessageAppliesProductPolicy(t *testing.T) {
 	member := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
 	room.CreateAndInsert(t, member, spec.MRoomMember, map[string]any{"membership": spec.Join}, dendritetest.WithStateKey(member.ID))
-	room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":        DirexioRoomTypeChannel,
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":        DirextalkRoomTypeChannel,
 		"comments_enabled": false,
 	}, dendritetest.WithStateKey(""))
 
@@ -52,8 +52,8 @@ func TestDendriteTransportRedactEventAppliesProductPolicy(t *testing.T) {
 	member := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
 	room.CreateAndInsert(t, member, spec.MRoomMember, map[string]any{"membership": spec.Join}, dendritetest.WithStateKey(member.ID))
-	room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":        DirexioRoomTypeChannel,
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":        DirextalkRoomTypeChannel,
 		"comments_enabled": true,
 	}, dendritetest.WithStateKey(""))
 	target := room.CreateAndInsert(t, owner, "m.room.message", map[string]any{"msgtype": "m.text", "body": "owned"})
@@ -87,8 +87,8 @@ func TestDendriteTransportInviteUserAppliesProductPolicy(t *testing.T) {
 	invitee := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
 	room.CreateAndInsert(t, member, spec.MRoomMember, map[string]any{"membership": spec.Join}, dendritetest.WithStateKey(member.ID))
-	room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":     DirexioRoomTypeGroup,
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":     DirextalkRoomTypeGroup,
 		"invite_policy": "owner",
 	}, dendritetest.WithStateKey(""))
 	rsAPI := &policyTransportRoomserver{
@@ -115,8 +115,8 @@ func TestDendriteTransportJoinRoomAppliesProductPolicy(t *testing.T) {
 	owner := dendritetest.NewUser(t)
 	requester := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
-	room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":   DirexioRoomTypeChannel,
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":   DirextalkRoomTypeChannel,
 		"join_policy": "approval",
 	}, dendritetest.WithStateKey(""))
 	rsAPI := &policyTransportRoomserver{
@@ -142,8 +142,8 @@ func TestDendriteTransportJoinRoomLetsRoomserverAcceptPendingDirectInvite(t *tes
 	owner := dendritetest.NewUser(t)
 	requester := dendritetest.NewUser(t)
 	room := dendritetest.NewRoom(t, owner)
-	room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, map[string]any{
-		"room_type":      DirexioRoomTypeDirect,
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":      DirextalkRoomTypeDirect,
 		"requester_mxid": requester.ID,
 		"target_mxid":    owner.ID,
 	}, dendritetest.WithStateKey(""))
@@ -197,7 +197,7 @@ func TestDendriteTransportCreateRoomCarriesCreatorProfile(t *testing.T) {
 	rsAPI := &policyTransportRoomserver{}
 	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
 
-	for _, roomType := range []string{DirexioRoomTypeDirect, DirexioRoomTypeGroup, DirexioRoomTypeChannel} {
+	for _, roomType := range []string{DirextalkRoomTypeDirect, DirextalkRoomTypeGroup, DirextalkRoomTypeChannel} {
 		t.Run(roomType, func(t *testing.T) {
 			rsAPI.createRoomRequest = nil
 			_, err := transport.CreateRoom(context.Background(), CreateRoomRequest{
@@ -207,9 +207,9 @@ func TestDendriteTransportCreateRoomCarriesCreatorProfile(t *testing.T) {
 				Name:               "Product Room",
 				Visibility:         "private",
 				RoomType:           roomType,
-				IsDirect:           roomType == DirexioRoomTypeDirect,
+				IsDirect:           roomType == DirextalkRoomTypeDirect,
 				InitialState: []RoomStateEvent{{
-					Type:     DirexioRoomProfileEventType,
+					Type:     DirextalkRoomProfileEventType,
 					StateKey: "",
 					Content: map[string]any{
 						"room_type": roomType,
@@ -242,21 +242,21 @@ func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
 		{
 			name: "group profile is not a channel",
 			profile: map[string]any{
-				"room_type": DirexioRoomTypeGroup,
+				"room_type": DirextalkRoomTypeGroup,
 				"name":      "Group with A, B",
 			},
 		},
 		{
 			name: "channel profile without product id is not a channel",
 			profile: map[string]any{
-				"room_type": DirexioRoomTypeChannel,
+				"room_type": DirextalkRoomTypeChannel,
 				"name":      "Posts",
 			},
 		},
 		{
 			name: "channel profile with Matrix room id as product id is not a channel",
 			profile: map[string]any{
-				"room_type":  DirexioRoomTypeChannel,
+				"room_type":  DirextalkRoomTypeChannel,
 				"channel_id": "!posts:test",
 				"name":       "Posts",
 			},
@@ -264,7 +264,7 @@ func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
 		{
 			name: "channel profile is a channel",
 			profile: map[string]any{
-				"room_type":  DirexioRoomTypeChannel,
+				"room_type":  DirextalkRoomTypeChannel,
 				"channel_id": "ch",
 				"name":       "Posts",
 			},
@@ -274,7 +274,7 @@ func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			owner := dendritetest.NewUser(t)
 			room := dendritetest.NewRoom(t, owner)
-			room.CreateAndInsert(t, owner, DirexioRoomProfileEventType, tc.profile, dendritetest.WithStateKey(""))
+			room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, tc.profile, dendritetest.WithStateKey(""))
 			rsAPI := &policyTransportRoomserver{
 				roomID: room.ID,
 				state:  room.CurrentState(),

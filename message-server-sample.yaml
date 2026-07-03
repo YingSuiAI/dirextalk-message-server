@@ -131,7 +131,7 @@ global:
 
     # The prefix to use for stream names for this homeserver - really only useful
     # if you are running more than one Dendrite server on the same NATS deployment.
-    topic_prefix: DirexioMessageServer
+    topic_prefix: DirextalkMessageServer
 
   # Configuration for Prometheus metric collection.
   metrics:
@@ -354,7 +354,7 @@ user_api:
   # worker_count: 8
 
 # Configuration for Opentracing.
-# See https://github.com/YingSuiAI/direxio-message-server/tree/master/docs/tracing for information on
+# See https://github.com/YingSuiAI/dirextalk-message-server/tree/master/docs/tracing for information on
 # how this works and how to set it up.
 tracing:
   enabled: false

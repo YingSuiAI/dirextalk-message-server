@@ -11,8 +11,8 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 )
 
 type PublicRoomReq struct {

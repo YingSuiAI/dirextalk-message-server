@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/tidwall/gjson"
 
 	"github.com/matrix-org/gomatrixserverlib"
@@ -26,19 +26,19 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/acls"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/helpers"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/acls"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/helpers"
 
-	userAPI "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	userAPI "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 
-	fedapi "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	"github.com/YingSuiAI/direxio-message-server/internal/hooks"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/state"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	fedapi "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/hooks"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/state"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 // MaximumMissingProcessingTime is the maximum time we allow "processRoomEvent" to fetch
@@ -48,7 +48,7 @@ const MaximumMissingProcessingTime = time.Minute * 5
 
 var processRoomEventDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "roomserver",
 		Name:      "processroomevent_duration_millis",
 		Help:      "How long it takes the roomserver to process an event",

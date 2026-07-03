@@ -11,12 +11,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/routing"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/routing"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/gorilla/mux"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
@@ -117,7 +117,7 @@ func Setup(
 
 var thumbnailCounter = promauto.NewCounterVec(
 	prometheus.CounterOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "mediaapi",
 		Name:      "thumbnail",
 		Help:      "Total number of media_api requests for thumbnails",
@@ -127,7 +127,7 @@ var thumbnailCounter = promauto.NewCounterVec(
 
 var thumbnailSize = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "mediaapi",
 		Name:      "thumbnail_size_bytes",
 		Help:      "Total size of media_api requests for thumbnails",
@@ -138,7 +138,7 @@ var thumbnailSize = promauto.NewHistogramVec(
 
 var downloadCounter = promauto.NewCounterVec(
 	prometheus.CounterOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "mediaapi",
 		Name:      "download",
 		Help:      "Total size of media_api requests for full downloads",
@@ -148,7 +148,7 @@ var downloadCounter = promauto.NewCounterVec(
 
 var downloadSize = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "mediaapi",
 		Name:      "download_size_bytes",
 		Help:      "Total size of media_api requests for full downloads",

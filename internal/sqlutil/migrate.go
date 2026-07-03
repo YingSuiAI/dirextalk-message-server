@@ -15,7 +15,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 )
 
 const createDBMigrationsSQL = "" +

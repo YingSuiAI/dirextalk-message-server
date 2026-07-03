@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/userutil"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/postgres/deltas"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/userutil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/postgres/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
 	"github.com/lib/pq"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

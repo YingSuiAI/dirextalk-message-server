@@ -9,29 +9,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
-	userUtil "github.com/YingSuiAI/direxio-message-server/userapi/util"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushgateway"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
+	userUtil "github.com/YingSuiAI/dirextalk-message-server/userapi/util"
 )
 
 const (
-	direxioIOSAppID        = "com.direxio.app"
-	direxioAndroidAppID    = "com.direxio.ai"
-	direxioPushGatewayURL  = "https://push.direxio.ai/_matrix/push/v1/notify"
-	direxioAPNsPushKey     = "apns-device-token"
-	direxioFCMPushKey      = "fcm-device-token"
-	direxioPusherDataURL   = "url"
-	direxioPusherFormatKey = "format"
+	dirextalkIOSAppID        = "com.dirextalk.app"
+	dirextalkAndroidAppID    = "com.dirextalk.ai"
+	dirextalkPushGatewayURL  = "https://push.dirextalk.ai/_matrix/push/v1/notify"
+	dirextalkAPNsPushKey     = "apns-device-token"
+	dirextalkFCMPushKey      = "fcm-device-token"
+	dirextalkPusherDataURL   = "url"
+	dirextalkPusherFormatKey = "format"
 )
 
 func queryUserIDForSender(senderID spec.SenderID) (*spec.UserID, error) {
@@ -56,7 +56,7 @@ func mustCreateUserDatabase(t *testing.T, ctx context.Context, dbType test.DBTyp
 	return db, closeDB
 }
 
-func TestGetPushDevicesPreservesDirexioIOSAPNsPusherData(t *testing.T) {
+func TestGetPushDevicesPreservesDirextalkIOSAPNsPusherData(t *testing.T) {
 	ctx := context.Background()
 	alice := test.NewUser(t)
 	aliceLocalpart, serverName, err := gomatrixserverlib.SplitID('@', alice.ID)
@@ -69,10 +69,10 @@ func TestGetPushDevicesPreservesDirexioIOSAPNsPusherData(t *testing.T) {
 		defer closeDB()
 
 		pusherData := map[string]interface{}{
-			direxioPusherDataURL:   direxioPushGatewayURL,
-			direxioPusherFormatKey: "event_id_only",
-			"provider":             "apns",
-			"platform":             "ios",
+			dirextalkPusherDataURL:   dirextalkPushGatewayURL,
+			dirextalkPusherFormatKey: "event_id_only",
+			"provider":               "apns",
+			"platform":               "ios",
 			"default_payload": map[string]interface{}{
 				"aps": map[string]interface{}{
 					"content-available": float64(1),
@@ -81,10 +81,10 @@ func TestGetPushDevicesPreservesDirexioIOSAPNsPusherData(t *testing.T) {
 		}
 		if err := db.UpsertPusher(ctx, api.Pusher{
 			Kind:              api.HTTPKind,
-			AppID:             direxioIOSAppID,
-			AppDisplayName:    "Direxio",
+			AppID:             dirextalkIOSAppID,
+			AppDisplayName:    "Dirextalk",
 			DeviceDisplayName: "iPhone",
-			PushKey:           direxioAPNsPushKey,
+			PushKey:           dirextalkAPNsPushKey,
 			PushKeyTS:         12345,
 			Language:          "zh-CN",
 			Data:              pusherData,
@@ -101,25 +101,25 @@ func TestGetPushDevicesPreservesDirexioIOSAPNsPusherData(t *testing.T) {
 		}
 
 		got := devices[0]
-		if got.URL != direxioPushGatewayURL {
+		if got.URL != dirextalkPushGatewayURL {
 			t.Fatalf("unexpected gateway URL: %q", got.URL)
 		}
 		if got.Format != "event_id_only" {
 			t.Fatalf("unexpected pusher format: %q", got.Format)
 		}
-		if got.Device.AppID != direxioIOSAppID {
+		if got.Device.AppID != dirextalkIOSAppID {
 			t.Fatalf("unexpected app_id: %q", got.Device.AppID)
 		}
-		if got.Device.PushKey != direxioAPNsPushKey {
+		if got.Device.PushKey != dirextalkAPNsPushKey {
 			t.Fatalf("unexpected APNs pushkey: %q", got.Device.PushKey)
 		}
-		if _, ok := got.Device.Data[direxioPusherDataURL]; ok {
+		if _, ok := got.Device.Data[dirextalkPusherDataURL]; ok {
 			t.Fatalf("push gateway device data must not include data.url: %#v", got.Device.Data)
 		}
 		wantData := map[string]interface{}{
-			direxioPusherFormatKey: "event_id_only",
-			"provider":             "apns",
-			"platform":             "ios",
+			dirextalkPusherFormatKey: "event_id_only",
+			"provider":               "apns",
+			"platform":               "ios",
 			"default_payload": map[string]interface{}{
 				"aps": map[string]interface{}{
 					"content-available": float64(1),
@@ -328,7 +328,7 @@ func TestNotifyUserCountsAsyncRemovesRejectedPusher(t *testing.T) {
 	})
 }
 
-func TestNotifyUserCountsAsyncSendsLatestDirexioPusherOnly(t *testing.T) {
+func TestNotifyUserCountsAsyncSendsLatestDirextalkPusherOnly(t *testing.T) {
 	alice := test.NewUser(t)
 	aliceLocalpart, serverName, err := gomatrixserverlib.SplitID('@', alice.ID)
 	if err != nil {
@@ -350,10 +350,10 @@ func TestNotifyUserCountsAsyncSendsLatestDirexioPusherOnly(t *testing.T) {
 				t.Fatalf("expected one device per push gateway request, got %d", len(data.Notification.Devices))
 			}
 			device := data.Notification.Devices[0]
-			if device.AppID != direxioAndroidAppID {
+			if device.AppID != dirextalkAndroidAppID {
 				t.Fatalf("unexpected app_id: %q", device.AppID)
 			}
-			if device.PushKey != direxioFCMPushKey {
+			if device.PushKey != dirextalkFCMPushKey {
 				t.Fatalf("unexpected Android FCM pushkey: %q", device.PushKey)
 			}
 			if device.Data["provider"] != "fcm" || device.Data["platform"] != "android" {
@@ -371,30 +371,30 @@ func TestNotifyUserCountsAsyncSendsLatestDirexioPusherOnly(t *testing.T) {
 
 		if err = db.UpsertPusher(ctx, api.Pusher{
 			Kind:              api.HTTPKind,
-			AppID:             direxioIOSAppID,
-			AppDisplayName:    "Direxio",
+			AppID:             dirextalkIOSAppID,
+			AppDisplayName:    "Dirextalk",
 			DeviceDisplayName: "iPhone",
-			PushKey:           direxioAPNsPushKey,
+			PushKey:           dirextalkAPNsPushKey,
 			Data: map[string]interface{}{
-				direxioPusherDataURL:   srv.URL,
-				direxioPusherFormatKey: "event_id_only",
-				"provider":             "apns",
-				"platform":             "ios",
+				dirextalkPusherDataURL:   srv.URL,
+				dirextalkPusherFormatKey: "event_id_only",
+				"provider":               "apns",
+				"platform":               "ios",
 			},
 		}, aliceLocalpart, serverName); err != nil {
 			t.Error(err)
 		}
 		if err = db.UpsertPusher(ctx, api.Pusher{
 			Kind:              api.HTTPKind,
-			AppID:             direxioAndroidAppID,
-			AppDisplayName:    "Direxio",
+			AppID:             dirextalkAndroidAppID,
+			AppDisplayName:    "Dirextalk",
 			DeviceDisplayName: "Android",
-			PushKey:           direxioFCMPushKey,
+			PushKey:           dirextalkFCMPushKey,
 			Data: map[string]interface{}{
-				direxioPusherDataURL:   srv.URL,
-				direxioPusherFormatKey: "event_id_only",
-				"provider":             "fcm",
-				"platform":             "android",
+				dirextalkPusherDataURL:   srv.URL,
+				dirextalkPusherFormatKey: "event_id_only",
+				"provider":               "fcm",
+				"platform":               "android",
 			},
 		}, aliceLocalpart, serverName); err != nil {
 			t.Error(err)
@@ -425,7 +425,7 @@ func TestNotifyUserCountsAsyncSendsLatestDirexioPusherOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(pushers) != 1 || pushers[0].AppID != direxioAndroidAppID || pushers[0].PushKey != direxioFCMPushKey {
+		if len(pushers) != 1 || pushers[0].AppID != dirextalkAndroidAppID || pushers[0].PushKey != dirextalkFCMPushKey {
 			t.Fatalf("expected latest Android pusher to remain, got %#v", pushers)
 		}
 	})

@@ -9,36 +9,36 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushgateway"
-	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/roomserver"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/test/testrig"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushgateway"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/test/testrig"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
-	userAPITypes "github.com/YingSuiAI/direxio-message-server/userapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
+	userAPITypes "github.com/YingSuiAI/dirextalk-message-server/userapi/types"
 )
 
 const (
-	direxioIOSAppID     = "com.direxio.app"
-	direxioAndroidAppID = "com.direxio.ai"
-	direxioAPNsPushKey  = "apns-device-token"
-	direxioFCMPushKey   = "fcm-device-token"
+	dirextalkIOSAppID     = "com.dirextalk.app"
+	dirextalkAndroidAppID = "com.dirextalk.ai"
+	dirextalkAPNsPushKey  = "apns-device-token"
+	dirextalkFCMPushKey   = "fcm-device-token"
 )
 
 type recordingPushGateway struct {
@@ -105,7 +105,7 @@ func (f *FakeUserRoomserverAPI) QueryUserIDForSender(ctx context.Context, roomID
 	return spec.NewUserID(string(senderID), true)
 }
 
-func TestPushNotificationMetadataUsesDirexioRoomStateForMessagePayload(t *testing.T) {
+func TestPushNotificationMetadataUsesDirextalkRoomStateForMessagePayload(t *testing.T) {
 	ctx := context.Background()
 	event := mustCreateEvent(t, `{
 		"type":"m.room.message",
@@ -115,13 +115,13 @@ func TestPushNotificationMetadataUsesDirexioRoomStateForMessagePayload(t *testin
 	}`)
 	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			direxioRoomProfileTuple: mustCreateEvent(t, `{
-				"type":"io.direxio.room.profile",
+			dirextalkRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.dirextalk.room.profile",
 				"state_key":"",
 				"room_id":"!room:example.com",
 				"sender":"@alice:example.com",
 				"content":{
-					"room_type":"io.direxio.room.group",
+					"room_type":"io.dirextalk.room.group",
 					"name":"Engineering"
 				}
 			}`),
@@ -156,13 +156,13 @@ func TestPushNotificationMetadataSuppressesPostChannelMessages(t *testing.T) {
 	}`)
 	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			direxioRoomProfileTuple: mustCreateEvent(t, `{
-				"type":"io.direxio.room.profile",
+			dirextalkRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.dirextalk.room.profile",
 				"state_key":"",
 				"room_id":"!posts:example.com",
 				"sender":"@alice:example.com",
 				"content":{
-					"room_type":"io.direxio.room.channel",
+					"room_type":"io.dirextalk.room.channel",
 					"channel_type":"post",
 					"name":"Announcements"
 				}
@@ -189,12 +189,12 @@ func TestPushNotificationMetadataUsesCallInviteContent(t *testing.T) {
 	}`)
 	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			direxioRoomProfileTuple: mustCreateEvent(t, `{
-				"type":"io.direxio.room.profile",
+			dirextalkRoomProfileTuple: mustCreateEvent(t, `{
+				"type":"io.dirextalk.room.profile",
 				"state_key":"",
 				"room_id":"!callroom:example.com",
 				"sender":"@alice:example.com",
-				"content":{"room_type":"io.direxio.room.direct","name":"Alice"}
+				"content":{"room_type":"io.dirextalk.room.direct","name":"Alice"}
 			}`),
 		},
 	}}
@@ -217,10 +217,10 @@ func TestPushNotificationMetadataUsesCallInviteContent(t *testing.T) {
 	}
 }
 
-func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(t *testing.T) {
+func TestNotifyHTTPEventIDOnlySendsDirextalkIOSAPNsPusherAndReturnsRejectedDevice(t *testing.T) {
 	ctx := context.Background()
 	gateway := &recordingPushGateway{
-		resp: pushgateway.NotifyResponse{Rejected: []string{direxioAPNsPushKey}},
+		resp: pushgateway.NotifyResponse{Rejected: []string{dirextalkAPNsPushKey}},
 	}
 	consumer := OutputRoomEventConsumer{pgClient: gateway}
 	event := mustCreateEvent(t, `{
@@ -231,8 +231,8 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	}`)
 	devices := []*pushgateway.Device{
 		{
-			AppID:   direxioIOSAppID,
-			PushKey: direxioAPNsPushKey,
+			AppID:   dirextalkIOSAppID,
+			PushKey: dirextalkAPNsPushKey,
 			Data: map[string]interface{}{
 				"format":   "event_id_only",
 				"provider": "apns",
@@ -242,15 +242,15 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	}
 
 	metadata := pushNotificationMetadata{
-		Title:    "Direxio",
+		Title:    "Dirextalk",
 		RoomType: "direct",
 		PushType: "message",
 	}
-	rejected, err := consumer.notifyHTTP(ctx, event, "https://push.direxio.ai/_matrix/push/v1/notify", "event_id_only", devices, "alice", "Direxio", int(7), metadata)
+	rejected, err := consumer.notifyHTTP(ctx, event, "https://push.dirextalk.ai/_matrix/push/v1/notify", "event_id_only", devices, "alice", "Dirextalk", int(7), metadata)
 	if err != nil {
 		t.Fatalf("notifyHTTP returned error: %v", err)
 	}
-	if gateway.url != "https://push.direxio.ai/_matrix/push/v1/notify" {
+	if gateway.url != "https://push.dirextalk.ai/_matrix/push/v1/notify" {
 		t.Fatalf("unexpected push gateway URL: %q", gateway.url)
 	}
 	if gateway.req == nil {
@@ -266,7 +266,7 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	if notification.Counts == nil || notification.Counts.Unread != 7 {
 		t.Fatalf("unexpected notification counts: %#v", notification.Counts)
 	}
-	if notification.Title != "Direxio" {
+	if notification.Title != "Dirextalk" {
 		t.Fatalf("unexpected notification title: %q", notification.Title)
 	}
 	if notification.RoomType != "direct" {
@@ -279,7 +279,7 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 		t.Fatalf("expected one device, got %d", len(notification.Devices))
 	}
 	device := notification.Devices[0]
-	if device.AppID != direxioIOSAppID || device.PushKey != direxioAPNsPushKey {
+	if device.AppID != dirextalkIOSAppID || device.PushKey != dirextalkAPNsPushKey {
 		t.Fatalf("unexpected iOS APNs device: %#v", device)
 	}
 	wantData := map[string]interface{}{
@@ -290,7 +290,7 @@ func TestNotifyHTTPEventIDOnlySendsDirexioIOSAPNsPusherAndReturnsRejectedDevice(
 	if !reflect.DeepEqual(device.Data, wantData) {
 		t.Fatalf("unexpected iOS APNs device data:\n got: %#v\nwant: %#v", device.Data, wantData)
 	}
-	if len(rejected) != 1 || rejected[0].AppID != direxioIOSAppID || rejected[0].PushKey != direxioAPNsPushKey {
+	if len(rejected) != 1 || rejected[0].AppID != dirextalkIOSAppID || rejected[0].PushKey != dirextalkAPNsPushKey {
 		t.Fatalf("unexpected rejected devices: %#v", rejected)
 	}
 }
@@ -317,7 +317,7 @@ func TestNotifyLocalOnlySuppressesFreshFocusedForegroundRoom(t *testing.T) {
 			"foreground": true,
 			"expires_at_ms": 4102444800000
 		}`)
-		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", contextData); err != nil {
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.dirextalk.push.context", contextData); err != nil {
 			t.Fatal(err)
 		}
 
@@ -343,7 +343,7 @@ func TestNotifyLocalOnlySuppressesFreshFocusedForegroundRoom(t *testing.T) {
 			"expires_at_ms": 4102444800000,
 			"current_room_id": "!focused:example.com"
 		}`)
-		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", focusedData); err != nil {
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.dirextalk.push.context", focusedData); err != nil {
 			t.Fatal(err)
 		}
 		focusedEvent := mustCreateEvent(t, `{
@@ -364,7 +364,7 @@ func TestNotifyLocalOnlySuppressesFreshFocusedForegroundRoom(t *testing.T) {
 		}
 
 		backgroundData := json.RawMessage(`{"foreground": false}`)
-		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", backgroundData); err != nil {
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.dirextalk.push.context", backgroundData); err != nil {
 			t.Fatal(err)
 		}
 		backgroundEvent := mustCreateEvent(t, `{
@@ -411,7 +411,7 @@ func TestNotifyLocalUsesRealtimeFocusWhenWSSessionExists(t *testing.T) {
 			"foreground": true,
 			"expires_at_ms": 4102444800000
 		}`)
-		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.direxio.push.context", contextData); err != nil {
+		if err := db.SaveAccountData(ctx, localpart, serverName, "", "io.dirextalk.push.context", contextData); err != nil {
 			t.Fatal(err)
 		}
 		sessionStore.Upsert("ws-1", realtime.SessionState{
@@ -471,11 +471,11 @@ func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing
 
 		if err := db.UpsertPusher(ctx, api.Pusher{
 			Kind:    api.HTTPKind,
-			AppID:   direxioIOSAppID,
-			PushKey: direxioAPNsPushKey,
+			AppID:   dirextalkIOSAppID,
+			PushKey: dirextalkAPNsPushKey,
 			Data: map[string]interface{}{
 				"format":   "event_id_only",
-				"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
+				"url":      "https://push.dirextalk.ai/_matrix/push/v1/notify",
 				"provider": "apns",
 				"platform": "ios",
 			},
@@ -484,11 +484,11 @@ func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing
 		}
 		if err := db.UpsertPusher(ctx, api.Pusher{
 			Kind:    api.HTTPKind,
-			AppID:   direxioAndroidAppID,
-			PushKey: direxioFCMPushKey,
+			AppID:   dirextalkAndroidAppID,
+			PushKey: dirextalkFCMPushKey,
 			Data: map[string]interface{}{
 				"format":   "event_id_only",
-				"url":      "https://push.direxio.ai/_matrix/push/v1/notify",
+				"url":      "https://push.dirextalk.ai/_matrix/push/v1/notify",
 				"provider": "fcm",
 				"platform": "android",
 			},
@@ -497,8 +497,8 @@ func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing
 		}
 
 		consumer.deleteRejectedPushers(ctx, []*pushgateway.Device{{
-			AppID:   direxioIOSAppID,
-			PushKey: direxioAPNsPushKey,
+			AppID:   dirextalkIOSAppID,
+			PushKey: dirextalkAPNsPushKey,
 		}}, localpart, serverName)
 
 		pushers, err := db.GetPushers(ctx, localpart, serverName)
@@ -513,7 +513,7 @@ func TestDeleteRejectedPushersRemovesRejectedPusherOnlyForCurrentUser(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(otherPushers) != 1 || otherPushers[0].AppID != direxioAndroidAppID || otherPushers[0].PushKey != direxioFCMPushKey {
+		if len(otherPushers) != 1 || otherPushers[0].AppID != dirextalkAndroidAppID || otherPushers[0].PushKey != dirextalkFCMPushKey {
 			t.Fatalf("expected other user's Android pusher to remain, got %#v", otherPushers)
 		}
 	})

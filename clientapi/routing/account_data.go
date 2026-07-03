@@ -13,22 +13,22 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/internal/eventutil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/eventutil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	"github.com/matrix-org/util"
 )
 
 const (
-	direxioPushContextAccountDataType = "io.direxio.push.context"
-	direxioPushContextExpiry          = time.Minute
+	dirextalkPushContextAccountDataType = "io.dirextalk.push.context"
+	dirextalkPushContextExpiry          = time.Minute
 )
 
-type direxioPushContextAccountData struct {
+type dirextalkPushContextAccountData struct {
 	Foreground  bool  `json:"foreground"`
 	ExpiresAtMS int64 `json:"expires_at_ms,omitempty"`
 }
@@ -119,7 +119,7 @@ func SaveAccountData(
 			JSON: spec.BadJSON("Bad JSON content"),
 		}
 	}
-	body, err = normalizeDirexioPushContextAccountData(roomID, dataType, body, time.Now())
+	body, err = normalizeDirextalkPushContextAccountData(roomID, dataType, body, time.Now())
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusInternalServerError,
@@ -145,20 +145,20 @@ func SaveAccountData(
 	}
 }
 
-func normalizeDirexioPushContextAccountData(roomID, dataType string, body []byte, now time.Time) ([]byte, error) {
-	if roomID != "" || dataType != direxioPushContextAccountDataType {
+func normalizeDirextalkPushContextAccountData(roomID, dataType string, body []byte, now time.Time) ([]byte, error) {
+	if roomID != "" || dataType != dirextalkPushContextAccountDataType {
 		return body, nil
 	}
-	var pushContext direxioPushContextAccountData
+	var pushContext dirextalkPushContextAccountData
 	if err := json.Unmarshal(body, &pushContext); err != nil {
 		return body, nil
 	}
 	if !pushContext.Foreground {
-		return json.Marshal(direxioPushContextAccountData{Foreground: false})
+		return json.Marshal(dirextalkPushContextAccountData{Foreground: false})
 	}
-	return json.Marshal(direxioPushContextAccountData{
+	return json.Marshal(dirextalkPushContextAccountData{
 		Foreground:  true,
-		ExpiresAtMS: now.Add(direxioPushContextExpiry).UnixMilli(),
+		ExpiresAtMS: now.Add(dirextalkPushContextExpiry).UnixMilli(),
 	})
 }
 

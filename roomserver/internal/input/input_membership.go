@@ -12,12 +12,12 @@ import (
 
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/internal/helpers"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/internal/helpers"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 // updateMembership updates the current membership and the invites for each

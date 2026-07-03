@@ -5,9 +5,9 @@ nav_exclude: true
 
 # P2P Matrix
 
-These are the instructions for setting up P2P Direxio Message Server, current as of May 2020. There's both Go stuff and JS stuff to do to set this up.
+These are the instructions for setting up P2P Dirextalk Message Server, current as of May 2020. There's both Go stuff and JS stuff to do to set this up.
 
-## Direxio Message Server
+## Dirextalk Message Server
 
 ### Build
 
@@ -21,7 +21,7 @@ cp bin/main.wasm ../riot-web/src/vector/dendrite.wasm
 
 ### Test
 
-To check that the Direxio Message Server side is working well as Wasm, you can run the
+To check that the Dirextalk Message Server side is working well as Wasm, you can run the
 Wasm-specific tests:
 
 ```
@@ -32,7 +32,7 @@ Wasm-specific tests:
 
 This is how peers discover each other and communicate.
 
-By default, Direxio Message Server uses the Matrix-hosted websocket star relay server at TODO `/dns4/ws-star.discovery.libp2p.io/tcp/443/wss/p2p-websocket-star`.
+By default, Dirextalk Message Server uses the Matrix-hosted websocket star relay server at TODO `/dns4/ws-star.discovery.libp2p.io/tcp/443/wss/p2p-websocket-star`.
 This is currently hard-coded in `./cmd/dendritejs/main.go` - you can also use a local one if you run your own relay:
 
 ```

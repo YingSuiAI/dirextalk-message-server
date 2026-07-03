@@ -23,30 +23,30 @@ RUN --mount=target=. \
     GOOS="linux" \
     CGO_ENABLED=$([ "$TARGETARCH" = "$USERARCH" ] && echo "1" || echo "0") \
     go build -v -trimpath -ldflags="-s -w" -o /out/ \
-      ./cmd/direxio-message-server \
+      ./cmd/dirextalk-message-server \
       ./cmd/generate-config \
       ./cmd/generate-keys
 
 
 #
-# Builds the Direxio Message Server image containing the runtime binary and
+# Builds the Dirextalk Message Server image containing the runtime binary and
 # per-instance initialization tools.
 #
 FROM alpine:latest
 RUN apk --update --no-cache add ca-certificates
-LABEL org.opencontainers.image.title="Direxio Message Server"
-LABEL org.opencontainers.image.description="Direxio Matrix homeserver and P2P product API server"
-LABEL org.opencontainers.image.source="https://github.com/YingSuiAI/direxio-message-server"
+LABEL org.opencontainers.image.title="Dirextalk Message Server"
+LABEL org.opencontainers.image.description="Dirextalk Matrix homeserver and P2P product API server"
+LABEL org.opencontainers.image.source="https://github.com/YingSuiAI/dirextalk-message-server"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial"
-LABEL org.opencontainers.image.documentation="https://github.com/YingSuiAI/direxio-message-server"
+LABEL org.opencontainers.image.documentation="https://github.com/YingSuiAI/dirextalk-message-server"
 LABEL org.opencontainers.image.vendor="YingSuiAI"
 
 COPY --from=build /out/generate-config /usr/bin/generate-config
 COPY --from=build /out/generate-keys /usr/bin/generate-keys
-COPY --from=build /out/direxio-message-server /usr/bin/direxio-message-server
+COPY --from=build /out/dirextalk-message-server /usr/bin/dirextalk-message-server
 
-VOLUME /etc/direxio-message-server
-WORKDIR /etc/direxio-message-server
+VOLUME /etc/dirextalk-message-server
+WORKDIR /etc/dirextalk-message-server
 
-ENTRYPOINT ["/usr/bin/direxio-message-server"]
+ENTRYPOINT ["/usr/bin/dirextalk-message-server"]
 EXPOSE 8008 8448

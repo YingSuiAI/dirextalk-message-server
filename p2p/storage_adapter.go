@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	p2pstorage "github.com/YingSuiAI/direxio-message-server/p2p/storage"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 type DatabaseStore = p2pstorage.DatabaseStore

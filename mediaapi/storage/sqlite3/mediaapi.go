@@ -9,9 +9,9 @@ package sqlite3
 
 import (
 	// Import the postgres database driver.
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/storage/shared"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 // NewDatabase opens a SQLIte database.

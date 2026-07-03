@@ -112,7 +112,7 @@ Final full smoke output:
   "b_projected_message_rooms": 0,
   "api_actions_checked": 74,
   "p2p_actions_checked": 81,
-  "docker_image": "direxio/message-server@sha256:cba43665ef20cbf629072725579c3b8b7645850e16f8c27ee273639e16c17625"
+  "docker_image": "dirextalk/message-server@sha256:cba43665ef20cbf629072725579c3b8b7645850e16f8c27ee273639e16c17625"
 }
 ```
 

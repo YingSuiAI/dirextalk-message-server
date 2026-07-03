@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
@@ -28,15 +28,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	fedsenderapi "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	fedsenderapi "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 var (
 	deviceListUpdateCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "direxio_message_server",
+			Namespace: "dirextalk_message_server",
 			Subsystem: "keyserver",
 			Name:      "device_list_update",
 			Help:      "Number of times we have attempted to update device lists from this server",
@@ -140,7 +140,7 @@ type KeyChangeProducer interface {
 
 var deviceListUpdaterBackpressure = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "keyserver",
 		Name:      "worker_backpressure",
 		Help:      "How many device list updater requests are queued",
@@ -149,7 +149,7 @@ var deviceListUpdaterBackpressure = prometheus.NewGaugeVec(
 )
 var deviceListUpdaterServersRetrying = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "keyserver",
 		Name:      "worker_servers_retrying",
 		Help:      "How many servers are queued for retry",

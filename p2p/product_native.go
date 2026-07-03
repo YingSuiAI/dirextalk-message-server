@@ -6,36 +6,36 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 const (
-	DirexioRoomTypeDirect  = productpolicy.DirexioRoomTypeDirect
-	DirexioRoomTypeGroup   = productpolicy.DirexioRoomTypeGroup
-	DirexioRoomTypeChannel = productpolicy.DirexioRoomTypeChannel
+	DirextalkRoomTypeDirect  = productpolicy.DirextalkRoomTypeDirect
+	DirextalkRoomTypeGroup   = productpolicy.DirextalkRoomTypeGroup
+	DirextalkRoomTypeChannel = productpolicy.DirextalkRoomTypeChannel
 
-	DirexioRoomProfileEventType  = productpolicy.DirexioRoomProfileEventType
-	DirexioMemberPolicyEventType = productpolicy.DirexioMemberPolicyEventType
-	DirexioJoinRequestEventType  = productpolicy.DirexioJoinRequestEventType
+	DirextalkRoomProfileEventType  = productpolicy.DirextalkRoomProfileEventType
+	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType
+	DirextalkJoinRequestEventType  = productpolicy.DirextalkJoinRequestEventType
 
-	DirexioAgentStatusEventType  = "io.direxio.agent.status"
-	AgentGatewayContentKey       = "io.direxio.agent_gateway"
-	AgentGatewaySourceContentKey = "io.direxio.gateway_source"
+	DirextalkAgentStatusEventType = "io.dirextalk.agent.status"
+	AgentGatewayContentKey        = "io.dirextalk.agent_gateway"
+	AgentGatewaySourceContentKey  = "io.dirextalk.gateway_source"
 )
 
 type p2pEvent = domain.Event
 
-func direxioRoomType(kind string) string {
+func dirextalkRoomType(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "direct", "dm", "contact":
-		return DirexioRoomTypeDirect
+		return DirextalkRoomTypeDirect
 	case "group":
-		return DirexioRoomTypeGroup
+		return DirextalkRoomTypeGroup
 	case "channel":
-		return DirexioRoomTypeChannel
+		return DirextalkRoomTypeChannel
 	default:
 		return ""
 	}
@@ -72,7 +72,7 @@ func channelHistoryVisibilityStateEvent(channelType string) (RoomStateEvent, boo
 
 func agentStatusStateEvent(agentMXID string, online bool) RoomStateEvent {
 	return RoomStateEvent{
-		Type:     DirexioAgentStatusEventType,
+		Type:     DirextalkAgentStatusEventType,
 		StateKey: strings.TrimSpace(agentMXID),
 		Content: map[string]any{
 			"online": online,
@@ -97,15 +97,15 @@ func agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID string) RoomStateEvent 
 			"redact":         50,
 			"invite":         0,
 			"events": map[string]any{
-				spec.MRoomName:              50,
-				spec.MRoomTopic:             50,
-				spec.MRoomPowerLevels:       100,
-				spec.MRoomHistoryVisibility: 100,
-				spec.MRoomCanonicalAlias:    50,
-				spec.MRoomAvatar:            50,
-				spec.MRoomEncryption:        100,
-				"m.room.server_acl":         100,
-				DirexioAgentStatusEventType: 50,
+				spec.MRoomName:                50,
+				spec.MRoomTopic:               50,
+				spec.MRoomPowerLevels:         100,
+				spec.MRoomHistoryVisibility:   100,
+				spec.MRoomCanonicalAlias:      50,
+				spec.MRoomAvatar:              50,
+				spec.MRoomEncryption:          100,
+				"m.room.server_acl":           100,
+				DirextalkAgentStatusEventType: 50,
 			},
 		},
 	}
@@ -113,10 +113,10 @@ func agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID string) RoomStateEvent 
 
 func roomProfileForDirect(name, requesterMXID, targetMXID, requesterDisplayName, requesterAvatarURL, remark string, dissolved bool) RoomStateEvent {
 	return RoomStateEvent{
-		Type:     DirexioRoomProfileEventType,
+		Type:     DirextalkRoomProfileEventType,
 		StateKey: "",
 		Content: map[string]any{
-			"room_type":      DirexioRoomTypeDirect,
+			"room_type":      DirextalkRoomTypeDirect,
 			"name":           strings.TrimSpace(name),
 			"visibility":     "private",
 			"join_policy":    "invite",
@@ -134,10 +134,10 @@ func roomProfileForDirect(name, requesterMXID, targetMXID, requesterDisplayName,
 
 func roomProfileForGroup(group groupRecord, dissolved bool) RoomStateEvent {
 	return RoomStateEvent{
-		Type:     DirexioRoomProfileEventType,
+		Type:     DirextalkRoomProfileEventType,
 		StateKey: "",
 		Content: map[string]any{
-			"room_type":     DirexioRoomTypeGroup,
+			"room_type":     DirextalkRoomTypeGroup,
 			"room_id":       group.RoomID,
 			"name":          group.Name,
 			"topic":         group.Topic,
@@ -151,10 +151,10 @@ func roomProfileForGroup(group groupRecord, dissolved bool) RoomStateEvent {
 
 func roomProfileForChannel(ch channel, dissolved bool) RoomStateEvent {
 	return RoomStateEvent{
-		Type:     DirexioRoomProfileEventType,
+		Type:     DirextalkRoomProfileEventType,
 		StateKey: "",
 		Content: map[string]any{
-			"room_type":        DirexioRoomTypeChannel,
+			"room_type":        DirextalkRoomTypeChannel,
 			"channel_id":       ch.ChannelID,
 			"room_id":          ch.RoomID,
 			"name":             ch.Name,

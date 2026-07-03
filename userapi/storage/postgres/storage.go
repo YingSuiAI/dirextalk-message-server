@@ -12,10 +12,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/postgres/deltas"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/shared"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/postgres/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/shared"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	// Import the postgres database driver.

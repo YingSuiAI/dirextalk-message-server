@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dirextalk Targeted Verification"
+  short_description: "Pick focused Dirextalk checks"
+  default_prompt: "Use $dirextalk-targeted-verification to choose focused Go, JSON, Postman, compose, skill, build, or regression checks for a Dirextalk server change."

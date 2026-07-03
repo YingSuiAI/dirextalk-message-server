@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 const DefaultLimit = 50

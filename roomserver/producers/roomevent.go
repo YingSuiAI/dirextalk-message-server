@@ -9,14 +9,14 @@ package producers
 import (
 	"encoding/json"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/acls"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/acls"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
 )
 
 var keyContentFields = map[string]string{

@@ -12,10 +12,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/producers"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"
 )

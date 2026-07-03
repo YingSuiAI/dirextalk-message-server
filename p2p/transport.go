@@ -1,6 +1,6 @@
 package p2p
 
-import "github.com/YingSuiAI/direxio-message-server/p2p/transportapi"
+import "github.com/YingSuiAI/dirextalk-message-server/p2p/transportapi"
 
 type Transport = transportapi.Transport
 type CreateRoomRequest = transportapi.CreateRoomRequest

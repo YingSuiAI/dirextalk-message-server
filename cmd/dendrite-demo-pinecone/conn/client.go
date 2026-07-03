@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/coder/websocket"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 

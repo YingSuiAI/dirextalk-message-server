@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	rsapi "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	uapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	uapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -254,16 +254,16 @@ func Test_SendEvent_PseudoIDStateKeys(t *testing.T) {
 	})
 }
 
-func TestSendEventAppliesDirexioProductPolicy(t *testing.T) {
+func TestSendEventAppliesDirextalkProductPolicy(t *testing.T) {
 	roomVersion := gomatrixserverlib.RoomVersionV10
 	roomIDStr := "!channel:domain"
 	ownerUserID := "@owner:domain"
 	senderUserID := "@member:domain"
 	eventType := "m.room.message"
 	eventsJSON := []string{
-		fmt.Sprintf(`{"type":"m.room.create","state_key":"","room_id":"%v","sender":"%v","content":{"creator":"%v","room_version":"%v","type":"io.direxio.room.channel"}}`, roomIDStr, ownerUserID, ownerUserID, roomVersion),
+		fmt.Sprintf(`{"type":"m.room.create","state_key":"","room_id":"%v","sender":"%v","content":{"creator":"%v","room_version":"%v","type":"io.dirextalk.room.channel"}}`, roomIDStr, ownerUserID, ownerUserID, roomVersion),
 		fmt.Sprintf(`{"type":"m.room.member","state_key":"%v","room_id":"%v","sender":"%v","content":{"membership":"join"}}`, senderUserID, roomIDStr, senderUserID),
-		fmt.Sprintf(`{"type":"io.direxio.room.profile","state_key":"","room_id":"%v","sender":"%v","content":{"room_type":"io.direxio.room.channel","comments_enabled":false}}`, roomIDStr, ownerUserID),
+		fmt.Sprintf(`{"type":"io.dirextalk.room.profile","state_key":"","room_id":"%v","sender":"%v","content":{"room_type":"io.dirextalk.room.channel","comments_enabled":false}}`, roomIDStr, ownerUserID),
 	}
 	roomState, err := createEvents(eventsJSON, roomVersion)
 	if err != nil {

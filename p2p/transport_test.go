@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	"github.com/YingSuiAI/direxio-message-server/p2p/matrixhistory"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -140,7 +140,7 @@ func updateStateHistoryVisibility(req SendStateEventRequest) (string, bool) {
 }
 
 func agentStatusOnlineState(state RoomStateEvent, agentMXID string) (bool, bool) {
-	if state.Type != DirexioAgentStatusEventType || state.StateKey != agentMXID {
+	if state.Type != DirextalkAgentStatusEventType || state.StateKey != agentMXID {
 		return false, false
 	}
 	online, ok := state.Content["online"].(bool)
@@ -211,7 +211,7 @@ func TestEnsureAgentRoomCreatesRealRoomForLegacyID(t *testing.T) {
 	if level, ok := initialPowerLevelForUser(req.InitialState, "@agent:example.com"); !ok || level < 50 {
 		t.Fatalf("expected created agent room to grant @agent state power, level=%d ok=%v state=%#v", level, ok, req.InitialState)
 	}
-	if statusState, ok := initialStateOfType(req.InitialState, DirexioAgentStatusEventType); ok {
+	if statusState, ok := initialStateOfType(req.InitialState, DirextalkAgentStatusEventType); ok {
 		t.Fatalf("agent status state must be sent after join, not as owner-created initial state: %#v", statusState)
 	}
 	if len(transport.joinRequests) != 1 || transport.joinRequests[0].UserMXID != "@agent:example.com" || transport.joinRequests[0].DisplayName != "Agent" {
@@ -450,7 +450,7 @@ func TestContactRequestCreatesDirectInviteRoomThroughTransport(t *testing.T) {
 	}
 	var directProfile map[string]any
 	for _, state := range room.InitialState {
-		if state.Type == DirexioRoomProfileEventType && state.Content["room_type"] == DirexioRoomTypeDirect {
+		if state.Type == DirextalkRoomProfileEventType && state.Content["room_type"] == DirextalkRoomTypeDirect {
 			directProfile = state.Content
 		}
 		if strings.HasPrefix(state.Type, "p2p.") {
@@ -532,7 +532,7 @@ func TestContactRequestIsIdempotentForExistingDirectContact(t *testing.T) {
 
 func TestPendingOutboundContactRequestKeepsOldRoomWhenSenderLeft(t *testing.T) {
 	transport := &failingInviteTransport{
-		err: productpolicy.Forbidden("sender is not joined to the direxio room"),
+		err: productpolicy.Forbidden("sender is not joined to the dirextalk room"),
 	}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -611,7 +611,7 @@ func TestAcceptedContactRequestCreatesPendingInviteWhenPeerNoLongerRetainsOldRoo
 		t.Fatalf("peer-deleted re-request must not join the old room before approval, got %#v", transport.joinRequests)
 	}
 	if len(transport.createRooms) != 1 ||
-		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		transport.createRooms[0].RoomType != DirextalkRoomTypeDirect ||
 		len(transport.createRooms[0].InviteMXIDs) != 1 ||
 		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
 		t.Fatalf("peer-deleted re-request must create a replacement direct invite room, got %#v", transport.createRooms)
@@ -637,7 +637,7 @@ func TestAcceptedContactRequestCreatesReplacementWhenOldRoomInviteSenderLeft(t *
 	defer remote.Close()
 
 	transport := &failingInviteTransport{
-		err: productpolicy.Forbidden("sender is not joined to the direxio room"),
+		err: productpolicy.Forbidden("sender is not joined to the dirextalk room"),
 	}
 	service := NewServiceWithTransport(Config{
 		ServerName:                     "example.com",
@@ -668,7 +668,7 @@ func TestAcceptedContactRequestCreatesReplacementWhenOldRoomInviteSenderLeft(t *
 		t.Fatalf("expected one peer reactivation probe, got %#v", remoteActions)
 	}
 	if len(transport.createRooms) != 1 ||
-		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		transport.createRooms[0].RoomType != DirextalkRoomTypeDirect ||
 		len(transport.createRooms[0].InviteMXIDs) != 1 ||
 		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
 		t.Fatalf("left-sender re-request must create a replacement direct invite room, got %#v", transport.createRooms)
@@ -1025,7 +1025,7 @@ func TestContactAcceptCreatesReplacementDirectRoomWhenOldRoomCannotBeRejoined(t 
 		t.Fatalf("expected one replacement direct room, got %#v", transport.createRooms)
 	}
 	room := transport.createRooms[0]
-	if room.CreatorMXID != "@owner:example.com" || len(room.InviteMXIDs) != 1 || room.InviteMXIDs[0] != "@alice:remote.example" || !room.IsDirect || room.RoomType != DirexioRoomTypeDirect {
+	if room.CreatorMXID != "@owner:example.com" || len(room.InviteMXIDs) != 1 || room.InviteMXIDs[0] != "@alice:remote.example" || !room.IsDirect || room.RoomType != DirextalkRoomTypeDirect {
 		t.Fatalf("unexpected replacement direct room request: %#v", room)
 	}
 }
@@ -1527,7 +1527,7 @@ func TestDeletedContactRequestCreatesFreshRequestWhenPeerNoLongerRetainsOldRoom(
 		t.Fatalf("expected retained-contact probe to avoid old-room join before pending invite, got %#v", transport.joinRequests)
 	}
 	if len(transport.createRooms) != 1 ||
-		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		transport.createRooms[0].RoomType != DirextalkRoomTypeDirect ||
 		len(transport.createRooms[0].InviteMXIDs) != 1 ||
 		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
 		t.Fatalf("both-deleted re-add must create a replacement direct invite room, got %#v", transport.createRooms)
@@ -1592,7 +1592,7 @@ func TestDeletedContactRequestCreatesReplacementRoomWhenPeerRecordsInboundReques
 		t.Fatalf("peer-recorded pending request must not join old direct room, got %#v", transport.joinRequests)
 	}
 	if len(transport.createRooms) != 1 ||
-		transport.createRooms[0].RoomType != DirexioRoomTypeDirect ||
+		transport.createRooms[0].RoomType != DirextalkRoomTypeDirect ||
 		len(transport.createRooms[0].InviteMXIDs) != 1 ||
 		transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
 		t.Fatalf("peer-recorded pending request must create a replacement direct invite room, got %#v", transport.createRooms)
@@ -1791,9 +1791,9 @@ func TestServiceCreatesChannelRoomStateThroughTransport(t *testing.T) {
 		t.Fatalf("expected one transport room create, got %#v", transport.createRooms)
 	}
 	state := transport.createRooms[0].InitialState
-	profileState, ok := initialStateOfType(state, DirexioRoomProfileEventType)
-	if len(state) != 2 || !ok || profileState.Content["room_type"] != DirexioRoomTypeChannel || profileState.Content["channel_type"] != "post" {
-		t.Fatalf("expected Direxio channel profile state, got %#v", state)
+	profileState, ok := initialStateOfType(state, DirextalkRoomProfileEventType)
+	if len(state) != 2 || !ok || profileState.Content["room_type"] != DirextalkRoomTypeChannel || profileState.Content["channel_type"] != "post" {
+		t.Fatalf("expected Dirextalk channel profile state, got %#v", state)
 	}
 	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
 		t.Fatalf("expected shared post channel history visibility, got %q ok=%v in %#v", got, ok, state)
@@ -1840,7 +1840,7 @@ func TestChannelUpdateAndDissolvePublishRoomStateThroughTransport(t *testing.T) 
 		t.Fatalf("expected channel update to publish one state event, got %#v", transport.stateEvents)
 	}
 	updateState := transport.stateEvents[0]
-	if updateState.RoomID != ch.RoomID || updateState.Event.Type != DirexioRoomProfileEventType || updateState.Event.Content["room_type"] != DirexioRoomTypeChannel || updateState.Event.Content["name"] != "After" || updateState.Event.Content["join_policy"] != "approval" {
+	if updateState.RoomID != ch.RoomID || updateState.Event.Type != DirextalkRoomProfileEventType || updateState.Event.Content["room_type"] != DirextalkRoomTypeChannel || updateState.Event.Content["name"] != "After" || updateState.Event.Content["join_policy"] != "approval" {
 		t.Fatalf("expected updated channel metadata state, got %#v", updateState)
 	}
 
@@ -1893,8 +1893,8 @@ func TestGroupCreateUpdateAndDissolvePublishRoomStateThroughTransport(t *testing
 	if len(transport.createRooms) != 1 {
 		t.Fatalf("expected group create to publish initial state, got %#v", transport.createRooms)
 	}
-	createState, ok := initialStateOfType(transport.createRooms[0].InitialState, DirexioRoomProfileEventType)
-	if !ok || createState.Content["room_type"] != DirexioRoomTypeGroup || createState.Content["name"] != "Before" || createState.Content["invite_policy"] != "member" {
+	createState, ok := initialStateOfType(transport.createRooms[0].InitialState, DirextalkRoomProfileEventType)
+	if !ok || createState.Content["room_type"] != DirextalkRoomTypeGroup || createState.Content["name"] != "Before" || createState.Content["invite_policy"] != "member" {
 		t.Fatalf("expected group metadata initial state, got %#v", transport.createRooms[0].InitialState)
 	}
 
@@ -1910,7 +1910,7 @@ func TestGroupCreateUpdateAndDissolvePublishRoomStateThroughTransport(t *testing
 		t.Fatalf("expected group update to publish one state event, got %#v", transport.stateEvents)
 	}
 	updateState := transport.stateEvents[0]
-	if updateState.RoomID != group.RoomID || updateState.Event.Type != DirexioRoomProfileEventType || updateState.Event.Content["room_type"] != DirexioRoomTypeGroup || updateState.Event.Content["name"] != "After" || updateState.Event.Content["invite_policy"] != "owner" {
+	if updateState.RoomID != group.RoomID || updateState.Event.Type != DirextalkRoomProfileEventType || updateState.Event.Content["room_type"] != DirextalkRoomTypeGroup || updateState.Event.Content["name"] != "After" || updateState.Event.Content["invite_policy"] != "owner" {
 		t.Fatalf("expected updated group metadata state, got %#v", updateState)
 	}
 
@@ -2180,7 +2180,7 @@ func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
 
 func TestRoomSendMapsProductPolicyTransportErrorToForbidden(t *testing.T) {
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, &failingSendTransport{
-		err: productpolicy.Forbidden("sender is muted in the direxio room"),
+		err: productpolicy.Forbidden("sender is muted in the dirextalk room"),
 	})
 	bootstrapService(t, service)
 
@@ -2253,7 +2253,7 @@ func TestChannelPostRecallDoesNotDeleteProjectionWhenMatrixRedactionFails(t *tes
 		"channel_id": ch.ChannelID,
 		"body":       "post",
 	})
-	service.transport = &failingRedactTransport{err: productpolicy.Forbidden("sender cannot redact another sender in direxio room")}
+	service.transport = &failingRedactTransport{err: productpolicy.Forbidden("sender cannot redact another sender in dirextalk room")}
 
 	_, apiErr := service.Handle(context.Background(), "channels.posts.recall", map[string]any{
 		"channel_id": ch.ChannelID,
@@ -2286,7 +2286,7 @@ func TestChannelCommentRecallDoesNotDeleteProjectionWhenMatrixRedactionFails(t *
 		"post_id":    post.PostID,
 		"body":       "comment",
 	})
-	service.transport = &failingRedactTransport{err: productpolicy.Forbidden("sender cannot redact another sender in direxio room")}
+	service.transport = &failingRedactTransport{err: productpolicy.Forbidden("sender cannot redact another sender in dirextalk room")}
 
 	_, apiErr := service.Handle(context.Background(), "channels.comments.recall", map[string]any{
 		"channel_id":  ch.ChannelID,
@@ -2358,7 +2358,7 @@ func TestServiceUsesTransportForMemberLifecycle(t *testing.T) {
 	}
 	var nativeProfile bool
 	for _, inviteState := range transport.inviteRequests[0].InviteRoomState {
-		if inviteState.Type == DirexioRoomProfileEventType && inviteState.Content["room_type"] == DirexioRoomTypeGroup && inviteState.Content["name"] == group.Name {
+		if inviteState.Type == DirextalkRoomProfileEventType && inviteState.Content["room_type"] == DirextalkRoomTypeGroup && inviteState.Content["name"] == group.Name {
 			nativeProfile = true
 		}
 		if strings.HasPrefix(inviteState.Type, "p2p.") {
@@ -2556,7 +2556,7 @@ func TestChannelPublicJoinRequestPublishesApprovalStateWithoutInvite(t *testing.
 	}
 	var approvedState bool
 	for _, state := range transport.stateEvents {
-		if state.Event.Type == DirexioJoinRequestEventType &&
+		if state.Event.Type == DirextalkJoinRequestEventType &&
 			state.Event.StateKey == productpolicy.UserStateKey("@alice:remote.example") &&
 			state.Event.Content["status"] == "approved" {
 			approvedState = true
@@ -3496,7 +3496,7 @@ func TestChannelJoinRequestApprovalJoinsLocalRequesterThroughTransport(t *testin
 	if len(transport.joins) != 1 || transport.joins[0] != "@alice:example.com in !channel:example.com" {
 		t.Fatalf("expected approved join request to join through transport, got %#v", transport.joins)
 	}
-	joinRequestStates := recordedStatesOfType(transport.stateEvents, DirexioJoinRequestEventType)
+	joinRequestStates := recordedStatesOfType(transport.stateEvents, DirextalkJoinRequestEventType)
 	if len(joinRequestStates) != 2 {
 		t.Fatalf("expected pending and approved join request state events, got %#v", joinRequestStates)
 	}
@@ -3622,7 +3622,7 @@ func TestMemberMutePublishesMemberPolicyState(t *testing.T) {
 		"user_id":    "@alice:example.com",
 	})
 
-	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
+	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirextalkMemberPolicyEventType)
 	if len(memberPolicyStates) != 1 {
 		t.Fatalf("expected member policy state event, got %#v", memberPolicyStates)
 	}
@@ -3664,7 +3664,7 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 		"room_id":    ch.RoomID,
 	})
 
-	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
+	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirextalkMemberPolicyEventType)
 	if len(memberPolicyStates) != 2 {
 		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}
@@ -3757,7 +3757,7 @@ func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 		"room_id": group.RoomID,
 	})
 
-	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirexioMemberPolicyEventType)
+	memberPolicyStates := recordedStatesOfType(transport.stateEvents, DirextalkMemberPolicyEventType)
 	if len(memberPolicyStates) != 2 {
 		t.Fatalf("expected member policy state events for all non-owner members, got %#v", memberPolicyStates)
 	}

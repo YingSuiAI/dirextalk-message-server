@@ -11,9 +11,9 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 const ignoresSchema = `

@@ -7,4 +7,4 @@ permalink: /development
 # Development
 
 This section contains documentation that may be useful when helping to develop
-Direxio Message Server.
+Dirextalk Message Server.

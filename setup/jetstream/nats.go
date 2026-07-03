@@ -10,8 +10,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
@@ -102,7 +102,7 @@ func setupNATS(process *process.ProcessContext, cfg *config.JetStream, nc *natsc
 	if nc == nil {
 		var err error
 		opts := []natsclient.Option{
-			natsclient.Name("Direxio Message Server"),
+			natsclient.Name("Dirextalk Message Server"),
 			natsclient.MaxReconnects(-1), // Try forever
 			natsclient.ReconnectJitter(time.Second, time.Second),
 			natsclient.ReconnectWait(time.Second * 10),

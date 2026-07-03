@@ -11,16 +11,16 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/httputil"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/httputil"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 )
 
 const (
-	direxioAndroidPusherAppID = "com.direxio.ai"
-	direxioIOSPusherAppID     = "com.direxio.app"
+	dirextalkAndroidPusherAppID = "com.dirextalk.ai"
+	dirextalkIOSPusherAppID     = "com.dirextalk.app"
 )
 
 // GetPushers handles /_matrix/client/r0/pushers
@@ -83,9 +83,9 @@ func SetPusher(
 		return invalidParam("length of pushkey must be no more than 512 bytes")
 	}
 	if body.Kind == userapi.HTTPKind &&
-		requiresDirexioHTTPPusherAppID(body.Data) &&
-		!isDirexioHTTPPusherAppID(body.AppID) {
-		return invalidParam("unsupported Direxio push app_id")
+		requiresDirextalkHTTPPusherAppID(body.Data) &&
+		!isDirextalkHTTPPusherAppID(body.AppID) {
+		return invalidParam("unsupported Dirextalk push app_id")
 	}
 	uInt := body.Data["url"]
 	if uInt != nil {
@@ -130,11 +130,11 @@ func invalidParam(msg string) util.JSONResponse {
 	}
 }
 
-func isDirexioHTTPPusherAppID(appID string) bool {
-	return appID == direxioAndroidPusherAppID || appID == direxioIOSPusherAppID
+func isDirextalkHTTPPusherAppID(appID string) bool {
+	return appID == dirextalkAndroidPusherAppID || appID == dirextalkIOSPusherAppID
 }
 
-func requiresDirexioHTTPPusherAppID(data map[string]interface{}) bool {
+func requiresDirextalkHTTPPusherAppID(data map[string]interface{}) bool {
 	rawURL, ok := data["url"].(string)
 	if !ok {
 		return false
@@ -144,8 +144,8 @@ func requiresDirexioHTTPPusherAppID(data map[string]interface{}) bool {
 		return false
 	}
 	host := strings.ToLower(pushURL.Hostname())
-	if host == "push.direxio.ai" ||
-		(strings.HasPrefix(host, "push-") && strings.HasSuffix(host, ".direxio.ai")) {
+	if host == "push.dirextalk.ai" ||
+		(strings.HasPrefix(host, "push-") && strings.HasSuffix(host, ".dirextalk.ai")) {
 		return pushURL.Path == "/_matrix/push/v1/notify"
 	}
 	return false

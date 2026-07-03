@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
 type peerContactReactivation struct {
@@ -149,7 +149,7 @@ func (s *Service) createDirectContactRequest(ctx context.Context, mxid string, p
 			CreatorAvatarURL:   ownerAvatarURL,
 			Name:               directName,
 			Visibility:         "private",
-			RoomType:           DirexioRoomTypeDirect,
+			RoomType:           DirextalkRoomTypeDirect,
 			IsDirect:           true,
 			InviteMXIDs:        []string{mxid},
 			InitialState: []RoomStateEvent{
@@ -227,7 +227,7 @@ func (s *Service) resendPendingOutboundContactRequest(ctx context.Context, conta
 				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
 			},
 		}); err != nil {
-			if !isSenderNotJoinedDirexioRoom(err) {
+			if !isSenderNotJoinedDirextalkRoom(err) {
 				return contactRecord{}, transportWriteError(err)
 			}
 		}
@@ -252,7 +252,7 @@ func (s *Service) createAcceptedReplacementDirectRoom(ctx context.Context, conta
 		CreatorAvatarURL:   ownerAvatarURL,
 		Name:               directName,
 		Visibility:         "private",
-		RoomType:           DirexioRoomTypeDirect,
+		RoomType:           DirextalkRoomTypeDirect,
 		IsDirect:           true,
 		InviteMXIDs:        []string{contact.PeerMXID},
 		InitialState: []RoomStateEvent{
@@ -400,7 +400,7 @@ func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, c
 				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
 			},
 		}); err != nil {
-			if !isSenderNotJoinedDirexioRoom(err) {
+			if !isSenderNotJoinedDirextalkRoom(err) {
 				return contactRecord{}, transportWriteError(err)
 			}
 		}
@@ -589,11 +589,11 @@ func isDirectRoomJoinRequiresInvite(err error) bool {
 		policyErr.Message == "direct room join requires invite"
 }
 
-func isSenderNotJoinedDirexioRoom(err error) bool {
+func isSenderNotJoinedDirextalkRoom(err error) bool {
 	var policyErr *productpolicy.PolicyError
 	return errors.As(err, &policyErr) &&
 		policyErr.Code == http.StatusForbidden &&
-		policyErr.Message == "sender is not joined to the direxio room"
+		policyErr.Message == "sender is not joined to the dirextalk room"
 }
 
 func isDirectContactReactivationJoinFailed(err error) bool {

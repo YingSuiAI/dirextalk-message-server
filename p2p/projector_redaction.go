@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/projection"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) error {

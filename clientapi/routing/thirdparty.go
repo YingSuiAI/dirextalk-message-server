@@ -12,8 +12,8 @@ import (
 
 	"github.com/matrix-org/util"
 
-	appserviceAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

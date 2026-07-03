@@ -9,26 +9,26 @@ package syncapi
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/fulltext"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/fulltext"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/consumers"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/notifier"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/routing"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/streams"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/sync"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/consumers"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/notifier"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/routing"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/streams"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/sync"
 )
 
 // AddPublicRoutes sets up and registers HTTP handlers for the SyncAPI

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/gomatrixserverlib"
 )
 
@@ -45,21 +45,21 @@ func TestProductRoomsUseNativeRoomTypeAndUnifiedProfile(t *testing.T) {
 	if len(transport.createRooms) != 3 {
 		t.Fatalf("expected direct, group, and channel create requests, got %#v", transport.createRooms)
 	}
-	if transport.createRooms[0].RoomType != DirexioRoomTypeDirect {
-		t.Fatalf("direct room type = %q, want %q", transport.createRooms[0].RoomType, DirexioRoomTypeDirect)
+	if transport.createRooms[0].RoomType != DirextalkRoomTypeDirect {
+		t.Fatalf("direct room type = %q, want %q", transport.createRooms[0].RoomType, DirextalkRoomTypeDirect)
 	}
-	if transport.createRooms[1].RoomType != DirexioRoomTypeGroup {
-		t.Fatalf("group room type = %q, want %q", transport.createRooms[1].RoomType, DirexioRoomTypeGroup)
+	if transport.createRooms[1].RoomType != DirextalkRoomTypeGroup {
+		t.Fatalf("group room type = %q, want %q", transport.createRooms[1].RoomType, DirextalkRoomTypeGroup)
 	}
-	if transport.createRooms[2].RoomType != DirexioRoomTypeChannel {
-		t.Fatalf("channel room type = %q, want %q", transport.createRooms[2].RoomType, DirexioRoomTypeChannel)
+	if transport.createRooms[2].RoomType != DirextalkRoomTypeChannel {
+		t.Fatalf("channel room type = %q, want %q", transport.createRooms[2].RoomType, DirextalkRoomTypeChannel)
 	}
 	for _, req := range transport.createRooms {
 		if req.CreatorAvatarURL != "mxc://example.com/owner-avatar" {
 			t.Fatalf("expected creator avatar on %s create request, got %#v", req.RoomType, req)
 		}
 	}
-	assertInitialProfile(t, transport.createRooms[0], DirexioRoomTypeDirect, map[string]any{
+	assertInitialProfile(t, transport.createRooms[0], DirextalkRoomTypeDirect, map[string]any{
 		"name":           "Alice",
 		"visibility":     "private",
 		"join_policy":    "invite",
@@ -69,12 +69,12 @@ func TestProductRoomsUseNativeRoomTypeAndUnifiedProfile(t *testing.T) {
 		"avatar_url":     "mxc://example.com/owner-avatar",
 		"domain":         "example.com",
 	})
-	assertInitialProfile(t, transport.createRooms[1], DirexioRoomTypeGroup, map[string]any{
+	assertInitialProfile(t, transport.createRooms[1], DirextalkRoomTypeGroup, map[string]any{
 		"name":          group.Name,
 		"topic":         group.Topic,
 		"invite_policy": "owner",
 	})
-	assertInitialProfile(t, transport.createRooms[2], DirexioRoomTypeChannel, map[string]any{
+	assertInitialProfile(t, transport.createRooms[2], DirextalkRoomTypeChannel, map[string]any{
 		"channel_id":       createdChannel.ChannelID,
 		"name":             createdChannel.Name,
 		"description":      createdChannel.Description,
@@ -91,8 +91,8 @@ func TestProjectUnifiedRoomProfileForChannelAndGroup(t *testing.T) {
 	groupRoom := test.NewRoom(t, user)
 	service := NewService(Config{ServerName: "test"})
 
-	channelProfile := channelRoom.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":        DirexioRoomTypeChannel,
+	channelProfile := channelRoom.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":        DirextalkRoomTypeChannel,
 		"channel_id":       "unified-channel",
 		"name":             "Unified Channel",
 		"description":      "Profile metadata",
@@ -112,8 +112,8 @@ func TestProjectUnifiedRoomProfileForChannelAndGroup(t *testing.T) {
 		t.Fatalf("expected unified channel projection, got %#v", channels)
 	}
 
-	groupProfile := groupRoom.CreateAndInsert(t, user, DirexioRoomProfileEventType, map[string]any{
-		"room_type":     DirexioRoomTypeGroup,
+	groupProfile := groupRoom.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{
+		"room_type":     DirextalkRoomTypeGroup,
 		"name":          "Unified Group",
 		"topic":         "Group profile",
 		"invite_policy": "owner",
@@ -135,7 +135,7 @@ func TestProjectJoinRequestStateToMemberProjection(t *testing.T) {
 	owner := test.NewUser(t)
 	requester := test.NewUser(t)
 	room := test.NewRoom(t, owner)
-	pending := trustedStateEvent(t, room.ID, owner.ID, DirexioJoinRequestEventType, requester.ID, map[string]any{
+	pending := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, requester.ID, map[string]any{
 		"status":  "pending",
 		"user_id": requester.ID,
 	})
@@ -148,7 +148,7 @@ func TestProjectJoinRequestStateToMemberProjection(t *testing.T) {
 		t.Fatalf("expected pending join request projection, got %#v", members)
 	}
 
-	approved := trustedStateEvent(t, room.ID, owner.ID, DirexioJoinRequestEventType, requester.ID, map[string]any{
+	approved := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, requester.ID, map[string]any{
 		"status":  "approved",
 		"user_id": requester.ID,
 	})
@@ -161,7 +161,7 @@ func TestProjectJoinRequestStateToMemberProjection(t *testing.T) {
 		t.Fatalf("expected approved join request to project as invite until Matrix join, got %#v", members)
 	}
 
-	rejected := trustedStateEvent(t, room.ID, owner.ID, DirexioJoinRequestEventType, requester.ID, map[string]any{
+	rejected := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, requester.ID, map[string]any{
 		"status":  "rejected",
 		"user_id": requester.ID,
 	})
@@ -221,7 +221,7 @@ func TestRoomSendUsesProductPolicyForDisabledChannelComments(t *testing.T) {
 func assertInitialProfile(t *testing.T, req CreateRoomRequest, roomType string, expected map[string]any) {
 	t.Helper()
 	for _, state := range req.InitialState {
-		if state.Type != DirexioRoomProfileEventType {
+		if state.Type != DirextalkRoomProfileEventType {
 			continue
 		}
 		if state.StateKey != "" {
@@ -239,5 +239,5 @@ func assertInitialProfile(t *testing.T, req CreateRoomRequest, roomType string, 
 		}
 		return
 	}
-	t.Fatalf("missing %s initial state in %#v", DirexioRoomProfileEventType, req.InitialState)
+	t.Fatalf("missing %s initial state in %#v", DirextalkRoomProfileEventType, req.InitialState)
 }

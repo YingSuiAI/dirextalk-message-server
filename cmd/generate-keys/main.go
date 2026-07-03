@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 const usage = `Usage: %s

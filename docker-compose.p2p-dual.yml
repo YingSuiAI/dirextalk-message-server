@@ -1,4 +1,4 @@
-name: direxio-p2p-dual
+name: dirextalk-p2p-dual
 
 # Set P2P_DUAL_PUBLIC_HOST to the host/IP address that all local node containers
 # can reach from inside Docker, for example a LAN IP of the development machine.
@@ -9,15 +9,15 @@ name: direxio-p2p-dual
 #   ${P2P_DUAL_PUBLIC_HOST}:38448
 
 x-message-server-local: &message-server-local
-  image: direxio/message-server:latest
+  image: dirextalk/message-server:latest
   build:
     context: .
     dockerfile: Dockerfile
 
 x-postgres-env: &postgres-env
-  POSTGRES_USER: direxio_message_server
-  POSTGRES_PASSWORD: direxio_message_server
-  POSTGRES_DB: direxio_message_server
+  POSTGRES_USER: dirextalk_message_server
+  POSTGRES_PASSWORD: dirextalk_message_server
+  POSTGRES_DB: dirextalk_message_server
 
 services:
   postgres-a:
@@ -30,7 +30,7 @@ services:
     volumes:
       - p2p_dual_postgres_a:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      test: ["CMD-SHELL", "pg_isready -U dirextalk_message_server -d dirextalk_message_server"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -47,7 +47,7 @@ services:
     volumes:
       - p2p_dual_postgres_b:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      test: ["CMD-SHELL", "pg_isready -U dirextalk_message_server -d dirextalk_message_server"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -64,7 +64,7 @@ services:
     volumes:
       - p2p_dual_postgres_c:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      test: ["CMD-SHELL", "pg_isready -U dirextalk_message_server -d dirextalk_message_server"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -78,28 +78,28 @@ services:
     command:
       - |
         set -eu
-        mkdir -p /etc/direxio-message-server /var/direxio-message-server
-        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
-          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        mkdir -p /etc/dirextalk-message-server /var/dirextalk-message-server
+        if [ ! -f /etc/dirextalk-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/dirextalk-message-server/matrix_key.pem
         fi
-        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+        if [ ! -f /etc/dirextalk-message-server/server.crt ] || [ ! -f /etc/dirextalk-message-server/server.key ]; then
           /usr/bin/generate-keys \
-            -tls-cert /etc/direxio-message-server/server.crt \
-            -tls-key /etc/direxio-message-server/server.key \
+            -tls-cert /etc/dirextalk-message-server/server.crt \
+            -tls-key /etc/dirextalk-message-server/server.key \
             -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
         fi
         /usr/bin/generate-config \
-          -dir /var/direxio-message-server \
-          -db postgres://direxio_message_server:direxio_message_server@postgres-a/direxio_message_server?sslmode=disable \
+          -dir /var/dirextalk-message-server \
+          -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-a/dirextalk_message_server?sslmode=disable \
           -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:18448 \
-          > /etc/direxio-message-server/message-server.yaml
-        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+          > /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
-      - p2p_dual_message_server_a_config:/etc/direxio-message-server
-      - p2p_dual_message_server_a_data:/var/direxio-message-server
+      - p2p_dual_message_server_a_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_a_data:/var/dirextalk-message-server
     depends_on:
       postgres-a:
         condition: service_healthy
@@ -113,28 +113,28 @@ services:
     command:
       - |
         set -eu
-        mkdir -p /etc/direxio-message-server /var/direxio-message-server
-        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
-          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        mkdir -p /etc/dirextalk-message-server /var/dirextalk-message-server
+        if [ ! -f /etc/dirextalk-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/dirextalk-message-server/matrix_key.pem
         fi
-        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+        if [ ! -f /etc/dirextalk-message-server/server.crt ] || [ ! -f /etc/dirextalk-message-server/server.key ]; then
           /usr/bin/generate-keys \
-            -tls-cert /etc/direxio-message-server/server.crt \
-            -tls-key /etc/direxio-message-server/server.key \
+            -tls-cert /etc/dirextalk-message-server/server.crt \
+            -tls-key /etc/dirextalk-message-server/server.key \
             -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
         fi
         /usr/bin/generate-config \
-          -dir /var/direxio-message-server \
-          -db postgres://direxio_message_server:direxio_message_server@postgres-b/direxio_message_server?sslmode=disable \
+          -dir /var/dirextalk-message-server \
+          -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-b/dirextalk_message_server?sslmode=disable \
           -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:28448 \
-          > /etc/direxio-message-server/message-server.yaml
-        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+          > /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
-      - p2p_dual_message_server_b_config:/etc/direxio-message-server
-      - p2p_dual_message_server_b_data:/var/direxio-message-server
+      - p2p_dual_message_server_b_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_b_data:/var/dirextalk-message-server
     depends_on:
       postgres-b:
         condition: service_healthy
@@ -148,28 +148,28 @@ services:
     command:
       - |
         set -eu
-        mkdir -p /etc/direxio-message-server /var/direxio-message-server
-        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
-          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        mkdir -p /etc/dirextalk-message-server /var/dirextalk-message-server
+        if [ ! -f /etc/dirextalk-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/dirextalk-message-server/matrix_key.pem
         fi
-        if [ ! -f /etc/direxio-message-server/server.crt ] || [ ! -f /etc/direxio-message-server/server.key ]; then
+        if [ ! -f /etc/dirextalk-message-server/server.crt ] || [ ! -f /etc/dirextalk-message-server/server.key ]; then
           /usr/bin/generate-keys \
-            -tls-cert /etc/direxio-message-server/server.crt \
-            -tls-key /etc/direxio-message-server/server.key \
+            -tls-cert /etc/dirextalk-message-server/server.crt \
+            -tls-key /etc/dirextalk-message-server/server.key \
             -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
         fi
         /usr/bin/generate-config \
-          -dir /var/direxio-message-server \
-          -db postgres://direxio_message_server:direxio_message_server@postgres-c/direxio_message_server?sslmode=disable \
+          -dir /var/dirextalk-message-server \
+          -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-c/dirextalk_message_server?sslmode=disable \
           -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:38448 \
-          > /etc/direxio-message-server/message-server.yaml
-        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/direxio-message-server/message-server.yaml
-        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/direxio-message-server/message-server.yaml
+          > /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
+        sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
-      - p2p_dual_message_server_c_config:/etc/direxio-message-server
-      - p2p_dual_message_server_c_data:/var/direxio-message-server
+      - p2p_dual_message_server_c_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_c_data:/var/dirextalk-message-server
     depends_on:
       postgres-c:
         condition: service_healthy
@@ -180,25 +180,25 @@ services:
     <<: *message-server-local
     restart: unless-stopped
     environment:
-      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_PORTAL_CREDENTIALS_FILE: /var/dirextalk-message-server/p2p/bootstrap.json
       P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
     command:
       - --config
-      - /etc/direxio-message-server/message-server.yaml
+      - /etc/dirextalk-message-server/message-server.yaml
       - --http-bind-address
       - :8008
       - --https-bind-address
       - :8448
       - --tls-cert
-      - /etc/direxio-message-server/server.crt
+      - /etc/dirextalk-message-server/server.crt
       - --tls-key
-      - /etc/direxio-message-server/server.key
+      - /etc/dirextalk-message-server/server.key
     ports:
       - "18008:8008"
       - "18448:8448"
     volumes:
-      - p2p_dual_message_server_a_config:/etc/direxio-message-server
-      - p2p_dual_message_server_a_data:/var/direxio-message-server
+      - p2p_dual_message_server_a_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_a_data:/var/dirextalk-message-server
     depends_on:
       postgres-a:
         condition: service_healthy
@@ -216,25 +216,25 @@ services:
     <<: *message-server-local
     restart: unless-stopped
     environment:
-      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_PORTAL_CREDENTIALS_FILE: /var/dirextalk-message-server/p2p/bootstrap.json
       P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
     command:
       - --config
-      - /etc/direxio-message-server/message-server.yaml
+      - /etc/dirextalk-message-server/message-server.yaml
       - --http-bind-address
       - :8008
       - --https-bind-address
       - :8448
       - --tls-cert
-      - /etc/direxio-message-server/server.crt
+      - /etc/dirextalk-message-server/server.crt
       - --tls-key
-      - /etc/direxio-message-server/server.key
+      - /etc/dirextalk-message-server/server.key
     ports:
       - "28008:8008"
       - "28448:8448"
     volumes:
-      - p2p_dual_message_server_b_config:/etc/direxio-message-server
-      - p2p_dual_message_server_b_data:/var/direxio-message-server
+      - p2p_dual_message_server_b_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_b_data:/var/dirextalk-message-server
     depends_on:
       postgres-b:
         condition: service_healthy
@@ -252,25 +252,25 @@ services:
     <<: *message-server-local
     restart: unless-stopped
     environment:
-      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_PORTAL_CREDENTIALS_FILE: /var/dirextalk-message-server/p2p/bootstrap.json
       P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY: "true"
     command:
       - --config
-      - /etc/direxio-message-server/message-server.yaml
+      - /etc/dirextalk-message-server/message-server.yaml
       - --http-bind-address
       - :8008
       - --https-bind-address
       - :8448
       - --tls-cert
-      - /etc/direxio-message-server/server.crt
+      - /etc/dirextalk-message-server/server.crt
       - --tls-key
-      - /etc/direxio-message-server/server.key
+      - /etc/dirextalk-message-server/server.key
     ports:
       - "38008:8008"
       - "38448:8448"
     volumes:
-      - p2p_dual_message_server_c_config:/etc/direxio-message-server
-      - p2p_dual_message_server_c_data:/var/direxio-message-server
+      - p2p_dual_message_server_c_config:/etc/dirextalk-message-server
+      - p2p_dual_message_server_c_data:/var/dirextalk-message-server
     depends_on:
       postgres-c:
         condition: service_healthy

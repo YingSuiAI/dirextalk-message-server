@@ -20,9 +20,9 @@ import (
 	"github.com/matrix-org/util"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 type StateResolutionStorage interface {
@@ -600,7 +600,7 @@ func (v *StateResolution) loadStateAfterEventsForNumericTuples(
 
 var calculateStateDurations = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "roomserver",
 		Name:      "calculate_state_duration_milliseconds",
 		Help:      "How long it takes to calculate the state after a list of events",
@@ -632,7 +632,7 @@ var calculateStateDurations = prometheus.NewHistogramVec(
 
 var calculateStatePrevEventLength = prometheus.NewSummaryVec(
 	prometheus.SummaryOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "roomserver",
 		Name:      "calculate_state_prev_event_length",
 		Help:      "The length of the list of events to calculate the state after",
@@ -642,7 +642,7 @@ var calculateStatePrevEventLength = prometheus.NewSummaryVec(
 
 var calculateStateFullStateLength = prometheus.NewSummaryVec(
 	prometheus.SummaryOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "roomserver",
 		Name:      "calculate_state_full_state_length",
 		Help:      "The length of the full room state.",
@@ -652,7 +652,7 @@ var calculateStateFullStateLength = prometheus.NewSummaryVec(
 
 var calculateStateConflictLength = prometheus.NewSummaryVec(
 	prometheus.SummaryOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "roomserver",
 		Name:      "calculate_state_conflict_state_length",
 		Help:      "The length of the conflicted room state.",

@@ -13,10 +13,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS userapi_pusher_localpart_idx ON userapi_pushers(local
 -- Pushkey must be unique for a given user and app.
 CREATE UNIQUE INDEX IF NOT EXISTS userapi_pusher_app_id_pushkey_localpart_idx ON userapi_pushers(app_id, pushkey, localpart, server_name);
 
--- Direxio keeps one push device per user. If older databases contain multiple
+-- Dirextalk keeps one push device per user. If older databases contain multiple
 -- pushers, retain the newest registration before enforcing the invariant.
 DELETE FROM userapi_pushers AS stale
 WHERE EXISTS (

@@ -36,7 +36,7 @@ var defaultP2PProjectorConsumerMetrics = newP2PProjectorConsumerMetrics()
 
 var p2pProjectorConsumerEvents = promauto.NewCounterVec(
 	prometheus.CounterOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
 		Name:      "consumer_events_total",
 		Help:      "Total P2P projector roomserver output consumer events by result.",
@@ -46,7 +46,7 @@ var p2pProjectorConsumerEvents = promauto.NewCounterVec(
 
 func init() {
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
 		Name:      "consumer_consecutive_failures",
 		Help:      "Current consecutive P2P projector consumer failures.",
@@ -54,7 +54,7 @@ func init() {
 		return float64(defaultP2PProjectorConsumerMetrics.snapshot().ConsecutiveFailures)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
 		Name:      "consumer_last_success_unixtime",
 		Help:      "Unix time of the last successful P2P projector consumer message.",
@@ -62,7 +62,7 @@ func init() {
 		return float64(defaultP2PProjectorConsumerMetrics.snapshot().LastSuccessUnix)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
 		Name:      "consumer_last_failure_unixtime",
 		Help:      "Unix time of the last failed P2P projector consumer message.",
@@ -70,7 +70,7 @@ func init() {
 		return float64(defaultP2PProjectorConsumerMetrics.snapshot().LastFailureUnix)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
 		Name:      "consumer_last_message_age_seconds",
 		Help:      "Age in seconds of the last P2P projector roomserver output message when metadata is available.",

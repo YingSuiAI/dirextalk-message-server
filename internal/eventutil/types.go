@@ -9,7 +9,7 @@ package eventutil
 import (
 	"strconv"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 // AccountData represents account data sent from the client API server to the

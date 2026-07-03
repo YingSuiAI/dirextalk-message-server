@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
 	"github.com/stretchr/testify/assert"
 )
 

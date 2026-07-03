@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/mcp"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/mcp"
 )
 
 const defaultMCPLimit = mcp.DefaultLimit

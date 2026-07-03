@@ -13,8 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // AppServiceInternalAPI is used to query user and room alias data from application

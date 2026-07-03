@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/userutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	uapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/userutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	uapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

@@ -15,12 +15,12 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	clientapi "github.com/YingSuiAI/direxio-message-server/clientapi/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/userapi/types"
+	clientapi "github.com/YingSuiAI/dirextalk-message-server/clientapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/types"
 )
 
 type RegistrationTokens interface {

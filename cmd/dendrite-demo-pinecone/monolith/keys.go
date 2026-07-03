@@ -10,8 +10,8 @@ import (
 	"crypto/ed25519"
 	"os"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func GetOrCreateKey(keyfile string, oldKeyfile string) (ed25519.PrivateKey, ed25519.PublicKey) {

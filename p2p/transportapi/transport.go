@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 )
 
 type Transport interface {

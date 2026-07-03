@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 )
 
 type httpClient struct {

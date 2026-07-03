@@ -1,19 +1,19 @@
-# Direxio Message Server
+# Dirextalk Message Server
 
-Direxio Message Server is the Direxio backend that combines a Matrix-compatible homeserver with the Direxio P2P product API in one Go monolith.
+Dirextalk Message Server is the Dirextalk backend that combines a Matrix-compatible homeserver with the Dirextalk P2P product API in one Go monolith.
 
-It is based on Element Dendrite, but this repository is maintained as a Direxio product server rather than a general-purpose Matrix homeserver distribution.
+It is based on Element Dendrite, but this repository is maintained as a Dirextalk product server rather than a general-purpose Matrix homeserver distribution.
 
 [中文说明](README_zh.md)
 
 ## Runtime
 
-- Production entry point: `cmd/direxio-message-server`
+- Production entry point: `cmd/dirextalk-message-server`
 - Compatibility entry point: `cmd/dendrite`
-- Docker image: `direxio/message-server:latest`
-- Default config path in Docker: `/etc/direxio-message-server/message-server.yaml`
-- Default data path in Docker: `/var/direxio-message-server`
-- Go module: `github.com/YingSuiAI/direxio-message-server`
+- Docker image: `dirextalk/message-server:latest`
+- Default config path in Docker: `/etc/dirextalk-message-server/message-server.yaml`
+- Default data path in Docker: `/var/dirextalk-message-server`
+- Go module: `github.com/YingSuiAI/dirextalk-message-server`
 - Go version: `1.26.4`
 
 ## API Surface
@@ -25,7 +25,7 @@ Matrix protocol routes remain under:
 - `/_dendrite/*`
 - `/.well-known/matrix/*`
 
-Direxio product APIs use the body-action surface:
+Dirextalk product APIs use the body-action surface:
 
 - `GET /_p2p/health`
 - `POST /_p2p/query`
@@ -52,7 +52,7 @@ Run commands from the repository root. PowerShell, Bash on Linux, Bash on macOS,
 Build the server:
 
 ```bash
-go build ./cmd/direxio-message-server
+go build ./cmd/dirextalk-message-server
 go build ./cmd/dendrite
 ```
 
@@ -60,7 +60,7 @@ Run the single-node Docker stack:
 
 ```bash
 docker compose -f docker-compose.p2p.yml up --build
-docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p.yml exec message-server cat /var/dirextalk-message-server/p2p/bootstrap.json
 ```
 
 Run the three-node regression stack.
@@ -113,8 +113,8 @@ The Go test helper creates isolated `dendrite_test_*` databases and drops them w
 - [Implementation notes](docs/p2p-integrated-as-implementation.md)
 - [API change record](docs/api-interface-change-record.md)
 - [API audit and optimization notes](docs/api-audit-and-optimization.md)
-- [Postman collection](docs/postman/direxio-message-server.postman_collection.json)
-- [Docker image notes](docs/direxio-message-server.md)
+- [Postman collection](docs/postman/dirextalk-message-server.postman_collection.json)
+- [Docker image notes](docs/dirextalk-message-server.md)
 
 ## License
 

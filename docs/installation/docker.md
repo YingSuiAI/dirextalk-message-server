@@ -8,4 +8,4 @@ permalink: /docker
 
 # Installation using Docker
 
-This section contains documentation how to install Direxio Message Server using Docker
+This section contains documentation how to install Dirextalk Message Server using Docker

@@ -1,4 +1,4 @@
-This component roughly corresponds to "Client Room Send" and "Client Sync" on [the WIRING diagram](https://github.com/YingSuiAI/direxio-message-server/blob/master/WIRING.md).
+This component roughly corresponds to "Client Room Send" and "Client Sync" on [the WIRING diagram](https://github.com/YingSuiAI/dirextalk-message-server/blob/master/WIRING.md).
 This component produces multiple binaries.
 
 ## Internals

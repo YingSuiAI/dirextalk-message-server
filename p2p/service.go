@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	"github.com/YingSuiAI/direxio-message-server/internal/realtime"
-	"github.com/YingSuiAI/direxio-message-server/p2p/domain"
-	"github.com/YingSuiAI/direxio-message-server/p2p/serviceapi"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -280,7 +280,7 @@ func (s *Service) ensureAgentRoom(ctx context.Context) (bool, error) {
 		CreatorDisplayName: ownerDisplayName,
 		CreatorAvatarURL:   ownerAvatarURL,
 		Name:               agentRoomName,
-		Topic:              "Direxio agents room",
+		Topic:              "Dirextalk agents room",
 		Visibility:         "private",
 		InviteMXIDs:        []string{agentMXID},
 		InitialState:       []RoomStateEvent{agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID)},
@@ -368,7 +368,7 @@ func (s *Service) ensureAgentRoomAgentMember(ctx context.Context, roomID, ownerM
 			RoomID:      roomID,
 			InviterMXID: ownerMXID,
 			InviteeMXID: agentMXID,
-			Reason:      "Direxio agents gateway",
+			Reason:      "Dirextalk agents gateway",
 		}); err != nil {
 			return err
 		}
@@ -397,7 +397,7 @@ func (s *Service) ensureAgentRoomOwnerMember(ctx context.Context, roomID, ownerM
 			RoomID:      roomID,
 			InviterMXID: agentMXID,
 			InviteeMXID: ownerMXID,
-			Reason:      "Direxio agents owner",
+			Reason:      "Dirextalk agents owner",
 		}); err != nil {
 			return err
 		}

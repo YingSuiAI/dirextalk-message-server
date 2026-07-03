@@ -21,15 +21,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"gotest.tools/v3/poll"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/producers"
-	rsAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	rstypes "github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	"github.com/YingSuiAI/direxio-message-server/test"
-	keyAPI "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/producers"
+	rsAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+	keyAPI "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 const (

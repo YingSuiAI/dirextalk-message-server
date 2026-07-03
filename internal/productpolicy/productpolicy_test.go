@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -72,8 +72,8 @@ func TestValidateClientEventRejectsChannelCommentWhenCommentsDisabled(t *testing
 	roomID := "!channel:example.com"
 	userID := "@member:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":        DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":        DirextalkRoomTypeChannel,
 			"comments_enabled": false,
 		}),
 		{EventType: spec.MRoomMember, StateKey: userID}: stateEvent(t, roomID, userID, spec.MRoomMember, userID, map[string]any{
@@ -97,8 +97,8 @@ func TestValidateClientEventAllowsPlainChannelMessageWhenCommentsDisabled(t *tes
 	roomID := "!channel:example.com"
 	userID := "@member:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":        DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":        DirextalkRoomTypeChannel,
 			"comments_enabled": false,
 		}),
 		{EventType: spec.MRoomMember, StateKey: userID}: stateEvent(t, roomID, userID, spec.MRoomMember, userID, map[string]any{
@@ -122,8 +122,8 @@ func TestValidateClientEventRejectsChannelPostFromMember(t *testing.T) {
 	roomID := "!channel:example.com"
 	memberID := "@member:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":        DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":        DirextalkRoomTypeChannel,
 			"comments_enabled": true,
 		}),
 		{EventType: spec.MRoomMember, StateKey: memberID}: stateEvent(t, roomID, memberID, spec.MRoomMember, memberID, map[string]any{
@@ -149,10 +149,10 @@ func TestValidateClientEventAllowsChannelPostFromOwner(t *testing.T) {
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
 		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, ownerID, spec.MRoomCreate, "", map[string]any{
 			"creator": ownerID,
-			"type":    DirexioRoomTypeChannel,
+			"type":    DirextalkRoomTypeChannel,
 		}),
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":        DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":        DirextalkRoomTypeChannel,
 			"comments_enabled": true,
 		}),
 		{EventType: spec.MRoomMember, StateKey: ownerID}: stateEvent(t, roomID, ownerID, spec.MRoomMember, ownerID, map[string]any{
@@ -178,10 +178,10 @@ func TestValidateClientEventIgnoresRoomProfileMutedForOwner(t *testing.T) {
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
 		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, ownerID, spec.MRoomCreate, "", map[string]any{
 			"creator": ownerID,
-			"type":    DirexioRoomTypeGroup,
+			"type":    DirextalkRoomTypeGroup,
 		}),
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type": DirexioRoomTypeGroup,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type": DirextalkRoomTypeGroup,
 			"muted":     true,
 		}),
 		{EventType: spec.MRoomMember, StateKey: ownerID}: stateEvent(t, roomID, ownerID, spec.MRoomMember, ownerID, map[string]any{
@@ -205,10 +205,10 @@ func TestValidateClientEventRejectsMemberPolicyMuted(t *testing.T) {
 	roomID := "!group:example.com"
 	userID := "@member:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirexioRoomProfileEventType, "", map[string]any{
-			"room_type": DirexioRoomTypeGroup,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type": DirextalkRoomTypeGroup,
 		}),
-		{EventType: DirexioMemberPolicyEventType, StateKey: UserStateKey(userID)}: stateEvent(t, roomID, "@owner:example.com", DirexioMemberPolicyEventType, UserStateKey(userID), map[string]any{
+		{EventType: DirextalkMemberPolicyEventType, StateKey: UserStateKey(userID)}: stateEvent(t, roomID, "@owner:example.com", DirextalkMemberPolicyEventType, UserStateKey(userID), map[string]any{
 			"role":    "member",
 			"muted":   true,
 			"user_id": userID,
@@ -237,8 +237,8 @@ func TestValidateClientRedactionRejectsMemberRedactingAnotherSender(t *testing.T
 	target := timelineEvent(t, roomID, ownerID, "m.room.message", map[string]any{"msgtype": "m.text", "body": "owned"})
 	querier := stateQuerier{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-				"room_type":        DirexioRoomTypeChannel,
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+				"room_type":        DirextalkRoomTypeChannel,
 				"comments_enabled": true,
 			}),
 			{EventType: spec.MRoomMember, StateKey: memberID}: stateEvent(t, roomID, memberID, spec.MRoomMember, memberID, map[string]any{
@@ -265,8 +265,8 @@ func TestValidateClientMembershipRejectsMemberInviteWhenOwnerOnly(t *testing.T) 
 	memberID := "@member:example.com"
 	inviteeID := "@invitee:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":     DirexioRoomTypeGroup,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":     DirextalkRoomTypeGroup,
 			"invite_policy": "owner",
 		}),
 		{EventType: spec.MRoomMember, StateKey: memberID}: stateEvent(t, roomID, memberID, spec.MRoomMember, memberID, map[string]any{
@@ -291,11 +291,11 @@ func TestValidateClientMembershipRejectsPendingChannelJoinRequest(t *testing.T) 
 	ownerID := "@owner:example.com"
 	requesterID := "@requester:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":   DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":   DirextalkRoomTypeChannel,
 			"join_policy": "approval",
 		}),
-		{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(requesterID)}: stateEvent(t, roomID, ownerID, DirexioJoinRequestEventType, UserStateKey(requesterID), map[string]any{
+		{EventType: DirextalkJoinRequestEventType, StateKey: UserStateKey(requesterID)}: stateEvent(t, roomID, ownerID, DirextalkJoinRequestEventType, UserStateKey(requesterID), map[string]any{
 			"status":  "pending",
 			"user_id": requesterID,
 		}),
@@ -318,11 +318,11 @@ func TestValidateClientMembershipAllowsApprovedChannelJoinRequest(t *testing.T) 
 	ownerID := "@owner:example.com"
 	requesterID := "@requester:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":   DirexioRoomTypeChannel,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":   DirextalkRoomTypeChannel,
 			"join_policy": "approval",
 		}),
-		{EventType: DirexioJoinRequestEventType, StateKey: UserStateKey(requesterID)}: stateEvent(t, roomID, ownerID, DirexioJoinRequestEventType, UserStateKey(requesterID), map[string]any{
+		{EventType: DirextalkJoinRequestEventType, StateKey: UserStateKey(requesterID)}: stateEvent(t, roomID, ownerID, DirextalkJoinRequestEventType, UserStateKey(requesterID), map[string]any{
 			"status":  "approved",
 			"user_id": requesterID,
 		}),
@@ -384,7 +384,7 @@ func TestValidateClientEventRejectsDirectRoomWithoutJoinedPeer(t *testing.T) {
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
 		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, senderID, spec.MRoomCreate, "", map[string]any{
 			"creator": senderID,
-			"type":    DirexioRoomTypeDirect,
+			"type":    DirextalkRoomTypeDirect,
 		}),
 		{EventType: spec.MRoomMember, StateKey: senderID}: stateEvent(t, roomID, senderID, spec.MRoomMember, senderID, map[string]any{
 			"membership": spec.Join,
@@ -413,7 +413,7 @@ func TestValidateClientEventAllowsDirectRoomWithJoinedPeer(t *testing.T) {
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
 		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, senderID, spec.MRoomCreate, "", map[string]any{
 			"creator": senderID,
-			"type":    DirexioRoomTypeDirect,
+			"type":    DirextalkRoomTypeDirect,
 		}),
 		{EventType: spec.MRoomMember, StateKey: senderID}: stateEvent(t, roomID, senderID, spec.MRoomMember, senderID, map[string]any{
 			"membership": spec.Join,
@@ -441,8 +441,8 @@ func TestValidateClientMembershipAllowsDirectPeerReinviteOnly(t *testing.T) {
 	targetID := "@target:example.com"
 	thirdID := "@third:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type":      DirexioRoomTypeDirect,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type":      DirextalkRoomTypeDirect,
 			"requester_mxid": requesterID,
 			"target_mxid":    targetID,
 		}),
@@ -481,8 +481,8 @@ func TestValidateClientMembershipAllowsDirectPriorMemberReinvite(t *testing.T) {
 	targetID := "@target:example.com"
 	thirdID := "@third:example.com"
 	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-		{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirexioRoomProfileEventType, "", map[string]any{
-			"room_type": DirexioRoomTypeDirect,
+		{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirextalkRoomProfileEventType, "", map[string]any{
+			"room_type": DirextalkRoomTypeDirect,
 		}),
 		{EventType: spec.MRoomMember, StateKey: requesterID}: stateEvent(t, roomID, requesterID, spec.MRoomMember, requesterID, map[string]any{
 			"membership": spec.Leave,
@@ -519,8 +519,8 @@ func TestValidateClientMembershipAllowsJoinWithPendingInviteTableEntry(t *testin
 	targetID := "@target:example.com"
 	querier := stateQuerier{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirexioRoomProfileEventType, "", map[string]any{
-				"room_type":      DirexioRoomTypeDirect,
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, requesterID, DirextalkRoomProfileEventType, "", map[string]any{
+				"room_type":      DirextalkRoomTypeDirect,
 				"requester_mxid": requesterID,
 				"target_mxid":    targetID,
 			}),
@@ -550,8 +550,8 @@ func TestValidateClientMembershipAllowsGroupRejoinWithFreshInviteAfterLeaveState
 	memberID := "@member:example.com"
 	querier := stateQuerier{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
-			{EventType: DirexioRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirexioRoomProfileEventType, "", map[string]any{
-				"room_type": DirexioRoomTypeGroup,
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""}: stateEvent(t, roomID, ownerID, DirextalkRoomProfileEventType, "", map[string]any{
+				"room_type": DirextalkRoomTypeGroup,
 			}),
 			{EventType: spec.MRoomMember, StateKey: memberID}: stateEvent(t, roomID, ownerID, spec.MRoomMember, memberID, map[string]any{
 				"membership": spec.Leave,

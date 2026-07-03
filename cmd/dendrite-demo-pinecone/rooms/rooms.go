@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/cmd/dendrite-demo-pinecone/defaults"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/cmd/dendrite-demo-pinecone/defaults"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

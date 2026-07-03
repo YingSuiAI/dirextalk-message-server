@@ -16,7 +16,7 @@ see: https://www.matrix.org/security-disclosure-policy/
 
 ### Background information
 <!-- Please include versions of all software when known e.g database versions, docker versions, client versions -->
-- **Direxio Message Server version or git SHA**:
+- **Dirextalk Message Server version or git SHA**:
 - **SQLite3 or Postgres?**:
 - **Running in Docker?**:
 - **`go version`**:
@@ -36,14 +36,14 @@ Examples of good descriptions:
 - How: "Errors in the logs saying 500 internal server error"
 - When: "After upgrading to 0.3.0"
 
-- What: "Direxio Message Server ran out of memory"
+- What: "Dirextalk Message Server ran out of memory"
 - Who: "Server admin"
 - How: "Lots of logs about device change updates"
 - When: "After my server joined Matrix HQ"
 
 Examples of bad descriptions:
 - What: "Can't send messages"  - This is bad because it isn't specfic enough. Which endpoint isn't working and what is the response code? Does the message send but encryption fail?
-- Who: "Me" - Who are you? Running the server or a user on a Direxio Message Server server?
+- Who: "Me" - Who are you? Running the server or a user on a Dirextalk Message Server server?
 - How: "Can't send messages" - Same as "What".
 - When: "1 day ago" - It's impossible to know what changed 1 day ago without further input.
 -->

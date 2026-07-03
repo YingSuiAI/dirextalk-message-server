@@ -9,10 +9,10 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	asAPI "github.com/YingSuiAI/direxio-message-server/appservice/api"
-	fsAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	asAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
+	fsAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // ErrInvalidID is an error returned if the userID is invalid

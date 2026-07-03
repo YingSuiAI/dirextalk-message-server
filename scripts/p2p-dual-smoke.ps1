@@ -1,8 +1,8 @@
 param(
   [string]$ABase = "http://127.0.0.1:18008",
   [string]$BBase = "http://127.0.0.1:28008",
-  [string]$AContainer = "direxio-p2p-dual-dendrite-a-1",
-  [string]$BContainer = "direxio-p2p-dual-dendrite-b-1",
+  [string]$AContainer = "dirextalk-p2p-dual-dendrite-a-1",
+  [string]$BContainer = "dirextalk-p2p-dual-dendrite-b-1",
   [string]$PublicHost = $env:P2P_DUAL_PUBLIC_HOST,
   [string]$AServerName = $env:P2P_DUAL_A_SERVER_NAME,
   [string]$BServerName = $env:P2P_DUAL_B_SERVER_NAME,
@@ -26,7 +26,7 @@ $ARemoteNodeBaseURL = "https://$AServerName/_p2p"
 $BRemoteNodeBaseURL = "https://$BServerName/_p2p"
 
 function Read-Creds($container) {
-  docker exec $container cat /var/direxio-message-server/p2p/bootstrap.json | ConvertFrom-Json
+  docker exec $container cat /var/dirextalk-message-server/p2p/bootstrap.json | ConvertFrom-Json
 }
 
 function P2P($base, $kind, $token, $action, $params) {
@@ -177,7 +177,7 @@ function Matrix-LocalDelete($base, $token, $roomID, $eventIDs, [bool]$clear) {
     $body = @{ event_ids = $eventIDs } | ConvertTo-Json -Depth 10
   }
   try {
-    Invoke-RestMethod -Method Post -Uri "$base/_matrix/client/v1/io.direxio/rooms/$roomPath/local_delete" -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json" -Body $body
+    Invoke-RestMethod -Method Post -Uri "$base/_matrix/client/v1/io.dirextalk/rooms/$roomPath/local_delete" -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json" -Body $body
   } catch {
     throw "Matrix local_delete failed on $base room=$roomID`: $($_.Exception.Message)"
   }
@@ -1261,7 +1261,7 @@ Assert-AllBackendActionsCovered
 
 $digest = ""
 try {
-  $digest = docker image inspect direxio/message-server:latest --format "{{index .RepoDigests 0}}"
+  $digest = docker image inspect dirextalk/message-server:latest --format "{{index .RepoDigests 0}}"
 } catch {
   $digest = "unavailable"
 }

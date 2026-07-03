@@ -11,7 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/YingSuiAI/direxio-message-server/roomserver/types"
+	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/lib/pq"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"

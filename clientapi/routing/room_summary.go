@@ -14,7 +14,7 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 )
 
 type roomSummaryResponse struct {

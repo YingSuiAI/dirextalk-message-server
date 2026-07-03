@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

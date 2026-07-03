@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/userutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/userutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/test"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
 func TestEDUCache(t *testing.T) {

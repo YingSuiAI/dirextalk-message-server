@@ -2,7 +2,7 @@
 
 ## Goal
 
-This fork embeds the P2P product API into the Direxio Message Server monolith instead of running a separate AS process. Matrix protocol endpoints remain under `/_matrix/*`. Product APIs use a separate body-action surface under `/_p2p/*`, so the client no longer depends on many URL-mapped AS routes.
+This fork embeds the P2P product API into the Dirextalk Message Server monolith instead of running a separate AS process. Matrix protocol endpoints remain under `/_matrix/*`. Product APIs use a separate body-action surface under `/_p2p/*`, so the client no longer depends on many URL-mapped AS routes.
 
 ## Current Architecture
 
@@ -12,7 +12,7 @@ p2p-client
   | POST /_p2p/query   {"action":"...", "params":{...}}
   | POST /_p2p/command {"action":"...", "params":{...}}
   v
-Direxio Message Server monolith
+Dirextalk Message Server monolith
   |
   +-- Matrix client/federation/media APIs: unchanged
   |
@@ -21,12 +21,12 @@ Direxio Message Server monolith
         - owner profile projection
         - sync bootstrap product metadata and read markers
         - contact/group/channel/call/favorites/follows action catalog
-        - Direxio Message Server-managed P2P database store for portal, profile,
+        - Dirextalk Message Server-managed P2P database store for portal, profile,
           read markers, contacts, groups, channels, posts, comments,
           reactions, members, calls, favorites, and follows
         - DendriteTransport for outgoing Matrix room creation and
           member lifecycle/redaction submission through roomserver APIs
-        - P2P roomserver output projector for Direxio native product
+        - P2P roomserver output projector for Dirextalk native product
           state, channel post/comment messages, reactions, members,
           and legacy p2p.* state events
         - shared helpers for group/channel room creation and owner
@@ -52,20 +52,20 @@ New package:
 - `p2p/projector_test.go`
 - `p2p/business_state_test.go`
 
-Direxio Message Server route integration:
+Dirextalk Message Server route integration:
 
 - `internal/httputil/paths.go`: adds `P2PPathPrefix = "/_p2p/"`.
 - `internal/httputil/routing.go`: adds a dedicated `Routers.P2P` mux.
 - `setup/base/base.go`: mounts the mux on the external HTTP server.
 - `setup/monolith.go`: creates the P2P store, creates `DendriteTransport`, and registers `p2p.Service`.
-- `docker-compose.p2p.yml`: builds the local Direxio Message Server fork, starts PostgreSQL 18, generates config/key material once, and exposes the integrated service on port `8008`.
-- `docker-compose.p2p-dual.yml`: starts two independent Direxio Message Server+P2P instances with two PostgreSQL 18 databases for local federation/member-sync testing.
+- `docker-compose.p2p.yml`: builds the local Dirextalk Message Server fork, starts PostgreSQL 18, generates config/key material once, and exposes the integrated service on port `8008`.
+- `docker-compose.p2p-dual.yml`: starts two independent Dirextalk Message Server+P2P instances with two PostgreSQL 18 databases for local federation/member-sync testing.
 
 Storage integration:
 
-- `p2p.NewDatabaseStore()` reuses Direxio Message Server `sqlutil.Connections`.
-- Production persistence is expected to use PostgreSQL 18. The P2P store uses the global Direxio Message Server database when `global.database.connection_string` is configured; otherwise it falls back to the roomserver database. This keeps single-database PostgreSQL deployments and per-component development configs working without adding a new config section.
-- The P2P schema is created through Direxio Message Server `sqlutil.Migrator`.
+- `p2p.NewDatabaseStore()` reuses Dirextalk Message Server `sqlutil.Connections`.
+- Production persistence is expected to use PostgreSQL 18. The P2P store uses the global Dirextalk Message Server database when `global.database.connection_string` is configured; otherwise it falls back to the roomserver database. This keeps single-database PostgreSQL deployments and per-component development configs working without adding a new config section.
+- The P2P schema is created through Dirextalk Message Server `sqlutil.Migrator`.
 - Current persistent tables:
   - `p2p_portal`
   - `p2p_read_markers`
@@ -95,13 +95,13 @@ docker compose -f docker-compose.p2p.yml up --build
 Services:
 
 - `postgres`: `postgres:18`, persisted in the `p2p_postgres_data` volume and exposed on host port `15432`.
-- `dendrite-init`: one-shot initializer that creates `/etc/direxio-message-server/matrix_key.pem` and `/etc/direxio-message-server/message-server.yaml` if they do not already exist.
-- `dendrite`: local image built from this fork's root `Dockerfile`, persisted config/data volumes, HTTP exposed on host port `8008`, and `P2P_PORTAL_CREDENTIALS_FILE=/var/direxio-message-server/p2p/bootstrap.json`.
+- `dendrite-init`: one-shot initializer that creates `/etc/dirextalk-message-server/matrix_key.pem` and `/etc/dirextalk-message-server/message-server.yaml` if they do not already exist.
+- `dendrite`: local image built from this fork's root `Dockerfile`, persisted config/data volumes, HTTP exposed on host port `8008`, and `P2P_PORTAL_CREDENTIALS_FILE=/var/dirextalk-message-server/p2p/bootstrap.json`.
 
 Read the generated local login credentials from the running container:
 
 ```bash
-docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p.yml exec message-server cat /var/dirextalk-message-server/p2p/bootstrap.json
 ```
 
 The file contains `password`, unified `access_token`, `agent_token`, `owner_user_id`, `homeserver`, and `agent_room_id`. `portal.auth` uses `password`; Matrix client calls use `access_token`; logged-in product actions use WS `client.request` after creating a `realtime.ws_ticket.create` ticket with the owner `access_token` and receiving `server.ready`. If WS is not ready or disconnected at click time, clients use owner HTTP body-action fallback immediately and let realtime WS reconnect in the background. `agent.matrix_session.create` and fixed MCP actions remain HTTP body actions and are not migrated into WS. `agent_token` is accepted only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
@@ -117,13 +117,13 @@ Services:
 
 - Instance A: Matrix/P2P API `http://127.0.0.1:18008`, federation TLS `18448`, PostgreSQL 18 host port `15433`, server name `dendrite-a:8448`.
 - Instance B: Matrix/P2P API `http://127.0.0.1:28008`, federation TLS `28448`, PostgreSQL 18 host port `15434`, server name `dendrite-b:8448`.
-- The local dual config generates TLS cert/key material and clears Direxio Message Server's private-network federation deny list only for this local test topology.
+- The local dual config generates TLS cert/key material and clears Dirextalk Message Server's private-network federation deny list only for this local test topology.
 
 Read dual-instance credentials:
 
 ```bash
-docker compose -f docker-compose.p2p-dual.yml exec dendrite-a cat /var/direxio-message-server/p2p/bootstrap.json
-docker compose -f docker-compose.p2p-dual.yml exec dendrite-b cat /var/direxio-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p-dual.yml exec dendrite-a cat /var/dirextalk-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p-dual.yml exec dendrite-b cat /var/dirextalk-message-server/p2p/bootstrap.json
 ```
 
 Override the Matrix server name when generating a fresh config:
@@ -137,7 +137,7 @@ If the config volume already exists, remove it before regenerating with a differ
 
 ```bash
 docker compose -f docker-compose.p2p.yml down
-docker volume rm direxio-p2p_p2p_dendrite_config
+docker volume rm dirextalk-p2p_p2p_dendrite_config
 ```
 
 Matrix transport integration:
@@ -145,37 +145,37 @@ Matrix transport integration:
 - `p2p.Transport` is the boundary between product actions and Matrix.
 - `p2p.DendriteTransport` calls `roomserverAPI.PerformCreateRoom` for contact, group, and channel room creation.
 - `p2p.DendriteTransport` calls `roomserverAPI.PerformInvite`, `PerformJoin`, and `PerformLeave` for group/channel invite, join, leave, and member removal paths.
-- Ordinary text/media sends, message history, unread data, search, and redaction are Matrix Client-Server API responsibilities. Product code gates those Matrix writes through ProductPolicy for Direxio rooms.
-- Per-user local history hiding is implemented as `POST /_matrix/client/v1/io.direxio/rooms/{roomID}/local_delete`, backed by syncapi local hide storage and read-path filtering. This hides events for the requesting user only and does not redact events for other users or nodes.
+- Ordinary text/media sends, message history, unread data, search, and redaction are Matrix Client-Server API responsibilities. Product code gates those Matrix writes through ProductPolicy for Dirextalk rooms.
+- Per-user local history hiding is implemented as `POST /_matrix/client/v1/io.dirextalk/rooms/{roomID}/local_delete`, backed by syncapi local hide storage and read-path filtering. This hides events for the requesting user only and does not redact events for other users or nodes.
 - `profile.update` updates local profile storage, local joined member rows, and publishes refreshed `m.room.member` state containing `displayname` and `avatar_url` to joined Matrix rooms.
-- `DendriteTransport.GetRoomChannel` reads native `io.direxio.room.profile` state by room ID, and `DendriteTransport.ListRoomMembers` reads current `m.room.member` state so a remote join can backfill channel metadata and all current members after federation.
+- `DendriteTransport.GetRoomChannel` reads native `io.dirextalk.room.profile` state by room ID, and `DendriteTransport.ListRoomMembers` reads current `m.room.member` state so a remote join can backfill channel metadata and all current members after federation.
 - Remote public channel lookup requires `remote_node_base_url` in the request and validates Matrix room IDs plus the remote URL before outbound calls. TLS verification is enabled by default; `P2P_REMOTE_NODE_INSECURE_SKIP_TLS_VERIFY=true` is only for local self-signed test nodes.
-- New direct, group, and channel room creation writes `m.room.create.content.type` as `io.direxio.room.direct`, `io.direxio.room.group`, or `io.direxio.room.channel`. New group rooms and chat/text channel rooms also write `m.room.history_visibility=joined`, so later members only receive ordinary timeline events from their own join point. Post channels (`channel_type=post`) explicitly write `m.room.history_visibility=shared` on creation and when binding an existing room, so joined members can see existing channel posts and comments. Direct/group/channel creation and group/channel updates write native `io.direxio.room.profile` state. Channel type is immutable, and `channels.update` ignores `channel_type` for old-client compatibility. Direct profile stripped state carries `requester_mxid`, `target_mxid`, requester display/avatar, requester domain, and pending request `remark`, but inbound direct-contact projection treats the Matrix membership event sender as the authoritative peer identity and derives the peer domain from that MXID.
+- New direct, group, and channel room creation writes `m.room.create.content.type` as `io.dirextalk.room.direct`, `io.dirextalk.room.group`, or `io.dirextalk.room.channel`. New group rooms and chat/text channel rooms also write `m.room.history_visibility=joined`, so later members only receive ordinary timeline events from their own join point. Post channels (`channel_type=post`) explicitly write `m.room.history_visibility=shared` on creation and when binding an existing room, so joined members can see existing channel posts and comments. Direct/group/channel creation and group/channel updates write native `io.dirextalk.room.profile` state. Channel type is immutable, and `channels.update` ignores `channel_type` for old-client compatibility. Direct profile stripped state carries `requester_mxid`, `target_mxid`, requester display/avatar, requester domain, and pending request `remark`, but inbound direct-contact projection treats the Matrix membership event sender as the authoritative peer identity and derives the peer domain from that MXID.
 - Direct-room `m.room.member` join/profile updates from the peer refresh the projected contact display name/avatar and direct conversation view on the current node.
 - Repeated `contacts.request` calls for an existing pending outbound peer re-send a Matrix direct invite to the stored room. If the target node had rejected or deleted the prior relationship, the new invite projection reopens the contact as `pending_inbound` for pending friend request notices and does not join the target user until they accept. If the target node still has an accepted contact for the real Matrix sender but the requester created a fresh direct room because its local data was deleted or rebuilt, the target node first re-invites that sender to the retained accepted `room_id` instead of trusting the new invite metadata. If Matrix reports that retained room as already joined but the rebuilt sender cannot rejoin its old invite-only room state, both nodes fall back to the real sender's new direct room as the accepted relationship; old direct history is not copied into that replacement room. A requester that previously deleted the contact may restore the old direct room without peer approval only when the peer node still retains the accepted relationship and can re-invite the requester through `contacts.reactivate`; if the peer node has the old non-accepted contact, `contacts.reactivate` records `pending_inbound` there and the requester keeps `pending_outbound` in the same old `room_id` without attempting a Matrix invite from a user that already left. If the peer no longer has a matching contact record, the stored old `room_id` is kept and the request remains `pending_outbound`. Direct invite projection emits `contact.requested` into the P2P outbox when it creates or reopens a pending inbound contact, allowing WS clients to refresh request badges without polling. Pending friend requests preserve optional request text as `remark` through contact responses, bootstrap pending notices, and WS `server.event` payloads until the contact is accepted.
 - Group and channel creation now share `ensureProductRoom` for Matrix room creation/fallback room IDs and `saveOwnerMember` for owner membership seeding. This keeps the body-action API concise while avoiding separate duplicated URL-handler logic for group and channel lifecycles.
-- Channel public join requests use a Matrix-first application lifecycle: approval channels store `pending` and write `io.direxio.join_request`; open public requests and approved requests write approved state and then call `Transport.JoinRoom` locally or call the requester node through `channels.public.join_result`. Final `join` is recorded only after Matrix join succeeds. If approval reaches `join_failed` because the requester-node callback temporarily failed, `channels.join_request.approve` can be called again to retry. `channels.join_request.reject` records `reject` locally, writes rejected join-request state, calls the requester node for remote users, and keeps the rejected requester out of normal member lists. If a group or private-channel member node was rebuilt and the owner node still sees that user as already joined, repeated `groups.invite` or `channels.invite` calls remove the stale joined membership, send a fresh Matrix invite, and use internal `rooms.reactivate` to restore an invite/pending card on the rebuilt node; the rebuilt user must still call `groups.join` or `channels.join` before local joined projections are written. Rebuilt public-channel members still reapply through `channels.public.join_request`; when the owner has stale joined membership for the requester, the owner removes it and sends the fresh Matrix invite before requester-node `channels.public.join_result`.
+- Channel public join requests use a Matrix-first application lifecycle: approval channels store `pending` and write `io.dirextalk.join_request`; open public requests and approved requests write approved state and then call `Transport.JoinRoom` locally or call the requester node through `channels.public.join_result`. Final `join` is recorded only after Matrix join succeeds. If approval reaches `join_failed` because the requester-node callback temporarily failed, `channels.join_request.approve` can be called again to retry. `channels.join_request.reject` records `reject` locally, writes rejected join-request state, calls the requester node for remote users, and keeps the rejected requester out of normal member lists. If a group or private-channel member node was rebuilt and the owner node still sees that user as already joined, repeated `groups.invite` or `channels.invite` calls remove the stale joined membership, send a fresh Matrix invite, and use internal `rooms.reactivate` to restore an invite/pending card on the rebuilt node; the rebuilt user must still call `groups.join` or `channels.join` before local joined projections are written. Rebuilt public-channel members still reapply through `channels.public.join_request`; when the owner has stale joined membership for the requester, the owner removes it and sends the fresh Matrix invite before requester-node `channels.public.join_result`.
 - After a channel Matrix join succeeds, `channels.join` and approved public join-result paths backfill historical `channel_post`, `channel_comment`, and `m.reaction` events from Matrix `/messages` into the local product projections. This is required for post channels using shared history: Matrix federation carries the historical events, and the local ProductCore list APIs read the replayed projection rows.
 - Main group/channel list payloads are joined-only. `sync.bootstrap.groups`, `sync.bootstrap.channels`, `groups.list`, and `channels.list` only return rooms where the local owner has true Matrix-projected `membership=join`; `invite` and `pending` records are reserved for `pending.group_invites` and `pending.channel_notices`.
 - Channel invite-card sharing uses `channels.invite_grant.create`. The action persists a room-scoped grant in `p2p_channel_invite_grants`, requires the owner to be joined to the share room and owner of the target channel, then Matrix-invites current joined non-owner members of the share room to the channel. `channels.join` accepts `grant_id` plus `share_room_id`/`via_room_id` so private or shared channel cards can join without public lookup; public search still uses `channels.public.join_request`.
-- `ProductPolicy` is shared by Matrix Client-Server routes and `p2p.DendriteTransport` for product room messages, reactions, redactions, joins, invites, leaves, kicks, and bans. In group/channel rooms, ProductCore roles are owner/member only. In channel rooms, `p2p_kind=channel_post` requires owner, `p2p_kind=channel_comment` and `m.reaction` obey `comments_enabled`, and plain `m.room.message` is not blocked solely by disabled comments. Sender mute enforcement reads `io.direxio.member.policy`; any room-profile `muted` field is projection/UI metadata, not the sender mute authority. P2P transition facade writes map ProductPolicy transport errors back to their policy status, and local message/reaction/post/comment projections are written or removed only after the Matrix write/redaction succeeds. Non-product Matrix rooms continue through Matrix-native authorization.
-- The current policy index mode is `matrix_state`: ProductPolicy reads Direxio Message Server roomserver current state directly instead of trusting P2P projection tables. `portal.status.policy_index_ready` is true only when Matrix transport is wired; no-transport fallback mode reports `policy_index_mode=unavailable`.
+- `ProductPolicy` is shared by Matrix Client-Server routes and `p2p.DendriteTransport` for product room messages, reactions, redactions, joins, invites, leaves, kicks, and bans. In group/channel rooms, ProductCore roles are owner/member only. In channel rooms, `p2p_kind=channel_post` requires owner, `p2p_kind=channel_comment` and `m.reaction` obey `comments_enabled`, and plain `m.room.message` is not blocked solely by disabled comments. Sender mute enforcement reads `io.dirextalk.member.policy`; any room-profile `muted` field is projection/UI metadata, not the sender mute authority. P2P transition facade writes map ProductPolicy transport errors back to their policy status, and local message/reaction/post/comment projections are written or removed only after the Matrix write/redaction succeeds. Non-product Matrix rooms continue through Matrix-native authorization.
+- The current policy index mode is `matrix_state`: ProductPolicy reads Dirextalk Message Server roomserver current state directly instead of trusting P2P projection tables. `portal.status.policy_index_ready` is true only when Matrix transport is wired; no-transport fallback mode reports `policy_index_mode=unavailable`.
 - With Matrix transport enabled, channel post/comment recall authorization is delegated to `DendriteTransport.RedactEvent` and ProductPolicy/Matrix authorization; local `p2p_members` owner-role projection is only a no-transport fallback.
 - When no transport is configured, the service keeps the local deterministic fallback used by unit tests and degraded startup.
 
 Inbound projector integration:
 
-- `p2p.OutputRoomEventConsumer` consumes the Direxio Message Server roomserver output stream with its own durable consumer.
+- `p2p.OutputRoomEventConsumer` consumes the Dirextalk Message Server roomserver output stream with its own durable consumer.
 - `p2p.Service.ProjectOutputEvent()` handles `OutputTypeNewRoomEvent`.
 - Ordinary `m.room.message` events are not projected into P2P message storage. They remain in Matrix and are read through Matrix `/sync`, `/rooms/{roomID}/messages`, and `/search`.
 - Messages with `p2p_kind = channel_post` are projected into `p2p_channel_posts`; Matrix SDK senders must be owner for ProductPolicy to accept the write.
 - Messages with `p2p_kind = channel_comment` are projected into `p2p_channel_comments`; ProductPolicy rejects these and `m.reaction` when channel comments are disabled for ordinary members.
 - The join-time channel content backfill reuses the same projection helpers and resolves Matrix reaction `m.relates_to.event_id` back to the corresponding post or comment event before writing `p2p_reactions`. Product reaction toggles carry the final `active` flag so historical backfill and live projection can sync both likes and unlikes.
-- Native `io.direxio.room.profile` state is projected into `p2p_channels` and `p2p_groups`, and direct-room profile stripped state projects inbound contact requests. Removed legacy product state is ignored by current projectors.
-- `io.direxio.member.policy` state projects member `role`/`muted` policy into `p2p_members`, while `m.room.member` remains the membership source of truth.
-- `io.direxio.join_request` state projects pending/approved/rejected channel join-request status into `p2p_members` and emits `channel.join_request.changed` outbox notifications.
+- Native `io.dirextalk.room.profile` state is projected into `p2p_channels` and `p2p_groups`, and direct-room profile stripped state projects inbound contact requests. Removed legacy product state is ignored by current projectors.
+- `io.dirextalk.member.policy` state projects member `role`/`muted` policy into `p2p_members`, while `m.room.member` remains the membership source of truth.
+- `io.dirextalk.join_request` state projects pending/approved/rejected channel join-request status into `p2p_members` and emits `channel.join_request.changed` outbox notifications.
 - Ordinary chat messages do not emit P2P outbox notifications. Clients receive ordinary message deltas from Matrix `/sync`; WS `server.event` carries product projections such as channel join requests and channel post/comment/reaction state.
-- Offline device push is Matrix-native. Clients register HTTP pushers with a standalone Direxio Push Gateway, and this Direxio Message Server fork posts Matrix Push Gateway notifications from UserAPI; see `docs/direxio-push-gateway.md`.
+- Offline device push is Matrix-native. Clients register HTTP pushers with a standalone Dirextalk Push Gateway, and this Dirextalk Message Server fork posts Matrix Push Gateway notifications from UserAPI; see `docs/dirextalk-push-gateway.md`.
 - `m.reaction` events are projected into `p2p_reactions`.
 - `m.room.member` state events are projected into `p2p_members`.
 - For remote member events that only carry `room_id`, the projector resolves `room_id -> channel_id` from the projected channel table before writing `p2p_members`, so channel member queries and room member queries return the same membership set.
@@ -223,11 +223,11 @@ Public actions currently allowed without bearer:
 
 Startup now performs default portal initialization. When no `p2p_portal` row exists, the integrated service creates owner/agent tokens, owner profile metadata, and a default password automatically, then persists that state to PostgreSQL when a store is available. `P2P_PORTAL_PASSWORD` can override the default password; otherwise a new portal starts with a random 8-digit numeric password and writes it to the credentials file. `P2P_PORTAL_CREDENTIALS_FILE` writes the current credential JSON after startup and after password/session token changes. `portal.account.delete` first publishes the direct-contact account-deleted profile state, leaves direct/member rooms, dissolves owned groups/channels, then overwrites that credentials file with a non-secret `deprovisioned` marker before clearing local databases.
 
-The login/password response exposes one setup flag: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` successfully changes that password. Profile completion is not part of setup state; Direxio Flutter stores `access_token` and routes by `initialized` only.
+The login/password response exposes one setup flag: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` successfully changes that password. Profile completion is not part of setup state; Dirextalk Flutter stores `access_token` and routes by `initialized` only.
 
 ## Frontend Migration Target
 
-The frontend should treat this server as a Matrix-native Direxio backend, not as the older URL-shaped AS facade. Current migration work is tracked in `C:\Users\84960\Desktop\direxio\p2p-client`.
+The frontend should treat this server as a Matrix-native Dirextalk backend, not as the older URL-shaped AS facade. Current migration work is tracked in `C:\Users\84960\Desktop\dirextalk\p2p-client`.
 
 P2P product calls use the body-action envelope:
 
@@ -246,13 +246,13 @@ P2P product calls use the body-action envelope:
 Required client direction:
 
 - `defaultAdminBaseUri()` should point to `/_p2p` on the same browser-accessible homeserver origin. New code should not target `/_as` or URL-shaped product routes.
-- Ordinary room text, media, reaction, redaction, and Matrix membership operations should use Matrix SDK APIs. ProductPolicy now runs on those Matrix Client-Server writes for Direxio product rooms.
+- Ordinary room text, media, reaction, redaction, and Matrix membership operations should use Matrix SDK APIs. ProductPolicy now runs on those Matrix Client-Server writes for Dirextalk product rooms.
 - Channel post/comment Matrix sends must include `p2p_kind=channel_post` or `p2p_kind=channel_comment`; media events keep their Matrix `msgtype` such as `m.image`, `m.video`, `m.audio`, or `m.file`.
 - Product management and projection queries use P2P body-action names. Logged-in clients should send them as WS `client.request` frames when the owner WS has sent `server.ready`: contacts, public channel discovery and approval, group/channel management, channel post/comment/reaction records, favorites, follows, Agent config/password, `sync.bootstrap`, and read markers. If WS is not ready or disconnected at click time, clients send the same owner-authenticated action envelope to HTTP `/query` or `/command` immediately as fallback while realtime WS reconnects in the background. If a WS request was already sent and the response is lost, clients only HTTP-fallback actions that are safe to repeat. `agent.matrix_session.create` and fixed MCP actions remain HTTP body actions and do not move into WS. User-facing report submission remains on the signed imadmin public API instead of this message-server P2P surface.
 - `GET /_p2p/ws` is the product request/response and realtime refresh path. Clients create a short-lived ticket with `realtime.ws_ticket.create`, connect with `?ticket=...`, send `client.hello` with the persisted `since` cursor, wait for `server.ready`, send product queries/mutations as `client.request` when ready, and then ack handled events with `client.ack`. `client.command` is a compatibility alias for one release and maps to the same `server.response` path. When a non-zero cursor is older than the retained event window, WS emits `server.cursor_reset`; clients should clear local product projections, call `sync.bootstrap` once over ready WS or owner HTTP fallback when WS is not ready, and then continue from the newest handled `seq`.
-- Current clients report app lifecycle and focused room over WS using `client.lifecycle` and `client.focus`. `client.lifecycle` carries `foreground` plus optional `state`, `hidden`, and `flags`; `client.focus` carries `room_id` plus optional `focused` and `flags`. The server uses this server-timestamped session state only to decide same-room foreground push suppression; hidden/background state keeps normal push behavior. It is not user-visible presence. Matrix global account data `io.direxio.push.context` remains a migration fallback when there is no fresh WS session.
+- Current clients report app lifecycle and focused room over WS using `client.lifecycle` and `client.focus`. `client.lifecycle` carries `foreground` plus optional `state`, `hidden`, and `flags`; `client.focus` carries `room_id` plus optional `focused` and `flags`. The server uses this server-timestamped session state only to decide same-room foreground push suppression; hidden/background state keeps normal push behavior. It is not user-visible presence. Matrix global account data `io.dirextalk.push.context` remains a migration fallback when there is no fresh WS session.
 - Agent bridge message intake, streaming previews, edits, and final replies use the `@agent:<server>` Matrix Client-Server session in the configured real `agent_room_id`. Agent bridge traffic is not exposed as `agent_room.message`, `client.agent_stream`, or `server.agent_stream` on `/_p2p/ws`.
-- Ordinary chat/media history, unread counts, local hiding, search, and recall are Matrix responsibilities. Use Matrix send, `/sync`, `/rooms/{roomID}/messages`, `/search`, Matrix redaction, and Direxio Matrix `local_delete`.
+- Ordinary chat/media history, unread counts, local hiding, search, and recall are Matrix responsibilities. Use Matrix send, `/sync`, `/rooms/{roomID}/messages`, `/search`, Matrix redaction, and Dirextalk Matrix `local_delete`.
 
 User profile pages now call `getUserPublicChannels()` when opening a real contact/friend profile. The existing "她的频道" section is reused without layout changes and shows only public channels returned by the backend, including avatar, name, and `room_id`; private channels are filtered server-side.
 
@@ -278,9 +278,9 @@ Owner block actions persist a contact blacklist in the P2P store. Contacts are k
 
 Agent authorization is fixed: owner `access_token` may call protected actions and create realtime WS tickets, while `agent_token` may call only `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Dynamic Agent permission endpoints are removed.
 
-MCP actions are owner-scoped proxy operations. `agent_token` authorizes only `agent.matrix_session.create` and the fixed MCP action set, and the MCP handlers read/write product data from the portal owner view. `agent.matrix_session.create` returns a Matrix Client-Server session for the local `@agent:<server>` bridge user. Default owner-scoped `mcp.messages.send` rejects the configured `agent_room_id`; agent-room replies are reserved for the internal gateway marker path, which sends as `@agent:<server>` and marks the event to avoid gateway loops. Ordinary MCP history reads reuse the current owner `access_token` for Matrix Client-Server history and never create or refresh a Matrix session, so they cannot evict the owner's active clients. MCP message history exposes Matrix sender identity fields, and `mcp.room_members.list` returns member identities only for known Direxio product rooms or conversations, enriching stale projections from Matrix member/profile state without exposing arbitrary roomserver state. `agent.config.get/update` persists `avatar_url` for client display and `mcp_blocked_room_ids` for MCP room access control; blocked rooms are filtered out of `mcp.rooms.search`, and MCP reads/writes that directly target a blocked room or a post in one return 403.
+MCP actions are owner-scoped proxy operations. `agent_token` authorizes only `agent.matrix_session.create` and the fixed MCP action set, and the MCP handlers read/write product data from the portal owner view. `agent.matrix_session.create` returns a Matrix Client-Server session for the local `@agent:<server>` bridge user. Default owner-scoped `mcp.messages.send` rejects the configured `agent_room_id`; agent-room replies are reserved for the internal gateway marker path, which sends as `@agent:<server>` and marks the event to avoid gateway loops. Ordinary MCP history reads reuse the current owner `access_token` for Matrix Client-Server history and never create or refresh a Matrix session, so they cannot evict the owner's active clients. MCP message history exposes Matrix sender identity fields, and `mcp.room_members.list` returns member identities only for known Dirextalk product rooms or conversations, enriching stale projections from Matrix member/profile state without exposing arbitrary roomserver state. `agent.config.get/update` persists `avatar_url` for client display and `mcp_blocked_room_ids` for MCP room access control; blocked rooms are filtered out of `mcp.rooms.search`, and MCP reads/writes that directly target a blocked room or a post in one return 403.
 
-Owner clients read Agent bridge online state from native Matrix room state in the real `agent_room_id`: event type `io.direxio.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its Matrix session. The server may write `online=false` when it creates or repairs the agents room and when config is disabled, but it does not write `online=true` from config or WS state. `sync.bootstrap` only returns `agent_room_id`; it does not mirror the online bit, and WS `server.event` does not emit `agent.presence`. `agent.status`/`agents.status` are removed; configuration details stay under `agent.config.get`.
+Owner clients read Agent bridge online state from native Matrix room state in the real `agent_room_id`: event type `io.dirextalk.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its Matrix session. The server may write `online=false` when it creates or repairs the agents room and when config is disabled, but it does not write `online=true` from config or WS state. `sync.bootstrap` only returns `agent_room_id`; it does not mirror the online bit, and WS `server.event` does not emit `agent.presence`. `agent.status`/`agents.status` are removed; configuration details stay under `agent.config.get`.
 
 ## Verification
 
@@ -288,7 +288,7 @@ Backend:
 
 ```bash
 go test ./p2p ./internal/httputil ./setup -count=1
-go build ./cmd/direxio-message-server
+go build ./cmd/dirextalk-message-server
 docker compose -f docker-compose.p2p.yml config
 docker compose -f docker-compose.p2p-dual.yml config
 codegraph status
@@ -318,27 +318,27 @@ Group/channel member behavior:
 Post deletion behavior:
 
 - `channels.posts.recall` removes the post projection from `p2p_channel_posts`, sends Matrix redaction when a transport/event is available, and the deletion survives service reload.
-- Ordinary room local delete is Matrix-local hiding through `/_matrix/client/v1/io.direxio/rooms/{roomID}/local_delete`; it filters this user's Matrix read paths and does not synchronize to other users or nodes. Distributed recall uses Matrix redaction.
+- Ordinary room local delete is Matrix-local hiding through `/_matrix/client/v1/io.dirextalk/rooms/{roomID}/local_delete`; it filters this user's Matrix read paths and does not synchronize to other users or nodes. Distributed recall uses Matrix redaction.
 
 Call detail lookup is also read-only: `calls.get` returns `404` for unknown calls and does not create sessions. `calls.event` only updates existing calls and accepts terminal/progress events `connected`, `ended`, `rejected`, `missed`, and `failed`; missing calls return `404`. Call records persist `answered_at`, `ended_at`, `ended_by_mxid`, `end_reason`, and `duration_ms`, and every call write emits a `call.changed` P2P event whose payload contains the latest call record under `call`. Once a call reaches `ended`, `rejected`, `missed`, or `failed`, stale writes with the same `call_id` do not reopen it.
 
 Live smoke:
 
-- Started the `docker-compose.p2p.yml` stack from the local `postgres:18` image and the locally built Direxio Message Server image.
+- Started the `docker-compose.p2p.yml` stack from the local `postgres:18` image and the locally built Dirextalk Message Server image.
 - Verified the database version as `PostgreSQL 18.4`.
-- Generated persisted Direxio Message Server config/key material through the one-shot `dendrite-init` service.
-- Started the integrated Direxio Message Server service on `127.0.0.1:8008`.
+- Generated persisted Dirextalk Message Server config/key material through the one-shot `dendrite-init` service.
+- Started the integrated Dirextalk Message Server service on `127.0.0.1:8008`.
 - Verified `GET /_p2p/health` returned `{"status":"ok"}`.
 - Verified body-action API calls through `POST /_p2p/command` and `POST /_p2p/query` for `portal.bootstrap`, `profile.get`, and `groups.create`.
 - Queried PostgreSQL 18 and verified `p2p_portal` and `p2p_groups` rows were written.
-- Restarted Direxio Message Server and verified `portal.auth` and `groups.list` restored the owner session and group state from PostgreSQL 18.
+- Restarted Dirextalk Message Server and verified `portal.auth` and `groups.list` restored the owner session and group state from PostgreSQL 18.
 - Verified PostgreSQL contained 13 `p2p_%` tables.
 - Verified PostgreSQL contained 21 `p2p_*_idx` business indexes.
 - Rebuilt the Docker image after the Matrix-local-delete migration and verified local hide filters the requesting user's Matrix timeline/search results without Matrix redaction or P2P message rows.
 - Added regression coverage for channel public join requests: pending request persistence, approve-to-invite, reject hiding from normal member lists, and Matrix invite emission during approval.
 - Rebuilt the Docker image after the join-request refactor and verified `channels.public.join_request` writes `pending` or approved/joining state, `channels.join_request.approve` auto-joins through Matrix when the requester node is reachable, and `channels.join_request.reject` records `reject` while notifying the requester node.
 - Confirmed startup logs no longer contain `P2P integrated AS store unavailable`.
-- Started `docker-compose.p2p-dual.yml` and verified two independent PostgreSQL 18-backed Direxio Message Server instances can federate locally.
+- Started `docker-compose.p2p-dual.yml` and verified two independent PostgreSQL 18-backed Dirextalk Message Server instances can federate locally.
 - Verified `portal.auth` returns a real Matrix access token and Matrix `/sync` returns `200` plus a `next_batch` token.
 - Created a channel on instance A, joined from instance B with `server_names: ["dendrite-a:8448"]`, and verified B backfilled native channel profile projection plus both members.
 - Updated B profile through `profile.update` with a new nickname and avatar URL. Instance A projected the remote `m.room.member` update and returned the new display/avatar in `channels.members`; instance B also returned both owner and remote-self members by both `room_id` and `channel_id`.
@@ -403,7 +403,7 @@ The audit covers the user's 11 explicit acceptance areas as follows:
 - Group creation/invites/info: the legacy full smoke recorded `groups.create`, `groups.update`, `groups.invite`, `groups.join`, `groups.members`, mute policy, member mute/remove, member leave restrictions, owner leave rejection, and owner-only `groups.dissolve`; Flutter group info tests verify invite, remark/pin/nickname, clear-history, member removal UI paths, and owner dissolve UI calling the AS action.
 - Public/private channels: the legacy full smoke recorded public room-id lookup/search across A/B, open and approval join policies, approval/rejection, invite flow, private-channel public join rejection, member listing, owner removal rejection, member leave/removal behavior, removed-member reapply rejection, and owner-only `channels.dissolve`. Flutter channel search and channel page tests cover room-id discovery, local dual-node room-id target mapping, public details, owner/member role UI, member management, dissolve UI, and visitor public-channel navigation.
 - Post channels: the legacy full smoke recorded post create/list/recall, comment create/list/recall, comment replies, mentions metadata, reactions, favorites, and per-user comment/reaction history. Flutter channel page and HTTP client tests cover post publish, owner recall, like/reaction, detail comments, collapsed comments, comment/reaction APIs, and history parsing.
-- Chat message deletion/recall: the legacy full smoke recorded ordinary messages send/read through Matrix, Matrix `local_delete` staying local, and Matrix redaction propagation across nodes. Client private/group recall and clear-history flows should call Matrix redaction and Direxio Matrix `local_delete`, not P2P message actions.
+- Chat message deletion/recall: the legacy full smoke recorded ordinary messages send/read through Matrix, Matrix `local_delete` staying local, and Matrix redaction propagation across nodes. Client private/group recall and clear-history flows should call Matrix redaction and Dirextalk Matrix `local_delete`, not P2P message actions.
 - Contact remarks and profile surfaces: the legacy full smoke recorded `contacts.update` after B accepts A's friend request and verifies the persisted remark through `contacts.list`; Flutter tests verify remark update without dialog disposal issues, visitor public-channel list rendering, accepted-contact delete action, Matrix member nickname/avatar refresh, and channel/member avatar navigation to visitor public channels.
 - Deleted/rejected relationship rules: the legacy full smoke recorded deleted-contact auto-reject, rejected direct messages, removed channel/group member auto-reject/rejoin rejection, and owner-only dissolve restrictions.
 
@@ -427,14 +427,14 @@ docker compose -f docker-compose.p2p-dual.yml up -d --force-recreate dendrite-a 
 python3 scripts/p2p-three-node-regression.py
 ```
 
-The Python regression authenticates local nodes from `/var/direxio-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
+The Python regression authenticates local nodes from `/var/dirextalk-message-server/p2p/bootstrap.json`, updates profiles, exercises contact request/accept/delete/re-add behavior, group invite/join/projection, ordinary Matrix message history, channel capability projection, and restart recovery across the local multi-node topology.
 
 The legacy `scripts/p2p-dual-smoke.ps1` previously carried broader static action coverage for all 93 P2P actions and 86 permission-controlled API actions. Do not use it as the default validation path; port any required missing coverage to the Python regression before relying on it for current validation. Invite and join-approval paths must use real portal owners from the compose topology; fabricated MXIDs are not valid Matrix users and can make federation resolve an invalid destination.
 
 Latest legacy full-smoke image:
 
 ```text
-direxio/message-server@sha256:884571b0c8fc46dbba63445ffe4d2b281942edf3a89f4387d4eeb187a307bdc1
+dirextalk/message-server@sha256:884571b0c8fc46dbba63445ffe4d2b281942edf3a89f4387d4eeb187a307bdc1
 ```
 
 Latest legacy full-smoke result shape:
@@ -464,7 +464,7 @@ Current recommendation: do not add Dragonfly or Redis for this architecture yet.
 
 Reasoning:
 
-- The target deployment model is one backend owner user per instance, with many groups/channels connected through Matrix. That keeps write ownership simple and keeps product state naturally local to PostgreSQL plus Direxio Message Server's existing roomserver/sync paths.
+- The target deployment model is one backend owner user per instance, with many groups/channels connected through Matrix. That keeps write ownership simple and keeps product state naturally local to PostgreSQL plus Dirextalk Message Server's existing roomserver/sync paths.
 - The hot product queries are relational and now indexed: message timelines by `room_id/origin_server_ts`, channel posts/comments by channel/post/time, member lists by room/channel/membership/join order, reactions by target/user, calls by room/state, and contacts/favorites by lookup keys.
 - Adding Redis/Dragonfly would introduce another persistence/cache-invalidation plane for limited gain unless measured pressure appears from high fanout unread counters, presence-like ephemeral state, rate limiting, queues, or expensive cross-room aggregate feeds.
 - For the current feature set, PostgreSQL 18 indexes plus in-process projection are simpler and more reliable. The next optimization step should be measurement first: `pg_stat_statements`, slow query logs, endpoint latency histograms, and row-count/load tests for large channel/member/message tables.

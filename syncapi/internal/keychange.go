@@ -10,18 +10,18 @@ import (
 	"context"
 	"strings"
 
-	keytypes "github.com/YingSuiAI/direxio-message-server/userapi/types"
+	keytypes "github.com/YingSuiAI/dirextalk-message-server/userapi/types"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // DeviceOTKCounts adds one-time key counts to the /sync response

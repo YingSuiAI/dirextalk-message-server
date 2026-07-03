@@ -9,7 +9,7 @@ package storage
 import (
 	"context"
 
-	"github.com/YingSuiAI/direxio-message-server/mediaapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 

@@ -9,10 +9,10 @@ import (
 // the final version string
 var version string
 
-// -ldflags "-X github.com/YingSuiAI/direxio-message-server/internal.branch=master"
+// -ldflags "-X github.com/YingSuiAI/dirextalk-message-server/internal.branch=master"
 var branch string
 
-// -ldflags "-X github.com/YingSuiAI/direxio-message-server/internal.build=alpha"
+// -ldflags "-X github.com/YingSuiAI/dirextalk-message-server/internal.build=alpha"
 var build string
 
 const (

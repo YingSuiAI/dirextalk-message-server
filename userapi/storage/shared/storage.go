@@ -23,13 +23,13 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 	"golang.org/x/crypto/bcrypt"
 
-	clientapi "github.com/YingSuiAI/direxio-message-server/clientapi/api"
-	"github.com/YingSuiAI/direxio-message-server/clientapi/auth/authtypes"
-	"github.com/YingSuiAI/direxio-message-server/internal/pushrules"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/userapi/types"
+	clientapi "github.com/YingSuiAI/dirextalk-message-server/clientapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/auth/authtypes"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/types"
 )
 
 // Database represents an account database

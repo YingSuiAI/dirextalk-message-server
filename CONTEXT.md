@@ -1,11 +1,11 @@
-# Direxio P2P Product Context
+# Dirextalk P2P Product Context
 
-This context defines product language for Direxio's P2P API and agent integration surface.
+This context defines product language for Dirextalk's P2P API and agent integration surface.
 
 ## Language
 
 **Developer Operator**:
-A technical user who manually configures external agent tooling with a Direxio node domain and Agent token.
+A technical user who manually configures external agent tooling with a Dirextalk node domain and Agent token.
 _Avoid_: App end user, managed tenant user
 
 **Agent Token**:
@@ -29,11 +29,11 @@ A first-class CLI command grouped around a product or Matrix workflow such as co
 _Avoid_: Raw action wrapper
 
 **P2P Action Fallback**:
-The `direxio p2p action` command used when a P2P operation is not yet covered by a domain CLI command.
+The `dirextalk p2p action` command used when a P2P operation is not yet covered by a domain CLI command.
 _Avoid_: Primary intelligent-agent workflow
 
 **Agent Skill Recipe**:
-A tool-specific instruction document that teaches an intelligent agent how to use Direxio CLI commands for common workflows.
+A tool-specific instruction document that teaches an intelligent agent how to use Dirextalk CLI commands for common workflows.
 _Avoid_: CLI replacement, hidden API contract
 
 **Thin MCP Adapter**:
@@ -41,15 +41,15 @@ An optional MCP surface that exposes a small curated set of AI-friendly tools ba
 _Avoid_: Full P2P API mirror, embedded MCP subsystem
 
 **Agent Tool Credentials**:
-The site domain and Agent token used by the Agent Tools Package to call a Direxio node.
+The site domain and Agent token used by the Agent Tools Package to call a Dirextalk node.
 _Avoid_: Stored profile, portal password, Matrix login, P2P path base URL
 
-**Direxio Domain**:
-The `DIREXIO_DOMAIN` value used by CLI tooling as the node origin, such as `https://example.com`.
+**Dirextalk Domain**:
+The `DIREXTALK_DOMAIN` value used by CLI tooling as the node origin, such as `https://example.com`.
 _Avoid_: Base URL, homeserver URL with route prefix
 
 **Site Domain**:
-The origin for a Direxio node, without a Matrix or P2P route prefix.
+The origin for a Dirextalk node, without a Matrix or P2P route prefix.
 _Avoid_: `/_p2p` base URL, `/_matrix` base URL
 
 **Agent Matrix Session**:

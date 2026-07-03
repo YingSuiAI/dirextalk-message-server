@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/userapi/api"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/sqlite3/deltas"
-	"github.com/YingSuiAI/direxio-message-server/userapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/sqlite3/deltas"
+	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/tables"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
-	"github.com/YingSuiAI/direxio-message-server/clientapi/userutil"
+	"github.com/YingSuiAI/dirextalk-message-server/clientapi/userutil"
 )
 
 const devicesSchema = `

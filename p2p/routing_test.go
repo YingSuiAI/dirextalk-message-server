@@ -46,7 +46,7 @@ func TestAgentMatrixSessionCreateAllowsAgentToken(t *testing.T) {
 
 	req := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": "agent.matrix_session.create",
-		"params": map[string]any{"device_id": "DIREXIO_AGENT_GATEWAY"},
+		"params": map[string]any{"device_id": "DIREXTALK_AGENT_GATEWAY"},
 	})
 	req.Header.Set("Authorization", "Bearer "+agentToken)
 	rec := httptest.NewRecorder()
@@ -58,7 +58,7 @@ func TestAgentMatrixSessionCreateAllowsAgentToken(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["user_id"] != "@agent:example.com" || got["device_id"] != "DIREXIO_AGENT_GATEWAY" {
+	if got["user_id"] != "@agent:example.com" || got["device_id"] != "DIREXTALK_AGENT_GATEWAY" {
 		t.Fatalf("expected local agent Matrix session metadata, got %#v", got)
 	}
 }

@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/shared/receipt"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/shared/receipt"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )

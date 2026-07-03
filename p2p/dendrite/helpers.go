@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
 func trimString(value any) string {

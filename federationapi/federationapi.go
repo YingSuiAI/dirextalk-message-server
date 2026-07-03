@@ -9,28 +9,28 @@ package federationapi
 import (
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/sirupsen/logrus"
 
-	federationAPI "github.com/YingSuiAI/direxio-message-server/federationapi/api"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/consumers"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/producers"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/queue"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/statistics"
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/internal/caching"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/jetstream"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	federationAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/consumers"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/producers"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/queue"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/statistics"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 
 	"github.com/matrix-org/gomatrixserverlib"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/routing"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/routing"
 )
 
 // AddPublicRoutes sets up and registers HTTP handlers on the base API muxes for the FederationAPI component.

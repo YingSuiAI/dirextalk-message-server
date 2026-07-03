@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 type DefaultStreamProvider struct {

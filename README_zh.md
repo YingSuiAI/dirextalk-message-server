@@ -1,19 +1,19 @@
-# Direxio Message Server
+# Dirextalk Message Server
 
-Direxio Message Server 是 Direxio 后端服务，将 Matrix 兼容 homeserver 与 Direxio P2P 产品 API 合并在一个 Go monolith 中。
+Dirextalk Message Server 是 Dirextalk 后端服务，将 Matrix 兼容 homeserver 与 Dirextalk P2P 产品 API 合并在一个 Go monolith 中。
 
-本仓库基于 Element Dendrite，但维护目标是 Direxio 产品服务，而不是通用 Matrix homeserver 发行版。
+本仓库基于 Element Dendrite，但维护目标是 Dirextalk 产品服务，而不是通用 Matrix homeserver 发行版。
 
 [English README](README.md)
 
 ## 运行时
 
-- 生产入口：`cmd/direxio-message-server`
+- 生产入口：`cmd/dirextalk-message-server`
 - 兼容入口：`cmd/dendrite`
-- Docker 镜像：`direxio/message-server:latest`
-- Docker 默认配置路径：`/etc/direxio-message-server/message-server.yaml`
-- Docker 默认数据路径：`/var/direxio-message-server`
-- Go module：`github.com/YingSuiAI/direxio-message-server`
+- Docker 镜像：`dirextalk/message-server:latest`
+- Docker 默认配置路径：`/etc/dirextalk-message-server/message-server.yaml`
+- Docker 默认数据路径：`/var/dirextalk-message-server`
+- Go module：`github.com/YingSuiAI/dirextalk-message-server`
 - Go 版本：`1.26.4`
 
 ## API 入口
@@ -25,7 +25,7 @@ Matrix 协议路径保持在：
 - `/_dendrite/*`
 - `/.well-known/matrix/*`
 
-Direxio 产品 API 使用 body-action 入口：
+Dirextalk 产品 API 使用 body-action 入口：
 
 - `GET /_p2p/health`
 - `POST /_p2p/query`
@@ -52,7 +52,7 @@ Direxio 产品 API 使用 body-action 入口：
 构建服务：
 
 ```bash
-go build ./cmd/direxio-message-server
+go build ./cmd/dirextalk-message-server
 go build ./cmd/dendrite
 ```
 
@@ -60,7 +60,7 @@ go build ./cmd/dendrite
 
 ```bash
 docker compose -f docker-compose.p2p.yml up --build
-docker compose -f docker-compose.p2p.yml exec message-server cat /var/direxio-message-server/p2p/bootstrap.json
+docker compose -f docker-compose.p2p.yml exec message-server cat /var/dirextalk-message-server/p2p/bootstrap.json
 ```
 
 运行三节点回归。
@@ -113,8 +113,8 @@ go test ./p2p ./internal/productpolicy -count=1
 - [实现说明](docs/p2p-integrated-as-implementation.md)
 - [API 变更记录](docs/api-interface-change-record.md)
 - [API 审计与优化记录](docs/api-audit-and-optimization.md)
-- [Postman collection](docs/postman/direxio-message-server.postman_collection.json)
-- [Docker 镜像说明](docs/direxio-message-server.md)
+- [Postman collection](docs/postman/dirextalk-message-server.postman_collection.json)
+- [Docker 镜像说明](docs/dirextalk-message-server.md)
 
 ## License
 

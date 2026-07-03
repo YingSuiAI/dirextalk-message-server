@@ -9,7 +9,7 @@ package postgres
 import (
 	"strings"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/synctypes"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 )
 
 // filterConvertWildcardToSQL converts wildcards as defined in

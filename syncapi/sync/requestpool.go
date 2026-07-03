@@ -22,15 +22,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
-	roomserverAPI "github.com/YingSuiAI/direxio-message-server/roomserver/api"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/internal"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/notifier"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/storage"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/streams"
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
-	userapi "github.com/YingSuiAI/direxio-message-server/userapi/api"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/notifier"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/streams"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
+	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
 // RequestPool manages HTTP long-poll connections for /sync
@@ -256,7 +256,7 @@ func (rp *RequestPool) updateLastSeen(req *http.Request, device *userapi.Device)
 
 var activeSyncRequests = prometheus.NewGauge(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "syncapi",
 		Name:      "active_sync_requests",
 		Help:      "The number of sync requests that are active right now",
@@ -265,7 +265,7 @@ var activeSyncRequests = prometheus.NewGauge(
 
 var waitingSyncRequests = prometheus.NewGauge(
 	prometheus.GaugeOpts{
-		Namespace: "direxio_message_server",
+		Namespace: "dirextalk_message_server",
 		Subsystem: "syncapi",
 		Name:      "waiting_sync_requests",
 		Help:      "The number of sync requests that are waiting to be woken by a notifier",

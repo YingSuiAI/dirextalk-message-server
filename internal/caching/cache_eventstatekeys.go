@@ -1,6 +1,6 @@
 package caching
 
-import "github.com/YingSuiAI/direxio-message-server/roomserver/types"
+import "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 
 // EventStateKeyCache contains the subset of functions needed for
 // a room event state key cache.

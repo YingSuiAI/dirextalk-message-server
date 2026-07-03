@@ -28,15 +28,15 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
 	"github.com/gorilla/mux"
 	"github.com/kardianos/minwinsvc"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
-	"github.com/YingSuiAI/direxio-message-server/setup/process"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 )
 
 //go:embed static/*.gotmpl
@@ -64,7 +64,7 @@ func CreateClient(cfg *config.Dendrite, dnsCache *fclient.DNSCache) *fclient.Cli
 		opts = append(opts, fclient.WithDNSCache(dnsCache))
 	}
 	client := fclient.NewClient(opts...)
-	client.SetUserAgent(fmt.Sprintf("DirexioMessageServer/%s", internal.VersionString()))
+	client.SetUserAgent(fmt.Sprintf("DirextalkMessageServer/%s", internal.VersionString()))
 	return client
 }
 
@@ -81,7 +81,7 @@ func CreateFederationClient(cfg *config.Dendrite, dnsCache *fclient.DNSCache) fc
 		fclient.WithTimeout(time.Minute * 5),
 		fclient.WithSkipVerify(cfg.FederationAPI.DisableTLSValidation),
 		fclient.WithKeepAlives(!cfg.FederationAPI.DisableHTTPKeepalives),
-		fclient.WithUserAgent(fmt.Sprintf("DirexioMessageServer/%s", internal.VersionString())),
+		fclient.WithUserAgent(fmt.Sprintf("DirextalkMessageServer/%s", internal.VersionString())),
 		fclient.WithAllowDenyNetworks(cfg.FederationAPI.AllowNetworkCIDRs, cfg.FederationAPI.DenyNetworkCIDRs),
 	}
 	if cfg.Global.DNSCache.Enabled {

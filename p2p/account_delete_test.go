@@ -67,10 +67,10 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 			t.Fatalf("expected leave %q, got %#v", expected, transport.leaves)
 		}
 	}
-	if !hasDissolvedState(transport.stateEvents, "!owned-group:example.com", DirexioRoomTypeGroup) {
+	if !hasDissolvedState(transport.stateEvents, "!owned-group:example.com", DirextalkRoomTypeGroup) {
 		t.Fatalf("expected owned group dissolve state, got %#v", transport.stateEvents)
 	}
-	if !hasDissolvedState(transport.stateEvents, "!owned-channel:example.com", DirexioRoomTypeChannel) {
+	if !hasDissolvedState(transport.stateEvents, "!owned-channel:example.com", DirextalkRoomTypeChannel) {
 		t.Fatalf("expected owned channel dissolve state, got %#v", transport.stateEvents)
 	}
 	if !hasDirectAccountDeletedState(transport.stateEvents, "!dm:remote.example") {
@@ -116,8 +116,8 @@ func TestAccountDeleteDirectDissolveProjectsPeerContactDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	event := trustedStateEvent(t, "!dm:remote.example", "@peer:remote.example", DirexioRoomProfileEventType, "", map[string]any{
-		"room_type":       DirexioRoomTypeDirect,
+	event := trustedStateEvent(t, "!dm:remote.example", "@peer:remote.example", DirextalkRoomProfileEventType, "", map[string]any{
+		"room_type":       DirextalkRoomTypeDirect,
 		"requester_mxid":  "@peer:remote.example",
 		"target_mxid":     "@owner:example.com",
 		"display_name":    "Peer",
@@ -206,7 +206,7 @@ func mustSeedAccountDeleteState(t *testing.T, service *Service) {
 
 func hasDissolvedState(states []SendStateEventRequest, roomID, roomType string) bool {
 	for _, state := range states {
-		if state.RoomID != roomID || state.Event.Type != DirexioRoomProfileEventType {
+		if state.RoomID != roomID || state.Event.Type != DirextalkRoomProfileEventType {
 			continue
 		}
 		if state.Event.Content["room_type"] == roomType && state.Event.Content["dissolved"] == true {
@@ -218,10 +218,10 @@ func hasDissolvedState(states []SendStateEventRequest, roomID, roomType string) 
 
 func hasDirectAccountDeletedState(states []SendStateEventRequest, roomID string) bool {
 	for _, state := range states {
-		if state.RoomID != roomID || state.Event.Type != DirexioRoomProfileEventType {
+		if state.RoomID != roomID || state.Event.Type != DirextalkRoomProfileEventType {
 			continue
 		}
-		if state.Event.Content["room_type"] == DirexioRoomTypeDirect &&
+		if state.Event.Content["room_type"] == DirextalkRoomTypeDirect &&
 			state.Event.Content["dissolved"] == true &&
 			state.Event.Content["account_deleted"] == true &&
 			state.Event.Content["deleted_mxid"] == "@owner:example.com" {

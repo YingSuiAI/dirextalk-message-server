@@ -7,9 +7,9 @@ nav_order: 1
 permalink: /installation/docker/install
 ---
 
-# Installing Direxio Message Server using Docker Compose
+# Installing Dirextalk Message Server using Docker Compose
 
-Direxio Message Server provides an [example](https://github.com/YingSuiAI/direxio-message-server/blob/main/build/docker/docker-compose.yml)
+Dirextalk Message Server provides an [example](https://github.com/YingSuiAI/dirextalk-message-server/blob/main/build/docker/docker-compose.yml)
 Docker compose file, which needs some preparation to start successfully.
 Please note that this compose file only has Postgres as a dependency, and you need to configure
 a [reverse proxy](../planning#reverse-proxy).
@@ -24,10 +24,10 @@ First we'll generate private key, which is used to sign events, the following wi
 mkdir -p ./config
 docker run --rm --entrypoint="/usr/bin/generate-keys" \
   -v $(pwd)/config:/mnt \
-  ghcr.io/yingsuiai/direxio-message-server:latest \
+  ghcr.io/yingsuiai/dirextalk-message-server:latest \
   -private-key /mnt/matrix_key.pem
 
-# Windows equivalent: docker run --rm --entrypoint="/usr/bin/generate-keys" -v %cd%/config:/mnt ghcr.io/yingsuiai/direxio-message-server:latest -private-key /mnt/matrix_key.pem
+# Windows equivalent: docker run --rm --entrypoint="/usr/bin/generate-keys" -v %cd%/config:/mnt ghcr.io/yingsuiai/dirextalk-message-server:latest -private-key /mnt/matrix_key.pem
 ```
 (**NOTE**: This only needs to be executed **once**, as you otherwise overwrite the key)
 
@@ -41,20 +41,20 @@ to the docker-compose file (`services.postgres.environment` values):
 mkdir -p ./config
 docker run --rm --entrypoint="/bin/sh" \
   -v $(pwd)/config:/mnt \
-  ghcr.io/yingsuiai/direxio-message-server:latest \
+  ghcr.io/yingsuiai/dirextalk-message-server:latest \
   -c "/usr/bin/generate-config \
-    -dir /var/direxio-message-server/ \
-    -db postgres://direxio_message_server:itsasecret@postgres/direxio_message_server?sslmode=disable \
+    -dir /var/dirextalk-message-server/ \
+    -db postgres://dirextalk_message_server:itsasecret@postgres/dirextalk_message_server?sslmode=disable \
     -server YourDomainHere > /mnt/message-server.yaml"
 
-# Windows equivalent: docker run --rm --entrypoint="/bin/sh" -v %cd%/config:/mnt ghcr.io/yingsuiai/direxio-message-server:latest -c "/usr/bin/generate-config -dir /var/direxio-message-server/ -db postgres://direxio_message_server:itsasecret@postgres/direxio_message_server?sslmode=disable -server YourDomainHere > /mnt/message-server.yaml"
+# Windows equivalent: docker run --rm --entrypoint="/bin/sh" -v %cd%/config:/mnt ghcr.io/yingsuiai/dirextalk-message-server:latest -c "/usr/bin/generate-config -dir /var/dirextalk-message-server/ -db postgres://dirextalk_message_server:itsasecret@postgres/dirextalk_message_server?sslmode=disable -server YourDomainHere > /mnt/message-server.yaml"
 ```
 
 You can then change `config/message-server.yaml` to your liking.
 
-## Starting Direxio Message Server
+## Starting Dirextalk Message Server
 
-Once you're done changing the config, you can now start up Direxio Message Server with
+Once you're done changing the config, you can now start up Dirextalk Message Server with
 
 ```bash
 docker-compose -f docker-compose.yml up

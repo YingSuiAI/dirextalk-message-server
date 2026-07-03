@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dirextalk Change Orchestrator"
+  short_description: "Map Dirextalk-wide change impact"
+  default_prompt: "Use $dirextalk-change-orchestrator to map Dirextalk server entry points, contracts, state, storage, docs, and verification before a cross-package change."

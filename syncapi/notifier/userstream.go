@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YingSuiAI/direxio-message-server/syncapi/types"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
 // UserDeviceStream represents a communication mechanism between the /sync request goroutine

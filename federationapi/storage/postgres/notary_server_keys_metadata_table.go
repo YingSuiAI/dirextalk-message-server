@@ -11,9 +11,9 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/YingSuiAI/direxio-message-server/federationapi/storage/tables"
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/tables"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/lib/pq"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"

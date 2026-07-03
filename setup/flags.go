@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/YingSuiAI/direxio-message-server/internal"
-	"github.com/YingSuiAI/direxio-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/sirupsen/logrus"
 )
 

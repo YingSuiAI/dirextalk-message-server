@@ -1,7 +1,7 @@
-name: direxio-p2p
+name: dirextalk-p2p
 
 x-message-server-local: &message-server-local
-  image: direxio/message-server:latest
+  image: dirextalk/message-server:latest
   build:
     context: .
     dockerfile: Dockerfile
@@ -11,15 +11,15 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: direxio_message_server
-      POSTGRES_PASSWORD: direxio_message_server
-      POSTGRES_DB: direxio_message_server
+      POSTGRES_USER: dirextalk_message_server
+      POSTGRES_PASSWORD: dirextalk_message_server
+      POSTGRES_DB: dirextalk_message_server
     ports:
       - "15432:5432"
     volumes:
       - p2p_postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U direxio_message_server -d direxio_message_server"]
+      test: ["CMD-SHELL", "pg_isready -U dirextalk_message_server -d dirextalk_message_server"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -31,20 +31,20 @@ services:
     command:
       - |
         set -eu
-        mkdir -p /etc/direxio-message-server /var/direxio-message-server
-        if [ ! -f /etc/direxio-message-server/matrix_key.pem ]; then
-          /usr/bin/generate-keys -private-key /etc/direxio-message-server/matrix_key.pem
+        mkdir -p /etc/dirextalk-message-server /var/dirextalk-message-server
+        if [ ! -f /etc/dirextalk-message-server/matrix_key.pem ]; then
+          /usr/bin/generate-keys -private-key /etc/dirextalk-message-server/matrix_key.pem
         fi
-        if [ ! -f /etc/direxio-message-server/message-server.yaml ]; then
+        if [ ! -f /etc/dirextalk-message-server/message-server.yaml ]; then
           /usr/bin/generate-config \
-            -dir /var/direxio-message-server \
-            -db postgres://direxio_message_server:direxio_message_server@postgres/direxio_message_server?sslmode=disable \
+            -dir /var/dirextalk-message-server \
+            -db postgres://dirextalk_message_server:dirextalk_message_server@postgres/dirextalk_message_server?sslmode=disable \
             -server ${MESSAGE_SERVER_NAME:-localhost} \
-            > /etc/direxio-message-server/message-server.yaml
+            > /etc/dirextalk-message-server/message-server.yaml
         fi
     volumes:
-      - p2p_message_server_config:/etc/direxio-message-server
-      - p2p_message_server_data:/var/direxio-message-server
+      - p2p_message_server_config:/etc/dirextalk-message-server
+      - p2p_message_server_data:/var/dirextalk-message-server
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,10 +53,10 @@ services:
     <<: *message-server-local
     restart: unless-stopped
     environment:
-      P2P_PORTAL_CREDENTIALS_FILE: /var/direxio-message-server/p2p/bootstrap.json
+      P2P_PORTAL_CREDENTIALS_FILE: /var/dirextalk-message-server/p2p/bootstrap.json
     command:
       - --config
-      - /etc/direxio-message-server/message-server.yaml
+      - /etc/dirextalk-message-server/message-server.yaml
       - --http-bind-address
       - :8008
       - --https-bind-address
@@ -65,8 +65,8 @@ services:
       - "8008:8008"
       - "8448:8448"
     volumes:
-      - p2p_message_server_config:/etc/direxio-message-server
-      - p2p_message_server_data:/var/direxio-message-server
+      - p2p_message_server_config:/etc/dirextalk-message-server
+      - p2p_message_server_data:/var/dirextalk-message-server
     depends_on:
       postgres:
         condition: service_healthy
