@@ -161,8 +161,15 @@ def run_checked(args: list[str]) -> None:
 
 
 def read_bootstrap(container: str) -> dict[str, Any]:
-    raw = run(["docker", "exec", container, "cat", "/var/direxio-message-server/p2p/bootstrap.json"])
-    return dict(json.loads(raw))
+    last_error = ""
+    for _ in range(60):
+        try:
+            raw = run(["docker", "exec", container, "cat", "/var/direxio-message-server/p2p/bootstrap.json"])
+            return dict(json.loads(raw))
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            last_error = str(exc)
+            time.sleep(1)
+    raise RuntimeError(f"{container} bootstrap.json was not readable: {last_error}")
 
 
 def request_json(method: str, url: str, body: Any = None, token: str = "") -> Any:
@@ -433,7 +440,13 @@ def ensure_direct(a: Node, b: Node) -> str:
         "A did not project accepted direct conversation",
         lambda: (conversation_for(a, room_id) or {}).get("relationship_status") == "accepted",
     )
-    if not (conversation_for(b, room_id) or {}).get("relationship_status") == "accepted":
+    try:
+        wait_until(
+            "B did not project accepted direct conversation before repair",
+            lambda: (conversation_for(b, room_id) or {}).get("relationship_status") == "accepted",
+            seconds=WAIT_SECONDS,
+        )
+    except AssertionError:
         restored = p2p(b, "command", "contacts.request", {"mxid": a.mxid, "display_name": a.name})
         expect(restored.get("status") == "accepted", "peer-side contacts.request did not repair accepted direct state")
         expect(restored.get("room_id") == room_id, "peer-side contacts.request did not reuse direct room")
