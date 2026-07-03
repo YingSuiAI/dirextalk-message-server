@@ -415,7 +415,7 @@
                 "description": "创建频道。\n\nCreate channel\n\nAction: `channels.create`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"channels.create\",\n  \"params\": {\n    \"name\": \"Postman Channel\",\n    \"description\": \"created from Postman\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"approval\",\n    \"channel_type\": \"chat\"\n  }\n}",
+                  "raw": "{\n  \"action\": \"channels.create\",\n  \"params\": {\n    \"name\": \"Postman Channel\",\n    \"description\": \"created from Postman\",\n    \"avatar_url\": \"\",\n    \"visibility\": \"public\",\n    \"join_policy\": \"approval\",\n    \"channel_type\": \"post\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"

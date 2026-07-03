@@ -17,7 +17,7 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
-func TestGroupAndTextChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
+func TestGroupUsesJoinedAndUnifiedChannelsUseSharedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -39,34 +39,35 @@ func TestGroupAndTextChannelCreateUseJoinedHistoryVisibility(t *testing.T) {
 	if len(transport.createRooms) != 3 {
 		t.Fatalf("expected group, chat channel, and text channel rooms to be created, got %#v", transport.createRooms)
 	}
-	for _, req := range transport.createRooms {
-		got, ok := initialHistoryVisibility(req)
-		if !ok || got != string(gomatrixserverlib.HistoryVisibilityJoined) {
-			t.Fatalf("expected joined history visibility for %s room create, got %q ok=%v in %#v", req.RoomType, got, ok, req.InitialState)
+	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityJoined) {
+		t.Fatalf("expected joined history visibility for group create, got %q ok=%v in %#v", got, ok, transport.createRooms[0].InitialState)
+	}
+	for _, req := range transport.createRooms[1:] {
+		if got, ok := initialHistoryVisibility(req); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
+			t.Fatalf("expected shared history visibility for unified channel create, got %q ok=%v in %#v", got, ok, req.InitialState)
 		}
 	}
 }
 
-func TestPostChannelCreateUsesSharedHistoryVisibility(t *testing.T) {
+func TestChannelCreateDefaultsToSharedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{roomID: "!posts:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
 
 	mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":   "posts",
-		"name":         "Posts",
-		"channel_type": "post",
+		"channel_id": "posts",
+		"name":       "Posts",
 	})
 
 	if len(transport.createRooms) != 1 {
-		t.Fatalf("expected post channel room to be created, got %#v", transport.createRooms)
+		t.Fatalf("expected channel room to be created, got %#v", transport.createRooms)
 	}
 	if got, ok := initialHistoryVisibility(transport.createRooms[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
-		t.Fatalf("post channels must use shared history visibility for existing posts/comments, got %q ok=%v in %#v", got, ok, transport.createRooms[0].InitialState)
+		t.Fatalf("unified channels must use shared history visibility for posts/comments, got %q ok=%v in %#v", got, ok, transport.createRooms[0].InitialState)
 	}
 }
 
-func TestPostChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *testing.T) {
+func TestChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -75,17 +76,17 @@ func TestPostChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *te
 		"channel_id":   "posts",
 		"room_id":      "!existing:example.com",
 		"name":         "Posts",
-		"channel_type": "post",
+		"channel_type": "chat",
 	})
 
 	if len(transport.createRooms) != 0 {
 		t.Fatalf("existing room channel must not create a new room, got %#v", transport.createRooms)
 	}
 	if len(transport.stateEvents) != 1 {
-		t.Fatalf("expected existing post room to publish shared history visibility, got %#v", transport.stateEvents)
+		t.Fatalf("expected existing channel room to publish shared history visibility, got %#v", transport.stateEvents)
 	}
 	if got, ok := updateStateHistoryVisibility(transport.stateEvents[0]); !ok || got != string(gomatrixserverlib.HistoryVisibilityShared) {
-		t.Fatalf("expected existing post room to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[0])
+		t.Fatalf("expected existing channel room to publish shared history visibility, got %q ok=%v in %#v", got, ok, transport.stateEvents[0])
 	}
 }
 
@@ -2133,7 +2134,7 @@ func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {
 	}
 }
 
-func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
+func TestUnifiedChatChannelJoinBackfillsHistoricalContent(t *testing.T) {
 	transport := &recordingTransport{roomID: "!channel:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
@@ -2152,7 +2153,7 @@ func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
 			Content: map[string]any{
 				"p2p_kind": "channel_post",
 				"post_id":  "post_one",
-				"body":     "should not sync",
+				"body":     "should sync",
 				"msgtype":  "m.text",
 			},
 		},
@@ -2167,14 +2168,14 @@ func TestChatChannelJoinDoesNotBackfillHistoricalContent(t *testing.T) {
 	if joined["status"] != "ok" {
 		t.Fatalf("expected channels.join ok, got %#v", joined)
 	}
-	if reader.calls != 0 {
-		t.Fatalf("chat channel join should not backfill historical channel content, called reader %d times", reader.calls)
+	if reader.calls != 1 {
+		t.Fatalf("unified channel join should backfill historical channel content once, called reader %d times", reader.calls)
 	}
 	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
 		"channel_id": ch.ChannelID,
 	})["posts"].([]channelPostRecord)
-	if len(posts) != 0 {
-		t.Fatalf("chat channel join should not project historical post content, got %#v", posts)
+	if len(posts) != 1 || posts[0].PostID != "post_one" || posts[0].Body != "should sync" {
+		t.Fatalf("unified channel join should project historical post content, got %#v", posts)
 	}
 }
 

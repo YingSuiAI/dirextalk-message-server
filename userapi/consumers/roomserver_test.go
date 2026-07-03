@@ -146,13 +146,13 @@ func TestPushNotificationMetadataUsesDirextalkRoomStateForMessagePayload(t *test
 	}
 }
 
-func TestPushNotificationMetadataSuppressesPostChannelMessages(t *testing.T) {
+func TestPushNotificationMetadataSuppressesAllChannelMessages(t *testing.T) {
 	ctx := context.Background()
 	event := mustCreateEvent(t, `{
 		"type":"m.room.message",
 		"room_id":"!posts:example.com",
 		"sender":"@alice:example.com",
-		"content":{"body":"new post","msgtype":"m.text"}
+		"content":{"body":"ordinary chat","msgtype":"m.text"}
 	}`)
 	consumer := OutputRoomEventConsumer{rsAPI: &currentStateRoomserver{
 		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
@@ -163,7 +163,7 @@ func TestPushNotificationMetadataSuppressesPostChannelMessages(t *testing.T) {
 				"sender":"@alice:example.com",
 				"content":{
 					"room_type":"io.dirextalk.room.channel",
-					"channel_type":"post",
+					"channel_type":"chat",
 					"name":"Announcements"
 				}
 			}`),
@@ -175,7 +175,7 @@ func TestPushNotificationMetadataSuppressesPostChannelMessages(t *testing.T) {
 		t.Fatalf("pushNotificationMetadata returned error: %v", err)
 	}
 	if !metadata.SuppressGateway {
-		t.Fatal("expected post channel message push to be suppressed")
+		t.Fatal("expected every channel message push to be suppressed")
 	}
 }
 

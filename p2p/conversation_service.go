@@ -320,7 +320,7 @@ func conversationCapabilitiesForView(view conversationView) conversationCapabili
 	canCall := open && view.Kind != conversationKindChannel
 	manageMembers := open && owner && isMemberConversation
 	leave := open && isMemberConversation
-	isPostChannel := view.Kind == conversationKindChannel && strings.EqualFold(fallbackString(view.ChannelType, "chat"), "post")
+	isChannel := view.Kind == conversationKindChannel
 	deleteConversation := false
 	if view.Kind == conversationKindDirect {
 		deleteConversation = open
@@ -338,12 +338,12 @@ func conversationCapabilitiesForView(view conversationView) conversationCapabili
 		RemoveMembers:   manageMembers,
 		Leave:           leave,
 		Delete:          deleteConversation,
-		PostCreate:      open && owner && isPostChannel,
-		CommentCreate:   open && isPostChannel && view.CommentsEnabled,
-		ReactionToggle:  open && isPostChannel,
-		PostRecall:      open && owner && isPostChannel,
-		CommentRecall:   open && owner && isPostChannel,
-		CommentsEnabled: isPostChannel && view.CommentsEnabled,
+		PostCreate:      open && owner && isChannel,
+		CommentCreate:   open && isChannel && view.CommentsEnabled,
+		ReactionToggle:  open && isChannel,
+		PostRecall:      open && owner && isChannel,
+		CommentRecall:   open && owner && isChannel,
+		CommentsEnabled: isChannel && view.CommentsEnabled,
 	}
 }
 

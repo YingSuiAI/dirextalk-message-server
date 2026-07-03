@@ -28,7 +28,7 @@ For inbound or federated behavior, start at roomserver/federation output and tra
 - Member policy uses `io.dirextalk.member.policy`.
 - Public channel approval uses `io.dirextalk.join_request`.
 - Matrix `m.room.member membership=join` is the joined fact. Approval state is not joined state.
-- New group rooms and chat/text channel rooms write `m.room.history_visibility=joined`. Post channels (`channel_type=post`) write `m.room.history_visibility=shared` on creation and existing-room binding. Channel type is immutable; `channels.update` ignores `channel_type` for old-client compatibility. Do not change existing rooms retroactively unless explicitly requested.
+- New group rooms write `m.room.history_visibility=joined`. New channel rooms are unified post+chat rooms and write `m.room.history_visibility=shared` on creation and existing-room binding. Channel type is legacy immutable metadata; `channels.update` ignores `channel_type` for old-client compatibility, and current channel behavior must not branch on `chat` vs `post`. Do not change existing rooms retroactively unless explicitly requested.
 - Malformed optional product metadata must not block unrelated later projection events.
 - Non-product Matrix rooms must not pollute Dirextalk product lists unless the bridge is intentional.
 - Profile changes must keep Matrix-facing profile storage and Dirextalk profile/member views aligned when both are read.

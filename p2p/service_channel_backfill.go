@@ -21,7 +21,7 @@ func (s *Service) backfillJoinedPostChannelContent(ctx context.Context, roomID, 
 	if err != nil {
 		return err
 	}
-	if !ok || trimString(ch.ChannelType) != "post" {
+	if !ok {
 		return nil
 	}
 	return s.backfillJoinedChannelContent(ctx, roomID, fallbackString(channelID, ch.ChannelID))

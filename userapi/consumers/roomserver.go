@@ -600,8 +600,7 @@ func (s *OutputRoomEventConsumer) pushNotificationMetadata(ctx context.Context, 
 		return pushNotificationMetadata{}, nil
 	}
 
-	channelKind := strings.TrimSpace(gjson.GetBytes(profileContent, "channel_type").Str)
-	if shortRoomType == "channel" && strings.EqualFold(channelKind, "post") {
+	if shortRoomType == "channel" {
 		return pushNotificationMetadata{SuppressGateway: true}, nil
 	}
 

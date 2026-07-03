@@ -38,7 +38,7 @@ func ConversationKindFromRoomType(roomType string) domain.ConversationKind {
 }
 
 func ChannelProfile(roomID, channelID string, existing domain.Channel, content map[string]any) domain.Channel {
-	channelType := fallbackString(trimString(content["channel_type"]), fallbackString(existing.ChannelType, "chat"))
+	channelType := fallbackString(trimString(content["channel_type"]), fallbackString(existing.ChannelType, "post"))
 	commentsEnabled := existing.CommentsEnabled
 	if _, ok := content["comments_enabled"]; ok {
 		commentsEnabled = boolParam(content["comments_enabled"])

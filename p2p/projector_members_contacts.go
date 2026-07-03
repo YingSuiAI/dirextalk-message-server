@@ -256,7 +256,7 @@ func (s *Service) projectProductInvite(ctx context.Context, event *types.Headere
 			AvatarURL:       trimString(content["avatar_url"]),
 			Visibility:      fallbackString(trimString(content["visibility"]), "public"),
 			JoinPolicy:      fallbackString(trimString(content["join_policy"]), "invite"),
-			ChannelType:     fallbackString(trimString(content["channel_type"]), "chat"),
+			ChannelType:     fallbackString(trimString(content["channel_type"]), "post"),
 			CommentsEnabled: boolParam(content["comments_enabled"]),
 			MemberStatus:    "invite",
 			Role:            fallbackString(member.Role, "member"),

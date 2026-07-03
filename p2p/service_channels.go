@@ -18,7 +18,7 @@ func (s *Service) channelResult(ctx context.Context, params map[string]any) (any
 	}
 	roomID := trimString(params["room_id"])
 	existingRoomID := roomID != ""
-	channelType := fallbackString(trimString(params["channel_type"]), "chat")
+	channelType := fallbackString(trimString(params["channel_type"]), "post")
 	ch := channel{
 		ChannelID:        channelID,
 		RoomID:           roomID,

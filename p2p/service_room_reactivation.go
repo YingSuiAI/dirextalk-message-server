@@ -151,7 +151,7 @@ func (s *Service) saveRetainedRoomInviteMetadata(ctx context.Context, scope stri
 			AvatarURL:       trimString(params["avatar_url"]),
 			Visibility:      fallbackString(trimString(params["visibility"]), "private"),
 			JoinPolicy:      fallbackString(trimString(params["join_policy"]), "invite"),
-			ChannelType:     fallbackString(trimString(params["channel_type"]), "chat"),
+			ChannelType:     fallbackString(trimString(params["channel_type"]), "post"),
 			CommentsEnabled: boolParam(params["comments_enabled"]),
 			MemberStatus:    "invite",
 			Role:            fallbackString(member.Role, "member"),

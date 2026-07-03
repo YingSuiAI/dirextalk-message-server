@@ -32,10 +32,13 @@ func (s *Service) projectMessage(ctx context.Context, event *types.HeaderedEvent
 	if msgType == "" {
 		msgType = "text"
 	}
-	if err := s.projectConversationActivity(ctx, event, body, msgType); err != nil {
-		return err
+	kind := trimString(content["p2p_kind"])
+	if kind == "" {
+		if err := s.projectConversationActivity(ctx, event, body, msgType); err != nil {
+			return err
+		}
 	}
-	switch trimString(content["p2p_kind"]) {
+	switch kind {
 	case "channel_post":
 		return s.projectChannelPost(ctx, event, content, body, msgType)
 	case "channel_comment":

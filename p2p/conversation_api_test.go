@@ -353,14 +353,14 @@ func TestGroupConversationViewIncludesOwnerMembershipFacts(t *testing.T) {
 	})
 }
 
-func TestChannelConversationViewIncludesOwnerMembershipFacts(t *testing.T) {
+func TestUnifiedChannelConversationViewIncludesOwnerPostCapabilities(t *testing.T) {
 	ctx := context.Background()
 	service := NewService(Config{ServerName: "example.com"})
 	if err := service.saveChannel(ctx, channel{
 		ChannelID:       "channel",
 		RoomID:          "!channel:example.com",
 		Name:            "Product Channel",
-		ChannelType:     "post",
+		ChannelType:     "chat",
 		CommentsEnabled: true,
 	}); err != nil {
 		t.Fatal(err)

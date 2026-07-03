@@ -89,7 +89,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
   - role、mute 等成员策略。
 - `io.dirextalk.join_request`
   - public channel 申请审批状态。
-- 新建 group room 和 chat/text channel room 会在创建时写 `m.room.history_visibility=joined`，新成员只从自己的 Matrix join 之后接收普通 timeline 消息。`channel_type=post` 的帖子频道是单独规则：创建帖子频道或将已有 room 绑定为帖子频道时显式写 `m.room.history_visibility=shared`，成员需要能看到当前频道已有的所有帖子和评论。频道类型创建后不可修改，`channels.update` 会忽略旧客户端传入的 `channel_type`。当前规则不回溯修改已有房间。
+- 新建 group room 会在创建时写 `m.room.history_visibility=joined`，新成员只从自己的 Matrix join 之后接收普通 timeline 消息。新建 channel room 是统一的帖子+聊天频道，创建频道或将已有 room 绑定为频道时显式写 `m.room.history_visibility=shared`，成员需要能看到当前频道已有的所有帖子和评论。`channel_type` 是旧字段兼容元数据，创建后不可修改，`channels.update` 会忽略旧客户端传入的 `channel_type`，当前频道行为不再按 `chat`/`post` 分流。当前规则不回溯修改已有房间。
 
 投影规则：
 
@@ -218,7 +218,7 @@ Channel posts/comments/reactions：
 - 仍是产品内容 projection。
 - 使用 Matrix `m.room.message` 携带 `p2p_kind=channel_post` 或 `p2p_kind=channel_comment`。
 - reaction 使用 Matrix reaction/内容字段投影到 P2P reaction read model；点赞开关事件携带 `active`，因此取消点赞也会覆盖到其他节点的 read model。
-- 新成员加入 post channel 后，服务端会从 Matrix `/messages` 历史回填当前频道已有 posts/comments/reactions 到本节点 projection，客户端可通过 product list 接口和 Matrix history 同时看到入群前内容。
+- 新成员加入 channel 后，服务端会从 Matrix `/messages` 历史回填当前频道已有 posts/comments/reactions 到本节点 projection，客户端可通过 product list 接口和 Matrix history 同时看到入群前内容。普通聊天消息仍走 Matrix timeline，不写入帖子/评论 projection。
 - recall 通过 Matrix redaction。
 
 Calls/Favorites/Follows：
@@ -228,7 +228,7 @@ Calls/Favorites/Follows：
 
 Push：
 
-- 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。
+- 系统推送仍使用 Matrix Push Gateway API。客户端用 `/pushers/set` 注册 APNs/FCM pusher，普通 direct/group 消息、call invite 等通知由 `userapi/consumers/roomserver.go` 按 Matrix push rules 评估后发送到 gateway。所有 channel room 事件不投递 HTTP Push Gateway。
 - 服务端不能从 `/sync`、read receipt 或 pusher 注册可靠判断 App 是否处于前台。Dirextalk 客户端通过 `GET /_p2p/ws` 上报 `client.lifecycle` 和 `client.focus`：`client.lifecycle` 至少包含 `foreground`，并可携带 `state`、`hidden` 和 `flags`；`client.focus` 至少包含 `room_id`，并可携带 `focused` 和 `flags`。前台、未 hidden、且 focused room 等于收到消息的 room 时，服务端不新增 unread notification，也不调用 HTTP push gateway；后台、hidden、断线、60 秒会话过期、未聚焦或聚焦到其他 room 时继续按后台推送处理。迁移期保留全局 Matrix account data `io.dirextalk.push.context` 作为无新鲜 WS session 时的兜底，服务端按服务端时间保存 60 秒过期时间。
 
 Agent/API：

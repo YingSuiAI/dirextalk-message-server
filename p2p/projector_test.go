@@ -211,6 +211,16 @@ func TestProjectChannelStateAndPostKinds(t *testing.T) {
 	if !ok || len(gotPosts) != 1 || gotPosts[0].PostID != "post_remote" || gotPosts[0].EventID != post.EventID() {
 		t.Fatalf("expected projected channel post, got %#v", posts)
 	}
+	conversation, ok, err := service.getConversation(context.Background(), "", room.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected projected channel conversation")
+	}
+	if conversation.LastEventID == post.EventID() || conversation.LastMessage == "projected post" {
+		t.Fatalf("channel post must not update ordinary chat activity, got %#v", conversation)
+	}
 
 	comment := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
 		"msgtype":    "m.text",
@@ -227,6 +237,16 @@ func TestProjectChannelStateAndPostKinds(t *testing.T) {
 	gotComments, ok := comments["comments"].([]channelCommentRecord)
 	if !ok || len(gotComments) != 1 || gotComments[0].CommentID != "comment_remote" || gotComments[0].EventID != comment.EventID() {
 		t.Fatalf("expected projected channel comment, got %#v", comments)
+	}
+	conversation, ok, err = service.getConversation(context.Background(), "", room.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected projected channel conversation")
+	}
+	if conversation.LastEventID == comment.EventID() || conversation.LastMessage == "projected comment" {
+		t.Fatalf("channel comment must not update ordinary chat activity, got %#v", conversation)
 	}
 
 	dissolved := room.CreateAndInsert(t, user, DirextalkRoomProfileEventType, map[string]any{

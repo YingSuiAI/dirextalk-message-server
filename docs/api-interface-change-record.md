@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
+
+## 2026-07-03 Unified Channel Post+Chat
+
+Channels are now a unified post+chat surface in one Matrix room. `channels.create` defaults missing or invalid `channel_type` to `post`, but current server behavior does not branch on legacy `chat` vs `post` values. New channel rooms, including existing-room channel bindings, write `m.room.history_visibility=shared`. Joined channel conversations expose post/comment/reaction capabilities according to room role and comments settings instead of `channel_type`.
+
+Product post/comment/reaction events remain identified by Matrix content metadata such as `p2p_kind`; ordinary channel chat messages stay as Matrix timeline events and do not update post/comment/reaction projections. Conversation activity for channels is updated by ordinary chat messages, while post/comment projection events do not pollute ordinary conversation activity.
+
+HTTP Push Gateway delivery is suppressed for all channel room events. This is Push Gateway suppression only; Matrix sync, room timelines, unread state, read markers, and local client navigation still operate normally.
 
 ## 2026-07-02 Owner Blocks
 
@@ -311,7 +319,7 @@ Non-MCP protected body actions still reject `agent_token` except the HTTP-only `
 
 `channels.update` now ignores `channel_type`. Channel type is creation-time metadata and cannot be changed after a channel exists. Requests that include `channel_type` continue to apply other mutable fields but leave the stored `channel_type` unchanged.
 
-Clients must set `channel_type` only in `channels.create`. Post channels (`channel_type=post`) get shared Matrix history visibility at creation or when binding an existing room as a post channel.
+Clients may send `channel_type` only in `channels.create`; missing or invalid values now default to `post`. Since 2026-07-03, all new channel rooms get shared Matrix history visibility at creation or when binding an existing room as a channel, regardless of legacy `channel_type`.
 
 ## 2026-06-25 Agent Token And CLI Cleanup
 
@@ -323,9 +331,9 @@ The first-party CLI module and its helper package are removed: `cmd/dirextalk-cl
 
 ## 2026-06-25 Matrix Push Gateway Metadata
 
-Matrix event pushes sent to HTTP push gateways now include optional Dirextalk display/routing metadata when the room has Dirextalk product room state. Normal direct, group, and text-channel message pushes can include `notification.title`, `notification.push_type=message`, `notification.room_id`, `notification.event_id`, and short `notification.room_type` (`direct`, `group`, or `channel`). The gateway owns the visible body text and sets it to `Send you a new message`.
+Matrix event pushes sent to HTTP push gateways now include optional Dirextalk display/routing metadata when the room has Dirextalk product room state. Normal direct and group message pushes can include `notification.title`, `notification.push_type=message`, `notification.room_id`, `notification.event_id`, and short `notification.room_type` (`direct` or `group`). The gateway owns the visible body text and sets it to `Send you a new message`.
 
-Post channels (`io.dirextalk.room.profile.channel_type=post`) are not sent to HTTP push gateways in this phase. Matrix `m.call.invite` events in Dirextalk rooms use `push_type=call` and add `call_id` plus `call_kind=voice`; product `calls.create` / `calls.incoming` actions remain P2P event/call-record flows unless represented as Matrix call invite events.
+Channel rooms (`notification.room_type=channel`) are not sent to HTTP push gateways. Matrix `m.call.invite` events in Dirextalk rooms use `push_type=call` and add `call_id` plus `call_kind=voice`; product `calls.create` / `calls.incoming` actions remain P2P event/call-record flows unless represented as Matrix call invite events.
 
 ## 2026-06-24 Portal Single-Device Login
 

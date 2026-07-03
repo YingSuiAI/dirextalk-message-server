@@ -45,7 +45,7 @@ func (t *DendriteTransport) GetRoomChannel(ctx context.Context, roomID string) (
 			AvatarURL:        trimString(content["avatar_url"]),
 			Visibility:       fallbackString(trimString(content["visibility"]), "private"),
 			JoinPolicy:       fallbackString(trimString(content["join_policy"]), "invite"),
-			ChannelType:      fallbackString(trimString(content["channel_type"]), "chat"),
+			ChannelType:      fallbackString(trimString(content["channel_type"]), "post"),
 			CommentsEnabled:  boolParam(content["comments_enabled"]),
 			MemberCount:      1,
 			PendingJoinCount: 0,

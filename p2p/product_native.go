@@ -60,14 +60,7 @@ func sharedHistoryVisibilityStateEvent() RoomStateEvent {
 }
 
 func channelHistoryVisibilityStateEvent(channelType string) (RoomStateEvent, bool) {
-	switch strings.ToLower(strings.TrimSpace(channelType)) {
-	case "", "chat", "text":
-		return joinedHistoryVisibilityStateEvent(), true
-	case "post":
-		return sharedHistoryVisibilityStateEvent(), true
-	default:
-		return RoomStateEvent{}, false
-	}
+	return sharedHistoryVisibilityStateEvent(), true
 }
 
 func agentStatusStateEvent(agentMXID string, online bool) RoomStateEvent {
@@ -162,7 +155,7 @@ func roomProfileForChannel(ch channel, dissolved bool) RoomStateEvent {
 			"avatar_url":       ch.AvatarURL,
 			"visibility":       fallbackString(ch.Visibility, "private"),
 			"join_policy":      fallbackString(ch.JoinPolicy, "invite"),
-			"channel_type":     fallbackString(ch.ChannelType, "chat"),
+			"channel_type":     fallbackString(ch.ChannelType, "post"),
 			"comments_enabled": ch.CommentsEnabled,
 			"muted":            ch.Muted,
 			"dissolved":        dissolved,
