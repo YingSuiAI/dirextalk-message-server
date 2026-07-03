@@ -89,7 +89,12 @@ Update the current project docs and API change record to state:
 - It exposes the same fixed MCP tools as the local adapter.
 - Existing `mcp.*` body actions remain HTTP-only and are still not valid over `/_p2p/ws`.
 
-Postman should include a short request description for the MCP endpoint if the collection format can represent it cleanly. Keep the collection importable JSON.
+Split Postman examples into two importable collections:
+
+- `docs/postman/dirextalk-p2p.postman_collection.json` for `/_p2p/*` and `/.well-known/portal/*` product/API examples, including the new `POST /_p2p/mcp` MCP protocol endpoint.
+- `docs/postman/dirextalk-matrix.postman_collection.json` for Matrix-native `/_matrix/*`, `/_synapse/*`, `/_dendrite/*`, and `/.well-known/matrix/*` route examples.
+
+The old mixed `docs/postman/dirextalk-message-server.postman_collection.json` should not remain the current import target after the split. Update project docs, workflow instructions, and verification guidance to validate both new collection files.
 
 ## Tests
 
