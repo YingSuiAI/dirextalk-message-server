@@ -399,6 +399,31 @@ Ordinary MCP message send/list remains separate from channel post/comment produc
 
 The live P2P body-action count is now 91.
 
+## 2026-07-03 Account Deletion
+
+Added protected owner HTTP-only command `portal.account.delete` on `POST /_p2p/command`.
+
+Request:
+
+```json
+{
+  "action": "portal.account.delete",
+  "params": {
+    "confirm": "delete_account"
+  }
+}
+```
+
+Behavior:
+
+- Requires owner `access_token`; `agent_token` is rejected.
+- Cannot be called through `GET /_p2p/ws` `client.request`; WS returns `action requires http`.
+- Before database reset, the server leaves accepted direct-contact rooms, dissolves groups/channels owned by the portal owner, leaves groups/channels where the owner is only a member, and deactivates local owner/agent Matrix accounts.
+- If a critical leave/dissolve/deactivation step fails, the server returns an error and does not clear databases.
+- On success, the server writes a non-secret deprovision marker to the portal credentials file, clears configured local databases, clears in-memory product/session state, and schedules local message-server shutdown. It does not destroy AWS/cloud instances.
+
+Response includes `status: "deprovisioned"`, operation counts such as `contacts_left`, `groups_dissolved`, `channels_dissolved`, `accounts_deactivated`, and `database_reset: true`.
+
 ## 2026-06-22 Matrix-First Cleanup
 
 This pass removes the remaining ambiguous compatibility surface from current code, examples, skills, and Postman.
@@ -414,7 +439,7 @@ Breaking removals and contract changes:
 - Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It initially required bearer `access_token`; current servers accept owner `access_token` or `agent_token`. It returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
-The live P2P body-action count is 90. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+The live P2P body-action count is 91. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 ## Current Pass
 

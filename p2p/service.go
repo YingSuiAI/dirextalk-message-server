@@ -62,6 +62,9 @@ type Service struct {
 	matrixProfiles             matrixProfileResolver
 	remoteHTTPClient           *http.Client
 	remoteAllowPrivate         bool
+	accountDeactivator         AccountDeactivator
+	accountDeprovisioner       AccountDeprovisioner
+	accountDeletionInProgress  bool
 	storeMode                  string
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
@@ -103,6 +106,14 @@ type Service struct {
 type PushRuleManager interface {
 	QueryPushRules(ctx context.Context, userID string) (*pushrules.AccountRuleSets, error)
 	PerformPushRulesPut(ctx context.Context, userID string, ruleSets *pushrules.AccountRuleSets) error
+}
+
+type AccountDeactivator interface {
+	DeactivateAccount(ctx context.Context, localpart string) error
+}
+
+type AccountDeprovisioner interface {
+	DeprovisionAccount(ctx context.Context) error
 }
 
 type Store interface {
@@ -451,6 +462,18 @@ func (s *Service) SetMatrixProfileResolver(resolver matrixProfileResolver) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.matrixProfiles = resolver
+}
+
+func (s *Service) SetAccountDeactivator(deactivator AccountDeactivator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountDeactivator = deactivator
+}
+
+func (s *Service) SetAccountDeprovisioner(deprovisioner AccountDeprovisioner) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountDeprovisioner = deprovisioner
 }
 
 func (s *Service) SetProjectorStarted(started bool) {

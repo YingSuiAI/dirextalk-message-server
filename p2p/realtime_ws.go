@@ -277,7 +277,7 @@ func realtimeWSHTTPOnlyAction(action string) bool {
 		return true
 	}
 	switch action {
-	case "portal.bootstrap", "portal.auth", "portal.status", "portal.password":
+	case "portal.bootstrap", "portal.auth", "portal.status", "portal.password", "portal.account.delete":
 		return true
 	default:
 		return false

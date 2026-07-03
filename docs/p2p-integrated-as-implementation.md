@@ -221,7 +221,7 @@ Public actions currently allowed without bearer:
 - `channels.public.search`
 - `users.public_channels`
 
-Startup now performs default portal initialization. When no `p2p_portal` row exists, the integrated service creates owner/agent tokens, owner profile metadata, and a default password automatically, then persists that state to PostgreSQL when a store is available. `P2P_PORTAL_PASSWORD` can override the default password; otherwise a new portal starts with a random 8-digit numeric password and writes it to the credentials file. `P2P_PORTAL_CREDENTIALS_FILE` writes the current credential JSON after startup and after password/session token changes.
+Startup now performs default portal initialization. When no `p2p_portal` row exists, the integrated service creates owner/agent tokens, owner profile metadata, and a default password automatically, then persists that state to PostgreSQL when a store is available. `P2P_PORTAL_PASSWORD` can override the default password; otherwise a new portal starts with a random 8-digit numeric password and writes it to the credentials file. `P2P_PORTAL_CREDENTIALS_FILE` writes the current credential JSON after startup and after password/session token changes. `portal.account.delete` overwrites that credentials file with a non-secret `deprovisioned` marker before clearing local databases.
 
 The login/password response exposes one setup flag: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` successfully changes that password. Profile completion is not part of setup state; Direxio Flutter stores `access_token` and routes by `initialized` only.
 
@@ -266,7 +266,7 @@ The Web smoke path also keeps the existing pages intact:
 
 Backend product actions include:
 
-- Portal/profile/sync/realtime: `portal.bootstrap`, `portal.auth`, `portal.status`, `portal.password`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`, `realtime.ws_ticket.create`
+- Portal/profile/sync/realtime: `portal.bootstrap`, `portal.auth`, `portal.status`, `portal.password`, `portal.account.delete`, `profile.get`, `profile.update`, `sync.bootstrap`, `sync.read_marker`, `realtime.ws_ticket.create`
 - Contacts/blocks: `contacts.list`, `contacts.request`, `contacts.requests.accept`, `contacts.requests.reject`, `contacts.requests.delete`, `contacts.delete`, `blocks.add`, `blocks.list`, `blocks.remove`
 - Groups: `groups.create`, `groups.update`, `groups.invite`, `groups.invite.reject`, `groups.members`, `groups.join`, `groups.leave`, `groups.mute`, `groups.unmute`, `groups.member.remove`, `groups.member.mute`, `groups.member.unmute`, `groups.invite_policy.update`
 - Channels/users: `channels.create`, `channels.list`, `channels.public.get`, `channels.public.join_request`, `users.public_channels`, `channels.join`, `channels.update`, `channels.invite`, `channels.invite_grant.create`, `channels.leave`, `channels.members`, `channels.member.remove`, `channels.member.mute`, `channels.member.unmute`, `channels.join_request.approve`, `channels.join_request.reject`, `channels.posts.list`, `channels.posts.create`, `channels.posts.recall`, `channels.comments.list`, `channels.comments.create`, `channels.comments.recall`, `channels.post_reaction.toggle`, `channels.comment_reaction.toggle`, `channels.read_marker`, `channels.my_comments`, `channels.my_reactions`

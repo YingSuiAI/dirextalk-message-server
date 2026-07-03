@@ -17,7 +17,7 @@
 - Retain WebSocket route `GET /_p2p/ws?ticket=<ticket>`.
 - A WS ticket is short-lived, server-local, single-use after accepted WebSocket upgrade, and issued only from an owner `access_token`.
 - Remove `GET /_p2p/events`; there is no SSE fallback.
-- HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password, WS ticket creation, `agent.matrix_session.create`, fixed MCP actions, and node-to-node public/callback actions.
+- HTTP `/query` and `/command` stay registered for portal bootstrap/auth/status/password/account-delete, WS ticket creation, `agent.matrix_session.create`, fixed MCP actions, and node-to-node public/callback actions.
 - Logged-in owner clients call product actions through WS:
 
 ```json

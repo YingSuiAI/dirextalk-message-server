@@ -91,8 +91,11 @@ func (m *Monolith) AddAllPublicRoutes(
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
 	p2pTransport := p2p.NewDendriteTransport(cfg.Global.ServerName, cfg.Global.KeyID, cfg.Global.PrivateKey, m.RoomserverAPI)
+	accountDeprovisioner := newAccountDeprovisioner(processCtx, cfg, cm)
 	p2pService := p2p.NewServiceWithTransport(p2pConfig, p2pTransport)
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
+	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
+	p2pService.SetAccountDeprovisioner(accountDeprovisioner)
 	p2pService.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil))
 	p2pService.SetMatrixProfileResolver(matrixProfileResolver)
 	if store, err := p2p.NewDatabaseStore(processCtx.Context(), cm, p2pDatabaseOptions(cfg)); err != nil {
@@ -101,6 +104,8 @@ func (m *Monolith) AddAllPublicRoutes(
 		logrus.WithError(err).Warn("P2P integrated AS state load failed; falling back to in-memory business state")
 	} else {
 		service.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
+		service.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
+		service.SetAccountDeprovisioner(accountDeprovisioner)
 		service.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil))
 		service.SetMatrixProfileResolver(matrixProfileResolver)
 		p2pService = service

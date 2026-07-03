@@ -55,7 +55,7 @@
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 在 WS `server.ready` 后优先使用 `client.request`；点击时 WS 未 ready 或断线时，立即使用 owner `access_token` 通过 HTTP `/query` 或 `/command` 发送同一 action envelope 作为 fallback，realtime WS 在后台继续重连。已发出 WS request 后响应前传输失败时，只对可安全重复的 action 做 HTTP fallback。WS 业务错误不通过 HTTP 重试。`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、portal auth/password/status、以及节点间 public/callback action 仍使用 HTTP。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`，但 `agent_token` 不能调用 owner product action fallback。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, rooms.reactivate, users.public_channels.",
+      "description": "Direxio P2P body-action 接口集合。登录后客户端 product action 在 WS `server.ready` 后优先使用 `client.request`；点击时 WS 未 ready 或断线时，立即使用 owner `access_token` 通过 HTTP `/query` 或 `/command` 发送同一 action envelope 作为 fallback，realtime WS 在后台继续重连。已发出 WS request 后响应前传输失败时，只对可安全重复的 action 做 HTTP fallback。WS 业务错误不通过 HTTP 重试。`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、portal auth/password/status/account-delete、以及节点间 public/callback action 仍使用 HTTP。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`，但 `agent_token` 不能调用 owner product action fallback。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, rooms.reactivate, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -2895,6 +2895,38 @@
               }
             },
             {
+              "name": "portal.account.delete（注销账号）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "注销当前 owner 账号。服务端会先退出联系人、退出加入的群聊和频道、解散 owner 创建的群聊和频道并通知关联节点，随后停用本地 owner/agent Matrix 用户、写入无密钥 tombstone 凭据文件、清空已配置数据库并关闭进程。该接口不销毁云服务器实例，调用方仍需自行销毁实例以停止计费。\n\nDelete the current owner account. The server first leaves contacts, leaves joined groups/channels, dissolves owner-created groups/channels and notifies related nodes, then deactivates local owner/agent Matrix users, writes a non-secret tombstone credentials file, clears configured databases, and shuts down. This action does not destroy the cloud/server instance; the caller must destroy the instance separately to stop billing.\n\nAction: `portal.account.delete`\nEndpoint: `POST /_p2p/command`\nAuth: Protected HTTP-only action; use owner access_token.\nRequired params: `confirm` must be `delete_account`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"portal.account.delete\",\n  \"params\": {\n    \"confirm\": \"delete_account\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "portal.status（读取门户状态）",
               "request": {
                 "method": "POST",
@@ -2922,7 +2954,7 @@
               }
             }
           ],
-          "description": "门户初始化、登录、密码轮换和初始化状态查询接口。"
+          "description": "门户初始化、登录、密码轮换、账号注销和初始化状态查询接口。"
         },
         {
           "name": "profile（个人资料）",

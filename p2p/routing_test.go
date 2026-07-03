@@ -344,6 +344,7 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 		"agent.config.get",
 		"agent.config.update",
 		"agent.password",
+		"portal.account.delete",
 		realtimeWSTicketAction,
 	} {
 		if service.Authorize(agentToken, action) {

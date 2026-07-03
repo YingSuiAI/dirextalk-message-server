@@ -27,6 +27,18 @@ func NewDendriteMatrixSessionIssuer(userAPI userapi.UserInternalAPI, serverName 
 	return &DendriteMatrixSessionIssuer{userAPI: userAPI, serverName: serverName}
 }
 
+func NewDendriteAccountDeactivator(userAPI userapi.UserInternalAPI, serverName spec.ServerName) *DendriteMatrixSessionIssuer {
+	return &DendriteMatrixSessionIssuer{userAPI: userAPI, serverName: serverName}
+}
+
+func (i *DendriteMatrixSessionIssuer) DeactivateAccount(ctx context.Context, localpart string) error {
+	res := &userapi.PerformAccountDeactivationResponse{}
+	return i.userAPI.PerformAccountDeactivation(ctx, &userapi.PerformAccountDeactivationRequest{
+		Localpart:  strings.TrimSpace(localpart),
+		ServerName: i.serverName,
+	}, res)
+}
+
 func (i *DendriteMatrixSessionIssuer) EnsureMatrixSession(ctx context.Context, userID, displayName, avatarURL, requestedDeviceID string, revokeExistingDevices bool) (string, error) {
 	localpart, serverName, err := gomatrixserverlib.SplitID('@', userID)
 	if err != nil {

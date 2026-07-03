@@ -39,6 +39,7 @@ Public actions:
 - `portal.bootstrap`
 - `portal.auth`
 - `portal.status`
+- `portal.account.delete`
 - `contacts.reactivate`
 - `rooms.reactivate`
 - `channels.public.search`

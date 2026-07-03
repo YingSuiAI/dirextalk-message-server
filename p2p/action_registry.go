@@ -10,6 +10,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"portal.auth":                 s.auth,
 		"portal.status":               s.portalStatusAction,
 		"portal.password":             s.changePortalPassword,
+		"portal.account.delete":       s.deleteAccount,
 		"agent.password":              s.agentPasswordAction,
 		"agent.matrix_session.create": s.agentMatrixSession,
 		"profile.get":                 s.getProfileAction,

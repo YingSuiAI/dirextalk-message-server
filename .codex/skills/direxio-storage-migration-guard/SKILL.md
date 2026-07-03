@@ -24,6 +24,7 @@ Use this skill whenever behavior depends on durable state. Work at the owning pa
 - Add indexes for introduced query patterns, not speculative indexes.
 - Keep P2P/Direxio product read models as projections unless a domain rule explicitly makes the table source-of-truth state.
 - If database selection changes, verify setup config, Docker config, bootstrap credentials paths, and fallback tests.
+- Account deletion uses local deprovision rather than a schema migration: after critical Matrix leave/dissolve/deactivate steps succeed, the monolith deprovisioner clears every unique configured local database connection and schedules process shutdown. It must also overwrite the portal credentials file with a non-secret deprovision marker.
 
 ## Verification Targets
 

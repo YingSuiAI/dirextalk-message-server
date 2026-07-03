@@ -42,7 +42,7 @@ Direxio 产品 API 只暴露 body-action surface：
 }
 ```
 
-Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 在 WS 已收到 `server.ready` 时优先走 `GET /_p2p/ws` 上的 `client.request`/`server.response`；点击时 WS 未 ready 或已断线时，当前 action 立即用 `POST /_p2p/query` 或 `POST /_p2p/command` 作为 owner HTTP fallback，同时 realtime WS 在后台继续重连。已发出 WS request 后响应丢失时，只对可安全重复的 action 做 HTTP fallback。`realtime.ws_ticket.create` 只接受 owner `access_token` 创建 owner WS ticket。`agent_token` 只允许访问 `agent.matrix_session.create` 和固定 `mcp.*` HTTP action，不能通过 HTTP fallback 调用 owner product action。MCP action 与 `agent.matrix_session.create` 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 owner WS ticket，不直接接受 bearer token。当前 public action 是：
+Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <access_token>`。登录后的客户端 product action 在 WS 已收到 `server.ready` 时优先走 `GET /_p2p/ws` 上的 `client.request`/`server.response`；点击时 WS 未 ready 或已断线时，当前 action 立即用 `POST /_p2p/query` 或 `POST /_p2p/command` 作为 owner HTTP fallback，同时 realtime WS 在后台继续重连。已发出 WS request 后响应丢失时，只对可安全重复的 action 做 HTTP fallback。`portal.account.delete` 是 owner `access_token` 保护的 HTTP-only 注销命令，不能通过 WS 调用。`realtime.ws_ticket.create` 只接受 owner `access_token` 创建 owner WS ticket。`agent_token` 只允许访问 `agent.matrix_session.create` 和固定 `mcp.*` HTTP action，不能通过 HTTP fallback 调用 owner product action。MCP action 与 `agent.matrix_session.create` 不迁移到 WS `client.request`。`GET /_p2p/ws` 只接受短期单次 owner WS ticket，不直接接受 bearer token。当前 public action 是：
 
 - `portal.bootstrap`
 - `portal.auth`
@@ -55,7 +55,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 - `channels.public.join_result`
 - `users.public_channels`
 
-`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。
+`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。`portal.account.delete` 要求 `params.confirm="delete_account"`，会在清库前退出 accepted direct contacts、解散 owner 创建的群聊和频道、退出 owner 只是成员的群聊/频道、停用本地 owner/agent Matrix 账号并写入非密钥 deprovision 标记。若关键退出/解散/停用步骤失败，不清库。该动作只清理本机数据库并关闭 message-server 进程，不销毁 AWS/云服务器实例。
 
 `rooms.reactivate` 与 `channels.public.join_result` 是节点间回调，不是客户端常规入口。`rooms.reactivate` 只用于在群/私有频道成员节点重建后恢复对方节点上的邀请/待加入提示，不能让对方静默加入；最终加入仍由对方客户端调用 `groups.join` 或 `channels.join`。
 
@@ -104,7 +104,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 
 P2P action 生命周期：
 
-1. 登录后客户端在 WS 已收到 `server.ready` 时通过 `GET /_p2p/ws` 发送 `client.request`；点击时 WS 未 ready 或断线时，同一 `{ "action": "...", "params": ... }` envelope 立即通过 HTTP `/query` 或 `/command` 作为 owner fallback，realtime WS 后台重连恢复事件流。portal/auth/password、WS ticket、MCP、`agent.matrix_session.create`、public/callback action 仍按各自 HTTP/WS 边界执行。
+1. 登录后客户端在 WS 已收到 `server.ready` 时通过 `GET /_p2p/ws` 发送 `client.request`；点击时 WS 未 ready 或断线时，同一 `{ "action": "...", "params": ... }` envelope 立即通过 HTTP `/query` 或 `/command` 作为 owner fallback，realtime WS 后台重连恢复事件流。portal/auth/password/account-delete、WS ticket、MCP、`agent.matrix_session.create`、public/callback action 仍按各自 HTTP/WS 边界执行。
 2. route 或 WS request 处理器调用 `Service.Authorize`：
    - public action 直接放行；
    - protected action 校验 owner access token；`agent_token` 仅允许 `agent.matrix_session.create` 和固定 MCP action。
