@@ -1354,6 +1354,53 @@ func TestFreshContactRequestCreatesReplacementWhenRetainedRoomCannotRejoin(t *te
 	}
 }
 
+func TestFreshContactRequestCreatesReplacementWhenRetainedLocalRoomVersionIsMissing(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req envelope
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Action != "contacts.reactivate" {
+			t.Fatalf("expected contacts.reactivate, got %#v", req)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "invited",
+			"room_id": "!old-dm:example.com",
+		})
+	}))
+	defer remote.Close()
+
+	transport := &failOnceJoinTransport{
+		recordingTransport: recordingTransport{roomID: "!new-dm:example.com"},
+		err:                errors.New(`error joining local room: "gomatrixserverlib: unsupported room version ''"`),
+		failures:           6,
+	}
+	service := NewServiceWithTransport(Config{
+		ServerName:                     "example.com",
+		RemoteNodeAllowPrivateBaseURLs: true,
+	}, transport)
+	bootstrapService(t, service)
+
+	contact := mustHandle[contactRecord](t, service, "contacts.request", map[string]any{
+		"mxid":                 "@alice:remote.example",
+		"display_name":         "Alice",
+		"domain":               "remote.example",
+		"remote_node_base_url": remote.URL + "/_p2p",
+	})
+
+	if contact.Status != "pending_outbound" || contact.RoomID != "!new-dm:example.com" {
+		t.Fatalf("expected missing local room version to create replacement direct request, got %#v", contact)
+	}
+	if len(transport.joinRequests) != 1 ||
+		transport.joinRequests[0].RoomIDOrAlias != "!old-dm:example.com" ||
+		!transport.joinRequests[0].DirectContactReactivation {
+		t.Fatalf("expected direct reactivation attempt against old local room, got %#v", transport.joinRequests)
+	}
+	if len(transport.createRooms) != 1 || len(transport.createRooms[0].InviteMXIDs) != 1 || transport.createRooms[0].InviteMXIDs[0] != "@alice:remote.example" {
+		t.Fatalf("expected replacement direct room invite, got %#v", transport.createRooms)
+	}
+}
+
 func TestAcceptedContactFreshInviteUsesReplacementWhenRetainedRoomAlreadyJoined(t *testing.T) {
 	transport := &failingInviteTransport{
 		recordingTransport: recordingTransport{},

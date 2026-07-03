@@ -223,6 +223,7 @@ def action_requires_http(action: str) -> bool:
         "portal.auth",
         "portal.status",
         "portal.password",
+        "portal.account.delete",
         "realtime.ws_ticket.create",
     }
 
@@ -852,6 +853,101 @@ def assert_matrix_channel_content(node: Node, room_id: str, expected_bodies: lis
     wait_until(f"{node.label} Matrix /messages did not return historical channel content", has_channel_content)
 
 
+def contact_visible(node: Node, peer_mxid: str, room_id: str) -> Optional[dict[str, Any]]:
+    contacts = list((p2p(node, "command", "sync.bootstrap").get("contacts") or []))
+    return find_by(contacts, peer_mxid=peer_mxid, room_id=room_id)
+
+
+def group_visible(node: Node, room_id: str) -> Optional[dict[str, Any]]:
+    return find_by(list((p2p(node, "command", "groups.list").get("groups") or [])), room_id=room_id)
+
+
+def channel_visible(node: Node, room_id: str) -> Optional[dict[str, Any]]:
+    return find_by(list((p2p(node, "command", "channels.list").get("channels") or [])), room_id=room_id)
+
+
+def joined_member(node: Node, action: str, params: dict[str, Any], user_id: str) -> Optional[dict[str, Any]]:
+    members = list((p2p(node, "command", action, params).get("members") or []))
+    member = find_by(members, user_id=user_id)
+    if member and member.get("membership") in ("join", "joined"):
+        return member
+    return None
+
+
+def room_removed_from_product_views(node: Node, room_id: str, kind: str) -> bool:
+    if kind == "group" and group_visible(node, room_id):
+        return False
+    if kind == "channel" and channel_visible(node, room_id):
+        return False
+    conversation = conversation_for(node, room_id)
+    if not conversation:
+        return True
+    if conversation.get("lifecycle") == "dissolved":
+        caps = conversation.get("capabilities") or {}
+        return not caps.get("open") and not caps.get("send")
+    return False
+
+
+def verify_account_delete_deprovision_propagates(deleter: Node, peer: Node, observer: Node, suffix: int) -> None:
+    direct_room = ensure_direct(deleter, peer)
+
+    owned_group = create_group(deleter, f"{deleter.label} Delete Owned Group {suffix}")
+    invite_and_join(deleter, peer, owned_group)
+    invite_and_join(deleter, observer, owned_group)
+
+    owned_channel = create_channel(deleter, f"{deleter.label} Delete Owned Channel {suffix}", "private", "invite")
+    invite_channel_and_join(deleter, peer, owned_channel)
+    invite_channel_and_join(deleter, observer, owned_channel)
+
+    member_group = create_group(peer, f"{peer.label} Delete Member Group {suffix}")
+    invite_and_join(peer, deleter, member_group)
+
+    member_channel = create_channel(peer, f"{peer.label} Delete Member Channel {suffix}", "private", "invite")
+    invite_channel_and_join(peer, deleter, member_channel)
+
+    close_ws(deleter)
+    deleted = p2p(deleter, "command", "portal.account.delete", {"confirm": "delete_account"})
+    expect(deleted.get("status") == "deprovisioned", f"{deleter.label} account delete failed: {deleted!r}")
+    expect(int(deleted.get("contacts_left") or 0) >= 1, f"{deleter.label} account delete did not leave contacts: {deleted!r}")
+    expect(int(deleted.get("groups_dissolved") or 0) >= 1, f"{deleter.label} account delete did not dissolve owned groups: {deleted!r}")
+    expect(int(deleted.get("channels_dissolved") or 0) >= 1, f"{deleter.label} account delete did not dissolve owned channels: {deleted!r}")
+    expect(int(deleted.get("groups_left") or 0) >= 1, f"{deleter.label} account delete did not leave member groups: {deleted!r}")
+    expect(int(deleted.get("channels_left") or 0) >= 1, f"{deleter.label} account delete did not leave member channels: {deleted!r}")
+
+    wait_until(
+        f"{peer.label} still shows deleted peer direct contact",
+        lambda: contact_visible(peer, deleter.mxid, direct_room) is None,
+        seconds=120,
+    )
+    for node in (peer, observer):
+        wait_until(
+            f"{node.label} still shows dissolved owner group",
+            lambda n=node: room_removed_from_product_views(n, owned_group, "group"),
+            seconds=120,
+        )
+        wait_until(
+            f"{node.label} still shows dissolved owner channel",
+            lambda n=node: room_removed_from_product_views(n, owned_channel.get("room_id") or "", "channel"),
+            seconds=120,
+        )
+    wait_until(
+        f"{peer.label} group members still show deleted account as joined",
+        lambda: joined_member(peer, "groups.members", {"room_id": member_group}, deleter.mxid) is None,
+        seconds=120,
+    )
+    wait_until(
+        f"{peer.label} channel members still show deleted account as joined",
+        lambda: joined_member(
+            peer,
+            "channels.members",
+            {"room_id": member_channel.get("room_id"), "channel_id": member_channel.get("channel_id")},
+            deleter.mxid,
+        )
+        is None,
+        seconds=120,
+    )
+
+
 def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None:
     for sender in nodes:
         search = mcp(sender, "query", "mcp.rooms.search", {"type": "group", "limit": 100})
@@ -1137,6 +1233,9 @@ def main() -> int:
     wait_until("C conversations missing empty group after restart", lambda: conversation_for(c, empty_group))
     assert_history(c, message_group, group_text)
     print("PASS C restart persistence and Matrix history load")
+
+    verify_account_delete_deprovision_propagates(b, a, c, suffix)
+    print("PASS account deletion leaves direct contacts/member rooms, dissolves owned rooms, and propagates removal to peers")
 
     print("THREE_NODE_REGRESSION_PASS")
     return 0

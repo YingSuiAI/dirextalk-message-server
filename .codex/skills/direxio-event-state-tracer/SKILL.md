@@ -36,8 +36,8 @@ For inbound or federated behavior, start at roomserver/federation output and tra
 ## Direxio Checks
 
 - Membership and invitation flows must cover owner, requester, local user, remote user, leave/kick/ban, deleted direct-contact recovery, and idempotent already-applied paths.
-- Deleted direct contacts keep the old direct room for recovery. A peer re-request stays pending until the deleting side explicitly accepts.
-- `portal.account.delete` must publish the critical Matrix leave/dissolve facts before local database reset: accepted direct contacts leave their rooms, owner-created groups/channels publish dissolved `io.direxio.room.profile`, and member-only groups/channels leave through `p2p.Transport`. If any critical write fails, do not reset local databases.
+- Deleted direct contacts keep the old direct room for recovery. If a rebuilt node cannot rejoin the retained direct room because old Matrix room/key state is gone, including missing local room version after database loss, it may create a replacement direct request room; a peer re-request stays pending until the deleting side explicitly accepts.
+- `portal.account.delete` must publish the critical Matrix leave/dissolve facts before local database reset: accepted direct contacts first publish an `io.direxio.room.profile` account-deleted dissolve state so peers hide the deleted account, then leave their rooms; owner-created groups/channels publish dissolved `io.direxio.room.profile`; member-only groups/channels leave through `p2p.Transport`. If any critical write fails, do not reset local databases.
 - Local delete hides for one user; recall/redaction propagates as Matrix redaction.
 - Ordinary timeline messages must not create a second product message source of truth.
 - Channel posts, comments, and reactions are product projections backed by Matrix events and redactions.

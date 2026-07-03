@@ -73,6 +73,9 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	if !hasDissolvedState(transport.stateEvents, "!owned-channel:example.com", DirexioRoomTypeChannel) {
 		t.Fatalf("expected owned channel dissolve state, got %#v", transport.stateEvents)
 	}
+	if !hasDirectAccountDeletedState(transport.stateEvents, "!dm:remote.example") {
+		t.Fatalf("expected direct account-deleted state, got %#v", transport.stateEvents)
+	}
 	if got, want := deactivator.users, []string{"owner", "agent"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("expected Matrix account deactivation %#v, got %#v", want, got)
 	}
@@ -97,6 +100,48 @@ func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {
 	}
 	if deprovisioner.calls != 0 {
 		t.Fatalf("deprovision must not run after critical leave failure")
+	}
+}
+
+func TestAccountDeleteDirectDissolveProjectsPeerContactDeleted(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	if err := service.saveContact(ctx, contactRecord{
+		RoomID:      "!dm:remote.example",
+		PeerMXID:    "@peer:remote.example",
+		DisplayName: "Peer",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	event := trustedStateEvent(t, "!dm:remote.example", "@peer:remote.example", DirexioRoomProfileEventType, "", map[string]any{
+		"room_type":       DirexioRoomTypeDirect,
+		"requester_mxid":  "@peer:remote.example",
+		"target_mxid":     "@owner:example.com",
+		"display_name":    "Peer",
+		"dissolved":       true,
+		"account_deleted": true,
+		"deleted_mxid":    "@peer:remote.example",
+	})
+	if err := service.projectRoomProfileState(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+
+	visible, err := service.listContacts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visible) != 0 {
+		t.Fatalf("expected deleted peer contact to be hidden, got %#v", visible)
+	}
+	raw, err := service.rawContacts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findByRoom(raw, "!dm:remote.example"); got == nil || got.Status != "deleted" {
+		t.Fatalf("expected raw contact to be marked deleted, got %#v", raw)
 	}
 }
 
@@ -169,6 +214,30 @@ func hasDissolvedState(states []SendStateEventRequest, roomID, roomType string) 
 		}
 	}
 	return false
+}
+
+func hasDirectAccountDeletedState(states []SendStateEventRequest, roomID string) bool {
+	for _, state := range states {
+		if state.RoomID != roomID || state.Event.Type != DirexioRoomProfileEventType {
+			continue
+		}
+		if state.Event.Content["room_type"] == DirexioRoomTypeDirect &&
+			state.Event.Content["dissolved"] == true &&
+			state.Event.Content["account_deleted"] == true &&
+			state.Event.Content["deleted_mxid"] == "@owner:example.com" {
+			return true
+		}
+	}
+	return false
+}
+
+func findByRoom(contacts []contactRecord, roomID string) *contactRecord {
+	for i := range contacts {
+		if contacts[i].RoomID == roomID {
+			return &contacts[i]
+		}
+	}
+	return nil
 }
 
 func hasString(values []string, want string) bool {

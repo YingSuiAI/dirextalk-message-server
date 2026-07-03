@@ -95,6 +95,9 @@ func (s *Service) leaveAccountContacts(ctx context.Context, summary *accountDele
 		if contact.RoomID == "" || contactDeleted(contact.Status) || !contactAccepted(contact.Status) {
 			continue
 		}
+		if apiErr := s.publishAccountDeletedDirectState(ctx, contact); apiErr != nil {
+			return apiErr
+		}
 		if _, apiErr := s.contactMutation(ctx, "contacts.delete", map[string]any{
 			"room_id":   contact.RoomID,
 			"peer_mxid": contact.PeerMXID,
@@ -102,6 +105,32 @@ func (s *Service) leaveAccountContacts(ctx context.Context, summary *accountDele
 			return apiErr
 		}
 		summary.ContactsLeft++
+	}
+	return nil
+}
+
+func (s *Service) publishAccountDeletedDirectState(ctx context.Context, contact contactRecord) *apiError {
+	if s.transport == nil || strings.TrimSpace(contact.RoomID) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	ownerDisplayName := s.profile.DisplayName
+	ownerAvatarURL := s.profile.AvatarURL
+	s.mu.Unlock()
+	if strings.TrimSpace(ownerMXID) == "" {
+		return nil
+	}
+	directName := fallbackString(ownerDisplayName, ownerMXID)
+	event := roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, true)
+	event.Content["account_deleted"] = true
+	event.Content["deleted_mxid"] = ownerMXID
+	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
+		RoomID:     contact.RoomID,
+		SenderMXID: ownerMXID,
+		Event:      event,
+	}); err != nil {
+		return transportWriteError(err)
 	}
 	return nil
 }

@@ -43,6 +43,25 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 	if err := s.deleteGroup(ctx, roomID); err != nil {
 		return err
 	}
+	if boolParam(content["dissolved"]) && boolParam(content["account_deleted"]) {
+		deletedMXID := trimString(content["deleted_mxid"])
+		if deletedMXID == "" {
+			requester := trimString(content["requester_mxid"])
+			target := trimString(content["target_mxid"])
+			s.mu.Lock()
+			ownerMXID := s.ownerMXID
+			s.mu.Unlock()
+			switch {
+			case requester != "" && requester != ownerMXID:
+				deletedMXID = requester
+			case target != "" && target != ownerMXID:
+				deletedMXID = target
+			}
+		}
+		if err := s.markDirectContactDeleted(ctx, roomID, deletedMXID); err != nil {
+			return err
+		}
+	}
 	return s.appendP2PEvent(ctx, p2pEvent{
 		Type:      "profile.changed",
 		RoomID:    roomID,
@@ -50,6 +69,21 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), roomID),
 		Payload:   map[string]any{"room_type": DirexioRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
 	})
+}
+
+func (s *Service) markDirectContactDeleted(ctx context.Context, roomID, peerMXID string) error {
+	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+	if err != nil || !ok {
+		return err
+	}
+	if peerMXID != "" && contact.PeerMXID != "" && contact.PeerMXID != peerMXID {
+		return nil
+	}
+	if peerMXID != "" {
+		contact.PeerMXID = peerMXID
+	}
+	contact.Status = "deleted"
+	return s.saveContact(ctx, contact)
 }
 
 func (s *Service) projectChannelProfileContent(ctx context.Context, event *types.HeaderedEvent, content map[string]any) error {

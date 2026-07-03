@@ -603,6 +603,7 @@ func isDirectContactReactivationJoinFailed(err error) bool {
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(message, "inputwasrejected") ||
 		strings.Contains(message, "local server not currently joined to room") ||
+		strings.Contains(message, "unsupported room version") ||
 		strings.Contains(message, "join rule \"invite\" forbids it")
 }
 

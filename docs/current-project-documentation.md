@@ -55,7 +55,7 @@ Protected action 通过 HTTP route 调用时需要 `Authorization: Bearer <acces
 - `channels.public.join_result`
 - `users.public_channels`
 
-`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。`portal.account.delete` 要求 `params.confirm="delete_account"`，会在清库前退出 accepted direct contacts、解散 owner 创建的群聊和频道、退出 owner 只是成员的群聊/频道、停用本地 owner/agent Matrix 账号并写入非密钥 deprovision 标记。若关键退出/解散/停用步骤失败，不清库。该动作只清理本机数据库并关闭 message-server 进程，不销毁 AWS/云服务器实例。
+`portal.bootstrap`、`portal.auth`、`portal.password` 响应只暴露一个初始化状态：`initialized`。它只表示用户是否已通过 `portal.password` 修改过初始密码；profile 是否填写不影响该状态。`portal.account.delete` 要求 `params.confirm="delete_account"`，会在清库前向 accepted direct contacts 发布带 `account_deleted` 的 `io.direxio.room.profile` 解散状态，让对端隐藏已注销联系人；随后退出直聊、解散 owner 创建的群聊和频道、退出 owner 只是成员的群聊/频道、停用本地 owner/agent Matrix 账号并写入非密钥 deprovision 标记。若关键退出/解散/停用步骤失败，不清库。该动作只清理本机数据库并关闭 message-server 进程，不销毁 AWS/云服务器实例。
 
 `rooms.reactivate` 与 `channels.public.join_result` 是节点间回调，不是客户端常规入口。`rooms.reactivate` 只用于在群/私有频道成员节点重建后恢复对方节点上的邀请/待加入提示，不能让对方静默加入；最终加入仍由对方客户端调用 `groups.join` 或 `channels.join`。
 

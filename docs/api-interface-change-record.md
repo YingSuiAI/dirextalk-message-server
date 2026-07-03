@@ -49,7 +49,7 @@ Added internal public action `rooms.reactivate` for node-to-node recovery when a
 
 When `groups.invite` or `channels.invite` sees Matrix report the target user as already joined, the owner node removes that stale joined membership, sends a new Matrix invite, and calls the target node `rooms.reactivate` instead of treating the invite as failed. The target node records an invite/pending room card only; it does not silently join. The user must still confirm by calling `groups.join` or `channels.join`, and joined state is recorded only after Matrix join succeeds. Public channels continue to recover through `channels.public.join_request` and the normal open/approval flow; if the owner node still has stale joined membership for that public requester, it removes it and sends the fresh Matrix invite required before returning `channels.public.join_result`.
 
-For rebuilt direct-contact nodes, `contacts.request` still first asks the retained peer to re-invite the old accepted direct room. If the retained room cannot be rejoined because the rebuilt node lost its old Matrix room/key state, the requester creates a replacement direct request room. The retained peer accepts that replacement only from the real Matrix invite sender and preserves local contact remarks; old direct-room history is not copied into the replacement.
+For rebuilt direct-contact nodes, `contacts.request` still first asks the retained peer to re-invite the old accepted direct room. If the retained room cannot be rejoined because the rebuilt node lost its old Matrix room/key state, including a missing local room version after database loss, the requester creates a replacement direct request room. The retained peer accepts that replacement only from the real Matrix invite sender and preserves local contact remarks; old direct-room history is not copied into the replacement.
 
 ## 2026-06-30 Contact Re-Request Replacement Room
 
@@ -418,7 +418,7 @@ Behavior:
 
 - Requires owner `access_token`; `agent_token` is rejected.
 - Cannot be called through `GET /_p2p/ws` `client.request`; WS returns `action requires http`.
-- Before database reset, the server leaves accepted direct-contact rooms, dissolves groups/channels owned by the portal owner, leaves groups/channels where the owner is only a member, and deactivates local owner/agent Matrix accounts.
+- Before database reset, the server publishes `io.direxio.room.profile` direct-room account-deleted dissolve state for accepted direct contacts so peers hide the deleted account, leaves accepted direct-contact rooms, dissolves groups/channels owned by the portal owner, leaves groups/channels where the owner is only a member, and deactivates local owner/agent Matrix accounts.
 - If a critical leave/dissolve/deactivation step fails, the server returns an error and does not clear databases.
 - On success, the server writes a non-secret deprovision marker to the portal credentials file, clears configured local databases, clears in-memory product/session state, and schedules local message-server shutdown. It does not destroy AWS/cloud instances.
 
