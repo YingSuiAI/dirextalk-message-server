@@ -1,0 +1,159 @@
+{
+  "info": {
+    "name": "Dirextalk Plugin Manager API",
+    "_postman_id": "dirextalk-plugins-generated-2026-07-04",
+    "description": "Owner-token plugin management body actions for official Dirextalk plugins.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "plugins.catalog.list",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.catalog.list\",\n  \"params\": {}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.install agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+              "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"api_key_ref\": \"env:DEEPSEEK_API_KEY\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.enable agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.enable\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.installed.list",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.installed.list\",\n  \"params\": {}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.job.get",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.job.get\",\n  \"params\": {\n    \"job_id\": \"{{pluginJobID}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8008"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "pluginJobID",
+      "value": ""
+    }
+  ]
+}

@@ -547,6 +547,38 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: official plugins v31",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_plugins (
+					id TEXT PRIMARY KEY NOT NULL,
+					name TEXT NOT NULL DEFAULT '',
+					version TEXT NOT NULL DEFAULT '',
+					image TEXT NOT NULL DEFAULT '',
+					digest TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL DEFAULT '',
+					enabled BIGINT NOT NULL DEFAULT 0,
+					config_json TEXT NOT NULL DEFAULT '',
+					last_job_id TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL DEFAULT 0,
+					updated_at BIGINT NOT NULL DEFAULT 0
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_plugins_status_idx ON p2p_plugins(status, enabled)`,
+				`CREATE TABLE IF NOT EXISTS p2p_plugin_jobs (
+					job_id TEXT PRIMARY KEY NOT NULL,
+					plugin_id TEXT NOT NULL,
+					action TEXT NOT NULL,
+					status TEXT NOT NULL,
+					message TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL DEFAULT 0,
+					updated_at BIGINT NOT NULL DEFAULT 0
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_plugin_jobs_plugin_idx ON p2p_plugin_jobs(plugin_id, created_at)`,
+				`CREATE INDEX IF NOT EXISTS p2p_plugin_jobs_status_idx ON p2p_plugin_jobs(status, updated_at)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

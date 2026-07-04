@@ -192,6 +192,65 @@ func TestDatabaseStorePersistsBlocks(t *testing.T) {
 	}
 }
 
+func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	plugin := pluginInstance{
+		ID:        "io.dirextalk.agent",
+		Name:      "Dirextalk Agent",
+		Version:   "0.1.0",
+		Image:     "docker.io/dirextalk/agent-plugin",
+		Digest:    "sha256:4acd5a6e76fb8ba07b89adff210d21725a2c0801e087108b57a55d65d73a8e5a",
+		Status:    "enabled",
+		Enabled:   true,
+		Config:    map[string]any{"provider": "openai", "model": "gpt-4.1"},
+		LastJobID: "job-install",
+	}
+	if err := store.UpsertPlugin(ctx, plugin); err != nil {
+		t.Fatal(err)
+	}
+	job := pluginJob{
+		JobID:    "job-install",
+		PluginID: "io.dirextalk.agent",
+		Action:   "install",
+		Status:   "succeeded",
+		Message:  "installed",
+	}
+	if err := store.UpsertPluginJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloaded.Close()
+
+	plugins, err := reloaded.ListPlugins(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plugins) != 1 || plugins[0].ID != plugin.ID || !plugins[0].Enabled || plugins[0].Config["model"] != "gpt-4.1" {
+		t.Fatalf("expected persisted enabled plugin with config, got %#v", plugins)
+	}
+	gotJob, ok, err := reloaded.GetPluginJob(ctx, "job-install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotJob.PluginID != plugin.ID || gotJob.Status != "succeeded" || gotJob.Message != "installed" {
+		t.Fatalf("expected persisted plugin job, got ok=%v job=%#v", ok, gotJob)
+	}
+}
+
 func TestDatabaseStoreListsJoinedGroupsAndChannelsForUser(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

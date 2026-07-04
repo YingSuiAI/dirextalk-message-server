@@ -1,5 +1,6 @@
 .codegraph/
 .worktrees/
+.codex-plugin
 .idea
 .local-certs/
 __pycache__/

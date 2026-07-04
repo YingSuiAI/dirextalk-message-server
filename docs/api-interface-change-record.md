@@ -1,6 +1,26 @@
 # API Interface Change Record
 
-Last updated: 2026-07-03
+Last updated: 2026-07-04
+
+## 2026-07-04 Official Plugin Manager And Agent MCP Boundary
+
+Added protected owner-only plugin management actions on the existing body-action surface:
+
+- `plugins.catalog.list`
+- `plugins.installed.list`
+- `plugins.install`
+- `plugins.enable`
+- `plugins.disable`
+- `plugins.uninstall`
+- `plugins.config.get`
+- `plugins.config.update`
+- `plugins.job.get`
+- `plugins.health`
+- `plugins.logs.tail`
+
+These actions require owner `access_token`. `agent_token` cannot call plugin management actions. The first official catalog entry is `io.dirextalk.agent`; plugin install/enable/disable/uninstall jobs are persisted and must use official catalog metadata with a pinned image digest. Agent plugin config may declare model settings such as `provider: "deepseek"`, `model: "deepseek-chat"`, and `api_key_ref: "env:DEEPSEEK_API_KEY"`. Runtime secrets are injected into the plugin container through a temporary Docker env-file during `plugins.enable`; they are not stored in plugin config.
+
+The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. Standard MCP protocol serving, external MCP client connections, skills, model/provider configuration, and Agent orchestration move to the official Agent plugin rather than being embedded in message-server. `POST /_p2p/mcp` is not a current backend route.
 
 ## 2026-07-03 Unified Channel Post+Chat
 

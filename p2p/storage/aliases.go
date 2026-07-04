@@ -18,6 +18,9 @@ type memberRecord = domain.MemberRecord
 type p2pEvent = domain.Event
 type eventBounds = domain.EventBounds
 type blockRecord = domain.BlockRecord
+type pluginCatalogEntry = domain.PluginCatalogEntry
+type pluginInstance = domain.PluginInstance
+type pluginJob = domain.PluginJob
 type conversationKind = domain.ConversationKind
 type conversationRecord = domain.ConversationRecord
 

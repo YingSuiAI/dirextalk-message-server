@@ -3,6 +3,7 @@
 .dockerignore
 .codegraph/
 .codex/
+.codex-plugin
 
 # Local build and test outputs.
 bin/

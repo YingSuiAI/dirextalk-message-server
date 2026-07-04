@@ -25,6 +25,7 @@ type Config struct {
 	P2PEventRetentionPruneOnWrite   bool
 	PushRules                       PushRuleManager
 	RealtimeSessions                *realtime.SessionStore
+	PluginRunner                    PluginRunner
 }
 
 const (
@@ -70,6 +71,7 @@ type Service struct {
 	eventRetentionMaxRows      int64
 	eventRetentionPruneOnWrite bool
 	realtimeSessions           *realtime.SessionStore
+	pluginRunner               PluginRunner
 
 	initialized    bool
 	password       string
@@ -96,6 +98,8 @@ type Service struct {
 	members       map[string]memberRecord
 	conversations map[string]conversationRecord
 	inviteGrants  map[string]channelInviteGrant
+	plugins       map[string]pluginInstance
+	pluginJobs    map[string]pluginJob
 	events        []p2pEvent
 	nextEventSeq  int64
 	eventNotify   chan struct{}
@@ -179,6 +183,11 @@ type Store interface {
 	PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error)
 	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
+	UpsertPlugin(ctx context.Context, plugin pluginInstance) error
+	ListPlugins(ctx context.Context) ([]pluginInstance, error)
+	GetPlugin(ctx context.Context, id string) (pluginInstance, bool, error)
+	UpsertPluginJob(ctx context.Context, job pluginJob) error
+	GetPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error)
 }
 
 type portalState = domain.PortalState
@@ -202,6 +211,9 @@ type reactionRecord = domain.ReactionRecord
 type channelReactionHistory = domain.ChannelReactionHistory
 type memberRecord = domain.MemberRecord
 type eventBounds = domain.EventBounds
+type pluginCatalogEntry = domain.PluginCatalogEntry
+type pluginInstance = domain.PluginInstance
+type pluginJob = domain.PluginJob
 
 func NewService(cfg Config) *Service {
 	return newService(cfg, nil, nil, portalState{}, false)
@@ -222,6 +234,9 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 	}
 	shouldPersist := !ok || !state.Initialized || strings.TrimSpace(state.Password) == ""
 	service := newService(cfg, store, transport, state, ok)
+	if err := service.loadPlugins(ctx); err != nil {
+		return nil, err
+	}
 	agentRoomChanged, err := service.ensureAgentRoom(ctx)
 	if err != nil {
 		return nil, err
@@ -545,6 +560,10 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if realtimeSessions == nil {
 		realtimeSessions = realtime.DefaultSessionStore
 	}
+	pluginRunner := cfg.PluginRunner
+	if pluginRunner == nil {
+		pluginRunner = newEnvironmentPluginRunner()
+	}
 	service := &Service{
 		serverName:                 serverName,
 		homeserver:                 homeserver,
@@ -557,6 +576,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
 		realtimeSessions:           realtimeSessions,
+		pluginRunner:               pluginRunner,
 		initialized:                state.Initialized,
 		password:                   state.Password,
 		accessToken:                state.AccessToken,
@@ -578,6 +598,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		members:                    map[string]memberRecord{},
 		conversations:              map[string]conversationRecord{},
 		inviteGrants:               map[string]channelInviteGrant{},
+		plugins:                    map[string]pluginInstance{},
+		pluginJobs:                 map[string]pluginJob{},
 		eventNotify:                make(chan struct{}),
 
 		realtimeWSTickets: map[string]realtimeWSTicket{},
