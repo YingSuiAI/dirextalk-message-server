@@ -143,3 +143,32 @@ func (s *DatabaseStore) GetPluginJob(ctx context.Context, jobID string) (pluginJ
 	}
 	return job, true, nil
 }
+
+func (s *DatabaseStore) UpsertPluginSecret(ctx context.Context, secret pluginSecret) error {
+	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_plugin_secrets (plugin_id, name, value, updated_at)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT(plugin_id, name) DO UPDATE SET
+				value = EXCLUDED.value,
+				updated_at = EXCLUDED.updated_at
+		`, secret.PluginID, secret.Name, secret.Value, secret.UpdatedAt)
+		return err
+	})
+}
+
+func (s *DatabaseStore) GetPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error) {
+	var secret pluginSecret
+	err := s.db.QueryRowContext(ctx, `
+		SELECT plugin_id, name, value, updated_at
+		FROM p2p_plugin_secrets
+		WHERE plugin_id = $1 AND name = $2
+	`, pluginID, name).Scan(&secret.PluginID, &secret.Name, &secret.Value, &secret.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return pluginSecret{}, false, nil
+	}
+	if err != nil {
+		return pluginSecret{}, false, err
+	}
+	return secret, true, nil
+}

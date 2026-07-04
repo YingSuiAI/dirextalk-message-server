@@ -100,6 +100,7 @@ type Service struct {
 	inviteGrants  map[string]channelInviteGrant
 	plugins       map[string]pluginInstance
 	pluginJobs    map[string]pluginJob
+	pluginSecrets map[string]map[string]pluginSecret
 	events        []p2pEvent
 	nextEventSeq  int64
 	eventNotify   chan struct{}
@@ -188,6 +189,8 @@ type Store interface {
 	GetPlugin(ctx context.Context, id string) (pluginInstance, bool, error)
 	UpsertPluginJob(ctx context.Context, job pluginJob) error
 	GetPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error)
+	UpsertPluginSecret(ctx context.Context, secret pluginSecret) error
+	GetPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error)
 }
 
 type portalState = domain.PortalState
@@ -214,6 +217,7 @@ type eventBounds = domain.EventBounds
 type pluginCatalogEntry = domain.PluginCatalogEntry
 type pluginInstance = domain.PluginInstance
 type pluginJob = domain.PluginJob
+type pluginSecret = domain.PluginSecret
 
 func NewService(cfg Config) *Service {
 	return newService(cfg, nil, nil, portalState{}, false)
@@ -600,6 +604,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		inviteGrants:               map[string]channelInviteGrant{},
 		plugins:                    map[string]pluginInstance{},
 		pluginJobs:                 map[string]pluginJob{},
+		pluginSecrets:              map[string]map[string]pluginSecret{},
 		eventNotify:                make(chan struct{}),
 
 		realtimeWSTickets: map[string]realtimeWSTicket{},

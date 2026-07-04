@@ -209,7 +209,7 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 		Name:      "Dirextalk Agent",
 		Version:   "0.1.0",
 		Image:     "docker.io/dirextalk/agent-plugin",
-		Digest:    "sha256:4acd5a6e76fb8ba07b89adff210d21725a2c0801e087108b57a55d65d73a8e5a",
+		Digest:    "sha256:d7f5d0fdc8878bf173c79968ea9db8ec6a4fb23d872cdcfde664055d2e0baddd",
 		Status:    "enabled",
 		Enabled:   true,
 		Config:    map[string]any{"provider": "openai", "model": "gpt-4.1"},
@@ -226,6 +226,14 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 		Message:  "installed",
 	}
 	if err := store.UpsertPluginJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPluginSecret(ctx, pluginSecret{
+		PluginID:  plugin.ID,
+		Name:      "api_key",
+		Value:     "sk-plugin-secret",
+		UpdatedAt: 1710000000000,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -248,6 +256,13 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	}
 	if !ok || gotJob.PluginID != plugin.ID || gotJob.Status != "succeeded" || gotJob.Message != "installed" {
 		t.Fatalf("expected persisted plugin job, got ok=%v job=%#v", ok, gotJob)
+	}
+	gotSecret, ok, err := reloaded.GetPluginSecret(ctx, plugin.ID, "api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotSecret.Value != "sk-plugin-secret" || gotSecret.UpdatedAt != 1710000000000 {
+		t.Fatalf("expected persisted plugin secret metadata, got ok=%v secret=%#v", ok, gotSecret)
 	}
 }
 

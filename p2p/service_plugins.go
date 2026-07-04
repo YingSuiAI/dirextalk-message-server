@@ -28,7 +28,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			Version:        "0.1.0",
 			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, and MCP server support.",
 			Image:          "docker.io/dirextalk/agent-plugin",
-			Digest:         "sha256:4acd5a6e76fb8ba07b89adff210d21725a2c0801e087108b57a55d65d73a8e5a",
+			Digest:         "sha256:d7f5d0fdc8878bf173c79968ea9db8ec6a4fb23d872cdcfde664055d2e0baddd",
 			MinBaseVersion: "0.1.0",
 			Permissions: []string{
 				"matrix.messages.read",
@@ -43,13 +43,33 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			},
 			Actions: []string{
 				"agent.chat",
+				"agent.chat.stream",
 				"agent.summarize",
 			},
 			ConfigSchema: map[string]any{
-				"provider":    []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
-				"model":       "string",
-				"base_url":    "string",
-				"api_key_ref": "secret",
+				"providers":                []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
+				"provider":                 []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
+				"model":                    "string",
+				"base_url":                 "string",
+				"api_key_ref":              "secret-or-env-ref",
+				"default_model_profile_id": "string",
+				"model_profiles": []map[string]any{
+					{
+						"id":          "string",
+						"name":        "string",
+						"provider":    "string",
+						"model":       "string",
+						"base_url":    "string",
+						"api_key_ref": "secret-or-env-ref",
+					},
+				},
+				"system_prompt":     "string",
+				"enabled_tools":     []string{"mcp", "skills"},
+				"skills":            []map[string]any{},
+				"mcp_servers":       []map[string]any{},
+				"temperature":       "number",
+				"max_output_tokens": "number",
+				"context_window":    "number",
 			},
 		},
 	}
@@ -114,7 +134,15 @@ func (s *Service) pluginConfigGetAction(ctx context.Context, params map[string]a
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	return map[string]any{"plugin_id": plugin.ID, "config": plugin.Config}, nil
+	secretStatus, apiErr := s.pluginSecretStatus(ctx, plugin)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	return map[string]any{
+		"plugin_id":     plugin.ID,
+		"config":        plugin.Config,
+		"secret_status": secretStatus,
+	}, nil
 }
 
 func (s *Service) pluginConfigUpdateAction(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -126,12 +154,24 @@ func (s *Service) pluginConfigUpdateAction(ctx context.Context, params map[strin
 	if !ok {
 		return nil, badRequest("config object is required")
 	}
-	plugin.Config = cloneAnyMap(config)
+	secrets := pluginSecretsFromParams(params)
+	plugin.Config = sanitizePluginConfig(plugin.ID, config, secrets)
 	plugin.UpdatedAt = time.Now().UTC().UnixMilli()
 	if err := s.savePlugin(ctx, plugin); err != nil {
 		return nil, internalError(err)
 	}
-	return map[string]any{"plugin_id": plugin.ID, "config": plugin.Config}, nil
+	if err := s.savePluginSecrets(ctx, plugin.ID, secrets); err != nil {
+		return nil, internalError(err)
+	}
+	secretStatus, apiErr := s.pluginSecretStatus(ctx, plugin)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	return map[string]any{
+		"plugin_id":     plugin.ID,
+		"config":        plugin.Config,
+		"secret_status": secretStatus,
+	}, nil
 }
 
 func (s *Service) pluginJobGetAction(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -174,6 +214,87 @@ func (s *Service) pluginLogsTailAction(ctx context.Context, params map[string]an
 	}, nil
 }
 
+func (s *Service) pluginInvokeAction(ctx context.Context, params map[string]any) (any, *apiError) {
+	req, clientAction, apiErr := s.pluginInvokeRequest(ctx, params, false)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	result, err := s.pluginRunner.InvokePlugin(ctx, req)
+	if err != nil {
+		return nil, statusError(http.StatusBadGateway, err.Error())
+	}
+	return map[string]any{
+		"plugin_id": req.PluginID,
+		"action":    clientAction,
+		"result":    result,
+	}, nil
+}
+
+func (s *Service) pluginInvokeStreamAction(context.Context, map[string]any) (any, *apiError) {
+	return nil, badRequest("action requires websocket")
+}
+
+func (s *Service) pluginInvokeRequest(ctx context.Context, params map[string]any, stream bool) (PluginInvokeRequest, string, *apiError) {
+	pluginID := trimString(params["plugin_id"])
+	if pluginID == "" {
+		return PluginInvokeRequest{}, "", badRequest("plugin_id is required")
+	}
+	entry, ok := findOfficialPlugin(pluginID)
+	if !ok {
+		return PluginInvokeRequest{}, "", badRequest("unknown official plugin")
+	}
+	plugin, exists, err := s.getPlugin(ctx, pluginID)
+	if err != nil {
+		return PluginInvokeRequest{}, "", internalError(err)
+	}
+	if !exists {
+		return PluginInvokeRequest{}, "", statusError(http.StatusNotFound, "plugin is not installed")
+	}
+	if !plugin.Enabled || plugin.Status != pluginStatusEnabled {
+		return PluginInvokeRequest{}, "", statusError(http.StatusConflict, "plugin is not enabled")
+	}
+	clientAction := trimString(params["action"])
+	if clientAction == "" {
+		return PluginInvokeRequest{}, "", badRequest("action is required")
+	}
+	runnerAction := clientAction
+	if stream {
+		if strings.HasSuffix(clientAction, ".stream") {
+			runnerAction = clientAction
+		} else {
+			runnerAction = clientAction + ".stream"
+		}
+	}
+	if !pluginActionAllowed(entry, runnerAction) {
+		return PluginInvokeRequest{}, "", badRequest("plugin action is not allowed")
+	}
+	if !stream && strings.HasSuffix(runnerAction, ".stream") {
+		return PluginInvokeRequest{}, "", badRequest("stream action requires websocket")
+	}
+	invokeParams := map[string]any{}
+	if rawParams, ok := params["params"].(map[string]any); ok {
+		invokeParams = cloneAnyMap(rawParams)
+	} else if params["params"] != nil {
+		return PluginInvokeRequest{}, "", badRequest("params must be an object")
+	}
+	return PluginInvokeRequest{
+		PluginID:      plugin.ID,
+		ContainerName: pluginContainerName(plugin.ID),
+		Action:        runnerAction,
+		Params:        invokeParams,
+	}, strings.TrimSuffix(clientAction, ".stream"), nil
+}
+
+func pluginActionAllowed(entry pluginCatalogEntry, action string) bool {
+	action = strings.TrimSpace(action)
+	for _, allowed := range entry.Actions {
+		if strings.TrimSpace(allowed) == action {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) applyPluginAction(ctx context.Context, action string, params map[string]any) (any, *apiError) {
 	pluginID := trimString(params["plugin_id"])
 	if pluginID == "" {
@@ -191,16 +312,25 @@ func (s *Service) applyPluginAction(ctx context.Context, action string, params m
 	if action != "install" && !exists {
 		return nil, statusError(http.StatusNotFound, "plugin is not installed")
 	}
+	secrets := pluginSecretsFromParams(params)
 	if action == "install" {
 		plugin = pluginFromCatalogEntry(entry, now)
 		if config, ok := params["config"].(map[string]any); ok {
-			plugin.Config = cloneAnyMap(config)
+			plugin.Config = sanitizePluginConfig(plugin.ID, config, secrets)
 		}
 	} else {
 		plugin.Name = entry.Name
 		plugin.Version = entry.Version
 		plugin.Image = entry.Image
 		plugin.Digest = entry.Digest
+	}
+	runtimeEnv := map[string]string{}
+	if action == "enable" {
+		var apiErr *apiError
+		runtimeEnv, apiErr = s.pluginRuntimeEnv(ctx, plugin)
+		if apiErr != nil {
+			return nil, apiErr
+		}
 	}
 
 	job := pluginJob{
@@ -220,7 +350,7 @@ func (s *Service) applyPluginAction(ctx context.Context, action string, params m
 		Digest:        entry.Digest,
 		ContainerName: pluginContainerName(pluginID),
 		Config:        cloneAnyMap(plugin.Config),
-		Env:           s.pluginRuntimeEnv(plugin),
+		Env:           runtimeEnv,
 	}
 	if err := s.pluginRunner.ApplyPlugin(ctx, op); err != nil {
 		job.Status = pluginJobStatusFailed
@@ -251,6 +381,9 @@ func (s *Service) applyPluginAction(ctx context.Context, action string, params m
 		plugin.CreatedAt = now
 	}
 	if err := s.savePlugin(ctx, plugin); err != nil {
+		return nil, internalError(err)
+	}
+	if err := s.savePluginSecrets(ctx, plugin.ID, secrets); err != nil {
 		return nil, internalError(err)
 	}
 	if err := s.savePluginJob(ctx, job); err != nil {
@@ -363,6 +496,76 @@ func (s *Service) getPluginJob(ctx context.Context, jobID string) (pluginJob, bo
 	return job, ok, nil
 }
 
+func (s *Service) savePluginSecrets(ctx context.Context, pluginID string, secrets map[string]string) error {
+	if len(secrets) == 0 {
+		return nil
+	}
+	now := time.Now().UTC().UnixMilli()
+	if s.store != nil {
+		for name, value := range secrets {
+			if value == "" {
+				continue
+			}
+			if err := s.store.UpsertPluginSecret(ctx, pluginSecret{
+				PluginID:  pluginID,
+				Name:      name,
+				Value:     value,
+				UpdatedAt: now,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pluginSecrets[pluginID] == nil {
+		s.pluginSecrets[pluginID] = map[string]pluginSecret{}
+	}
+	for name, value := range secrets {
+		if value == "" {
+			continue
+		}
+		s.pluginSecrets[pluginID][name] = pluginSecret{
+			PluginID:  pluginID,
+			Name:      name,
+			Value:     value,
+			UpdatedAt: now,
+		}
+	}
+	return nil
+}
+
+func (s *Service) getPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error) {
+	if s.store != nil {
+		return s.store.GetPluginSecret(ctx, pluginID, name)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	secrets := s.pluginSecrets[pluginID]
+	if secrets == nil {
+		return pluginSecret{}, false, nil
+	}
+	secret, ok := secrets[name]
+	return secret, ok, nil
+}
+
+func (s *Service) pluginSecretStatus(ctx context.Context, plugin pluginInstance) (map[string]any, *apiError) {
+	names := pluginSecretNamesFromConfig(plugin.Config)
+	status := make(map[string]any, len(names))
+	for _, name := range names {
+		secret, ok, err := s.getPluginSecret(ctx, plugin.ID, name)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		status[name] = map[string]any{
+			"configured": ok && secret.Value != "",
+			"updated_at": secret.UpdatedAt,
+		}
+	}
+	return status, nil
+}
+
 func normalizePluginInstance(plugin pluginInstance) pluginInstance {
 	plugin.ID = strings.TrimSpace(plugin.ID)
 	plugin.Name = strings.TrimSpace(plugin.Name)
@@ -387,7 +590,138 @@ func cloneAnyMap(values map[string]any) map[string]any {
 	return cloned
 }
 
-func (s *Service) pluginRuntimeEnv(plugin pluginInstance) map[string]string {
+func pluginSecretsFromParams(params map[string]any) map[string]string {
+	secrets := map[string]string{}
+	if params == nil {
+		return secrets
+	}
+	if rawSecrets, ok := params["secrets"].(map[string]any); ok {
+		for key, value := range rawSecrets {
+			name := strings.TrimSpace(key)
+			secret := trimString(value)
+			if name != "" && secret != "" {
+				secrets[name] = secret
+			}
+		}
+	}
+	if config, ok := params["config"].(map[string]any); ok {
+		collectPluginConfigSecrets(config, secrets)
+	}
+	return secrets
+}
+
+func collectPluginConfigSecrets(config map[string]any, secrets map[string]string) {
+	if secrets == nil || config == nil {
+		return
+	}
+	if value := trimString(config["api_key"]); value != "" {
+		secrets["api_key"] = value
+	}
+	profiles, ok := config["model_profiles"].([]any)
+	if !ok {
+		return
+	}
+	for index, rawProfile := range profiles {
+		profile, ok := rawProfile.(map[string]any)
+		if !ok {
+			continue
+		}
+		if value := trimString(profile["api_key"]); value != "" {
+			secrets[pluginProfileSecretName(profile, index)] = value
+		}
+	}
+}
+
+func sanitizePluginConfig(pluginID string, config map[string]any, secrets map[string]string) map[string]any {
+	sanitized := cloneAnyMap(config)
+	if sanitized == nil {
+		sanitized = map[string]any{}
+	}
+	if secrets == nil {
+		secrets = map[string]string{}
+	}
+	if value := trimString(sanitized["api_key"]); value != "" {
+		secrets["api_key"] = value
+	}
+	delete(sanitized, "api_key")
+	if pluginID == "io.dirextalk.agent" {
+		if secrets["api_key"] != "" {
+			sanitized["api_key_ref"] = "secret:api_key"
+		}
+		if profiles, ok := sanitized["model_profiles"].([]any); ok {
+			sanitized["model_profiles"] = sanitizeAgentModelProfiles(profiles, secrets)
+		}
+	}
+	return sanitized
+}
+
+func sanitizeAgentModelProfiles(profiles []any, secrets map[string]string) []any {
+	sanitized := make([]any, 0, len(profiles))
+	for index, rawProfile := range profiles {
+		profile, ok := rawProfile.(map[string]any)
+		if !ok {
+			sanitized = append(sanitized, rawProfile)
+			continue
+		}
+		cloned := cloneAnyMap(profile)
+		if value := trimString(cloned["api_key"]); value != "" {
+			name := pluginProfileSecretName(cloned, index)
+			secrets[name] = value
+			cloned["api_key_ref"] = "secret:" + name
+		}
+		delete(cloned, "api_key")
+		sanitized = append(sanitized, cloned)
+	}
+	return sanitized
+}
+
+func pluginSecretNamesFromConfig(config map[string]any) []string {
+	seen := map[string]bool{}
+	add := func(ref string) {
+		name, ok := secretRefName(ref)
+		if ok {
+			seen[name] = true
+		}
+	}
+	add(pluginConfigString(config, "api_key_ref"))
+	if profiles, ok := config["model_profiles"].([]any); ok {
+		for _, rawProfile := range profiles {
+			profile, ok := rawProfile.(map[string]any)
+			if !ok {
+				continue
+			}
+			add(pluginConfigString(profile, "api_key_ref"))
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
+}
+
+func secretRefName(ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	const prefix = "secret:"
+	if !strings.HasPrefix(ref, prefix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(ref, prefix))
+	return name, name != ""
+}
+
+func pluginProfileSecretName(profile map[string]any, index int) string {
+	id := strings.TrimSpace(pluginConfigString(profile, "id"))
+	if id == "" {
+		id = pluginConfigString(profile, "name")
+	}
+	if id == "" {
+		id = jsonValue(index)
+	}
+	return "model_profile_" + strings.ToLower(pluginEnvSuffix(id)) + "_api_key"
+}
+
+func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (map[string]string, *apiError) {
 	s.mu.Lock()
 	homeserver := strings.TrimSpace(s.homeserver)
 	agentToken := s.agentToken
@@ -398,12 +732,14 @@ func (s *Service) pluginRuntimeEnv(plugin pluginInstance) map[string]string {
 		"DIREXTALK_AGENT_TOKEN_REF": "env:DIREXTALK_AGENT_TOKEN",
 	}
 	if plugin.ID == "io.dirextalk.agent" {
-		mergeAgentPluginEnv(env, plugin.Config)
+		if apiErr := s.mergeAgentPluginEnv(ctx, plugin.ID, env, plugin.Config); apiErr != nil {
+			return nil, apiErr
+		}
 	}
-	return env
+	return env, nil
 }
 
-func mergeAgentPluginEnv(env map[string]string, config map[string]any) {
+func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {
 	if value := pluginConfigString(config, "provider"); value != "" {
 		env["AGENT_MODEL_PROVIDER"] = value
 	}
@@ -411,15 +747,17 @@ func mergeAgentPluginEnv(env map[string]string, config map[string]any) {
 		env["AGENT_MODEL"] = value
 	}
 	if value := pluginConfigString(config, "api_key_ref"); value != "" {
-		env["AGENT_API_KEY_REF"] = value
-		if name, ok := envRefName(value); ok {
-			if secret := os.Getenv(name); secret != "" {
-				env[name] = secret
-			}
+		ref, apiErr := s.resolvePluginSecretRef(ctx, pluginID, env, value, "AGENT_API_KEY")
+		if apiErr != nil {
+			return apiErr
 		}
+		env["AGENT_API_KEY_REF"] = ref
 	}
 	if value := pluginConfigString(config, "base_url"); value != "" {
 		env["AGENT_BASE_URL"] = value
+	}
+	if value := pluginConfigString(config, "default_model_profile_id"); value != "" {
+		env["AGENT_DEFAULT_MODEL_PROFILE_ID"] = value
 	}
 	if value := pluginConfigString(config, "display_name"); value != "" {
 		env["AGENT_DISPLAY_NAME"] = value
@@ -445,6 +783,99 @@ func mergeAgentPluginEnv(env map[string]string, config map[string]any) {
 	if value := pluginConfigJSON(config, "mcp_servers"); value != "" {
 		env["AGENT_MCP_SERVERS_JSON"] = value
 	}
+	if profiles, ok := config["model_profiles"]; ok {
+		resolved, apiErr := s.resolveAgentModelProfiles(ctx, pluginID, env, profiles)
+		if apiErr != nil {
+			return apiErr
+		}
+		data, err := json.Marshal(resolved)
+		if err != nil {
+			return internalError(err)
+		}
+		env["AGENT_MODEL_PROFILES_JSON"] = string(data)
+	}
+	return nil
+}
+
+func (s *Service) resolvePluginSecretRef(ctx context.Context, pluginID string, env map[string]string, ref string, envName string) (string, *apiError) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", nil
+	}
+	if name, ok := secretRefName(ref); ok {
+		secret, exists, err := s.getPluginSecret(ctx, pluginID, name)
+		if err != nil {
+			return "", internalError(err)
+		}
+		if !exists || secret.Value == "" {
+			return "", badRequest("plugin secret is not configured: " + name)
+		}
+		env[envName] = secret.Value
+		return "env:" + envName, nil
+	}
+	if name, ok := envRefName(ref); ok {
+		if secret := os.Getenv(name); secret != "" {
+			env[name] = secret
+		}
+		return ref, nil
+	}
+	return ref, nil
+}
+
+func (s *Service) resolveAgentModelProfiles(ctx context.Context, pluginID string, env map[string]string, profiles any) ([]any, *apiError) {
+	rawProfiles, ok := profiles.([]any)
+	if !ok {
+		return nil, badRequest("model_profiles must be an array")
+	}
+	resolved := make([]any, 0, len(rawProfiles))
+	for index, rawProfile := range rawProfiles {
+		profile, ok := rawProfile.(map[string]any)
+		if !ok {
+			resolved = append(resolved, rawProfile)
+			continue
+		}
+		cloned := cloneAnyMap(profile)
+		if ref := pluginConfigString(cloned, "api_key_ref"); ref != "" {
+			envName := "AGENT_PROFILE_API_KEY_" + pluginEnvSuffix(pluginProfileEnvID(cloned, index))
+			resolvedRef, apiErr := s.resolvePluginSecretRef(ctx, pluginID, env, ref, envName)
+			if apiErr != nil {
+				return nil, apiErr
+			}
+			cloned["api_key_ref"] = resolvedRef
+		}
+		resolved = append(resolved, cloned)
+	}
+	return resolved, nil
+}
+
+func pluginProfileEnvID(profile map[string]any, index int) string {
+	if value := pluginConfigString(profile, "id"); value != "" {
+		return value
+	}
+	if value := pluginConfigString(profile, "name"); value != "" {
+		return value
+	}
+	return jsonValue(index)
+}
+
+func pluginEnvSuffix(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, ch := range value {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			builder.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			builder.WriteRune(ch)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	suffix := strings.Trim(builder.String(), "_")
+	if suffix == "" {
+		return "DEFAULT"
+	}
+	return suffix
 }
 
 func pluginConfigString(config map[string]any, key string) string {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
@@ -26,9 +27,11 @@ type realtimeWSTicket struct {
 }
 
 type realtimeWSConnection struct {
-	sessionID string
-	record    realtimeWSTicket
-	outbound  chan map[string]any
+	sessionID     string
+	record        realtimeWSTicket
+	outbound      chan map[string]any
+	streamMu      sync.Mutex
+	streamCancels map[string]context.CancelFunc
 }
 
 func newRealtimeWSConnection(sessionID string, record realtimeWSTicket) *realtimeWSConnection {
@@ -46,6 +49,76 @@ func (c *realtimeWSConnection) send(frame map[string]any) {
 	select {
 	case c.outbound <- frame:
 	default:
+	}
+}
+
+func (c *realtimeWSConnection) sendBlocking(ctx context.Context, frame map[string]any) error {
+	if c == nil || frame == nil {
+		return nil
+	}
+	select {
+	case c.outbound <- frame:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *realtimeWSConnection) startStream(id string, cancel context.CancelFunc) bool {
+	id = strings.TrimSpace(id)
+	if c == nil || id == "" || cancel == nil {
+		return false
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.streamCancels == nil {
+		c.streamCancels = map[string]context.CancelFunc{}
+	}
+	if _, exists := c.streamCancels[id]; exists {
+		return false
+	}
+	c.streamCancels[id] = cancel
+	return true
+}
+
+func (c *realtimeWSConnection) finishStream(id string) {
+	if c == nil {
+		return
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	delete(c.streamCancels, strings.TrimSpace(id))
+}
+
+func (c *realtimeWSConnection) cancelStream(id string) bool {
+	if c == nil {
+		return false
+	}
+	c.streamMu.Lock()
+	cancel, ok := c.streamCancels[strings.TrimSpace(id)]
+	if ok {
+		delete(c.streamCancels, strings.TrimSpace(id))
+	}
+	c.streamMu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
+}
+
+func (c *realtimeWSConnection) cancelAllStreams() {
+	if c == nil {
+		return
+	}
+	c.streamMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(c.streamCancels))
+	for _, cancel := range c.streamCancels {
+		cancels = append(cancels, cancel)
+	}
+	c.streamCancels = map[string]context.CancelFunc{}
+	c.streamMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
 	}
 }
 
@@ -105,6 +178,7 @@ func realtimeWSHandler(service *Service) http.HandlerFunc {
 		}
 
 		wsConn := newRealtimeWSConnection(sessionID, record)
+		defer wsConn.cancelAllStreams()
 
 		readDone := make(chan struct{})
 		go func() {
@@ -169,6 +243,10 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
 		case "client.command":
 			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
+		case "client.plugin_stream":
+			s.startRealtimeWSPluginStream(ctx, wsConn, frame)
+		case "client.plugin_stream.cancel":
+			s.cancelRealtimeWSPluginStream(wsConn, frame)
 		default:
 			s.touchRealtimeWSSession(sessionID)
 		}
@@ -232,6 +310,120 @@ func realtimeWSEventVisible(role string, event p2pEvent) bool {
 	return true
 }
 
+func (s *Service) startRealtimeWSPluginStream(ctx context.Context, wsConn *realtimeWSConnection, frame map[string]any) {
+	id := trimString(frame["id"])
+	action := trimString(frame["action"])
+	if id == "" {
+		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusBadRequest, "id is required"))
+		return
+	}
+	if action == "" {
+		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusBadRequest, "action is required"))
+		return
+	}
+	if wsConn.record.Role != "owner" {
+		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusForbidden, "M_FORBIDDEN"))
+		return
+	}
+	params := map[string]any{
+		"plugin_id": frame["plugin_id"],
+		"action":    action,
+	}
+	if rawParams, ok := frame["params"].(map[string]any); ok {
+		params["params"] = rawParams
+	} else if frame["params"] != nil {
+		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusBadRequest, "params must be an object"))
+		return
+	}
+	req, clientAction, apiErr := s.pluginInvokeRequest(ctx, params, true)
+	if apiErr != nil {
+		wsConn.send(realtimeWSPluginStreamError(id, action, apiErr.Status, apiErr.Error))
+		return
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	if !wsConn.startStream(id, cancel) {
+		cancel()
+		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusConflict, "stream id is already active"))
+		return
+	}
+	go func() {
+		defer wsConn.finishStream(id)
+		doneSent := false
+		err := s.pluginRunner.StreamPlugin(streamCtx, req, func(event PluginStreamEvent) error {
+			eventName := strings.TrimSpace(event.Event)
+			if eventName == "" {
+				eventName = "message"
+			}
+			if eventName == "done" {
+				doneSent = true
+			}
+			data := event.Data
+			if data == nil {
+				data = map[string]any{}
+			}
+			return wsConn.sendBlocking(streamCtx, map[string]any{
+				"type":      "server.plugin_stream.event",
+				"id":        id,
+				"plugin_id": req.PluginID,
+				"action":    clientAction,
+				"event":     eventName,
+				"data":      data,
+			})
+		})
+		if err != nil {
+			if streamCtx.Err() != nil {
+				return
+			}
+			_ = wsConn.sendBlocking(ctx, realtimeWSPluginStreamError(id, clientAction, http.StatusBadGateway, err.Error()))
+			return
+		}
+		if !doneSent {
+			_ = wsConn.sendBlocking(ctx, map[string]any{
+				"type":      "server.plugin_stream.event",
+				"id":        id,
+				"plugin_id": req.PluginID,
+				"action":    clientAction,
+				"event":     "done",
+				"data":      map[string]any{},
+			})
+		}
+	}()
+}
+
+func (s *Service) cancelRealtimeWSPluginStream(wsConn *realtimeWSConnection, frame map[string]any) {
+	id := trimString(frame["id"])
+	if id == "" {
+		wsConn.send(realtimeWSPluginStreamError(id, "", http.StatusBadRequest, "id is required"))
+		return
+	}
+	if !wsConn.cancelStream(id) {
+		wsConn.send(realtimeWSPluginStreamError(id, "", http.StatusNotFound, "stream is not active"))
+		return
+	}
+	wsConn.send(map[string]any{
+		"type": "server.plugin_stream.cancelled",
+		"id":   id,
+		"ok":   true,
+	})
+}
+
+func realtimeWSPluginStreamError(id, action string, status int, message string) map[string]any {
+	if status <= 0 {
+		status = http.StatusInternalServerError
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "M_UNKNOWN"
+	}
+	return map[string]any{
+		"type":   "server.plugin_stream.error",
+		"id":     id,
+		"action": action,
+		"ok":     false,
+		"status": status,
+		"error":  message,
+	}
+}
+
 func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWSTicket, frame map[string]any) map[string]any {
 	id := trimString(frame["id"])
 	action := trimString(frame["action"])
@@ -274,6 +466,9 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 func realtimeWSHTTPOnlyAction(action string) bool {
 	action = strings.TrimSpace(action)
 	if serviceapi.AgentAction(action) {
+		return true
+	}
+	if strings.HasPrefix(action, "plugins.") {
 		return true
 	}
 	switch action {

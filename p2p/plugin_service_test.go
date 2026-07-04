@@ -2,18 +2,41 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/coder/websocket"
 )
 
 type recordingPluginRunner struct {
 	operations []PluginRunnerOperation
+	invokes    []PluginInvokeRequest
+	streams    []PluginInvokeRequest
 }
 
 func (r *recordingPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error {
 	r.operations = append(r.operations, op)
 	return nil
+}
+
+func (r *recordingPluginRunner) InvokePlugin(ctx context.Context, req PluginInvokeRequest) (map[string]any, error) {
+	r.invokes = append(r.invokes, req)
+	return map[string]any{
+		"ok":    true,
+		"text":  "hello from plugin",
+		"model": req.Params["model"],
+	}, nil
+}
+
+func (r *recordingPluginRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
+	r.streams = append(r.streams, req)
+	if err := emit(PluginStreamEvent{Event: "delta", Data: map[string]any{"text": "hel"}}); err != nil {
+		return err
+	}
+	return emit(PluginStreamEvent{Event: "done", Data: map[string]any{"text": "hello"}})
 }
 
 func TestPluginActionsAreOwnerOnly(t *testing.T) {
@@ -138,6 +161,179 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	}
 }
 
+func TestPluginDirectSecretIsWriteOnlyAndInjectedAtEnable(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		Homeserver:   "http://message-server:8008",
+		PluginRunner: runner,
+	})
+
+	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"provider": "openai",
+			"model":    "gpt-4.1-mini",
+		},
+		"secrets": map[string]any{
+			"api_key": "sk-test-secret",
+		},
+	})
+	plugin := install["plugin"].(pluginInstance)
+	if _, ok := plugin.Config["api_key"]; ok {
+		t.Fatalf("raw API key must not be persisted in plugin config: %#v", plugin.Config)
+	}
+	if plugin.Config["api_key_ref"] != "secret:api_key" {
+		t.Fatalf("expected direct secret to become secret ref, got %#v", plugin.Config)
+	}
+
+	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+	if strings.Contains(mustJSON(t, config), "sk-test-secret") {
+		t.Fatalf("config response must not leak plugin secret: %#v", config)
+	}
+	status := config["secret_status"].(map[string]any)
+	apiKey := status["api_key"].(map[string]any)
+	if apiKey["configured"] != true {
+		t.Fatalf("expected configured secret status, got %#v", config)
+	}
+
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+	op := runner.operations[len(runner.operations)-1]
+	if op.Env["AGENT_API_KEY_REF"] != "env:AGENT_API_KEY" || op.Env["AGENT_API_KEY"] != "sk-test-secret" {
+		t.Fatalf("expected write-only secret injected through runtime env, got %#v", op.Env)
+	}
+	if strings.Contains(mustJSON(t, op.Config), "sk-test-secret") {
+		t.Fatalf("runner config must not include raw plugin secret: %#v", op.Config)
+	}
+}
+
+func TestPluginInvokeIsOwnerOnlyAndCallsEnabledOfficialPlugin(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
+	router := newP2PTestRouter(service)
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"provider": "openai",
+			"model":    "gpt-4.1-mini",
+		},
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+
+	agentReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "plugins.invoke",
+		"params": map[string]any{
+			"plugin_id": "io.dirextalk.agent",
+			"action":    "agent.chat",
+			"params": map[string]any{
+				"prompt": "hello",
+			},
+		},
+	})
+	agentReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
+	agentRec := httptest.NewRecorder()
+	router.ServeHTTP(agentRec, agentReq)
+	if agentRec.Code != http.StatusUnauthorized {
+		t.Fatalf("agent token must not invoke plugins, got %d body=%s", agentRec.Code, agentRec.Body.String())
+	}
+
+	ownerReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "plugins.invoke",
+		"params": map[string]any{
+			"plugin_id": "io.dirextalk.agent",
+			"action":    "agent.chat",
+			"params": map[string]any{
+				"prompt":           "hello",
+				"model_profile_id": "work",
+			},
+		},
+	})
+	ownerReq.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	ownerRec := httptest.NewRecorder()
+	router.ServeHTTP(ownerRec, ownerReq)
+	if ownerRec.Code != http.StatusOK {
+		t.Fatalf("expected owner invoke to succeed, got %d body=%s", ownerRec.Code, ownerRec.Body.String())
+	}
+	if len(runner.invokes) != 1 || runner.invokes[0].Action != "agent.chat" || runner.invokes[0].PluginID != "io.dirextalk.agent" {
+		t.Fatalf("expected plugin invoke runner call, got %#v", runner.invokes)
+	}
+	result := decodeJSONMap(t, ownerRec.Body.String())
+	if result["plugin_id"] != "io.dirextalk.agent" || result["action"] != "agent.chat" {
+		t.Fatalf("expected invoke envelope, got %#v", result)
+	}
+}
+
+func TestPluginInvokeStreamUsesRealtimeWebSocketFrames(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
+	router := newP2PTestRouter(service)
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+
+	httpReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "plugins.invoke.stream",
+		"params": map[string]any{
+			"plugin_id": "io.dirextalk.agent",
+			"action":    "agent.chat",
+			"params": map[string]any{
+				"prompt": "hello",
+			},
+		},
+	})
+	httpReq.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	httpRec := httptest.NewRecorder()
+	router.ServeHTTP(httpRec, httpReq)
+	if httpRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP stream invoke to require websocket, got %d body=%s", httpRec.Code, httpRec.Body.String())
+	}
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":      "client.plugin_stream",
+		"id":        "agent-stream-1",
+		"plugin_id": "io.dirextalk.agent",
+		"action":    "agent.chat",
+		"params": map[string]any{
+			"prompt": "hello",
+		},
+	})
+	delta := readRealtimeFrame(t, conn)
+	if delta["type"] != "server.plugin_stream.event" || delta["id"] != "agent-stream-1" || delta["event"] != "delta" {
+		t.Fatalf("expected plugin stream delta frame, got %#v", delta)
+	}
+	data := delta["data"].(map[string]any)
+	if data["text"] != "hel" {
+		t.Fatalf("expected delta text, got %#v", delta)
+	}
+	done := readRealtimeFrame(t, conn)
+	if done["type"] != "server.plugin_stream.event" || done["id"] != "agent-stream-1" || done["event"] != "done" {
+		t.Fatalf("expected plugin stream done frame, got %#v", done)
+	}
+	if len(runner.streams) != 1 || runner.streams[0].Action != "agent.chat.stream" {
+		t.Fatalf("expected stream runner to use agent.chat.stream, got %#v", runner.streams)
+	}
+}
+
 func TestPluginInstallRejectsUnknownPluginBeforeRunner(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
@@ -151,4 +347,22 @@ func TestPluginInstallRejectsUnknownPluginBeforeRunner(t *testing.T) {
 	if len(runner.operations) != 0 {
 		t.Fatalf("unknown plugin must not reach runner, got %#v", runner.operations)
 	}
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return string(data)
+}
+
+func decodeJSONMap(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+		t.Fatalf("decode json body %q: %v", body, err)
+	}
+	return decoded
 }

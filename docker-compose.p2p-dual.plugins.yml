@@ -1,0 +1,8 @@
+services:
+  dendrite-a:
+    environment:
+      P2P_PLUGIN_DOCKER_ENABLED: "true"
+      P2P_PLUGIN_DOCKER_NETWORK: dirextalk-p2p-dual_p2p_dual_a
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp

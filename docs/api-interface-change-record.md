@@ -17,8 +17,26 @@ Added protected owner-only plugin management actions on the existing body-action
 - `plugins.job.get`
 - `plugins.health`
 - `plugins.logs.tail`
+- `plugins.invoke`
+- `plugins.invoke.stream`
 
-These actions require owner `access_token`. `agent_token` cannot call plugin management actions. The first official catalog entry is `io.dirextalk.agent`; plugin install/enable/disable/uninstall jobs are persisted and must use official catalog metadata with a pinned image digest. Agent plugin config may declare model settings such as `provider: "deepseek"`, `model: "deepseek-chat"`, and `api_key_ref: "env:DEEPSEEK_API_KEY"`. Runtime secrets are injected into the plugin container through a temporary Docker env-file during `plugins.enable`; they are not stored in plugin config.
+These actions require owner `access_token`. `agent_token` cannot call plugin management or plugin invoke actions. The first official catalog entry is `io.dirextalk.agent`; plugin install/enable/disable/uninstall jobs are persisted and must use official catalog metadata with a pinned image digest. Agent plugin config may declare model settings such as `provider`, `model`, `base_url`, `system_prompt`, `enabled_tools`, `skills`, `mcp_servers`, `default_model_profile_id`, and `model_profiles`. Direct cleartext secrets accepted in `params.secrets`, `config.api_key`, or `config.model_profiles[].api_key` are write-only: the server stores them in the plugin secret store, rewrites config refs to `secret:*`, and returns only `secret_status` from `plugins.config.get`. Existing `env:*` refs remain supported for host-provided secrets. Runtime secrets and config are injected into the plugin container through a temporary Docker env-file during `plugins.enable`; raw API keys are not stored in plugin config.
+
+`plugins.invoke` calls an enabled official plugin over the first-version Docker HTTP runner and returns `{ "plugin_id", "action", "result" }`. Stream actions are not valid through HTTP invoke. `plugins.invoke.stream` is registered only to return `400 action requires websocket`; streaming runs through owner realtime WS frames:
+
+```json
+{
+  "type": "client.plugin_stream",
+  "id": "stream-1",
+  "plugin_id": "io.dirextalk.agent",
+  "action": "agent.chat.stream",
+  "params": {
+    "prompt": "Summarize this conversation"
+  }
+}
+```
+
+The server emits `server.plugin_stream.event` frames carrying `event` values such as `delta` and `done`, `server.plugin_stream.error` on failure, and accepts `client.plugin_stream.cancel` for cancellation. `client.request` remains unavailable for `plugins.*`.
 
 The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. Standard MCP protocol serving, external MCP client connections, skills, model/provider configuration, and Agent orchestration move to the official Agent plugin rather than being embedded in message-server. `POST /_p2p/mcp` is not a current backend route.
 

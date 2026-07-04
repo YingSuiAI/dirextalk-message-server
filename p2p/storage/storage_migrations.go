@@ -579,6 +579,21 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: plugin secrets v32",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_plugin_secrets (
+					plugin_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					value TEXT NOT NULL DEFAULT '',
+					updated_at BIGINT NOT NULL DEFAULT 0,
+					PRIMARY KEY (plugin_id, name)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_plugin_secrets_updated_idx ON p2p_plugin_secrets(plugin_id, updated_at)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

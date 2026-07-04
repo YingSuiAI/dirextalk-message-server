@@ -21,6 +21,7 @@ type blockRecord = domain.BlockRecord
 type pluginCatalogEntry = domain.PluginCatalogEntry
 type pluginInstance = domain.PluginInstance
 type pluginJob = domain.PluginJob
+type pluginSecret = domain.PluginSecret
 type conversationKind = domain.ConversationKind
 type conversationRecord = domain.ConversationRecord
 

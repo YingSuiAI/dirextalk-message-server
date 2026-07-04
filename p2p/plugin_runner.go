@@ -1,17 +1,26 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 type PluginRunner interface {
 	ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error
+	InvokePlugin(ctx context.Context, req PluginInvokeRequest) (map[string]any, error)
+	StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error
 }
 
 type PluginRunnerOperation struct {
@@ -27,10 +36,30 @@ type PluginRunnerOperation struct {
 	Env           map[string]string
 }
 
+type PluginInvokeRequest struct {
+	PluginID      string
+	ContainerName string
+	Action        string
+	Params        map[string]any
+}
+
+type PluginStreamEvent struct {
+	Event string
+	Data  map[string]any
+}
+
 type noopPluginRunner struct{}
 
 func (noopPluginRunner) ApplyPlugin(context.Context, PluginRunnerOperation) error {
 	return nil
+}
+
+func (noopPluginRunner) InvokePlugin(context.Context, PluginInvokeRequest) (map[string]any, error) {
+	return nil, fmt.Errorf("plugin runner is not enabled")
+}
+
+func (noopPluginRunner) StreamPlugin(context.Context, PluginInvokeRequest, func(PluginStreamEvent) error) error {
+	return fmt.Errorf("plugin runner is not enabled")
 }
 
 func newEnvironmentPluginRunner() PluginRunner {
@@ -51,6 +80,7 @@ func envBool(name string) bool {
 type dockerPluginRunner struct {
 	binary  string
 	network string
+	client  *http.Client
 }
 
 func (r dockerPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error {
@@ -100,6 +130,112 @@ func (r dockerPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOper
 	default:
 		return fmt.Errorf("unsupported plugin runner action %q", op.Action)
 	}
+}
+
+func (r dockerPluginRunner) InvokePlugin(ctx context.Context, req PluginInvokeRequest) (map[string]any, error) {
+	body, err := r.invokeHTTP(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(body).Decode(&decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func (r dockerPluginRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
+	if strings.TrimSpace(req.PluginID) == "" || !strings.HasPrefix(req.PluginID, "io.dirextalk.") {
+		return fmt.Errorf("plugin id %q is not official", req.PluginID)
+	}
+	containerName := strings.TrimSpace(req.ContainerName)
+	if containerName == "" {
+		containerName = pluginContainerName(req.PluginID)
+	}
+	conn, _, err := websocket.Dial(ctx, "ws://"+containerName+":8080/ws", nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	if err := wsjson.Write(ctx, conn, map[string]any{
+		"type":   "plugin.invoke.stream",
+		"action": req.Action,
+		"params": req.Params,
+	}); err != nil {
+		return err
+	}
+	for {
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			return err
+		}
+		switch trimString(frame["type"]) {
+		case "plugin.stream.event":
+			data, _ := frame["data"].(map[string]any)
+			if data == nil {
+				data = map[string]any{}
+			}
+			if err := emit(PluginStreamEvent{
+				Event: fallbackString(trimString(frame["event"]), "message"),
+				Data:  data,
+			}); err != nil {
+				return err
+			}
+		case "plugin.stream.done":
+			data, _ := frame["data"].(map[string]any)
+			if data == nil {
+				data = map[string]any{}
+			}
+			if err := emit(PluginStreamEvent{Event: "done", Data: data}); err != nil {
+				return err
+			}
+			return nil
+		case "plugin.stream.error":
+			return fmt.Errorf("plugin stream failed: %s", fallbackString(trimString(frame["error"]), "M_UNKNOWN"))
+		}
+	}
+}
+
+func (r dockerPluginRunner) invokeHTTP(ctx context.Context, req PluginInvokeRequest) (io.ReadCloser, error) {
+	if strings.TrimSpace(req.PluginID) == "" || !strings.HasPrefix(req.PluginID, "io.dirextalk.") {
+		return nil, fmt.Errorf("plugin id %q is not official", req.PluginID)
+	}
+	containerName := strings.TrimSpace(req.ContainerName)
+	if containerName == "" {
+		containerName = pluginContainerName(req.PluginID)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"action": req.Action,
+		"params": req.Params,
+	})
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+containerName+":8080/invoke", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json; charset=utf-8")
+	client := r.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = resp.Status
+		}
+		return nil, fmt.Errorf("plugin invoke failed: %s", message)
+	}
+	return resp.Body, nil
 }
 
 func (r dockerPluginRunner) run(ctx context.Context, args ...string) error {

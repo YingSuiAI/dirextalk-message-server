@@ -73,6 +73,13 @@ type PluginJob struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
+type PluginSecret struct {
+	PluginID  string `json:"plugin_id"`
+	Name      string `json:"name"`
+	Value     string `json:"-"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 type ReadMarker struct {
 	RoomID         string `json:"room_id"`
 	EventID        string `json:"event_id"`

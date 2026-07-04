@@ -24,6 +24,8 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"plugins.job.get":             s.pluginJobGetAction,
 		"plugins.health":              s.pluginHealthAction,
 		"plugins.logs.tail":           s.pluginLogsTailAction,
+		"plugins.invoke":              s.pluginInvokeAction,
+		"plugins.invoke.stream":       s.pluginInvokeStreamAction,
 		"profile.get":                 s.getProfileAction,
 		"profile.update":              s.updateProfile,
 		"sync.bootstrap":              s.syncBootstrapAction,

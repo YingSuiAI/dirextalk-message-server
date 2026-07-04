@@ -51,7 +51,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-              "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"api_key_ref\": \"env:DEEPSEEK_API_KEY\"\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\"mcp\", \"skills\"],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": []\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -79,6 +79,222 @@
         "body": {
           "mode": "raw",
           "raw": "{\n  \"action\": \"plugins.enable\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.config.get agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.config.get\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.config.update agent direct secret",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.config.update\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\"mcp\", \"skills\"],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": [\n        {\n          \"id\": \"fast\",\n          \"name\": \"Fast\",\n          \"provider\": \"deepseek\",\n          \"model\": \"deepseek-chat\"\n        }\n      ]\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent chat",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.chat\",\n    \"params\": {\n      \"prompt\": \"Hello from Dirextalk\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke.stream http boundary",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke.stream\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.chat.stream\",\n    \"params\": {\n      \"prompt\": \"This HTTP action should return action requires websocket\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.health agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.health\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.logs.tail agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/query",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.logs.tail\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.disable agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.disable\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.uninstall agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.uninstall\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -149,6 +365,10 @@
     },
     {
       "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "agentApiKey",
       "value": ""
     },
     {
