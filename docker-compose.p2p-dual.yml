@@ -7,6 +7,10 @@ name: dirextalk-p2p-dual
 #   ${P2P_DUAL_PUBLIC_HOST}:18448
 #   ${P2P_DUAL_PUBLIC_HOST}:28448
 #   ${P2P_DUAL_PUBLIC_HOST}:38448
+# Set P2P_DUAL_A_SERVER_NAME, P2P_DUAL_B_SERVER_NAME, and
+# P2P_DUAL_C_SERVER_NAME to use distinct production domain names instead.
+# Set P2P_DUAL_A_CLIENT_BASE_URL, P2P_DUAL_B_CLIENT_BASE_URL, and
+# P2P_DUAL_C_CLIENT_BASE_URL when those domain names are served behind a proxy.
 
 x-message-server-local: &message-server-local
   image: dirextalk/message-server:latest
@@ -86,15 +90,15 @@ services:
           /usr/bin/generate-keys \
             -tls-cert /etc/dirextalk-message-server/server.crt \
             -tls-key /etc/dirextalk-message-server/server.key \
-            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+            -server ${P2P_DUAL_A_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}}
         fi
         /usr/bin/generate-config \
           -dir /var/dirextalk-message-server \
           -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-a/dirextalk_message_server?sslmode=disable \
-          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:18448 \
+          -server ${P2P_DUAL_A_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:18448} \
           > /etc/dirextalk-message-server/message-server.yaml
         sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "${P2P_DUAL_A_CLIENT_BASE_URL:-http://auto}"|' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
@@ -121,15 +125,15 @@ services:
           /usr/bin/generate-keys \
             -tls-cert /etc/dirextalk-message-server/server.crt \
             -tls-key /etc/dirextalk-message-server/server.key \
-            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+            -server ${P2P_DUAL_B_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}}
         fi
         /usr/bin/generate-config \
           -dir /var/dirextalk-message-server \
           -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-b/dirextalk_message_server?sslmode=disable \
-          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:28448 \
+          -server ${P2P_DUAL_B_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:28448} \
           > /etc/dirextalk-message-server/message-server.yaml
         sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "${P2P_DUAL_B_CLIENT_BASE_URL:-http://auto}"|' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
@@ -156,15 +160,15 @@ services:
           /usr/bin/generate-keys \
             -tls-cert /etc/dirextalk-message-server/server.crt \
             -tls-key /etc/dirextalk-message-server/server.key \
-            -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}
+            -server ${P2P_DUAL_C_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}}
         fi
         /usr/bin/generate-config \
           -dir /var/dirextalk-message-server \
           -db postgres://dirextalk_message_server:dirextalk_message_server@postgres-c/dirextalk_message_server?sslmode=disable \
-          -server ${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:38448 \
+          -server ${P2P_DUAL_C_SERVER_NAME:-${P2P_DUAL_PUBLIC_HOST:?Set P2P_DUAL_PUBLIC_HOST to a host IP reachable from all node containers}:38448} \
           > /etc/dirextalk-message-server/message-server.yaml
         sed -i 's/disable_tls_validation: false/disable_tls_validation: true/' /etc/dirextalk-message-server/message-server.yaml
-        sed -i 's|well_known_client_name: ""|well_known_client_name: "http://auto"|' /etc/dirextalk-message-server/message-server.yaml
+        sed -i 's|well_known_client_name: ""|well_known_client_name: "${P2P_DUAL_C_CLIENT_BASE_URL:-http://auto}"|' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  search:/,/^user_api:/s/enabled: false/enabled: true/' /etc/dirextalk-message-server/message-server.yaml
         sed -i '/^  deny_networks:/,/^  allow_networks:/c\  deny_networks: []\n  allow_networks:' /etc/dirextalk-message-server/message-server.yaml
     volumes:
