@@ -158,7 +158,7 @@ func (s *Service) pluginConfigUpdateAction(ctx context.Context, params map[strin
 	if !ok {
 		return nil, badRequest("config object is required")
 	}
-	secrets := pluginSecretsFromParams(params)
+	secrets := pluginSecretsFromParams(plugin.ID, params)
 	plugin.Config = sanitizePluginConfig(plugin.ID, config, secrets)
 	plugin.UpdatedAt = time.Now().UTC().UnixMilli()
 	if err := s.savePlugin(ctx, plugin); err != nil {
@@ -297,11 +297,10 @@ func (s *Service) enrichAgentPluginInvokeParams(ctx context.Context, plugin plug
 		return nil
 	}
 	if rawProfile, ok := invokeParams["model_profile"].(map[string]any); ok {
-		profile, apiErr := s.resolveAgentInvokeModelProfile(ctx, plugin.ID, rawProfile)
-		if apiErr != nil {
-			return apiErr
+		if savedProfile := savedAgentModelProfileByID(plugin.Config, pluginConfigString(rawProfile, "id")); savedProfile != nil {
+			rawProfile = mergeAgentModelProfile(savedProfile, rawProfile)
 		}
-		invokeParams["model_profile"] = profile
+		invokeParams["model_profile"] = sanitizeAgentInvokeModelProfile(rawProfile)
 		return nil
 	}
 	profileID := trimString(invokeParams["model_profile_id"])
@@ -317,29 +316,45 @@ func (s *Service) enrichAgentPluginInvokeParams(ctx context.Context, plugin plug
 		if !ok || pluginConfigString(profile, "id") != profileID {
 			continue
 		}
-		resolved, apiErr := s.resolveAgentInvokeModelProfile(ctx, plugin.ID, profile)
-		if apiErr != nil {
-			return apiErr
-		}
-		invokeParams["model_profile"] = resolved
+		invokeParams["model_profile"] = sanitizeAgentInvokeModelProfile(profile)
 		return nil
 	}
 	return nil
 }
 
-func (s *Service) resolveAgentInvokeModelProfile(ctx context.Context, pluginID string, profile map[string]any) (map[string]any, *apiError) {
-	cloned := cloneAnyMap(profile)
-	if trimString(cloned["api_key"]) == "" {
-		value, apiErr := s.resolvePluginSecretValue(ctx, pluginID, pluginConfigString(cloned, "api_key_ref"))
-		if apiErr != nil {
-			return nil, apiErr
-		}
-		if value != "" {
-			cloned["api_key"] = value
+func savedAgentModelProfileByID(config map[string]any, profileID string) map[string]any {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return nil
+	}
+	profiles, ok := config["model_profiles"].([]any)
+	if !ok {
+		return nil
+	}
+	for _, rawProfile := range profiles {
+		profile, ok := rawProfile.(map[string]any)
+		if ok && pluginConfigString(profile, "id") == profileID {
+			return profile
 		}
 	}
+	return nil
+}
+
+func mergeAgentModelProfile(base map[string]any, override map[string]any) map[string]any {
+	merged := cloneAnyMap(base)
+	for key, value := range override {
+		if value == nil {
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
+func sanitizeAgentInvokeModelProfile(profile map[string]any) map[string]any {
+	cloned := cloneAnyMap(profile)
 	delete(cloned, "api_key_ref")
-	return cloned, nil
+	return cloned
 }
 
 func pluginActionAllowed(entry pluginCatalogEntry, action string) bool {
@@ -369,7 +384,7 @@ func (s *Service) applyPluginAction(ctx context.Context, action string, params m
 	if action != "install" && !exists {
 		return nil, statusError(http.StatusNotFound, "plugin is not installed")
 	}
-	secrets := pluginSecretsFromParams(params)
+	secrets := pluginSecretsFromParams(pluginID, params)
 	if action == "install" {
 		plugin = pluginFromCatalogEntry(entry, now)
 		if config, ok := params["config"].(map[string]any); ok {
@@ -633,6 +648,9 @@ func normalizePluginInstance(plugin pluginInstance) pluginInstance {
 	if plugin.Config == nil {
 		plugin.Config = map[string]any{}
 	}
+	if plugin.ID == "io.dirextalk.agent" {
+		plugin.Config = sanitizePluginConfig(plugin.ID, plugin.Config, nil)
+	}
 	return plugin
 }
 
@@ -647,9 +665,12 @@ func cloneAnyMap(values map[string]any) map[string]any {
 	return cloned
 }
 
-func pluginSecretsFromParams(params map[string]any) map[string]string {
+func pluginSecretsFromParams(pluginID string, params map[string]any) map[string]string {
 	secrets := map[string]string{}
 	if params == nil {
+		return secrets
+	}
+	if pluginID == "io.dirextalk.agent" {
 		return secrets
 	}
 	if rawSecrets, ok := params["secrets"].(map[string]any); ok {
@@ -697,36 +718,32 @@ func sanitizePluginConfig(pluginID string, config map[string]any, secrets map[st
 	if secrets == nil {
 		secrets = map[string]string{}
 	}
+	if pluginID == "io.dirextalk.agent" {
+		delete(sanitized, "api_key")
+		delete(sanitized, "api_key_ref")
+		if profiles, ok := sanitized["model_profiles"].([]any); ok {
+			sanitized["model_profiles"] = sanitizeAgentModelProfiles(profiles)
+		}
+		return sanitized
+	}
 	if value := trimString(sanitized["api_key"]); value != "" {
 		secrets["api_key"] = value
 	}
 	delete(sanitized, "api_key")
-	if pluginID == "io.dirextalk.agent" {
-		if secrets["api_key"] != "" {
-			sanitized["api_key_ref"] = "secret:api_key"
-		}
-		if profiles, ok := sanitized["model_profiles"].([]any); ok {
-			sanitized["model_profiles"] = sanitizeAgentModelProfiles(profiles, secrets)
-		}
-	}
 	return sanitized
 }
 
-func sanitizeAgentModelProfiles(profiles []any, secrets map[string]string) []any {
+func sanitizeAgentModelProfiles(profiles []any) []any {
 	sanitized := make([]any, 0, len(profiles))
-	for index, rawProfile := range profiles {
+	for _, rawProfile := range profiles {
 		profile, ok := rawProfile.(map[string]any)
 		if !ok {
 			sanitized = append(sanitized, rawProfile)
 			continue
 		}
 		cloned := cloneAnyMap(profile)
-		if value := trimString(cloned["api_key"]); value != "" {
-			name := pluginProfileSecretName(cloned, index)
-			secrets[name] = value
-			cloned["api_key_ref"] = "secret:" + name
-		}
 		delete(cloned, "api_key")
+		delete(cloned, "api_key_ref")
 		sanitized = append(sanitized, cloned)
 	}
 	return sanitized
@@ -854,7 +871,11 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 		env["AGENT_MCP_SERVERS_JSON"] = value
 	}
 	if profiles, ok := config["model_profiles"]; ok {
-		data, err := json.Marshal(profiles)
+		rawProfiles, ok := profiles.([]any)
+		if !ok {
+			return badRequest("model_profiles must be an array")
+		}
+		data, err := json.Marshal(sanitizeAgentModelProfiles(rawProfiles))
 		if err != nil {
 			return internalError(err)
 		}

@@ -126,6 +126,15 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 			"mcp_servers":       []any{map[string]any{"name": "filesystem", "transport": "stdio", "enabled": false}},
 			"unexpected_key":    "kept in config only",
 			"max_output_tokens": float64(1024),
+			"model_profiles": []any{
+				map[string]any{
+					"id":          "deepseek:deepseek-chat",
+					"provider":    "deepseek",
+					"model":       "deepseek-chat",
+					"api_key":     "sk-test-secret",
+					"api_key_ref": "secret:legacy-profile-key",
+				},
+			},
 		},
 	})
 	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
@@ -156,6 +165,17 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	}
 	if op.Env["AGENT_MCP_SERVERS_JSON"] == "" || op.Env["AGENT_MAX_OUTPUT_TOKENS"] != "1024" {
 		t.Fatalf("expected JSON and numeric config env, got %#v", op.Env)
+	}
+	if _, ok := op.Env["AGENT_PROFILE_API_KEY_DEEPSEEK_DEEPSEEK_CHAT"]; ok {
+		t.Fatalf("model profile API keys must not be injected into plugin env, got %#v", op.Env)
+	}
+	if !strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], `"id":"deepseek:deepseek-chat"`) {
+		t.Fatalf("expected non-secret model profile env JSON, got %s", op.Env["AGENT_MODEL_PROFILES_JSON"])
+	}
+	if strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "api_key") ||
+		strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "secret:") ||
+		strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "sk-test-secret") {
+		t.Fatalf("model profile env JSON must not contain secret refs or keys, got %s", op.Env["AGENT_MODEL_PROFILES_JSON"])
 	}
 	if _, ok := op.Config["DIREXTALK_AGENT_TOKEN"]; ok {
 		t.Fatalf("runtime secrets must not be persisted in plugin config: %#v", op.Config)
@@ -195,8 +215,19 @@ func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
 	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
 		"config": map[string]any{
-			"provider": "openai",
-			"model":    "gpt-4.1-mini",
+			"provider":    "openai",
+			"model":       "gpt-4.1-mini",
+			"api_key":     "sk-test-secret",
+			"api_key_ref": "secret:legacy-api-key",
+			"model_profiles": []any{
+				map[string]any{
+					"id":          "deepseek:deepseek-chat",
+					"provider":    "deepseek",
+					"model":       "deepseek-chat",
+					"api_key":     "sk-test-secret",
+					"api_key_ref": "secret:legacy-profile-key",
+				},
+			},
 		},
 	})
 	plugin := install["plugin"].(pluginInstance)
@@ -206,12 +237,19 @@ func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
 	if _, ok := plugin.Config["api_key_ref"]; ok {
 		t.Fatalf("API key refs must not be persisted for client-local model keys: %#v", plugin.Config)
 	}
+	if strings.Contains(mustJSON(t, plugin.Config), "api_key") ||
+		strings.Contains(mustJSON(t, plugin.Config), "secret:") ||
+		strings.Contains(mustJSON(t, plugin.Config), "sk-test-secret") {
+		t.Fatalf("agent config must not persist model API key fields: %#v", plugin.Config)
+	}
 
 	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
 	})
-	if strings.Contains(mustJSON(t, config), "sk-test-secret") {
-		t.Fatalf("config response must not leak plugin secret: %#v", config)
+	if strings.Contains(mustJSON(t, config), "api_key") ||
+		strings.Contains(mustJSON(t, config), "secret:") ||
+		strings.Contains(mustJSON(t, config), "sk-test-secret") {
+		t.Fatalf("config response must not leak plugin secret fields: %#v", config)
 	}
 
 	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
@@ -243,7 +281,7 @@ func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
 	}
 }
 
-func TestPluginInvokeInjectsSavedModelProfileByID(t *testing.T) {
+func TestPluginInvokeDoesNotResolveSavedAgentModelKeys(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
 
@@ -254,12 +292,13 @@ func TestPluginInvokeInjectsSavedModelProfileByID(t *testing.T) {
 			"model":    "deepseek-v4-flash",
 			"model_profiles": []any{
 				map[string]any{
-					"id":       "deepseek:deepseek-v4-flash",
-					"name":     "DeepSeek v4 flash",
-					"provider": "deepseek",
-					"model":    "deepseek-v4-flash",
-					"base_url": "https://api.deepseek.com",
-					"api_key":  "sk-test-secret",
+					"id":          "deepseek:deepseek-v4-flash",
+					"name":        "DeepSeek v4 flash",
+					"provider":    "deepseek",
+					"model":       "deepseek-v4-flash",
+					"base_url":    "https://api.deepseek.com",
+					"api_key":     "sk-test-secret",
+					"api_key_ref": "secret:legacy-profile-key",
 				},
 			},
 		},
@@ -267,8 +306,10 @@ func TestPluginInvokeInjectsSavedModelProfileByID(t *testing.T) {
 	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
 	})
-	if strings.Contains(mustJSON(t, config), "sk-test-secret") {
-		t.Fatalf("config response must not leak saved model profile API key: %#v", config)
+	if strings.Contains(mustJSON(t, config), "api_key") ||
+		strings.Contains(mustJSON(t, config), "secret:") ||
+		strings.Contains(mustJSON(t, config), "sk-test-secret") {
+		t.Fatalf("config response must not leak saved model profile API key fields: %#v", config)
 	}
 	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
@@ -289,11 +330,37 @@ func TestPluginInvokeInjectsSavedModelProfileByID(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected saved model profile to be injected, got %#v", runner.invokes[0].Params)
 	}
-	if profile["id"] != "deepseek:deepseek-v4-flash" || profile["api_key"] != "sk-test-secret" {
-		t.Fatalf("expected resolved saved profile, got %#v", profile)
+	if profile["id"] != "deepseek:deepseek-v4-flash" {
+		t.Fatalf("expected saved non-secret profile, got %#v", profile)
+	}
+	if _, exists := profile["api_key"]; exists {
+		t.Fatalf("saved profile API key must not be injected, got %#v", profile)
 	}
 	if _, exists := profile["api_key_ref"]; exists {
 		t.Fatalf("invoke profile must not expose internal api_key_ref, got %#v", profile)
+	}
+
+	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"action":    "agent.chat",
+		"params": map[string]any{
+			"prompt":           "hello again",
+			"model_profile_id": "deepseek:deepseek-v4-flash",
+			"model_profile": map[string]any{
+				"id":       "deepseek:deepseek-v4-flash",
+				"provider": "deepseek",
+				"model":    "deepseek-v4-flash",
+				"base_url": "https://api.deepseek.com",
+				"api_key":  "sk-client-local",
+			},
+		},
+	})
+	if len(runner.invokes) != 2 {
+		t.Fatalf("expected second plugin invoke, got %#v", runner.invokes)
+	}
+	profile, ok = runner.invokes[1].Params["model_profile"].(map[string]any)
+	if !ok || profile["api_key"] != "sk-client-local" {
+		t.Fatalf("expected invoke request profile key to pass through, got %#v", runner.invokes[1].Params)
 	}
 }
 
