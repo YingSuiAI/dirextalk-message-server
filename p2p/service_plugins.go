@@ -72,6 +72,8 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"temperature":         "number",
 				"max_output_tokens":   "number",
 				"context_window":      "number",
+				"top_p":               "number",
+				"top_k":               "number",
 			},
 		},
 	}
@@ -779,6 +781,12 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 	}
 	if value := pluginConfigString(config, "context_window"); value != "" {
 		env["AGENT_CONTEXT_WINDOW"] = value
+	}
+	if value := pluginConfigString(config, "top_p"); value != "" {
+		env["AGENT_TOP_P"] = value
+	}
+	if value := pluginConfigString(config, "top_k"); value != "" {
+		env["AGENT_TOP_K"] = value
 	}
 	if value := pluginConfigString(config, "reasoning_mode"); value != "" {
 		env["AGENT_REASONING_MODE"] = value
