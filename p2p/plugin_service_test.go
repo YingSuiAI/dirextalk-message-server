@@ -243,6 +243,60 @@ func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
 	}
 }
 
+func TestPluginInvokeInjectsSavedModelProfileByID(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"provider": "deepseek",
+			"model":    "deepseek-v4-flash",
+			"model_profiles": []any{
+				map[string]any{
+					"id":       "deepseek:deepseek-v4-flash",
+					"name":     "DeepSeek v4 flash",
+					"provider": "deepseek",
+					"model":    "deepseek-v4-flash",
+					"base_url": "https://api.deepseek.com",
+					"api_key":  "sk-test-secret",
+				},
+			},
+		},
+	})
+	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+	if strings.Contains(mustJSON(t, config), "sk-test-secret") {
+		t.Fatalf("config response must not leak saved model profile API key: %#v", config)
+	}
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+
+	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"action":    "agent.chat",
+		"params": map[string]any{
+			"prompt":           "hello",
+			"model_profile_id": "deepseek:deepseek-v4-flash",
+		},
+	})
+	if len(runner.invokes) != 1 {
+		t.Fatalf("expected one plugin invoke, got %#v", runner.invokes)
+	}
+	profile, ok := runner.invokes[0].Params["model_profile"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected saved model profile to be injected, got %#v", runner.invokes[0].Params)
+	}
+	if profile["id"] != "deepseek:deepseek-v4-flash" || profile["api_key"] != "sk-test-secret" {
+		t.Fatalf("expected resolved saved profile, got %#v", profile)
+	}
+	if _, exists := profile["api_key_ref"]; exists {
+		t.Fatalf("invoke profile must not expose internal api_key_ref, got %#v", profile)
+	}
+}
+
 func TestPluginInvokeIsOwnerOnlyAndCallsEnabledOfficialPlugin(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
