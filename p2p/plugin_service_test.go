@@ -77,8 +77,8 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 
 	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
 	entries, ok := catalog["plugins"].([]pluginCatalogEntry)
-	if !ok || len(entries) != 1 || entries[0].ID != "io.dirextalk.agent" || entries[0].Digest == "" {
-		t.Fatalf("expected official agent catalog entry with digest, got %#v", catalog)
+	if !ok || len(entries) != 1 || entries[0].ID != "io.dirextalk.agent" || !officialPluginImage(entries[0].Image) {
+		t.Fatalf("expected official agent catalog entry with dirextalk image, got %#v", catalog)
 	}
 
 	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
@@ -87,7 +87,7 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 	if install["status"] != "installed" || install["job_id"] == "" {
 		t.Fatalf("expected installed plugin job result, got %#v", install)
 	}
-	if len(runner.operations) != 1 || runner.operations[0].Action != "install" || runner.operations[0].PluginID != "io.dirextalk.agent" || runner.operations[0].Digest == "" {
+	if len(runner.operations) != 1 || runner.operations[0].Action != "install" || runner.operations[0].PluginID != "io.dirextalk.agent" || !officialPluginImage(runner.operations[0].Image) {
 		t.Fatalf("expected install runner operation for official plugin, got %#v", runner.operations)
 	}
 

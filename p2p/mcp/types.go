@@ -18,6 +18,16 @@ type RoomSummary struct {
 	LastTS   int64  `json:"last_ts,omitempty"`
 }
 
+type ContactSummary struct {
+	PeerMXID    string `json:"peer_mxid"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	RoomID      string `json:"room_id"`
+	Status      string `json:"status"`
+	Remark      string `json:"remark,omitempty"`
+}
+
 type MessageSummary = matrixhistory.MessageSummary
 
 type MemberSummary struct {

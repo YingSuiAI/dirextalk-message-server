@@ -51,7 +51,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\"mcp\", \"skills\"],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": []\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\"\n      ],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": []\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -132,7 +132,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"action\": \"plugins.config.update\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\"mcp\", \"skills\"],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": [\n        {\n          \"id\": \"fast\",\n          \"name\": \"Fast\",\n          \"provider\": \"deepseek\",\n          \"model\": \"deepseek-chat\"\n        }\n      ]\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.config.update\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\"\n      ],\n      \"skills_registry_url\": \"https://skills.sh\",\n      \"mcp_registry_url\": \"https://registry.modelcontextprotocol.io\",\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"model_profiles\": [\n        {\n          \"id\": \"deepseek-chat\",\n          \"name\": \"DeepSeek Chat\",\n          \"provider\": \"deepseek\",\n          \"model\": \"deepseek-chat\",\n          \"api_key_ref\": \"secret:api_key\"\n        }\n      ],\n      \"default_model_profile_id\": \"deepseek-chat\"\n    },\n    \"secrets\": {\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -160,6 +160,114 @@
         "body": {
           "mode": "raw",
           "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.chat\",\n    \"params\": {\n      \"prompt\": \"Hello from Dirextalk\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent models list",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.models.list\",\n    \"params\": {\n      \"provider\": \"deepseek\",\n      \"base_url\": \"https://api.deepseek.com\",\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent skills search",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.skills.registry.search\",\n    \"params\": {\n      \"registry_url\": \"https://skills.sh\",\n      \"query\": \"browser\",\n      \"page_size\": 10\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent mcp registry search",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.mcp.registry.search\",\n    \"params\": {\n      \"registry_url\": \"https://registry.modelcontextprotocol.io\",\n      \"query\": \"memory\",\n      \"limit\": 10\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent config propose patch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.config.propose_patch\",\n    \"params\": {\n      \"kind\": \"mcp_server\",\n      \"mcp_server\": {\n        \"name\": \"Memory\",\n        \"transport\": \"stdio\",\n        \"enabled\": true,\n        \"command\": [\"npx\", \"-y\", \"@modelcontextprotocol/server-memory\"]\n      }\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"

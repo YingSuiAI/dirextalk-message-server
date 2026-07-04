@@ -33,6 +33,8 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"conversations.get":           s.conversationGet,
 
 		"mcp.rooms.search":             s.mcpRoomsSearch,
+		"mcp.contacts.list":            s.mcpContactsList,
+		"mcp.contacts.search":          s.mcpContactsSearch,
 		"mcp.messages.send":            s.mcpMessagesSend,
 		"mcp.messages.list":            s.mcpMessagesList,
 		"mcp.room_members.list":        s.mcpRoomMembersList,

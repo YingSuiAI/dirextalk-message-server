@@ -2612,6 +2612,70 @@
               }
             },
             {
+              "name": "mcp.contacts.list（联系人列表）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{agentToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "按 portal owner 视角列出 accepted 且未删除的 direct contacts，供 Agent 默认内置 MCP 查询好友。\n\nAction: `mcp.contacts.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"mcp.contacts.list\",\n  \"params\": {\n    \"limit\": 50\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp.contacts.search（搜索联系人）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{agentToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "按 display_name、remark、peer_mxid 或 domain 搜索 accepted direct contacts，返回 room_id 供 Agent 后续发送消息。\n\nAction: `mcp.contacts.search`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"mcp.contacts.search\",\n  \"params\": {\n    \"query\": \"Alice\",\n    \"limit\": 20\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "mcp.messages.send（发送普通消息）",
               "request": {
                 "method": "POST",

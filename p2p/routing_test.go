@@ -339,6 +339,9 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 	if !service.Authorize(agentToken, "mcp.rooms.search") {
 		t.Fatal("expected agent token to authorize MCP actions")
 	}
+	if !service.Authorize(agentToken, "mcp.contacts.search") {
+		t.Fatal("expected agent token to authorize MCP contact search")
+	}
 	for _, action := range []string{
 		"contacts.request",
 		"agent.config.get",

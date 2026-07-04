@@ -16,6 +16,7 @@ const defaultMCPLimit = mcp.DefaultLimit
 const maxMCPLimit = mcp.MaxLimit
 
 type mcpRoomSummary = mcp.RoomSummary
+type mcpContactSummary = mcp.ContactSummary
 type mcpMessageSummary = mcp.MessageSummary
 type mcpMemberSummary = mcp.MemberSummary
 type mcpPostSummary = mcp.PostSummary
@@ -83,6 +84,81 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		rooms = rooms[:limit]
 	}
 	return map[string]any{"rooms": rooms}, nil
+}
+
+func (s *Service) mcpContactsList(ctx context.Context, params map[string]any) (any, *apiError) {
+	return s.mcpContactsSearch(ctx, params)
+}
+
+func (s *Service) mcpContactsSearch(ctx context.Context, params map[string]any) (any, *apiError) {
+	query := strings.ToLower(trimString(params["query"]))
+	contacts, err := s.listContacts(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	summaries := make([]mcpContactSummary, 0, len(contacts))
+	for _, contact := range contacts {
+		if !contactAccepted(contact.Status) || contactDeleted(contact.Status) {
+			continue
+		}
+		summary := mcpContactSummaryFromContact(contact)
+		if summary.PeerMXID == "" || summary.RoomID == "" {
+			continue
+		}
+		if query != "" && !mcpContactMatches(summary, query) {
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+	sort.SliceStable(summaries, func(i, j int) bool {
+		left, right := strings.ToLower(summaries[i].DisplayName), strings.ToLower(summaries[j].DisplayName)
+		if left == right {
+			return summaries[i].PeerMXID < summaries[j].PeerMXID
+		}
+		return left < right
+	})
+	limit := mcpLimit(params)
+	if len(summaries) > limit {
+		summaries = summaries[:limit]
+	}
+	return map[string]any{"contacts": summaries}, nil
+}
+
+func mcpContactSummaryFromContact(contact contactRecord) mcpContactSummary {
+	displayName := fallbackString(contact.Remark, contact.DisplayName)
+	if displayName == "" {
+		displayName = contact.PeerMXID
+	}
+	return mcpContactSummary{
+		PeerMXID:    contact.PeerMXID,
+		DisplayName: displayName,
+		AvatarURL:   contact.AvatarURL,
+		Domain:      contact.Domain,
+		RoomID:      contact.RoomID,
+		Status:      contact.Status,
+		Remark:      contact.Remark,
+	}
+}
+
+func mcpContactMatches(contact mcpContactSummary, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+	values := []string{
+		contact.PeerMXID,
+		contact.DisplayName,
+		contact.AvatarURL,
+		contact.Domain,
+		contact.RoomID,
+		contact.Remark,
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), query) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) enrichMCPRoomSummaryWithMatrixMemberCount(ctx context.Context, summary mcpRoomSummary) mcpRoomSummary {

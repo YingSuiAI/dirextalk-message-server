@@ -82,14 +82,14 @@ Do not mark a task complete until the code is implemented and the listed verific
 - [ ] Add uninstall confirmation flow in the UI; provider/API method exists.
 - [x] Add Agent plugin detail/config page:
   - provider selection from first-version provider list
-  - free-form model input
+  - model discovery through provider API key/base URL and dropdown selection
   - write-only API key field
   - system prompt editor
   - enabled tools toggles
-  - skills configuration
-  - MCP servers configuration
-  - model profile JSON management
-- [ ] Add schema-driven provider options and explicit default model profile selector.
+  - skills.sh registry search and button install
+  - built-in MCP summary plus third-party MCP registry search and button install
+  - automatic model profile generation for selected model
+- [x] Add schema-driven provider options and explicit default model profile selector for the official Agent plugin first version.
 - [ ] Verification:
   - [x] `flutter test --no-pub test/widget_test.dart --plain-name 'settings page matches Dirextalk settings sections'`
   - [ ] focused widget/provider tests for plugin center
@@ -107,13 +107,15 @@ Do not mark a task complete until the code is implemented and the listed verific
   - stop generation
   - Markdown rendering
   - file/image attachment selection metadata
-- [ ] Add local conversation list if product requires multiple retained local threads.
+- [x] Add local conversation list/history for retained local Agent plugin threads.
 - [ ] Add real attachment upload/content transport after a server attachment contract exists.
 - [x] Keep first-version Agent chat history local-only; no server persistence contract was added.
 - [ ] Verification:
   - [ ] focused widget/provider tests for streaming chunk merge
   - [ ] focused widget/provider tests for model profile switch
   - [ ] focused widget/provider tests for attachment validation
+  - [x] focused store test for local Agent plugin chat history
+  - [x] focused widget test for structured Agent plugin settings controls
 
 ## Stage 6 - Final Integration
 
@@ -155,8 +157,9 @@ Caddy as `https://x1.dirextalk.ai`.
 
 - [x] Build and push official Agent plugin image
   `dirextalk/agent-plugin:0.1.0-ws-20260704`.
-- [x] Pin catalog digest to
-  `sha256:d7f5d0fdc8878bf173c79968ea9db8ec6a4fb23d872cdcfde664055d2e0baddd`.
+- [x] Use the official Docker Hub organization image
+  `docker.io/dirextalk/agent-plugin:latest`; digest metadata is optional and not
+  required for install checks.
 - [x] Build local `dirextalk/message-server:latest` with plugin management and
   plugin stream support.
 - [x] Recreate only local Docker `dendrite-a` with the Docker plugin runner

@@ -16,6 +16,8 @@ var publicActions = []string{
 var agentActions = []string{
 	"agent.matrix_session.create",
 	"mcp.rooms.search",
+	"mcp.contacts.list",
+	"mcp.contacts.search",
 	"mcp.messages.send",
 	"mcp.messages.list",
 	"mcp.room_members.list",

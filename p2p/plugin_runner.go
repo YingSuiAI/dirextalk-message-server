@@ -87,7 +87,7 @@ func (r dockerPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOper
 	if err := validateOfficialPluginOperation(op); err != nil {
 		return err
 	}
-	imageRef := op.Image + "@" + op.Digest
+	imageRef := pluginImageReference(op.Image, op.Digest)
 	containerName := op.ContainerName
 	if containerName == "" {
 		containerName = pluginContainerName(op.PluginID)
@@ -263,15 +263,28 @@ func validateOfficialPluginOperation(op PluginRunnerOperation) error {
 	if !officialPluginImage(op.Image) {
 		return fmt.Errorf("plugin image %q is not official", op.Image)
 	}
-	if !strings.HasPrefix(op.Digest, "sha256:") || len(op.Digest) != len("sha256:")+64 {
-		return fmt.Errorf("plugin digest must be a pinned sha256 digest")
+	digest := strings.TrimSpace(op.Digest)
+	if digest != "" && (!strings.HasPrefix(digest, "sha256:") || len(digest) != len("sha256:")+64) {
+		return fmt.Errorf("plugin digest must be empty or a pinned sha256 digest")
 	}
 	return nil
 }
 
 func officialPluginImage(image string) bool {
 	image = strings.TrimSpace(image)
+	if image == "" || strings.Contains(image, "@") {
+		return false
+	}
 	return strings.HasPrefix(image, "docker.io/dirextalk/") || strings.HasPrefix(image, "dirextalk/")
+}
+
+func pluginImageReference(image, digest string) string {
+	image = strings.TrimSpace(image)
+	digest = strings.TrimSpace(digest)
+	if digest == "" {
+		return image
+	}
+	return image + "@" + digest
 }
 
 var pluginContainerSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)

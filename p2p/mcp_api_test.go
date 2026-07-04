@@ -100,6 +100,77 @@ func TestMCPBlockedRoomsAreFilteredFromRoomSearch(t *testing.T) {
 	}
 }
 
+func TestMCPContactsListReturnsAcceptedContacts(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    "@alice:example.com",
+		DisplayName: "Alice",
+		AvatarURL:   "mxc://example.com/alice",
+		Domain:      "example.com",
+		RoomID:      "!alice:example.com",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    "@bob:example.com",
+		DisplayName: "Bob",
+		Domain:      "example.com",
+		RoomID:      "!bob:example.com",
+		Status:      "deleted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "mcp.contacts.list", map[string]any{})
+	contacts := result["contacts"].([]mcpContactSummary)
+	if len(contacts) != 1 {
+		t.Fatalf("expected only visible contacts, got %#v", contacts)
+	}
+	if contacts[0].PeerMXID != "@alice:example.com" || contacts[0].DisplayName != "Alice" || contacts[0].AvatarURL != "mxc://example.com/alice" {
+		t.Fatalf("unexpected contact summary: %#v", contacts[0])
+	}
+}
+
+func TestMCPContactsSearchMatchesNamePeerAndDomain(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice Product",
+		Domain:      "remote.example",
+		RoomID:      "!alice:remote.example",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveContact(context.Background(), contactRecord{
+		PeerMXID:    "@bob:example.com",
+		DisplayName: "Bob",
+		Domain:      "example.com",
+		RoomID:      "!bob:example.com",
+		Status:      "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "mcp.contacts.search", map[string]any{
+		"query": "remote",
+		"limit": float64(10),
+	})
+	contacts := result["contacts"].([]mcpContactSummary)
+	if len(contacts) != 1 || contacts[0].PeerMXID != "@alice:remote.example" {
+		t.Fatalf("expected remote Alice contact, got %#v", contacts)
+	}
+
+	result = mustHandle[map[string]any](t, service, "mcp.contacts.search", map[string]any{
+		"query": "product",
+	})
+	contacts = result["contacts"].([]mcpContactSummary)
+	if len(contacts) != 1 || contacts[0].DisplayName != "Alice Product" {
+		t.Fatalf("expected display-name match, got %#v", contacts)
+	}
+}
+
 func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
