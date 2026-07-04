@@ -209,7 +209,9 @@ services:
       dendrite-a-init:
         condition: service_completed_successfully
     networks:
-      - p2p_dual_a
+      p2p_dual_a:
+        aliases:
+          - message-server
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://localhost:8008/_p2p/health >/dev/null"]
       interval: 10s

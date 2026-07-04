@@ -740,7 +740,7 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 	agentToken := s.agentToken
 	s.mu.Unlock()
 	env := map[string]string{
-		"DIREXTALK_BASE_URL":        fallbackString(homeserver, "http://message-server:8008"),
+		"DIREXTALK_BASE_URL":        pluginBackendBaseURL(homeserver),
 		"DIREXTALK_AGENT_TOKEN":     agentToken,
 		"DIREXTALK_AGENT_TOKEN_REF": "env:DIREXTALK_AGENT_TOKEN",
 	}
@@ -750,6 +750,17 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 		}
 	}
 	return env, nil
+}
+
+func pluginBackendBaseURL(homeserver string) string {
+	if configured := strings.TrimSpace(os.Getenv("P2P_PLUGIN_BACKEND_BASE_URL")); configured != "" {
+		return configured
+	}
+	homeserver = strings.TrimSpace(homeserver)
+	if homeserver == "" || isAutoHomeserver(homeserver) {
+		return "http://message-server:8008"
+	}
+	return homeserver
 }
 
 func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {

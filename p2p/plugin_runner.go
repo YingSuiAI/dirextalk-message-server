@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -122,7 +123,10 @@ func (r dockerPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOper
 			args = append(args, "--network", network)
 		}
 		args = append(args, imageRef)
-		return r.run(ctx, args...)
+		if err := r.run(ctx, args...); err != nil {
+			return err
+		}
+		return r.waitReady(ctx, containerName)
 	case "disable":
 		return r.run(ctx, "stop", containerName)
 	case "uninstall":
@@ -236,6 +240,48 @@ func (r dockerPluginRunner) invokeHTTP(ctx context.Context, req PluginInvokeRequ
 		return nil, fmt.Errorf("plugin invoke failed: %s", message)
 	}
 	return resp.Body, nil
+}
+
+func (r dockerPluginRunner) waitReady(ctx context.Context, containerName string) error {
+	if strings.TrimSpace(containerName) == "" {
+		return nil
+	}
+	client := r.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+containerName+":8080/health", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
+			}
+			lastErr = fmt.Errorf("%s", resp.Status)
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("plugin container %s is not ready: %w", containerName, lastErr)
+		}
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (r dockerPluginRunner) run(ctx context.Context, args ...string) error {

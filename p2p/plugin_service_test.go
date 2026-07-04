@@ -161,6 +161,28 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	}
 }
 
+func TestPluginRuntimeEnvironmentUsesConfiguredBackendURLForAutoHomeserver(t *testing.T) {
+	t.Setenv("P2P_PLUGIN_BACKEND_BASE_URL", "http://message-server:8008")
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		Homeserver:   "http://auto",
+		PluginRunner: runner,
+	})
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+
+	op := runner.operations[len(runner.operations)-1]
+	if op.Env["DIREXTALK_BASE_URL"] != "http://message-server:8008" {
+		t.Fatalf("expected configured internal backend URL, got %#v", op.Env)
+	}
+}
+
 func TestPluginDirectSecretIsWriteOnlyAndInjectedAtEnable(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
