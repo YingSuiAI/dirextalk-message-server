@@ -109,7 +109,6 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 }
 
 func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "test-deepseek-key")
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
 		ServerName:   "example.com",
@@ -122,7 +121,6 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 		"config": map[string]any{
 			"provider":          "deepseek",
 			"model":             "deepseek-chat",
-			"api_key_ref":       "env:DEEPSEEK_API_KEY",
 			"enabled_tools":     []any{"search_rooms", "list_messages"},
 			"system_prompt":     "You are the local agent.",
 			"mcp_servers":       []any{map[string]any{"name": "filesystem", "transport": "stdio", "enabled": false}},
@@ -147,8 +145,11 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	if op.Env["AGENT_MODEL_PROVIDER"] != "deepseek" || op.Env["AGENT_MODEL"] != "deepseek-chat" {
 		t.Fatalf("expected DeepSeek model env, got %#v", op.Env)
 	}
-	if op.Env["AGENT_API_KEY_REF"] != "env:DEEPSEEK_API_KEY" || op.Env["DEEPSEEK_API_KEY"] != "test-deepseek-key" {
-		t.Fatalf("expected DeepSeek key passthrough by env ref, got %#v", op.Env)
+	if _, ok := op.Env["AGENT_API_KEY"]; ok {
+		t.Fatalf("model API keys must not be injected into plugin env, got %#v", op.Env)
+	}
+	if _, ok := op.Env["AGENT_API_KEY_REF"]; ok {
+		t.Fatalf("model API key refs must not be injected into plugin env, got %#v", op.Env)
 	}
 	if op.Env["AGENT_ENABLED_TOOLS"] != "search_rooms,list_messages" {
 		t.Fatalf("expected enabled tools env, got %#v", op.Env)
@@ -183,7 +184,7 @@ func TestPluginRuntimeEnvironmentUsesConfiguredBackendURLForAutoHomeserver(t *te
 	}
 }
 
-func TestPluginDirectSecretIsWriteOnlyAndInjectedAtEnable(t *testing.T) {
+func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
 		ServerName:   "example.com",
@@ -197,16 +198,13 @@ func TestPluginDirectSecretIsWriteOnlyAndInjectedAtEnable(t *testing.T) {
 			"provider": "openai",
 			"model":    "gpt-4.1-mini",
 		},
-		"secrets": map[string]any{
-			"api_key": "sk-test-secret",
-		},
 	})
 	plugin := install["plugin"].(pluginInstance)
 	if _, ok := plugin.Config["api_key"]; ok {
 		t.Fatalf("raw API key must not be persisted in plugin config: %#v", plugin.Config)
 	}
-	if plugin.Config["api_key_ref"] != "secret:api_key" {
-		t.Fatalf("expected direct secret to become secret ref, got %#v", plugin.Config)
+	if _, ok := plugin.Config["api_key_ref"]; ok {
+		t.Fatalf("API key refs must not be persisted for client-local model keys: %#v", plugin.Config)
 	}
 
 	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
@@ -215,21 +213,33 @@ func TestPluginDirectSecretIsWriteOnlyAndInjectedAtEnable(t *testing.T) {
 	if strings.Contains(mustJSON(t, config), "sk-test-secret") {
 		t.Fatalf("config response must not leak plugin secret: %#v", config)
 	}
-	status := config["secret_status"].(map[string]any)
-	apiKey := status["api_key"].(map[string]any)
-	if apiKey["configured"] != true {
-		t.Fatalf("expected configured secret status, got %#v", config)
-	}
 
 	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
 	})
 	op := runner.operations[len(runner.operations)-1]
-	if op.Env["AGENT_API_KEY_REF"] != "env:AGENT_API_KEY" || op.Env["AGENT_API_KEY"] != "sk-test-secret" {
-		t.Fatalf("expected write-only secret injected through runtime env, got %#v", op.Env)
+	if _, ok := op.Env["AGENT_API_KEY"]; ok {
+		t.Fatalf("model API keys must not be injected through runtime env, got %#v", op.Env)
 	}
-	if strings.Contains(mustJSON(t, op.Config), "sk-test-secret") {
-		t.Fatalf("runner config must not include raw plugin secret: %#v", op.Config)
+	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"action":    "agent.chat",
+		"params": map[string]any{
+			"prompt": "hello",
+			"model_profile": map[string]any{
+				"id":       "deepseek:deepseek-chat",
+				"provider": "deepseek",
+				"model":    "deepseek-chat",
+				"api_key":  "sk-test-secret",
+			},
+		},
+	})
+	if len(runner.invokes) != 1 {
+		t.Fatalf("expected one plugin invoke, got %#v", runner.invokes)
+	}
+	profile, ok := runner.invokes[0].Params["model_profile"].(map[string]any)
+	if !ok || profile["api_key"] != "sk-test-secret" {
+		t.Fatalf("expected invoke-only model profile API key, got %#v", runner.invokes[0].Params)
 	}
 }
 

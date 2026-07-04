@@ -44,6 +44,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			Actions: []string{
 				"agent.chat",
 				"agent.chat.stream",
+				"agent.context.compress",
 				"agent.models.list",
 				"agent.skills.list",
 				"agent.skills.registry.search",
@@ -58,22 +59,10 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.summarize",
 			},
 			ConfigSchema: map[string]any{
-				"providers":                []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
-				"provider":                 []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
-				"model":                    "string",
-				"base_url":                 "string",
-				"api_key_ref":              "secret-or-env-ref",
-				"default_model_profile_id": "string",
-				"model_profiles": []map[string]any{
-					{
-						"id":          "string",
-						"name":        "string",
-						"provider":    "string",
-						"model":       "string",
-						"base_url":    "string",
-						"api_key_ref": "secret-or-env-ref",
-					},
-				},
+				"providers":           []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
+				"provider":            []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
+				"model":               "string",
+				"base_url":            "string",
 				"system_prompt":       "string",
 				"enabled_tools":       []string{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"},
 				"skills_registry_url": "string",
@@ -770,13 +759,6 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 	if value := pluginConfigString(config, "model"); value != "" {
 		env["AGENT_MODEL"] = value
 	}
-	if value := pluginConfigString(config, "api_key_ref"); value != "" {
-		ref, apiErr := s.resolvePluginSecretRef(ctx, pluginID, env, value, "AGENT_API_KEY")
-		if apiErr != nil {
-			return apiErr
-		}
-		env["AGENT_API_KEY_REF"] = ref
-	}
 	if value := pluginConfigString(config, "base_url"); value != "" {
 		env["AGENT_BASE_URL"] = value
 	}
@@ -798,6 +780,9 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 	if value := pluginConfigString(config, "context_window"); value != "" {
 		env["AGENT_CONTEXT_WINDOW"] = value
 	}
+	if value := pluginConfigString(config, "reasoning_mode"); value != "" {
+		env["AGENT_REASONING_MODE"] = value
+	}
 	if value := pluginConfigListString(config, "enabled_tools"); value != "" {
 		env["AGENT_ENABLED_TOOLS"] = value
 	}
@@ -808,11 +793,7 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 		env["AGENT_MCP_SERVERS_JSON"] = value
 	}
 	if profiles, ok := config["model_profiles"]; ok {
-		resolved, apiErr := s.resolveAgentModelProfiles(ctx, pluginID, env, profiles)
-		if apiErr != nil {
-			return apiErr
-		}
-		data, err := json.Marshal(resolved)
+		data, err := json.Marshal(profiles)
 		if err != nil {
 			return internalError(err)
 		}
