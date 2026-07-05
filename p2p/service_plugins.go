@@ -26,7 +26,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			ID:             "io.dirextalk.agent",
 			Name:           "Dirextalk Agent",
 			Version:        "0.1.0",
-			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, and MCP server support.",
+			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, MCP server support, and optional knowledge base.",
 			Image:          "docker.io/dirextalk/agent-plugin:latest",
 			Digest:         "",
 			MinBaseVersion: "0.1.0",
@@ -36,6 +36,8 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"rooms.members.read",
 				"mcp.call",
 				"skills.install",
+				"knowledge.read",
+				"knowledge.write",
 			},
 			Events: []string{
 				"message.created",
@@ -50,6 +52,16 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.skills.registry.search",
 				"agent.mcp.servers.list",
 				"agent.mcp.registry.search",
+				"agent.knowledge.config.get",
+				"agent.knowledge.config.update",
+				"agent.knowledge.sources.list",
+				"agent.knowledge.sources.delete",
+				"agent.knowledge.upload.start",
+				"agent.knowledge.upload.chunk",
+				"agent.knowledge.upload.finish",
+				"agent.knowledge.memory.create",
+				"agent.knowledge.search",
+				"agent.knowledge.status",
 				"agent.config.propose_patch",
 				"agent.contacts.list",
 				"agent.contacts.search",
@@ -69,11 +81,60 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"mcp_registry_url":    "string",
 				"skills":              []map[string]any{},
 				"mcp_servers":         []map[string]any{},
-				"temperature":         "number",
-				"max_output_tokens":   "number",
-				"context_window":      "number",
-				"top_p":               "number",
-				"top_k":               "number",
+				"knowledge": map[string]any{
+					"enabled":                 "boolean",
+					"embedding_profile":       "request-local",
+					"ocr_profile":             "request-local",
+					"max_file_bytes":          20 * 1024 * 1024,
+					"max_total_bytes":         500 * 1024 * 1024,
+					"max_chunks":              50000,
+					"metadata_database_url":   "env:AGENT_KNOWLEDGE_DATABASE_URL",
+					"vector_index":            "lancedb",
+					"metadata_fallback_store": "sqlite",
+				},
+				"temperature":       "number",
+				"max_output_tokens": "number",
+				"context_window":    "number",
+				"top_p":             "number",
+				"top_k":             "number",
+			},
+		},
+		{
+			ID:             "io.dirextalk.ops",
+			Name:           "Dirextalk Ops",
+			Version:        "0.1.0",
+			Description:    "Official operations plugin for server status, backups, migration exports, and safe cleanup planning.",
+			Image:          "docker.io/dirextalk/ops-plugin:latest",
+			Digest:         "",
+			MinBaseVersion: "0.1.0",
+			Permissions: []string{
+				"ops.status.read",
+				"ops.backup.write",
+				"ops.cleanup.plan",
+				"ops.cleanup.run",
+				"ops.migration.export",
+			},
+			Actions: []string{
+				"ops.status.get",
+				"ops.containers.list",
+				"ops.logs.tail",
+				"ops.backups.list",
+				"ops.backup.create",
+				"ops.backup.download_chunk",
+				"ops.backup.delete",
+				"ops.cleanup.plan",
+				"ops.cleanup.run",
+				"ops.rooms.cleanup.plan",
+				"ops.rooms.cleanup.run",
+				"ops.media.orphans.plan",
+				"ops.migration.export",
+				"ops.restore.plan",
+			},
+			ConfigSchema: map[string]any{
+				"backup_root":          "string",
+				"max_backups":          "number",
+				"cleanup_requires_dry": true,
+				"destructive_confirm":  "string",
 			},
 		},
 	}
@@ -423,6 +484,7 @@ func (s *Service) applyPluginAction(ctx context.Context, action string, params m
 		ContainerName: pluginContainerName(pluginID),
 		Config:        cloneAnyMap(plugin.Config),
 		Env:           runtimeEnv,
+		Volumes:       pluginRuntimeVolumes(plugin),
 	}
 	if err := s.pluginRunner.ApplyPlugin(ctx, op); err != nil {
 		job.Status = pluginJobStatusFailed
@@ -801,16 +863,49 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 	agentToken := s.agentToken
 	s.mu.Unlock()
 	env := map[string]string{
-		"DIREXTALK_BASE_URL":        pluginBackendBaseURL(homeserver),
-		"DIREXTALK_AGENT_TOKEN":     agentToken,
-		"DIREXTALK_AGENT_TOKEN_REF": "env:DIREXTALK_AGENT_TOKEN",
+		"DIREXTALK_BASE_URL": pluginBackendBaseURL(homeserver),
 	}
 	if plugin.ID == "io.dirextalk.agent" {
+		env["DIREXTALK_AGENT_TOKEN"] = agentToken
+		env["DIREXTALK_AGENT_TOKEN_REF"] = "env:DIREXTALK_AGENT_TOKEN"
 		if apiErr := s.mergeAgentPluginEnv(ctx, plugin.ID, env, plugin.Config); apiErr != nil {
 			return nil, apiErr
 		}
+	} else if plugin.ID == "io.dirextalk.ops" {
+		mergeOpsPluginEnv(env)
 	}
 	return env, nil
+}
+
+func pluginRuntimeVolumes(plugin pluginInstance) []string {
+	if plugin.ID == "io.dirextalk.agent" {
+		dataVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_KNOWLEDGE_VOLUME")), "dirextalk_agent_data")
+		return []string{dataVolume + ":/var/lib/dirextalk-agent"}
+	}
+	if plugin.ID != "io.dirextalk.ops" {
+		return nil
+	}
+	socket := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_DOCKER_SOCKET")), "/var/run/docker.sock")
+	backupVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_BACKUP_VOLUME")), "dirextalk_ops_backups")
+	return []string{
+		socket + ":/var/run/docker.sock",
+		backupVolume + ":/var/lib/dirextalk-ops",
+	}
+}
+
+func mergeOpsPluginEnv(env map[string]string) {
+	env["OPS_BACKUP_ROOT"] = "/var/lib/dirextalk-ops/backups"
+	env["OPS_MAX_BACKUPS"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MAX_BACKUPS")), "10")
+	env["OPS_MESSAGE_SERVER_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MESSAGE_SERVER_CONTAINER")), fallbackString(osHostname(), "message-server"))
+	env["OPS_POSTGRES_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_CONTAINER")), "postgres")
+}
+
+func osHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(hostname)
 }
 
 func pluginBackendBaseURL(homeserver string) string {
@@ -825,6 +920,10 @@ func pluginBackendBaseURL(homeserver string) string {
 }
 
 func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {
+	env["AGENT_KNOWLEDGE_DIR"] = "/var/lib/dirextalk-agent/knowledge"
+	if value := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_KNOWLEDGE_DATABASE_URL")), strings.TrimSpace(os.Getenv("P2P_PLUGIN_KNOWLEDGE_DATABASE_URL"))); value != "" {
+		env["AGENT_KNOWLEDGE_DATABASE_URL"] = value
+	}
 	if value := pluginConfigString(config, "display_name"); value != "" {
 		env["AGENT_DISPLAY_NAME"] = value
 	}

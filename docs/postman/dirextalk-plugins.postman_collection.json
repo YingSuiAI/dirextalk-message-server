@@ -439,6 +439,114 @@
       }
     },
     {
+      "name": "plugins.install ops",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.enable ops",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.enable\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke ops status",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.status.get\",\n    \"params\": {}\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke ops cleanup plan",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.cleanup.plan\",\n    \"params\": {\n      \"targets\": [\"backup_old\", \"temp\", \"plugin_stopped\", \"media_cache\"],\n      \"before_days\": 90\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "plugins.installed.list",
       "request": {
         "method": "POST",

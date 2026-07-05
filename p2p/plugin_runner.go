@@ -35,6 +35,7 @@ type PluginRunnerOperation struct {
 	Network       string
 	Config        map[string]any
 	Env           map[string]string
+	Volumes       []string
 }
 
 type PluginInvokeRequest struct {
@@ -121,6 +122,9 @@ func (r dockerPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOper
 		}
 		if network != "" {
 			args = append(args, "--network", network)
+		}
+		for _, volume := range op.Volumes {
+			args = append(args, "-v", volume)
 		}
 		args = append(args, imageRef)
 		if err := r.run(ctx, args...); err != nil {
@@ -313,7 +317,44 @@ func validateOfficialPluginOperation(op PluginRunnerOperation) error {
 	if digest != "" && (!strings.HasPrefix(digest, "sha256:") || len(digest) != len("sha256:")+64) {
 		return fmt.Errorf("plugin digest must be empty or a pinned sha256 digest")
 	}
+	for _, volume := range op.Volumes {
+		if err := validateOfficialPluginVolume(op.PluginID, volume); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateOfficialPluginVolume(pluginID, volume string) error {
+	volume = strings.TrimSpace(volume)
+	if volume == "" {
+		return nil
+	}
+	if pluginID == "io.dirextalk.agent" {
+		if strings.HasSuffix(volume, ":/var/lib/dirextalk-agent") {
+			source := strings.TrimSuffix(volume, ":/var/lib/dirextalk-agent")
+			if source == "" || strings.ContainsAny(source, `/\`) || strings.Contains(source, "..") {
+				return fmt.Errorf("invalid agent data volume %q", volume)
+			}
+			return nil
+		}
+		return fmt.Errorf("agent plugin volume %q is not allowed", volume)
+	}
+	if pluginID != "io.dirextalk.ops" {
+		return fmt.Errorf("plugin %s cannot request privileged volume %q", pluginID, volume)
+	}
+	switch {
+	case volume == "/var/run/docker.sock:/var/run/docker.sock":
+		return nil
+	case strings.HasSuffix(volume, ":/var/lib/dirextalk-ops"):
+		source := strings.TrimSuffix(volume, ":/var/lib/dirextalk-ops")
+		if source == "" || strings.ContainsAny(source, `/\`) || strings.Contains(source, "..") {
+			return fmt.Errorf("invalid ops backup volume %q", volume)
+		}
+		return nil
+	default:
+		return fmt.Errorf("ops plugin volume %q is not allowed", volume)
+	}
 }
 
 func officialPluginImage(image string) bool {

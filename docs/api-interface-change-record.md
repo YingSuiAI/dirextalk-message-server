@@ -1,6 +1,29 @@
 # API Interface Change Record
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
+
+## 2026-07-05 Official Ops Plugin
+
+Added official catalog plugin `io.dirextalk.ops` for single-node private deployment operations. It uses `docker.io/dirextalk/ops-plugin:latest` and exposes owner-invoked plugin actions through existing `plugins.invoke`:
+
+- `ops.status.get`
+- `ops.containers.list`
+- `ops.logs.tail`
+- `ops.backups.list`
+- `ops.backup.create`
+- `ops.backup.download_chunk`
+- `ops.backup.delete`
+- `ops.cleanup.plan`
+- `ops.cleanup.run`
+- `ops.rooms.cleanup.plan`
+- `ops.rooms.cleanup.run`
+- `ops.media.orphans.plan`
+- `ops.migration.export`
+- `ops.restore.plan`
+
+The server treats Ops as the only official plugin allowed to receive privileged Docker runner mounts. When enabled, Ops receives the Docker socket mount and a dedicated backup volume, plus `OPS_BACKUP_ROOT`, `OPS_MAX_BACKUPS`, `OPS_MESSAGE_SERVER_CONTAINER`, and `OPS_POSTGRES_CONTAINER`. Ops does not receive owner access token or `DIREXTALK_AGENT_TOKEN`. Non-Ops plugins are rejected if they request privileged mounts.
+
+Cleanup contracts are intentionally plan-first. `ops.cleanup.plan`, `ops.rooms.cleanup.plan`, and `ops.media.orphans.plan` estimate impact before execution. `chat_purge_physical` and direct SQL deletion of Matrix event tables are not part of the first-version Ops plugin; room history cleanup is limited to cache cleanup, local hiding/archive planning, and backend-controlled safe actions.
 
 ## 2026-07-04 Official Plugin Manager And Agent MCP Boundary
 
