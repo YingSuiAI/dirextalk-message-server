@@ -138,7 +138,6 @@ Verification commands run:
 - Docker PostgreSQL-backed `go test ./p2p -count=1`.
 - `go build ./cmd/dirextalk-message-server`.
 - Postman JSON validation for message-server and plugin collections.
-- `docker compose -f docker-compose.p2p-dual.yml -f docker-compose.p2p-dual.plugins.yml config`.
 - Plugin runtime `.venv/bin/python -m pytest`.
 - Plugin catalog JSON validation.
 - Plugin `docker compose -f deploy/docker-compose.agent.yml config` with

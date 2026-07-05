@@ -120,6 +120,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"ops.logs.tail",
 				"ops.backups.list",
 				"ops.backup.create",
+				"ops.backup.status",
 				"ops.backup.download_chunk",
 				"ops.backup.delete",
 				"ops.cleanup.plan",
@@ -129,6 +130,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"ops.media.orphans.plan",
 				"ops.migration.export",
 				"ops.restore.plan",
+				"ops.restore.run",
 			},
 			ConfigSchema: map[string]any{
 				"backup_root":          "string",
@@ -898,6 +900,8 @@ func mergeOpsPluginEnv(env map[string]string) {
 	env["OPS_MAX_BACKUPS"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MAX_BACKUPS")), "10")
 	env["OPS_MESSAGE_SERVER_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MESSAGE_SERVER_CONTAINER")), fallbackString(osHostname(), "message-server"))
 	env["OPS_POSTGRES_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_CONTAINER")), "postgres")
+	env["OPS_POSTGRES_USER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_USER")), "dirextalk_message_server")
+	env["OPS_POSTGRES_PASSWORD"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_PASSWORD")), "dirextalk_message_server")
 }
 
 func osHostname() string {

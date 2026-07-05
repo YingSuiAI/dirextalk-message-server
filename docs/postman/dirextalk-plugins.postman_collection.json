@@ -547,6 +547,114 @@
       }
     },
     {
+      "name": "plugins.invoke ops backup create async",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.backup.create\",\n    \"params\": {\n      \"scope\": \"full\",\n      \"confirm\": \"create_backup\",\n      \"async\": true\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke ops backup status",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.backup.status\",\n    \"params\": {\n      \"job_id\": \"{{opsBackupJobId}}\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke ops backup download chunk",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.backup.download_chunk\",\n    \"params\": {\n      \"backup_id\": \"{{opsBackupId}}\",\n      \"offset\": 0,\n      \"limit\": 1048576\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke ops restore run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.ops\",\n    \"action\": \"ops.restore.run\",\n    \"params\": {\n      \"backup_id\": \"{{opsBackupId}}\",\n      \"confirm\": \"restore_backup\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "plugins.installed.list",
       "request": {
         "method": "POST",

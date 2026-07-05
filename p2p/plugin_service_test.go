@@ -113,6 +113,8 @@ func TestPluginEnableProvidesOpsRuntimeEnvironmentAndMounts(t *testing.T) {
 	t.Setenv("P2P_OPS_MAX_BACKUPS", "9")
 	t.Setenv("P2P_OPS_MESSAGE_SERVER_CONTAINER", "message-server-test")
 	t.Setenv("P2P_OPS_POSTGRES_CONTAINER", "postgres-test")
+	t.Setenv("P2P_OPS_POSTGRES_USER", "postgres-user-test")
+	t.Setenv("P2P_OPS_POSTGRES_PASSWORD", "postgres-password-test")
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
 		ServerName:   "example.com",
@@ -145,6 +147,8 @@ func TestPluginEnableProvidesOpsRuntimeEnvironmentAndMounts(t *testing.T) {
 		"OPS_MAX_BACKUPS":              "9",
 		"OPS_MESSAGE_SERVER_CONTAINER": "message-server-test",
 		"OPS_POSTGRES_CONTAINER":       "postgres-test",
+		"OPS_POSTGRES_USER":            "postgres-user-test",
+		"OPS_POSTGRES_PASSWORD":        "postgres-password-test",
 	}
 	for key, want := range wantEnv {
 		if got := op.Env[key]; got != want {
@@ -258,6 +262,7 @@ func TestPluginActionAllowlistIncludesOpsActions(t *testing.T) {
 	for _, action := range []string{
 		"ops.status.get",
 		"ops.backup.create",
+		"ops.backup.status",
 		"ops.backup.download_chunk",
 		"ops.cleanup.plan",
 		"ops.cleanup.run",
@@ -266,6 +271,7 @@ func TestPluginActionAllowlistIncludesOpsActions(t *testing.T) {
 		"ops.media.orphans.plan",
 		"ops.migration.export",
 		"ops.restore.plan",
+		"ops.restore.run",
 	} {
 		if !pluginActionAllowed(entry, action) {
 			t.Fatalf("expected ops action %q to be allowed by catalog %#v", action, entry.Actions)

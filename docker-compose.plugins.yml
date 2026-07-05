@@ -9,6 +9,8 @@ services:
       P2P_OPS_BACKUP_VOLUME: ${P2P_OPS_BACKUP_VOLUME:-p2p_ops_backups}
       P2P_OPS_MESSAGE_SERVER_CONTAINER: ${P2P_OPS_MESSAGE_SERVER_CONTAINER:-dirextalk-p2p-message-server-1}
       P2P_OPS_POSTGRES_CONTAINER: ${P2P_OPS_POSTGRES_CONTAINER:-dirextalk-p2p-postgres-1}
+      P2P_OPS_POSTGRES_USER: ${P2P_OPS_POSTGRES_USER:-dirextalk_message_server}
+      P2P_OPS_POSTGRES_PASSWORD: ${P2P_OPS_POSTGRES_PASSWORD:-dirextalk_message_server}
     volumes:
       - ${P2P_PLUGIN_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - p2p_plugins_data:/var/dirextalk-message-server/plugins

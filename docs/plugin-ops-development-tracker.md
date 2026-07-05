@@ -21,7 +21,7 @@ The first version prioritizes safe operations:
 - [x] Server action allowlist includes all public Ops actions.
 - [x] Docker runner supports per-plugin volume mounts.
 - [x] Only `io.dirextalk.ops` can mount Docker socket and the Ops backup volume.
-- [x] Ops runtime receives `OPS_BACKUP_ROOT`, `OPS_MAX_BACKUPS`, `OPS_MESSAGE_SERVER_CONTAINER`, and `OPS_POSTGRES_CONTAINER`.
+- [x] Ops runtime receives `OPS_BACKUP_ROOT`, `OPS_MAX_BACKUPS`, `OPS_MESSAGE_SERVER_CONTAINER`, `OPS_POSTGRES_CONTAINER`, `OPS_POSTGRES_USER`, and `OPS_POSTGRES_PASSWORD`.
 - [x] Non-Agent plugins do not receive `DIREXTALK_AGENT_TOKEN`.
 - [x] Compose files define the Ops backup volume and runtime env without touching live x1 volumes.
 - [x] Ops plugin implements status overview for host, Docker, Postgres, message-server, plugin containers, disk, and backups.
@@ -60,6 +60,7 @@ The first version prioritizes safe operations:
 - `ops.logs.tail`
 - `ops.backups.list`
 - `ops.backup.create`
+- `ops.backup.status`
 - `ops.backup.download_chunk`
 - `ops.backup.delete`
 - `ops.cleanup.plan`
@@ -69,6 +70,7 @@ The first version prioritizes safe operations:
 - `ops.media.orphans.plan`
 - `ops.migration.export`
 - `ops.restore.plan`
+- `ops.restore.run`
 
 ## Verification Log
 
