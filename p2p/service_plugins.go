@@ -47,6 +47,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.chat",
 				"agent.chat.stream",
 				"agent.context.compress",
+				"agent.runtime.inspect",
 				"agent.models.list",
 				"agent.skills.list",
 				"agent.skills.registry.search",

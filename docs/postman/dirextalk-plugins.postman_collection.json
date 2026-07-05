@@ -186,7 +186,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.context.compress\",\n    \"params\": {\n      \"summary\": \"User prefers concise Chinese answers.\",\n      \"messages\": [\n        {\n          \"role\": \"user\",\n          \"text\": \"请记住我使用 DeepSeek。\"\n        },\n        {\n          \"role\": \"assistant\",\n          \"text\": \"已记住。\"\n        }\n      ],\n      \"model_profile\": {\n        \"id\": \"deepseek:deepseek-chat\",\n        \"name\": \"deepseek/deepseek-chat\",\n        \"provider\": \"deepseek\",\n        \"model\": \"deepseek-chat\",\n        \"base_url\": \"https://api.deepseek.com\",\n        \"api_key\": \"{{agentApiKey}}\",\n        \"temperature\": 0.2,\n        \"max_output_tokens\": 2048,\n        \"context_window\": 30,\n        \"top_p\": 1.0,\n        \"top_k\": 0\n      }\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.context.compress\",\n    \"params\": {\n      \"summary\": \"User prefers concise Chinese answers.\",\n      \"messages\": [\n        {\n          \"role\": \"user\",\n          \"text\": \"请记住我使用 DeepSeek。\"\n        },\n        {\n          \"role\": \"assistant\",\n          \"text\": \"已记住。\"\n        }\n      ],\n      \"model_profile\": {\n        \"id\": \"deepseek:deepseek-chat\",\n        \"name\": \"deepseek/deepseek-chat\",\n        \"provider\": \"deepseek\",\n        \"model\": \"deepseek-chat\",\n        \"base_url\": \"https://api.deepseek.com\",\n        \"api_key\": \"{{agentApiKey}}\",\n        \"temperature\": 0.2,\n        \"max_output_tokens\": 8192,\n        \"context_window\": 64,\n        \"top_p\": 1.0,\n        \"top_k\": 0\n      }\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -214,6 +214,33 @@
         "body": {
           "mode": "raw",
           "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.models.list\",\n    \"params\": {\n      \"provider\": \"deepseek\",\n      \"base_url\": \"https://api.deepseek.com\",\n      \"api_key\": \"{{agentApiKey}}\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent runtime inspect",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.runtime.inspect\",\n    \"params\": {\n      \"model_profile\": {\n        \"id\": \"deepseek:deepseek-v4-pro\",\n        \"name\": \"deepseek/deepseek-v4-pro\",\n        \"provider\": \"deepseek\",\n        \"model\": \"deepseek-v4-pro\",\n        \"base_url\": \"https://api.deepseek.com\",\n        \"api_key\": \"{{agentApiKey}}\",\n        \"temperature\": 0.2,\n        \"max_output_tokens\": 7368,\n        \"context_window\": 128,\n        \"top_p\": 1.0,\n        \"top_k\": 0\n      }\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"

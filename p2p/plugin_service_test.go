@@ -302,6 +302,16 @@ func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
 	}
 }
 
+func TestPluginActionAllowlistIncludesAgentRuntimeInspect(t *testing.T) {
+	entry, ok := findOfficialPlugin("io.dirextalk.agent")
+	if !ok {
+		t.Fatalf("expected agent plugin in official catalog")
+	}
+	if !pluginActionAllowed(entry, "agent.runtime.inspect") {
+		t.Fatalf("expected agent runtime inspect action to be allowed by catalog %#v", entry.Actions)
+	}
+}
+
 func catalogHasPlugin(entries []pluginCatalogEntry, pluginID string) bool {
 	for _, entry := range entries {
 		if entry.ID == pluginID && officialPluginImage(entry.Image) {
