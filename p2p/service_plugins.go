@@ -825,41 +825,11 @@ func pluginBackendBaseURL(homeserver string) string {
 }
 
 func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {
-	if value := pluginConfigString(config, "provider"); value != "" {
-		env["AGENT_MODEL_PROVIDER"] = value
-	}
-	if value := pluginConfigString(config, "model"); value != "" {
-		env["AGENT_MODEL"] = value
-	}
-	if value := pluginConfigString(config, "base_url"); value != "" {
-		env["AGENT_BASE_URL"] = value
-	}
-	if value := pluginConfigString(config, "default_model_profile_id"); value != "" {
-		env["AGENT_DEFAULT_MODEL_PROFILE_ID"] = value
-	}
 	if value := pluginConfigString(config, "display_name"); value != "" {
 		env["AGENT_DISPLAY_NAME"] = value
 	}
 	if value := pluginConfigString(config, "system_prompt"); value != "" {
 		env["AGENT_SYSTEM_PROMPT"] = value
-	}
-	if value := pluginConfigString(config, "temperature"); value != "" {
-		env["AGENT_TEMPERATURE"] = value
-	}
-	if value := pluginConfigString(config, "max_output_tokens"); value != "" {
-		env["AGENT_MAX_OUTPUT_TOKENS"] = value
-	}
-	if value := pluginConfigString(config, "context_window"); value != "" {
-		env["AGENT_CONTEXT_WINDOW"] = value
-	}
-	if value := pluginConfigString(config, "top_p"); value != "" {
-		env["AGENT_TOP_P"] = value
-	}
-	if value := pluginConfigString(config, "top_k"); value != "" {
-		env["AGENT_TOP_K"] = value
-	}
-	if value := pluginConfigString(config, "reasoning_mode"); value != "" {
-		env["AGENT_REASONING_MODE"] = value
 	}
 	if value := pluginConfigListString(config, "enabled_tools"); value != "" {
 		env["AGENT_ENABLED_TOOLS"] = value
@@ -869,17 +839,6 @@ func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env 
 	}
 	if value := pluginConfigJSON(config, "mcp_servers"); value != "" {
 		env["AGENT_MCP_SERVERS_JSON"] = value
-	}
-	if profiles, ok := config["model_profiles"]; ok {
-		rawProfiles, ok := profiles.([]any)
-		if !ok {
-			return badRequest("model_profiles must be an array")
-		}
-		data, err := json.Marshal(sanitizeAgentModelProfiles(rawProfiles))
-		if err != nil {
-			return internalError(err)
-		}
-		env["AGENT_MODEL_PROFILES_JSON"] = string(data)
 	}
 	return nil
 }

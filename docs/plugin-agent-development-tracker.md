@@ -48,8 +48,8 @@ Do not mark a task complete until the code is implemented and the listed verific
 - [x] Add `agent.chat.stream` invoke handling.
 - [x] Support streamed model output when the model runtime provides chunks.
 - [x] Support per-request `model_profile_id`.
-- [x] Support `AGENT_MODEL_PROFILES_JSON` for multiple provider/model profiles.
-- [x] Keep provider/model/key user-selectable; do not hardcode DeepSeek as default.
+- [x] Support per-request `model_profile` for provider/model/base URL/key/parameters.
+- [x] Keep provider/model/key user-selectable and client-local; do not hardcode DeepSeek as default.
 - [x] Preserve non-streaming `agent.chat` compatibility.
 - [x] Verification:
   - [x] Python unit tests for profile selection

@@ -119,8 +119,6 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
 		"plugin_id": "io.dirextalk.agent",
 		"config": map[string]any{
-			"provider":          "deepseek",
-			"model":             "deepseek-chat",
 			"enabled_tools":     []any{"search_rooms", "list_messages"},
 			"system_prompt":     "You are the local agent.",
 			"mcp_servers":       []any{map[string]any{"name": "filesystem", "transport": "stdio", "enabled": false}},
@@ -151,31 +149,37 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	if op.Env["DIREXTALK_AGENT_TOKEN"] != service.AgentToken() || op.Env["DIREXTALK_AGENT_TOKEN"] == "" {
 		t.Fatalf("expected agent token in runtime env, got %#v", op.Env)
 	}
-	if op.Env["AGENT_MODEL_PROVIDER"] != "deepseek" || op.Env["AGENT_MODEL"] != "deepseek-chat" {
-		t.Fatalf("expected DeepSeek model env, got %#v", op.Env)
-	}
 	if _, ok := op.Env["AGENT_API_KEY"]; ok {
 		t.Fatalf("model API keys must not be injected into plugin env, got %#v", op.Env)
 	}
 	if _, ok := op.Env["AGENT_API_KEY_REF"]; ok {
 		t.Fatalf("model API key refs must not be injected into plugin env, got %#v", op.Env)
 	}
+	for _, key := range []string{
+		"AGENT_MODEL_PROVIDER",
+		"AGENT_MODEL",
+		"AGENT_BASE_URL",
+		"AGENT_DEFAULT_MODEL_PROFILE_ID",
+		"AGENT_TEMPERATURE",
+		"AGENT_MAX_OUTPUT_TOKENS",
+		"AGENT_CONTEXT_WINDOW",
+		"AGENT_TOP_P",
+		"AGENT_TOP_K",
+		"AGENT_REASONING_MODE",
+		"AGENT_MODEL_PROFILES_JSON",
+	} {
+		if _, ok := op.Env[key]; ok {
+			t.Fatalf("model call setting %s must be request-local, got env %#v", key, op.Env)
+		}
+	}
 	if op.Env["AGENT_ENABLED_TOOLS"] != "search_rooms,list_messages" {
 		t.Fatalf("expected enabled tools env, got %#v", op.Env)
 	}
-	if op.Env["AGENT_MCP_SERVERS_JSON"] == "" || op.Env["AGENT_MAX_OUTPUT_TOKENS"] != "1024" {
-		t.Fatalf("expected JSON and numeric config env, got %#v", op.Env)
+	if op.Env["AGENT_MCP_SERVERS_JSON"] == "" {
+		t.Fatalf("expected MCP JSON config env, got %#v", op.Env)
 	}
 	if _, ok := op.Env["AGENT_PROFILE_API_KEY_DEEPSEEK_DEEPSEEK_CHAT"]; ok {
 		t.Fatalf("model profile API keys must not be injected into plugin env, got %#v", op.Env)
-	}
-	if !strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], `"id":"deepseek:deepseek-chat"`) {
-		t.Fatalf("expected non-secret model profile env JSON, got %s", op.Env["AGENT_MODEL_PROFILES_JSON"])
-	}
-	if strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "api_key") ||
-		strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "secret:") ||
-		strings.Contains(op.Env["AGENT_MODEL_PROFILES_JSON"], "sk-test-secret") {
-		t.Fatalf("model profile env JSON must not contain secret refs or keys, got %s", op.Env["AGENT_MODEL_PROFILES_JSON"])
 	}
 	if _, ok := op.Config["DIREXTALK_AGENT_TOKEN"]; ok {
 		t.Fatalf("runtime secrets must not be persisted in plugin config: %#v", op.Config)
