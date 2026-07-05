@@ -39,6 +39,32 @@ func TestValidateOfficialPluginOperationRejectsInvalidOptionalDigest(t *testing.
 	}
 }
 
+func TestValidateOfficialPluginOperationRejectsPrivilegedMountForNonOpsPlugin(t *testing.T) {
+	op := PluginRunnerOperation{
+		Action:   "enable",
+		PluginID: "io.dirextalk.agent",
+		Image:    "docker.io/dirextalk/agent-plugin:latest",
+		Volumes:  []string{"/var/run/docker.sock:/var/run/docker.sock"},
+	}
+
+	if err := validateOfficialPluginOperation(op); err == nil {
+		t.Fatalf("expected non-ops plugin privileged mount to fail")
+	}
+}
+
+func TestValidateOfficialPluginOperationAllowsAgentDataVolume(t *testing.T) {
+	op := PluginRunnerOperation{
+		Action:   "enable",
+		PluginID: "io.dirextalk.agent",
+		Image:    "docker.io/dirextalk/agent-plugin:latest",
+		Volumes:  []string{"dirextalk_agent_data:/var/lib/dirextalk-agent"},
+	}
+
+	if err := validateOfficialPluginOperation(op); err != nil {
+		t.Fatalf("expected agent data volume to pass, got %v", err)
+	}
+}
+
 func TestPluginImageReferenceUsesDigestOnlyWhenPresent(t *testing.T) {
 	if got := pluginImageReference(" docker.io/dirextalk/agent-plugin:latest ", ""); got != "docker.io/dirextalk/agent-plugin:latest" {
 		t.Fatalf("expected tag image reference, got %q", got)

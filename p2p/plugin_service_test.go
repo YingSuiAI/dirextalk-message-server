@@ -109,6 +109,8 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 }
 
 func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
+	t.Setenv("P2P_AGENT_KNOWLEDGE_DATABASE_URL", "postgres://dirextalk_message_server:dirextalk_message_server@postgres/dirextalk_message_server?sslmode=disable")
+	t.Setenv("P2P_AGENT_KNOWLEDGE_VOLUME", "agent-data-test")
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
 		ServerName:   "example.com",
@@ -178,12 +180,53 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	if op.Env["AGENT_MCP_SERVERS_JSON"] == "" {
 		t.Fatalf("expected MCP JSON config env, got %#v", op.Env)
 	}
+	if op.Env["AGENT_KNOWLEDGE_DIR"] != "/var/lib/dirextalk-agent/knowledge" {
+		t.Fatalf("expected knowledge dir env, got %#v", op.Env)
+	}
+	if op.Env["AGENT_KNOWLEDGE_DATABASE_URL"] == "" {
+		t.Fatalf("expected knowledge database URL env, got %#v", op.Env)
+	}
+	if !stringSliceContains(op.Volumes, "agent-data-test:/var/lib/dirextalk-agent") {
+		t.Fatalf("expected agent data volume, got %#v", op.Volumes)
+	}
 	if _, ok := op.Env["AGENT_PROFILE_API_KEY_DEEPSEEK_DEEPSEEK_CHAT"]; ok {
 		t.Fatalf("model profile API keys must not be injected into plugin env, got %#v", op.Env)
 	}
 	if _, ok := op.Config["DIREXTALK_AGENT_TOKEN"]; ok {
 		t.Fatalf("runtime secrets must not be persisted in plugin config: %#v", op.Config)
 	}
+}
+
+func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
+	entry, ok := findOfficialPlugin("io.dirextalk.agent")
+	if !ok {
+		t.Fatalf("expected agent plugin in official catalog")
+	}
+	for _, action := range []string{
+		"agent.knowledge.config.get",
+		"agent.knowledge.config.update",
+		"agent.knowledge.sources.list",
+		"agent.knowledge.sources.delete",
+		"agent.knowledge.upload.start",
+		"agent.knowledge.upload.chunk",
+		"agent.knowledge.upload.finish",
+		"agent.knowledge.memory.create",
+		"agent.knowledge.search",
+		"agent.knowledge.status",
+	} {
+		if !pluginActionAllowed(entry, action) {
+			t.Fatalf("expected agent knowledge action %q to be allowed by catalog %#v", action, entry.Actions)
+		}
+	}
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPluginRuntimeEnvironmentUsesConfiguredBackendURLForAutoHomeserver(t *testing.T) {
