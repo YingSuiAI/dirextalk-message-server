@@ -340,7 +340,21 @@ func validateOfficialPluginVolume(pluginID, volume string) error {
 		}
 		return fmt.Errorf("agent plugin volume %q is not allowed", volume)
 	}
-	return fmt.Errorf("plugin %s cannot request privileged volume %q", pluginID, volume)
+	if pluginID != "io.dirextalk.ops" {
+		return fmt.Errorf("plugin %s cannot request privileged volume %q", pluginID, volume)
+	}
+	switch {
+	case volume == "/var/run/docker.sock:/var/run/docker.sock":
+		return nil
+	case strings.HasSuffix(volume, ":/var/lib/dirextalk-ops"):
+		source := strings.TrimSuffix(volume, ":/var/lib/dirextalk-ops")
+		if source == "" || strings.ContainsAny(source, `/\`) || strings.Contains(source, "..") {
+			return fmt.Errorf("invalid ops backup volume %q", volume)
+		}
+		return nil
+	default:
+		return fmt.Errorf("ops plugin volume %q is not allowed", volume)
+	}
 }
 
 func officialPluginImage(image string) bool {

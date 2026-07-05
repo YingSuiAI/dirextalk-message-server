@@ -99,6 +99,44 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"top_k":             "number",
 			},
 		},
+		{
+			ID:             "io.dirextalk.ops",
+			Name:           "Dirextalk Ops",
+			Version:        "0.1.0",
+			Description:    "Official operations plugin for server status, backups, migration exports, and safe cleanup planning.",
+			Image:          "docker.io/dirextalk/ops-plugin:latest",
+			Digest:         "",
+			MinBaseVersion: "0.1.0",
+			Permissions: []string{
+				"ops.status.read",
+				"ops.backup.write",
+				"ops.cleanup.plan",
+				"ops.cleanup.run",
+				"ops.migration.export",
+			},
+			Actions: []string{
+				"ops.status.get",
+				"ops.containers.list",
+				"ops.logs.tail",
+				"ops.backups.list",
+				"ops.backup.create",
+				"ops.backup.download_chunk",
+				"ops.backup.delete",
+				"ops.cleanup.plan",
+				"ops.cleanup.run",
+				"ops.rooms.cleanup.plan",
+				"ops.rooms.cleanup.run",
+				"ops.media.orphans.plan",
+				"ops.migration.export",
+				"ops.restore.plan",
+			},
+			ConfigSchema: map[string]any{
+				"backup_root":          "string",
+				"max_backups":          "number",
+				"cleanup_requires_dry": true,
+				"destructive_confirm":  "string",
+			},
+		},
 	}
 }
 
@@ -833,6 +871,8 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 		if apiErr := s.mergeAgentPluginEnv(ctx, plugin.ID, env, plugin.Config); apiErr != nil {
 			return nil, apiErr
 		}
+	} else if plugin.ID == "io.dirextalk.ops" {
+		mergeOpsPluginEnv(env)
 	}
 	return env, nil
 }
@@ -842,7 +882,30 @@ func pluginRuntimeVolumes(plugin pluginInstance) []string {
 		dataVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_KNOWLEDGE_VOLUME")), "dirextalk_agent_data")
 		return []string{dataVolume + ":/var/lib/dirextalk-agent"}
 	}
-	return nil
+	if plugin.ID != "io.dirextalk.ops" {
+		return nil
+	}
+	socket := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_DOCKER_SOCKET")), "/var/run/docker.sock")
+	backupVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_BACKUP_VOLUME")), "dirextalk_ops_backups")
+	return []string{
+		socket + ":/var/run/docker.sock",
+		backupVolume + ":/var/lib/dirextalk-ops",
+	}
+}
+
+func mergeOpsPluginEnv(env map[string]string) {
+	env["OPS_BACKUP_ROOT"] = "/var/lib/dirextalk-ops/backups"
+	env["OPS_MAX_BACKUPS"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MAX_BACKUPS")), "10")
+	env["OPS_MESSAGE_SERVER_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MESSAGE_SERVER_CONTAINER")), fallbackString(osHostname(), "message-server"))
+	env["OPS_POSTGRES_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_CONTAINER")), "postgres")
+}
+
+func osHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(hostname)
 }
 
 func pluginBackendBaseURL(homeserver string) string {

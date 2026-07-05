@@ -4,3 +4,4 @@
 .idea
 .local-certs/
 __pycache__/
+/dirextalk-message-server

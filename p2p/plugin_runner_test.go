@@ -65,6 +65,22 @@ func TestValidateOfficialPluginOperationAllowsAgentDataVolume(t *testing.T) {
 	}
 }
 
+func TestValidateOfficialPluginOperationAllowsOpsPrivilegedMounts(t *testing.T) {
+	op := PluginRunnerOperation{
+		Action:   "enable",
+		PluginID: "io.dirextalk.ops",
+		Image:    "docker.io/dirextalk/ops-plugin:latest",
+		Volumes: []string{
+			"/var/run/docker.sock:/var/run/docker.sock",
+			"dirextalk_ops_backups:/var/lib/dirextalk-ops",
+		},
+	}
+
+	if err := validateOfficialPluginOperation(op); err != nil {
+		t.Fatalf("expected ops privileged mounts to pass, got %v", err)
+	}
+}
+
 func TestPluginImageReferenceUsesDigestOnlyWhenPresent(t *testing.T) {
 	if got := pluginImageReference(" docker.io/dirextalk/agent-plugin:latest ", ""); got != "docker.io/dirextalk/agent-plugin:latest" {
 		t.Fatalf("expected tag image reference, got %q", got)

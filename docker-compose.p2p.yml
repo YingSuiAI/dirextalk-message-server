@@ -26,6 +26,9 @@ services:
 
   message-server-init:
     <<: *message-server-local
+    environment:
+      MESSAGE_SERVER_NAME: ${MESSAGE_SERVER_NAME:-localhost}
+      MESSAGE_CLIENT_BASE_URL: ${MESSAGE_CLIENT_BASE_URL:-http://localhost:8008}
     restart: "no"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -35,13 +38,20 @@ services:
         if [ ! -f /etc/dirextalk-message-server/matrix_key.pem ]; then
           /usr/bin/generate-keys -private-key /etc/dirextalk-message-server/matrix_key.pem
         fi
+        if [ ! -f /etc/dirextalk-message-server/server.crt ] || [ ! -f /etc/dirextalk-message-server/server.key ]; then
+          /usr/bin/generate-keys \
+            -tls-cert /etc/dirextalk-message-server/server.crt \
+            -tls-key /etc/dirextalk-message-server/server.key \
+            -server "${MESSAGE_SERVER_NAME:-localhost}"
+        fi
         if [ ! -f /etc/dirextalk-message-server/message-server.yaml ]; then
           /usr/bin/generate-config \
             -dir /var/dirextalk-message-server \
             -db postgres://dirextalk_message_server:dirextalk_message_server@postgres/dirextalk_message_server?sslmode=disable \
-            -server ${MESSAGE_SERVER_NAME:-localhost} \
+            -server "${MESSAGE_SERVER_NAME:-localhost}" \
             > /etc/dirextalk-message-server/message-server.yaml
         fi
+        sed -i 's|well_known_client_name: .*|well_known_client_name: "'"${MESSAGE_CLIENT_BASE_URL:-http://localhost:8008}"'"|' /etc/dirextalk-message-server/message-server.yaml
     volumes:
       - p2p_message_server_config:/etc/dirextalk-message-server
       - p2p_message_server_data:/var/dirextalk-message-server

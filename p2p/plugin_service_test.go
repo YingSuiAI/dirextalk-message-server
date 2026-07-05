@@ -77,8 +77,8 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 
 	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
 	entries, ok := catalog["plugins"].([]pluginCatalogEntry)
-	if !ok || len(entries) != 1 || entries[0].ID != "io.dirextalk.agent" || !officialPluginImage(entries[0].Image) {
-		t.Fatalf("expected official agent catalog entry with dirextalk image, got %#v", catalog)
+	if !ok || !catalogHasPlugin(entries, "io.dirextalk.agent") || !catalogHasPlugin(entries, "io.dirextalk.ops") {
+		t.Fatalf("expected official agent and ops catalog entries, got %#v", catalog)
 	}
 
 	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
@@ -105,6 +105,59 @@ func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 	plugins, ok := installed["plugins"].([]pluginInstance)
 	if !ok || len(plugins) != 1 || plugins[0].ID != "io.dirextalk.agent" || !plugins[0].Enabled || plugins[0].Status != "enabled" {
 		t.Fatalf("expected enabled plugin in installed list, got %#v", installed)
+	}
+}
+
+func TestPluginEnableProvidesOpsRuntimeEnvironmentAndMounts(t *testing.T) {
+	t.Setenv("P2P_OPS_BACKUP_VOLUME", "dirextalk_ops_backups_test")
+	t.Setenv("P2P_OPS_MAX_BACKUPS", "9")
+	t.Setenv("P2P_OPS_MESSAGE_SERVER_CONTAINER", "message-server-test")
+	t.Setenv("P2P_OPS_POSTGRES_CONTAINER", "postgres-test")
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		Homeserver:   "http://message-server:8008",
+		PluginRunner: runner,
+	})
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.ops",
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.ops",
+	})
+
+	if len(runner.operations) != 2 {
+		t.Fatalf("expected install and enable operations, got %#v", runner.operations)
+	}
+	op := runner.operations[1]
+	if op.Env["DIREXTALK_BASE_URL"] != "http://message-server:8008" {
+		t.Fatalf("expected backend URL in ops env, got %#v", op.Env)
+	}
+	if _, ok := op.Env["DIREXTALK_AGENT_TOKEN"]; ok {
+		t.Fatalf("ops plugin must not receive agent token, got %#v", op.Env)
+	}
+	if _, ok := op.Env["DIREXTALK_AGENT_TOKEN_REF"]; ok {
+		t.Fatalf("ops plugin must not receive agent token ref, got %#v", op.Env)
+	}
+	wantEnv := map[string]string{
+		"OPS_BACKUP_ROOT":              "/var/lib/dirextalk-ops/backups",
+		"OPS_MAX_BACKUPS":              "9",
+		"OPS_MESSAGE_SERVER_CONTAINER": "message-server-test",
+		"OPS_POSTGRES_CONTAINER":       "postgres-test",
+	}
+	for key, want := range wantEnv {
+		if got := op.Env[key]; got != want {
+			t.Fatalf("expected ops env %s=%q, got %q in %#v", key, want, got, op.Env)
+		}
+	}
+	for _, want := range []string{
+		"/var/run/docker.sock:/var/run/docker.sock",
+		"dirextalk_ops_backups_test:/var/lib/dirextalk-ops",
+	} {
+		if !stringSliceContains(op.Volumes, want) {
+			t.Fatalf("expected ops volume %q, got %#v", want, op.Volumes)
+		}
 	}
 }
 
@@ -197,6 +250,29 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	}
 }
 
+func TestPluginActionAllowlistIncludesOpsActions(t *testing.T) {
+	entry, ok := findOfficialPlugin("io.dirextalk.ops")
+	if !ok {
+		t.Fatalf("expected ops plugin in official catalog")
+	}
+	for _, action := range []string{
+		"ops.status.get",
+		"ops.backup.create",
+		"ops.backup.download_chunk",
+		"ops.cleanup.plan",
+		"ops.cleanup.run",
+		"ops.rooms.cleanup.plan",
+		"ops.rooms.cleanup.run",
+		"ops.media.orphans.plan",
+		"ops.migration.export",
+		"ops.restore.plan",
+	} {
+		if !pluginActionAllowed(entry, action) {
+			t.Fatalf("expected ops action %q to be allowed by catalog %#v", action, entry.Actions)
+		}
+	}
+}
+
 func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
 	entry, ok := findOfficialPlugin("io.dirextalk.agent")
 	if !ok {
@@ -218,6 +294,15 @@ func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
 			t.Fatalf("expected agent knowledge action %q to be allowed by catalog %#v", action, entry.Actions)
 		}
 	}
+}
+
+func catalogHasPlugin(entries []pluginCatalogEntry, pluginID string) bool {
+	for _, entry := range entries {
+		if entry.ID == pluginID && officialPluginImage(entry.Image) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringSliceContains(values []string, want string) bool {

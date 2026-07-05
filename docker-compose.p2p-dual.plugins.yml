@@ -6,6 +6,9 @@ services:
       P2P_PLUGIN_BACKEND_BASE_URL: http://dendrite-a:8008
       P2P_AGENT_KNOWLEDGE_DATABASE_URL: postgres://dirextalk_message_server:dirextalk_message_server@postgres-a/dirextalk_message_server?sslmode=disable
       P2P_AGENT_KNOWLEDGE_VOLUME: ${P2P_AGENT_KNOWLEDGE_VOLUME:-p2p_dual_agent_data}
+      P2P_OPS_BACKUP_VOLUME: ${P2P_OPS_BACKUP_VOLUME:-p2p_dual_ops_backups}
+      P2P_OPS_MESSAGE_SERVER_CONTAINER: ${P2P_OPS_MESSAGE_SERVER_CONTAINER:-dirextalk-p2p-dual-dendrite-a-1}
+      P2P_OPS_POSTGRES_CONTAINER: ${P2P_OPS_POSTGRES_CONTAINER:-dirextalk-p2p-dual-postgres-a-1}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp:/tmp
@@ -13,3 +16,5 @@ services:
 volumes:
   p2p_dual_agent_data:
     name: p2p_dual_agent_data
+  p2p_dual_ops_backups:
+    name: p2p_dual_ops_backups
