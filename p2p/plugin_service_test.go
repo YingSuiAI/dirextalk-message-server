@@ -178,6 +178,48 @@ func TestPluginEnableProvidesOpsRuntimeEnvironmentAndMounts(t *testing.T) {
 	}
 }
 
+func TestPluginEnableUsesSingleNodeOpsDefaults(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		Homeserver:   "http://message-server:8008",
+		PluginRunner: runner,
+	})
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.ops",
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.ops",
+	})
+
+	if len(runner.operations) != 2 {
+		t.Fatalf("expected install and enable operations, got %#v", runner.operations)
+	}
+	op := runner.operations[1]
+	wantEnv := map[string]string{
+		"OPS_BACKUP_ROOT":              "/var/lib/dirextalk-ops/backups",
+		"OPS_MAX_BACKUPS":              "10",
+		"OPS_MESSAGE_SERVER_CONTAINER": "dirextalk-p2p-message-server-1",
+		"OPS_POSTGRES_CONTAINER":       "dirextalk-p2p-postgres-1",
+		"OPS_POSTGRES_USER":            "dirextalk_message_server",
+		"OPS_POSTGRES_PASSWORD":        "dirextalk_message_server",
+	}
+	for key, want := range wantEnv {
+		if got := op.Env[key]; got != want {
+			t.Fatalf("expected default ops env %s=%q, got %q in %#v", key, want, got, op.Env)
+		}
+	}
+	for _, want := range []string{
+		"/var/run/docker.sock:/var/run/docker.sock",
+		"p2p_ops_backups:/var/lib/dirextalk-ops",
+	} {
+		if !stringSliceContains(op.Volumes, want) {
+			t.Fatalf("expected default ops volume %q, got %#v", want, op.Volumes)
+		}
+	}
+}
+
 func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	t.Setenv("P2P_AGENT_DATA_VOLUME", "agent-data-test")
 	runner := &recordingPluginRunner{}

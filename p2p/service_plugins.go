@@ -921,7 +921,7 @@ func pluginRuntimeVolumes(plugin pluginInstance) []string {
 		return nil
 	}
 	socket := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_DOCKER_SOCKET")), "/var/run/docker.sock")
-	backupVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_BACKUP_VOLUME")), "dirextalk_ops_backups")
+	backupVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_BACKUP_VOLUME")), "p2p_ops_backups")
 	return []string{
 		socket + ":/var/run/docker.sock",
 		backupVolume + ":/var/lib/dirextalk-ops",
@@ -931,18 +931,10 @@ func pluginRuntimeVolumes(plugin pluginInstance) []string {
 func mergeOpsPluginEnv(env map[string]string) {
 	env["OPS_BACKUP_ROOT"] = "/var/lib/dirextalk-ops/backups"
 	env["OPS_MAX_BACKUPS"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MAX_BACKUPS")), "10")
-	env["OPS_MESSAGE_SERVER_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MESSAGE_SERVER_CONTAINER")), fallbackString(osHostname(), "message-server"))
-	env["OPS_POSTGRES_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_CONTAINER")), "postgres")
+	env["OPS_MESSAGE_SERVER_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_MESSAGE_SERVER_CONTAINER")), "dirextalk-p2p-message-server-1")
+	env["OPS_POSTGRES_CONTAINER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_CONTAINER")), "dirextalk-p2p-postgres-1")
 	env["OPS_POSTGRES_USER"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_USER")), "dirextalk_message_server")
 	env["OPS_POSTGRES_PASSWORD"] = fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_POSTGRES_PASSWORD")), "dirextalk_message_server")
-}
-
-func osHostname() string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(hostname)
 }
 
 func pluginBackendBaseURL(homeserver string) string {
