@@ -250,6 +250,33 @@
       }
     },
     {
+      "name": "plugins.invoke agent runtime install agent reach",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.runtime.install\",\n    \"params\": {\n      \"target\": \"agent-reach-core\",\n      \"channels\": [\"xiaohongshu\"]\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "plugins.invoke agent skills search",
       "request": {
         "method": "POST",
@@ -268,6 +295,33 @@
         "body": {
           "mode": "raw",
           "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.skills.registry.search\",\n    \"params\": {\n      \"registry_url\": \"https://skills.sh\",\n      \"query\": \"browser\",\n      \"page_size\": 10\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "plugins.invoke agent skill install",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/_p2p/command",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"plugins.invoke\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"action\": \"agent.skills.install\",\n    \"params\": {\n      \"repo_url\": \"https://github.com/panniantong/agent-reach\",\n      \"ref\": \"main\",\n      \"path\": \"agent-reach\",\n      \"enabled\": true\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"

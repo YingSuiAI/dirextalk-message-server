@@ -3,8 +3,11 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 func TestMCPSearchRoomsReturnsConciseMixedRooms(t *testing.T) {
@@ -268,9 +271,13 @@ func TestMCPMessagesRejectBlockedRooms(t *testing.T) {
 
 type fakeMCPMessageReader struct {
 	messages []mcpMessageSummary
+	err      error
 }
 
 func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
 	out := make([]mcpMessageSummary, 0, len(r.messages))
 	for _, msg := range r.messages {
 		if inMCPTimeRange(msg.TS, fromTS, toTS) {
@@ -340,6 +347,20 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 		decoded.Messages[0].SenderDomain != "remote.example" ||
 		decoded.Messages[0].SenderLocalpart != "alice" {
 		t.Fatalf("expected message JSON to expose sender identity, got %s", string(payload))
+	}
+}
+
+func TestMCPMessagesListPropagatesMatrixAccessErrors(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{
+		err: matrixhistory.StatusError{StatusCode: http.StatusForbidden, Message: "matrix messages failed with status 403"},
+	})
+
+	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+		"room_id": "!room:example.com",
+	})
+	if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not allowed") {
+		t.Fatalf("expected Matrix access failure to be exposed as 403, got %#v", apiErr)
 	}
 }
 

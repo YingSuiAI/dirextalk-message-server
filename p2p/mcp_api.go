@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/mcp"
 )
 
@@ -267,7 +268,7 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	}
 	messages, err := reader.ListOrdinaryMessages(ctx, roomID, fromTS, toTS, limit)
 	if err != nil {
-		return nil, internalError(err)
+		return nil, mcpMatrixMessageReadError(err)
 	}
 	name, apiErr := s.mcpMessagesRoomName(ctx, roomID)
 	if apiErr != nil {
@@ -275,6 +276,23 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	}
 	messages = s.enrichMCPMessageSenders(ctx, roomID, messages)
 	return map[string]any{"room_id": roomID, "name": name, "messages": messages}, nil
+}
+
+func mcpMatrixMessageReadError(err error) *apiError {
+	var statusErr matrixhistory.StatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.StatusCode {
+		case http.StatusForbidden, http.StatusUnauthorized:
+			return statusError(http.StatusForbidden, "room is not allowed for MCP message access")
+		case http.StatusNotFound:
+			return statusError(http.StatusNotFound, "room messages were not found")
+		default:
+			if statusErr.StatusCode >= 400 && statusErr.StatusCode < 500 {
+				return statusError(statusErr.StatusCode, statusErr.Error())
+			}
+		}
+	}
+	return internalError(err)
 }
 
 func (s *Service) mcpMessagesRoomName(ctx context.Context, roomID string) (string, *apiError) {

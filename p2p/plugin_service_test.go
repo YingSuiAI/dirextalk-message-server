@@ -71,6 +71,19 @@ func TestPluginActionsAreOwnerOnly(t *testing.T) {
 	}
 }
 
+func TestPluginCatalogIsEmptyWhenRunnerDisabled(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+
+	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
+	entries, ok := catalog["plugins"].([]pluginCatalogEntry)
+	if !ok {
+		t.Fatalf("expected typed plugin catalog entries, got %#v", catalog["plugins"])
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty plugin catalog when runner is disabled, got %#v", entries)
+	}
+}
+
 func TestPluginInstallAndEnableUseOfficialRunnerAndState(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
@@ -166,8 +179,7 @@ func TestPluginEnableProvidesOpsRuntimeEnvironmentAndMounts(t *testing.T) {
 }
 
 func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
-	t.Setenv("P2P_AGENT_KNOWLEDGE_DATABASE_URL", "postgres://dirextalk_message_server:dirextalk_message_server@postgres/dirextalk_message_server?sslmode=disable")
-	t.Setenv("P2P_AGENT_KNOWLEDGE_VOLUME", "agent-data-test")
+	t.Setenv("P2P_AGENT_DATA_VOLUME", "agent-data-test")
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{
 		ServerName:   "example.com",
@@ -237,12 +249,6 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	if op.Env["AGENT_MCP_SERVERS_JSON"] == "" {
 		t.Fatalf("expected MCP JSON config env, got %#v", op.Env)
 	}
-	if op.Env["AGENT_KNOWLEDGE_DIR"] != "/var/lib/dirextalk-agent/knowledge" {
-		t.Fatalf("expected knowledge dir env, got %#v", op.Env)
-	}
-	if op.Env["AGENT_KNOWLEDGE_DATABASE_URL"] == "" {
-		t.Fatalf("expected knowledge database URL env, got %#v", op.Env)
-	}
 	if !stringSliceContains(op.Volumes, "agent-data-test:/var/lib/dirextalk-agent") {
 		t.Fatalf("expected agent data volume, got %#v", op.Volumes)
 	}
@@ -251,6 +257,47 @@ func TestPluginEnableProvidesAgentRuntimeEnvironment(t *testing.T) {
 	}
 	if _, ok := op.Config["DIREXTALK_AGENT_TOKEN"]; ok {
 		t.Fatalf("runtime secrets must not be persisted in plugin config: %#v", op.Config)
+	}
+}
+
+func TestPluginConfigUpdateReappliesEnabledPluginRuntime(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		Homeserver:   "http://message-server:8008",
+		PluginRunner: runner,
+	})
+
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"skills": []any{map[string]any{
+				"repo_url": "https://github.com/panniantong/agent-reach",
+				"ref":      "main",
+				"path":     "agent-reach",
+				"enabled":  true,
+			}},
+		},
+	})
+	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+	})
+
+	updated := mustHandle[map[string]any](t, service, "plugins.config.update", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"skills": []any{},
+		},
+	})
+	config := updated["config"].(map[string]any)
+	if skills, ok := config["skills"].([]any); !ok || len(skills) != 0 {
+		t.Fatalf("expected persisted empty skills list, got %#v", updated)
+	}
+	if len(runner.operations) != 3 || runner.operations[2].Action != "enable" {
+		t.Fatalf("expected config update to reapply enabled plugin, got %#v", runner.operations)
+	}
+	if got := runner.operations[2].Env["AGENT_SKILLS_JSON"]; got != "[]" {
+		t.Fatalf("expected re-applied runtime env to clear skills with [], got %#v", runner.operations[2].Env)
 	}
 }
 
@@ -307,8 +354,17 @@ func TestPluginActionAllowlistIncludesAgentRuntimeInspect(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected agent plugin in official catalog")
 	}
-	if !pluginActionAllowed(entry, "agent.runtime.inspect") {
-		t.Fatalf("expected agent runtime inspect action to be allowed by catalog %#v", entry.Actions)
+	for _, action := range []string{
+		"agent.runtime.inspect",
+		"agent.runtime.install",
+		"agent.skills.install",
+		"agent.skills.uninstall",
+		"agent.mcp.servers.install",
+		"agent.mcp.servers.uninstall",
+	} {
+		if !pluginActionAllowed(entry, action) {
+			t.Fatalf("expected agent runtime action %q to be allowed by catalog %#v", action, entry.Actions)
+		}
 	}
 }
 

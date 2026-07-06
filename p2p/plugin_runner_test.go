@@ -2,6 +2,31 @@ package p2p
 
 import "testing"
 
+func TestNewEnvironmentPluginRunnerDefaultsToNoop(t *testing.T) {
+	t.Setenv("P2P_PLUGIN_DOCKER_ENABLED", "")
+
+	if _, ok := newEnvironmentPluginRunner().(noopPluginRunner); !ok {
+		t.Fatalf("expected noop plugin runner when docker runner is disabled")
+	}
+}
+
+func TestNewEnvironmentPluginRunnerUsesDockerWhenEnabled(t *testing.T) {
+	t.Setenv("P2P_PLUGIN_DOCKER_ENABLED", "true")
+	t.Setenv("P2P_PLUGIN_DOCKER_BIN", "docker-test")
+	t.Setenv("P2P_PLUGIN_DOCKER_NETWORK", "dirextalk-p2p_default")
+
+	runner, ok := newEnvironmentPluginRunner().(dockerPluginRunner)
+	if !ok {
+		t.Fatalf("expected docker plugin runner when enabled")
+	}
+	if runner.binary != "docker-test" {
+		t.Fatalf("expected configured docker binary, got %q", runner.binary)
+	}
+	if runner.network != "dirextalk-p2p_default" {
+		t.Fatalf("expected configured docker network, got %q", runner.network)
+	}
+}
+
 func TestValidateOfficialPluginOperationAllowsDirextalkImageWithoutDigest(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "install",

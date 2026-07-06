@@ -26,7 +26,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			ID:             "io.dirextalk.agent",
 			Name:           "Dirextalk Agent",
 			Version:        "0.1.0",
-			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, MCP server support, and optional knowledge base.",
+			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, and MCP server support. Knowledge base actions are retained but unsupported in this release.",
 			Image:          "docker.io/dirextalk/agent-plugin:latest",
 			Digest:         "",
 			MinBaseVersion: "0.1.0",
@@ -36,8 +36,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"rooms.members.read",
 				"mcp.call",
 				"skills.install",
-				"knowledge.read",
-				"knowledge.write",
+				"runtime.install",
 			},
 			Events: []string{
 				"message.created",
@@ -48,10 +47,15 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.chat.stream",
 				"agent.context.compress",
 				"agent.runtime.inspect",
+				"agent.runtime.install",
 				"agent.models.list",
 				"agent.skills.list",
+				"agent.skills.install",
+				"agent.skills.uninstall",
 				"agent.skills.registry.search",
 				"agent.mcp.servers.list",
+				"agent.mcp.servers.install",
+				"agent.mcp.servers.uninstall",
 				"agent.mcp.registry.search",
 				"agent.knowledge.config.get",
 				"agent.knowledge.config.update",
@@ -82,17 +86,11 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"mcp_registry_url":    "string",
 				"skills":              []map[string]any{},
 				"mcp_servers":         []map[string]any{},
-				"knowledge": map[string]any{
-					"enabled":                 "boolean",
-					"embedding_profile":       "request-local",
-					"ocr_profile":             "request-local",
-					"max_file_bytes":          20 * 1024 * 1024,
-					"max_total_bytes":         500 * 1024 * 1024,
-					"max_chunks":              50000,
-					"metadata_database_url":   "env:AGENT_KNOWLEDGE_DATABASE_URL",
-					"vector_index":            "lancedb",
-					"metadata_fallback_store": "sqlite",
-				},
+					"knowledge": map[string]any{
+						"supported": false,
+						"enabled":   false,
+						"status":    "unsupported",
+					},
 				"temperature":       "number",
 				"max_output_tokens": "number",
 				"context_window":    "number",
@@ -170,7 +168,19 @@ func (s *Service) loadPlugins(ctx context.Context) error {
 }
 
 func (s *Service) pluginCatalogListAction(context.Context, map[string]any) (any, *apiError) {
-	return map[string]any{"plugins": officialPluginCatalog()}, nil
+	if !pluginRunnerEnabled(s.pluginRunner) {
+		return map[string]any{"plugins": []pluginCatalogEntry{}, "enabled": false}, nil
+	}
+	return map[string]any{"plugins": officialPluginCatalog(), "enabled": true}, nil
+}
+
+func pluginRunnerEnabled(r PluginRunner) bool {
+	switch r.(type) {
+	case nil, noopPluginRunner, *noopPluginRunner:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Service) pluginInstalledListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
@@ -230,6 +240,27 @@ func (s *Service) pluginConfigUpdateAction(ctx context.Context, params map[strin
 	}
 	if err := s.savePluginSecrets(ctx, plugin.ID, secrets); err != nil {
 		return nil, internalError(err)
+	}
+	if plugin.Enabled && plugin.Status == pluginStatusEnabled {
+		runtimeEnv, apiErr := s.pluginRuntimeEnv(ctx, plugin)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		op := PluginRunnerOperation{
+			Action:        "enable",
+			PluginID:      plugin.ID,
+			Name:          plugin.Name,
+			Version:       plugin.Version,
+			Image:         plugin.Image,
+			Digest:        plugin.Digest,
+			ContainerName: pluginContainerName(plugin.ID),
+			Config:        cloneAnyMap(plugin.Config),
+			Env:           runtimeEnv,
+			Volumes:       pluginRuntimeVolumes(plugin),
+		}
+		if err := s.pluginRunner.ApplyPlugin(ctx, op); err != nil {
+			return nil, statusError(http.StatusBadGateway, err.Error())
+		}
 	}
 	secretStatus, apiErr := s.pluginSecretStatus(ctx, plugin)
 	if apiErr != nil {
@@ -869,6 +900,7 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 		"DIREXTALK_BASE_URL": pluginBackendBaseURL(homeserver),
 	}
 	if plugin.ID == "io.dirextalk.agent" {
+		env["AGENT_CONFIG_REVISION"] = jsonValue(plugin.UpdatedAt)
 		env["DIREXTALK_AGENT_TOKEN"] = agentToken
 		env["DIREXTALK_AGENT_TOKEN_REF"] = "env:DIREXTALK_AGENT_TOKEN"
 		if apiErr := s.mergeAgentPluginEnv(ctx, plugin.ID, env, plugin.Config); apiErr != nil {
@@ -882,7 +914,7 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 
 func pluginRuntimeVolumes(plugin pluginInstance) []string {
 	if plugin.ID == "io.dirextalk.agent" {
-		dataVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_KNOWLEDGE_VOLUME")), "dirextalk_agent_data")
+		dataVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_DATA_VOLUME")), "p2p_agent_data")
 		return []string{dataVolume + ":/var/lib/dirextalk-agent"}
 	}
 	if plugin.ID != "io.dirextalk.ops" {
@@ -925,10 +957,6 @@ func pluginBackendBaseURL(homeserver string) string {
 }
 
 func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {
-	env["AGENT_KNOWLEDGE_DIR"] = "/var/lib/dirextalk-agent/knowledge"
-	if value := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_KNOWLEDGE_DATABASE_URL")), strings.TrimSpace(os.Getenv("P2P_PLUGIN_KNOWLEDGE_DATABASE_URL"))); value != "" {
-		env["AGENT_KNOWLEDGE_DATABASE_URL"] = value
-	}
 	if value := pluginConfigString(config, "display_name"); value != "" {
 		env["AGENT_DISPLAY_NAME"] = value
 	}

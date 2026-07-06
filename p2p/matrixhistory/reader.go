@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+type StatusError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e StatusError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("matrix request failed with status %d", e.StatusCode)
+}
+
 type HTTPMessageReader struct {
 	BaseURL string
 	Token   func(context.Context) (string, error)
@@ -155,7 +167,10 @@ func (r *HTTPMessageReader) getMessages(ctx context.Context, token, roomID strin
 		_ = res.Body.Close()
 	}()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return messagesResponse{}, fmt.Errorf("matrix messages failed with status %d", res.StatusCode)
+		return messagesResponse{}, StatusError{
+			StatusCode: res.StatusCode,
+			Message:    fmt.Sprintf("matrix messages failed with status %d", res.StatusCode),
+		}
 	}
 	var payload messagesResponse
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
