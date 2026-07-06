@@ -296,6 +296,24 @@ func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
 	}
 }
 
+func TestPluginActionAllowlistIncludesAgentRuntimeActions(t *testing.T) {
+	entry, ok := findOfficialPlugin("io.dirextalk.agent")
+	if !ok {
+		t.Fatalf("expected agent plugin in official catalog")
+	}
+	for _, action := range []string{
+		"agent.runtime.install",
+		"agent.runtime.uninstall",
+		"agent.runtime.run",
+		"agent.runtime.which",
+		"agent.runtime.tools.list",
+	} {
+		if !pluginActionAllowed(entry, action) {
+			t.Fatalf("expected agent runtime action %q to be allowed by catalog %#v", action, entry.Actions)
+		}
+	}
+}
+
 func catalogHasPlugin(entries []pluginCatalogEntry, pluginID string) bool {
 	for _, entry := range entries {
 		if entry.ID == pluginID && officialPluginImage(entry.Image) {

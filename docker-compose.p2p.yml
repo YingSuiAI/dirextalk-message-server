@@ -54,6 +54,13 @@ services:
     restart: unless-stopped
     environment:
       P2P_PORTAL_CREDENTIALS_FILE: /var/dirextalk-message-server/p2p/bootstrap.json
+      P2P_PLUGIN_DOCKER_ENABLED: "true"
+      P2P_PLUGIN_DOCKER_NETWORK: dirextalk-p2p_default
+      P2P_PLUGIN_BACKEND_BASE_URL: http://message-server:8008
+      P2P_AGENT_KNOWLEDGE_VOLUME: p2p_agent_data
+      P2P_OPS_BACKUP_VOLUME: p2p_ops_backups
+      P2P_OPS_MESSAGE_SERVER_CONTAINER: dirextalk-p2p-message-server-1
+      P2P_OPS_POSTGRES_CONTAINER: dirextalk-p2p-postgres-1
     command:
       - --config
       - /etc/dirextalk-message-server/message-server.yaml
@@ -67,6 +74,8 @@ services:
     volumes:
       - p2p_message_server_config:/etc/dirextalk-message-server
       - p2p_message_server_data:/var/dirextalk-message-server
+      - /var/run/docker.sock:/var/run/docker.sock
+      - p2p_plugins_data:/var/dirextalk-message-server/plugins
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,3 +91,8 @@ volumes:
   p2p_postgres_data:
   p2p_message_server_config:
   p2p_message_server_data:
+  p2p_plugins_data:
+  p2p_agent_data:
+    name: p2p_agent_data
+  p2p_ops_backups:
+    name: p2p_ops_backups

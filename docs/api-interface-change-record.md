@@ -1,6 +1,18 @@
 # API Interface Change Record
 
-Last updated: 2026-07-05
+Last updated: 2026-07-06
+
+## 2026-07-06 Agent Runtime Tool Actions
+
+The official Agent plugin catalog now allows owner-invoked runtime tool actions through existing `plugins.invoke`:
+
+- `agent.runtime.install`
+- `agent.runtime.uninstall`
+- `agent.runtime.run`
+- `agent.runtime.which`
+- `agent.runtime.tools.list`
+
+These actions stay inside the official Agent plugin boundary and require the owner `access_token` through plugin management. They do not expand `agent_token` permissions and do not persist model provider API keys in message-server.
 
 ## 2026-07-05 Official Ops Plugin
 
