@@ -1,0 +1,49 @@
+---
+name: dirextalk-backend-contract-state-storage
+description: Use when backend work affects Dirextalk public contracts, body actions, auth, Matrix events or state, product projection, sync visibility, durable storage, migrations, reports, agent rooms, system rooms, groups, or channels.
+---
+
+# Dirextalk Backend Contract State Storage
+
+## Contract Surfaces
+
+- Matrix-compatible routes stay under `/_matrix/*`, `/_synapse/*`, `/_dendrite/*`, and `/.well-known/matrix/*`.
+- Product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `GET /_p2p/ws`, and `GET /.well-known/portal/owner.json`.
+- Product requests use `{ "action": "...", "params": { ... } }`.
+- Protected product actions require owner bearer `access_token`.
+- `agent_token` is accepted only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
+- `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
+- Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+
+When adding, removing, renaming, or changing fields/auth, update focused tests, current docs, Postman examples, `AGENTS.md`, and project-local skills in the same change.
+
+## Matrix State And Timeline
+
+- Product room type lives in `m.room.create.content.type`.
+- Product metadata uses `io.dirextalk.room.profile`.
+- Member policy uses `io.dirextalk.member.policy`.
+- Public channel approval uses `io.dirextalk.join_request`.
+- Matrix `m.room.member membership=join` is the joined fact.
+- Group rooms use `m.room.history_visibility=joined`; channel rooms use `shared` for current unified post/chat behavior.
+- Local delete hides for one user; recall/redaction propagates as Matrix redaction.
+- Ordinary send, media, history, unread, search, and recall stay on Matrix Client-Server APIs.
+
+For report/system/agent notifications, prefer normal Matrix timeline events in the durable room. Put business type in event content, for example `msg_type=report`, and let clients render cards from that content.
+
+## Current Business Rules
+
+- Owner-directed group/channel reports use ProductCore `reports.submit`; the owner node stores report records, sends a `msg_type=report` Matrix notice into `system_room_id`, and exposes that room through auth/bootstrap/conversations once messages exist.
+- The real `agent_room_id` and `system_room_id` must not use legacy pseudo ids.
+- Agent online state is native Matrix room state `io.dirextalk.agent.status` keyed by `@agent:<server>` with content field `online`.
+- Do not mirror agent messages through `agent_room.message`, `client.agent_stream`, or `server.agent_stream`.
+- Channel approval must not report joined until requester-node Matrix join succeeds.
+- Remote public lookup must use request-provided `remote_node_base_url`; do not derive outbound URLs from Matrix room IDs.
+
+## Durable State
+
+- Persist behavior that must survive restart. Do not add memory-only state for user-visible product facts.
+- Update storage interfaces, PostgreSQL/SQLite implementations, migrations, tests, and callers together.
+- Keep migrations additive and idempotent unless explicit product intent requires destructive reset.
+- Add indexes only for introduced query patterns.
+- Add restart/reopen coverage when recovery matters.
+- Validate Docker/setup config when database selection or runtime storage changes.

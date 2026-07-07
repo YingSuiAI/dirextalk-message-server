@@ -339,7 +339,7 @@ docker compose -f docker-compose.p2p-dual.yml config
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - Postman JSON 必须保持可导入。
 - 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Dirextalk 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Dirextalk Message Server 层名拆分。当前全局技能是：`dirextalk-change-orchestrator`（全链路影响图）、`dirextalk-contract-sync`（合同/示例同步）、`dirextalk-event-state-tracer`（Matrix 事件状态规则）、`dirextalk-storage-migration-guard`（持久化和 migration 规则）和 `dirextalk-targeted-verification`（本仓库验证命令选择）。
+- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Dirextalk Message Server 层名拆分。当前全局技能是：`dirextalk-backend-change-orchestrator`（全链路影响图）、`dirextalk-backend-contract-state-storage`（合同、Matrix 事件状态、持久化和 migration 规则）和 `dirextalk-backend-verification`（本仓库验证命令选择）。
 
 ## 10. 文档规则
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backend Orchestrator"
+  short_description: "Map Dirextalk backend change impact."
+  default_prompt: "Use $dirextalk-backend-change-orchestrator to plan this backend change."

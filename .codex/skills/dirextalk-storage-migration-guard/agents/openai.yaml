@@ -1,4 +1,0 @@
-interface:
-  display_name: "Dirextalk Storage Migration Guard"
-  short_description: "Guard Dirextalk durable state"
-  default_prompt: "Use $dirextalk-storage-migration-guard before changing Dirextalk SQL schema, migrations, indexes, storage interfaces, database selection, or restart recovery."

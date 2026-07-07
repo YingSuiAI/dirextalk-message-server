@@ -1,4 +1,0 @@
-interface:
-  display_name: "Dirextalk Contract Sync"
-  short_description: "Sync Dirextalk contracts and examples"
-  default_prompt: "Use $dirextalk-contract-sync when changing Dirextalk routes, body actions, params, response fields, auth rules, Postman examples, or current contract docs."

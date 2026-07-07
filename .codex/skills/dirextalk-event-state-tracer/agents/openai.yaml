@@ -1,4 +1,0 @@
-interface:
-  display_name: "Dirextalk Event State Tracer"
-  short_description: "Trace Matrix event product state"
-  default_prompt: "Use $dirextalk-event-state-tracer to trace Matrix events, membership, policy, redaction, sync, federation, and Dirextalk projections."

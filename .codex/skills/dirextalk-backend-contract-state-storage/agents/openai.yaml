@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backend Contract State"
+  short_description: "Trace backend contracts and state."
+  default_prompt: "Use $dirextalk-backend-contract-state-storage to trace this backend contract or state change."
