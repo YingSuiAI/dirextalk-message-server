@@ -1,0 +1,180 @@
+package nativeagent
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
+	var requestCount int
+	var sawToolResult bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "Ada") {
+				sawToolResult = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"dirextalk_contacts_list","arguments":"{\"query\":\"ada\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"总结：联系人 Ada 已找到。"}}]}`))
+	}))
+	defer server.Close()
+
+	var toolCalled bool
+	runtime := New(Config{
+		DataDir: filepath.Join(t.TempDir(), "agent"),
+		Store:   &testConfigStore{config: map[string]any{"enabled_tools": []any{"dirextalk_contacts_list"}}},
+		Tools: []Tool{{
+			Name:        "dirextalk_contacts_list",
+			Description: "List contacts.",
+			Parameters:  objectSchema(map[string]any{"query": stringSchema()}),
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				toolCalled = true
+				return map[string]any{"contacts": []map[string]any{{"display_name": "Ada"}}}, nil
+			},
+		}},
+	})
+
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"conversation_id": "loop-test",
+		"prompt":          "找 Ada 并总结",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if !toolCalled || !sawToolResult || requestCount != 2 {
+		t.Fatalf("expected tool loop with second model call, toolCalled=%v sawToolResult=%v requestCount=%d", toolCalled, sawToolResult, requestCount)
+	}
+	if result["text"] != "总结：联系人 Ada 已找到。" {
+		t.Fatalf("expected final model answer, got %#v", result)
+	}
+	memory, err := runtime.loadMemory(context.Background(), "loop-test")
+	if err != nil {
+		t.Fatalf("load memory: %v", err)
+	}
+	if len(memory.Turns) != 2 || memory.Turns[0].Role != "user" || memory.Turns[1].Role != "assistant" {
+		t.Fatalf("expected user and assistant memory turns, got %#v", memory)
+	}
+}
+
+func TestOpenAIProviderUsesChatCompletionsEndpoint(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"openai ok"}}]}`))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "openai",
+			"model":    "mock-openai",
+			"base_url": server.URL + "/v1",
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("openai provider: %v", err)
+	}
+	if gotPath != "/v1/chat/completions" || result["text"] != "openai ok" {
+		t.Fatalf("expected openai chat completions, path=%q result=%#v", gotPath, result)
+	}
+}
+
+func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
+	var gotMessages []any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode stream payload: %v", err)
+		}
+		gotMessages, _ = payload["messages"].([]any)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	var events []Event
+	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
+		"messages": []any{
+			map[string]any{"role": "user", "content": "old"},
+			map[string]any{"role": "user", "content": "new"},
+		},
+		"model_profile": map[string]any{
+			"provider":       "openai_compatible",
+			"model":          "mock-stream",
+			"base_url":       server.URL,
+			"api_key":        "test-key",
+			"context_window": 1,
+		},
+	}, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+	if len(gotMessages) != 1 {
+		t.Fatalf("expected compacted stream messages, got %#v", gotMessages)
+	}
+	last, _ := gotMessages[0].(map[string]any)
+	if last["content"] != "new" {
+		t.Fatalf("expected newest message after compaction, got %#v", gotMessages)
+	}
+	if len(events) != 2 || events[0].Event != "delta" || events[1].Event != "done" {
+		t.Fatalf("expected delta and done events, got %#v", events)
+	}
+}
+
+func TestAnthropicProviderUsesMessagesEndpoint(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if r.Header.Get("x-api-key") != "test-key" || r.Header.Get("anthropic-version") == "" {
+			t.Fatalf("missing anthropic headers: %#v", r.Header)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"anthropic ok"}]}`))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "anthropic",
+			"model":    "mock-claude",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("anthropic provider: %v", err)
+	}
+	if gotPath != "/v1/messages" || result["text"] != "anthropic ok" {
+		t.Fatalf("expected anthropic messages endpoint, path=%q result=%#v", gotPath, result)
+	}
+}

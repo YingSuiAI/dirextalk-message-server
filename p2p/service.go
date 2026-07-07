@@ -26,6 +26,8 @@ type Config struct {
 	PushRules                       PushRuleManager
 	RealtimeSessions                *realtime.SessionStore
 	PluginRunner                    PluginRunner
+	NativeAgentRunner               PluginRunner
+	NativeAgentDataDir              string
 }
 
 const (
@@ -573,9 +575,9 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if realtimeSessions == nil {
 		realtimeSessions = realtime.DefaultSessionStore
 	}
-	pluginRunner := cfg.PluginRunner
-	if pluginRunner == nil {
-		pluginRunner = newEnvironmentPluginRunner()
+	basePluginRunner := cfg.PluginRunner
+	if basePluginRunner == nil {
+		basePluginRunner = newEnvironmentPluginRunner()
 	}
 	service := &Service{
 		serverName:                 serverName,
@@ -589,7 +591,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
 		realtimeSessions:           realtimeSessions,
-		pluginRunner:               pluginRunner,
+		pluginRunner:               basePluginRunner,
 		initialized:                state.Initialized,
 		password:                   state.Password,
 		accessToken:                state.AccessToken,
@@ -618,6 +620,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		eventNotify:                make(chan struct{}),
 
 		realtimeWSTickets: map[string]realtimeWSTicket{},
+	}
+	nativeAgentRunner := cfg.NativeAgentRunner
+	if nativeAgentRunner == nil {
+		nativeAgentRunner = newNativeAgentRuntime(service, cfg.NativeAgentDataDir)
+	}
+	service.pluginRunner = nativeAgentPluginRunner{
+		native: nativeAgentRunner,
+		base:   basePluginRunner,
 	}
 	service.actions = service.actionHandlers()
 	return service
@@ -658,6 +668,12 @@ func (s *Service) AgentToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.agentToken
+}
+
+func (s *Service) OwnerMXID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownerMXID
 }
 
 func (s *Service) Handle(ctx context.Context, action string, params map[string]any) (any, *apiError) {

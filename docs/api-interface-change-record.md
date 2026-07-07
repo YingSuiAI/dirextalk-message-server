@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-05
+Last updated: 2026-07-07
+
+## 2026-07-07 Native Agent Runtime
+
+`io.dirextalk.agent` is now an embedded native message-server runtime. It no longer uses the Docker plugin runner, and `plugins.catalog.list` includes the Agent entry even when Docker plugins are disabled. Ops and future non-Agent plugins still depend on the Docker runner.
+
+The Agent keeps the existing owner call surface: lifecycle/config/health through `plugins.*`, non-stream calls through `plugins.invoke`, and streaming through owner WS `client.plugin_stream`. Model calls support request-scoped `model_profile` values for `openai`, `anthropic`, `deepseek`, and `openai_compatible`. Model API keys are accepted only per request and are not persisted, returned by config APIs, or injected into plugin env.
+
+Native Agent now owns dynamic skills, third-party MCP clients, runtime CLI tools, orchestration loops, server-side conversation memory, context compression, and built-in Dirextalk tools. Built-in tools proxy contacts, rooms, ordinary messages, room members, channel posts/comments, summaries, and message/comment writes through existing P2P/Matrix boundaries. Homeserver/sync DB reads are read-only; Matrix writes continue through `p2p.Transport`/roomserver.
 
 ## 2026-07-05 Official Ops Plugin
 
@@ -28,6 +36,8 @@ The server treats Ops as the only official plugin allowed to receive privileged 
 Backup creation can run asynchronously and expose progress through `ops.backup.status`; backup files are downloaded through `ops.backup.download_chunk`. `ops.restore.run` requires `confirm="restore_backup"` and restores the Postgres dump from a selected backup package. Cleanup contracts are intentionally plan-first. `ops.cleanup.plan`, `ops.rooms.cleanup.plan`, and `ops.media.orphans.plan` estimate impact before execution. `chat_purge_physical` and direct SQL deletion of Matrix event tables are not part of the first-version Ops plugin; room history cleanup is limited to cache cleanup, local hiding/archive planning, and backend-controlled safe actions.
 
 ## 2026-07-04 Official Plugin Manager And Agent MCP Boundary
+
+Agent-specific Docker/container details in this section were superseded by the 2026-07-07 Native Agent runtime. Non-Agent Docker plugin manager details still apply.
 
 Added protected owner-only plugin management actions on the existing body-action surface:
 

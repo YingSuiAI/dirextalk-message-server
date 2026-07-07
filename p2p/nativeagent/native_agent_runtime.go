@@ -1,0 +1,230 @@
+package nativeagent
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	defaultNativeAgentDataDir = "/var/dirextalk-message-server/agent"
+	nativeAgentHTTPTimeout    = 90 * time.Second
+	nativeAgentToolCallLimit  = 4
+)
+
+type Config struct {
+	DataDir    string
+	Store      ConfigStore
+	Tools      []Tool
+	HTTPClient *http.Client
+}
+
+type ConfigStore interface {
+	Load(ctx context.Context) (map[string]any, bool, error)
+	Save(ctx context.Context, config map[string]any) error
+}
+
+type Event struct {
+	Event string
+	Data  map[string]any
+}
+
+type Runtime struct {
+	store   ConfigStore
+	dataDir string
+	client  *http.Client
+	tools   []Tool
+}
+
+func New(config Config) *Runtime {
+	dataDir := strings.TrimSpace(config.DataDir)
+	if dataDir == "" {
+		dataDir = strings.TrimSpace(os.Getenv("P2P_NATIVE_AGENT_DATA_DIR"))
+	}
+	if dataDir == "" {
+		dataDir = defaultNativeAgentDataDir
+	}
+	client := config.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
+	}
+	return &Runtime{
+		store:   config.Store,
+		dataDir: filepath.Clean(dataDir),
+		client:  client,
+		tools:   append([]Tool{}, config.Tools...),
+	}
+}
+
+func (r *Runtime) Apply(ctx context.Context, action string) error {
+	switch strings.TrimSpace(action) {
+	case "install", "enable":
+		return r.ensureDataDirs()
+	case "disable", "uninstall":
+		return nil
+	default:
+		return fmt.Errorf("native agent action %q is not supported", action)
+	}
+}
+
+func (r *Runtime) Invoke(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+	action = strings.TrimSpace(action)
+	switch action {
+	case "agent.chat":
+		return r.chat(ctx, params)
+	case "agent.models.list":
+		return r.modelsList(), nil
+	case "agent.runtime.inspect":
+		return r.runtimeInspect(ctx)
+	case "agent.runtime.install":
+		return r.runtimeInstall(ctx, params)
+	case "agent.runtime.which":
+		return r.runtimeWhich(ctx, params)
+	case "agent.runtime.run":
+		return r.runtimeRun(ctx, params)
+	case "agent.skills.list":
+		return r.skillsList(ctx)
+	case "agent.skills.install":
+		return r.skillInstall(ctx, params)
+	case "agent.skills.enable":
+		return r.skillSetEnabled(ctx, params, true)
+	case "agent.skills.disable":
+		return r.skillSetEnabled(ctx, params, false)
+	case "agent.skills.uninstall":
+		return r.skillUninstall(ctx, params)
+	case "agent.skills.registry.search":
+		return map[string]any{"skills": []any{}}, nil
+	case "agent.mcp.servers.list":
+		return r.mcpServersList(ctx)
+	case "agent.mcp.servers.install":
+		return r.mcpServerInstall(ctx, params)
+	case "agent.mcp.servers.enable":
+		return r.mcpServerSetEnabled(ctx, params, true)
+	case "agent.mcp.servers.disable":
+		return r.mcpServerSetEnabled(ctx, params, false)
+	case "agent.mcp.servers.uninstall":
+		return r.mcpServerUninstall(ctx, params)
+	case "agent.mcp.registry.search":
+		return map[string]any{"servers": []any{}}, nil
+	case "agent.knowledge.config.get", "agent.knowledge.config.update", "agent.knowledge.sources.list",
+		"agent.knowledge.sources.delete", "agent.knowledge.upload.start", "agent.knowledge.upload.chunk",
+		"agent.knowledge.upload.finish", "agent.knowledge.memory.create", "agent.knowledge.search",
+		"agent.knowledge.status":
+		return map[string]any{"supported": false, "status": "unsupported"}, nil
+	case "agent.context.compress":
+		return r.compressMemory(ctx, params)
+	case "agent.config.propose_patch":
+		return map[string]any{"ok": true, "patch": map[string]any{}}, nil
+	default:
+		if strings.HasPrefix(action, "agent.") {
+			return r.invokeDirectTool(ctx, action, params)
+		}
+		return nil, fmt.Errorf("native agent action %q is not implemented", action)
+	}
+}
+
+func (r *Runtime) Stream(ctx context.Context, action string, params map[string]any, emit func(Event) error) error {
+	if strings.TrimSpace(action) != "agent.chat.stream" {
+		return fmt.Errorf("native agent stream action %q is not implemented", action)
+	}
+	config, _, err := r.agentConfig(ctx)
+	if err != nil {
+		return err
+	}
+	profile := r.resolveModelProfile(config, params)
+	tools := r.enabledTools(ctx, config, params)
+	if len(tools) > 0 || strings.EqualFold(profile.Provider, "anthropic") {
+		result, err := r.chat(ctx, params)
+		if err != nil {
+			return err
+		}
+		text := trimString(result["text"])
+		if text != "" {
+			if err := emit(Event{Event: "delta", Data: map[string]any{"text": text}}); err != nil {
+				return err
+			}
+		}
+		return emit(Event{Event: "done", Data: result})
+	}
+	if profile.APIKey == "" {
+		if err := emit(Event{Event: "error", Data: map[string]any{"error": "model_profile.api_key is required"}}); err != nil {
+			return err
+		}
+		return emit(Event{Event: "done", Data: map[string]any{"ok": false, "model_ready": false}})
+	}
+	messages, systemPrompt := r.agentMessages(ctx, config, params)
+	messages = compactAgentMessages(messages, profile.ContextWindow)
+	text, err := r.streamOpenAICompatible(ctx, profile, messages, systemPrompt, emit)
+	if err != nil {
+		return err
+	}
+	r.rememberTurn(ctx, config, params, text)
+	return nil
+}
+
+func (r *Runtime) ensureDataDirs() error {
+	for _, dir := range []string{
+		r.dataDir,
+		filepath.Join(r.dataDir, "skills"),
+		filepath.Join(r.dataDir, "mcp"),
+		filepath.Join(r.dataDir, "runtime"),
+		filepath.Join(r.dataDir, "runtime", "bin"),
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) modelsList() map[string]any {
+	return map[string]any{
+		"providers": []map[string]any{
+			{"provider": "openai", "default_base_url": "https://api.openai.com/v1", "default_model": defaultModelForProvider("openai"), "requires_api_key": true},
+			{"provider": "anthropic", "default_base_url": "https://api.anthropic.com", "default_model": defaultModelForProvider("anthropic"), "requires_api_key": true},
+			{"provider": "deepseek", "default_base_url": "https://api.deepseek.com", "default_model": defaultModelForProvider("deepseek"), "requires_api_key": true},
+			{"provider": "openai_compatible", "default_base_url": "", "default_model": defaultModelForProvider("openai_compatible"), "requires_api_key": true},
+		},
+	}
+}
+
+func (r *Runtime) runtimeInspect(ctx context.Context) (map[string]any, error) {
+	config, exists, err := r.agentConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"ok":            true,
+		"native":        true,
+		"configured":    exists,
+		"data_dir":      r.dataDir,
+		"skills":        configList(config, "skills"),
+		"mcp_servers":   configList(config, "mcp_servers"),
+		"runtime_tools": configList(config, "runtime_tools"),
+		"time":          time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (r *Runtime) agentConfig(ctx context.Context) (map[string]any, bool, error) {
+	if r.store == nil {
+		return map[string]any{}, false, nil
+	}
+	config, exists, err := r.store.Load(ctx)
+	return cloneAnyMap(config), exists, err
+}
+
+func (r *Runtime) updateAgentConfig(ctx context.Context, mutate func(map[string]any)) error {
+	if r.store == nil {
+		return fmt.Errorf("config store is unavailable")
+	}
+	config, _, err := r.agentConfig(ctx)
+	if err != nil {
+		return err
+	}
+	mutate(config)
+	return r.store.Save(ctx, sanitizeConfig(config))
+}

@@ -23,11 +23,11 @@ const (
 func officialPluginCatalog() []pluginCatalogEntry {
 	return []pluginCatalogEntry{
 		{
-			ID:             "io.dirextalk.agent",
+			ID:             agentPluginID,
 			Name:           "Dirextalk Agent",
 			Version:        "0.1.0",
-			Description:    "Official Pydantic AI Agent plugin with Dirextalk tools, skills, and MCP server support. Knowledge base actions are retained but unsupported in this release.",
-			Image:          "docker.io/dirextalk/agent-plugin:latest",
+			Description:    "Native Dirextalk Agent runtime embedded in the message server with dynamic models, tools, skills, MCP, and streaming support.",
+			Image:          "native://dirextalk/agent",
 			Digest:         "",
 			MinBaseVersion: "0.1.0",
 			Permissions: []string{
@@ -48,13 +48,19 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.context.compress",
 				"agent.runtime.inspect",
 				"agent.runtime.install",
+				"agent.runtime.which",
+				"agent.runtime.run",
 				"agent.models.list",
 				"agent.skills.list",
 				"agent.skills.install",
+				"agent.skills.enable",
+				"agent.skills.disable",
 				"agent.skills.uninstall",
 				"agent.skills.registry.search",
 				"agent.mcp.servers.list",
 				"agent.mcp.servers.install",
+				"agent.mcp.servers.enable",
+				"agent.mcp.servers.disable",
 				"agent.mcp.servers.uninstall",
 				"agent.mcp.registry.search",
 				"agent.knowledge.config.get",
@@ -73,11 +79,15 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.rooms.search",
 				"agent.messages.list",
 				"agent.messages.send",
+				"agent.room_members.list",
+				"agent.channel_posts.list",
+				"agent.channel_comments.list",
+				"agent.channel_comments.create",
 				"agent.summarize",
 			},
 			ConfigSchema: map[string]any{
-				"providers":           []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
-				"provider":            []string{"openai", "anthropic", "deepseek", "gemini", "vertex", "openai_compatible", "openrouter", "litellm"},
+				"providers":           []string{"openai", "anthropic", "deepseek", "openai_compatible"},
+				"provider":            []string{"openai", "anthropic", "deepseek", "openai_compatible"},
 				"model":               "string",
 				"base_url":            "string",
 				"system_prompt":       "string",
@@ -86,11 +96,11 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"mcp_registry_url":    "string",
 				"skills":              []map[string]any{},
 				"mcp_servers":         []map[string]any{},
-					"knowledge": map[string]any{
-						"supported": false,
-						"enabled":   false,
-						"status":    "unsupported",
-					},
+				"knowledge": map[string]any{
+					"supported": false,
+					"enabled":   false,
+					"status":    "unsupported",
+				},
 				"temperature":       "number",
 				"max_output_tokens": "number",
 				"context_window":    "number",
@@ -99,7 +109,7 @@ func officialPluginCatalog() []pluginCatalogEntry {
 			},
 		},
 		{
-			ID:             "io.dirextalk.ops",
+			ID:             opsPluginID,
 			Name:           "Dirextalk Ops",
 			Version:        "0.1.0",
 			Description:    "Official operations plugin for server status, backups, migration exports, and safe cleanup planning.",
@@ -168,10 +178,24 @@ func (s *Service) loadPlugins(ctx context.Context) error {
 }
 
 func (s *Service) pluginCatalogListAction(context.Context, map[string]any) (any, *apiError) {
-	if !pluginRunnerEnabled(s.pluginRunner) {
-		return map[string]any{"plugins": []pluginCatalogEntry{}, "enabled": false}, nil
+	plugins := availablePluginCatalog(s.pluginRunner)
+	return map[string]any{
+		"plugins":        plugins,
+		"enabled":        len(plugins) > 0,
+		"docker_enabled": dockerPluginRunnerEnabled(s.pluginRunner),
+	}, nil
+}
+
+func availablePluginCatalog(r PluginRunner) []pluginCatalogEntry {
+	entries := officialPluginCatalog()
+	available := make([]pluginCatalogEntry, 0, len(entries))
+	dockerEnabled := dockerPluginRunnerEnabled(r)
+	for _, entry := range entries {
+		if entry.ID == agentPluginID || dockerEnabled {
+			available = append(available, entry)
+		}
 	}
-	return map[string]any{"plugins": officialPluginCatalog(), "enabled": true}, nil
+	return available
 }
 
 func pluginRunnerEnabled(r PluginRunner) bool {
@@ -388,7 +412,7 @@ func (s *Service) pluginInvokeRequest(ctx context.Context, params map[string]any
 }
 
 func (s *Service) enrichAgentPluginInvokeParams(ctx context.Context, plugin pluginInstance, invokeParams map[string]any) *apiError {
-	if plugin.ID != "io.dirextalk.agent" || invokeParams == nil {
+	if plugin.ID != agentPluginID || invokeParams == nil {
 		return nil
 	}
 	if rawProfile, ok := invokeParams["model_profile"].(map[string]any); ok {
@@ -744,7 +768,7 @@ func normalizePluginInstance(plugin pluginInstance) pluginInstance {
 	if plugin.Config == nil {
 		plugin.Config = map[string]any{}
 	}
-	if plugin.ID == "io.dirextalk.agent" {
+	if plugin.ID == agentPluginID {
 		plugin.Config = sanitizePluginConfig(plugin.ID, plugin.Config, nil)
 	}
 	return plugin
@@ -766,7 +790,7 @@ func pluginSecretsFromParams(pluginID string, params map[string]any) map[string]
 	if params == nil {
 		return secrets
 	}
-	if pluginID == "io.dirextalk.agent" {
+	if pluginID == agentPluginID {
 		return secrets
 	}
 	if rawSecrets, ok := params["secrets"].(map[string]any); ok {
@@ -814,7 +838,7 @@ func sanitizePluginConfig(pluginID string, config map[string]any, secrets map[st
 	if secrets == nil {
 		secrets = map[string]string{}
 	}
-	if pluginID == "io.dirextalk.agent" {
+	if pluginID == agentPluginID {
 		delete(sanitized, "api_key")
 		delete(sanitized, "api_key_ref")
 		if profiles, ok := sanitized["model_profiles"].([]any); ok {
@@ -892,32 +916,26 @@ func pluginProfileSecretName(profile map[string]any, index int) string {
 }
 
 func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (map[string]string, *apiError) {
+	if plugin.ID == agentPluginID {
+		return map[string]string{}, nil
+	}
 	s.mu.Lock()
 	homeserver := strings.TrimSpace(s.homeserver)
-	agentToken := s.agentToken
 	s.mu.Unlock()
 	env := map[string]string{
 		"DIREXTALK_BASE_URL": pluginBackendBaseURL(homeserver),
 	}
-	if plugin.ID == "io.dirextalk.agent" {
-		env["AGENT_CONFIG_REVISION"] = jsonValue(plugin.UpdatedAt)
-		env["DIREXTALK_AGENT_TOKEN"] = agentToken
-		env["DIREXTALK_AGENT_TOKEN_REF"] = "env:DIREXTALK_AGENT_TOKEN"
-		if apiErr := s.mergeAgentPluginEnv(ctx, plugin.ID, env, plugin.Config); apiErr != nil {
-			return nil, apiErr
-		}
-	} else if plugin.ID == "io.dirextalk.ops" {
+	if plugin.ID == opsPluginID {
 		mergeOpsPluginEnv(env)
 	}
 	return env, nil
 }
 
 func pluginRuntimeVolumes(plugin pluginInstance) []string {
-	if plugin.ID == "io.dirextalk.agent" {
-		dataVolume := fallbackString(strings.TrimSpace(os.Getenv("P2P_AGENT_DATA_VOLUME")), "p2p_agent_data")
-		return []string{dataVolume + ":/var/lib/dirextalk-agent"}
+	if plugin.ID == agentPluginID {
+		return nil
 	}
-	if plugin.ID != "io.dirextalk.ops" {
+	if plugin.ID != opsPluginID {
 		return nil
 	}
 	socket := fallbackString(strings.TrimSpace(os.Getenv("P2P_OPS_DOCKER_SOCKET")), "/var/run/docker.sock")

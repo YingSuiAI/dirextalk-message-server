@@ -29,6 +29,8 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/setup/jetstream"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/process"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi"
+	"github.com/YingSuiAI/dirextalk-message-server/syncapi/agenthistory"
+	syncstorage "github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
@@ -109,6 +111,11 @@ func (m *Monolith) AddAllPublicRoutes(
 		service.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil))
 		service.SetMatrixProfileResolver(matrixProfileResolver)
 		p2pService = service
+	}
+	if syncDB, err := syncstorage.NewSyncServerDatasource(processCtx.Context(), cm, &cfg.SyncAPI.Database); err != nil {
+		logrus.WithError(err).Warn("P2P native Agent sync DB reader unavailable; using Matrix HTTP history reader")
+	} else {
+		p2pService.SetMatrixMessageReader(agenthistory.NewReader(syncDB, m.RoomserverAPI, p2pService.OwnerMXID()))
 	}
 	if natsInstance != nil {
 		js, _ := natsInstance.Prepare(processCtx, &cfg.Global.JetStream)
