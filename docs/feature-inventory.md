@@ -19,7 +19,7 @@ Last updated: 2026-06-30
 | Public Channels | Public detail/search, remote room-id discovery, public join request forwarding, approval result callback, public channels by user. |
 | Channel Posts/Comments/Reactions | Post/comment create/list/recall, reply and mention metadata, like toggles, owner comment/reaction history. |
 | Calls | Create/incoming/get/list/active, persisted lifecycle timestamps, and realtime call state events. |
-| Favorites/Follows | Favorite lifecycle and followed domains. User-facing reports are handled by the signed imadmin public API, not the message-server P2P action surface. |
+| Favorites/Follows/Reports | Favorite lifecycle, followed domains, and owner-directed group/channel report notifications. Friend and official reports use the signed imadmin public API; group/channel owner reports use ProductCore `reports.submit` and the Matrix `system_room_id`. |
 | Agent/API Permissions | Agent config/status/password and per-action permission enable/disable. |
 | Conversations | ProductCore conversation list/get and operation summaries. |
 

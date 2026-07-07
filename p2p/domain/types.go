@@ -10,6 +10,7 @@ type PortalState struct {
 	AgentToken     string
 	OwnerMXID      string
 	AgentRoomID    string
+	SystemRoomID   string
 	Profile        OwnerProfile
 	AgentConfig    AgentConfig
 }
@@ -236,6 +237,23 @@ type ChannelReactionHistory struct {
 	Channel  *Channel              `json:"channel,omitempty"`
 	Post     *ChannelPostRecord    `json:"post,omitempty"`
 	Comment  *ChannelCommentRecord `json:"comment,omitempty"`
+}
+
+type ReportRecord struct {
+	ReportID            string   `json:"report_id"`
+	TargetType          string   `json:"target_type"`
+	TargetRoomID        string   `json:"target_room_id"`
+	TargetChannelID     string   `json:"target_channel_id,omitempty"`
+	TargetName          string   `json:"target_name"`
+	ReporterMXID        string   `json:"reporter_mxid"`
+	ReporterDisplayName string   `json:"reporter_display_name"`
+	Reason              string   `json:"reason"`
+	Body                string   `json:"body"`
+	ImageURLs           []string `json:"image_urls"`
+	SystemRoomID        string   `json:"system_room_id"`
+	EventID             string   `json:"event_id"`
+	OriginServerTS      int64    `json:"origin_server_ts"`
+	CreatedAt           string   `json:"created_at"`
 }
 
 type MemberRecord struct {

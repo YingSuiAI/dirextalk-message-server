@@ -2074,6 +2074,7 @@ func assertSingleInitializedFlag(t *testing.T, payload map[string]any, initializ
 		"user_id":            true,
 		"homeserver":         true,
 		"agent_room_id":      true,
+		"system_room_id":     true,
 		"password":           true,
 		"initialized":        true,
 		"store_mode":         true,

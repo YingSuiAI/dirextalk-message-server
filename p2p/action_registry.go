@@ -51,6 +51,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		"favorites.add":                s.favoriteMessage,
 		"favorites.delete":             s.favoriteDelete,
 		"favorites.delete_batch":       s.favoriteDeleteBatch,
+		"reports.submit":               s.reportSubmit,
 		"contacts.list":                s.contactListAction,
 		"contacts.request":             s.contactRequest,
 		"contacts.reactivate":          s.contactReactivate,

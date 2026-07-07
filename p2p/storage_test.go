@@ -42,6 +42,8 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_blocks_type_idx",
 		"p2p_blocks_room_idx",
 		"p2p_blocks_peer_idx",
+		"p2p_reports_target_idx",
+		"p2p_reports_reporter_idx",
 		"p2p_calls_room_idx",
 		"p2p_calls_state_idx",
 		"p2p_favorites_type_idx",
@@ -970,6 +972,29 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 		"system_prompt":        "stored prompt",
 		"mcp_blocked_room_ids": []any{"!secret:example.com", ch.RoomID},
 	})
+	service.systemRoomID = "!system:example.com"
+	if err := store.SavePortal(ctx, service.portalStateLocked()); err != nil {
+		t.Fatal(err)
+	}
+	report := reportRecord{
+		ReportID:            "report_1",
+		TargetType:          "channel",
+		TargetRoomID:        ch.RoomID,
+		TargetChannelID:     ch.ChannelID,
+		TargetName:          ch.Name,
+		ReporterMXID:        "@alice:remote.example",
+		ReporterDisplayName: "Alice",
+		Reason:              "Spam / Advertisement",
+		Body:                "ads",
+		ImageURLs:           []string{"mxc://example.com/evidence"},
+		SystemRoomID:        "!system:example.com",
+		EventID:             "$report:example.com",
+		OriginServerTS:      1783433640000,
+		CreatedAt:           "2026-07-07T10:14:00Z",
+	}
+	if err := store.InsertReport(ctx, report); err != nil {
+		t.Fatal(err)
+	}
 
 	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
 	if err != nil {
@@ -984,6 +1009,9 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	reloadedSession := mustHandle[map[string]any](t, reloaded, "portal.auth", map[string]any{"password": defaultPassword})
 	if reloadedSession["access_token"] != accessToken {
 		t.Fatalf("expected access token to survive reload, got %#v want %q", reloadedSession, accessToken)
+	}
+	if reloadedSession["system_room_id"] != "!system:example.com" {
+		t.Fatalf("expected system room id to survive reload, got %#v", reloadedSession)
 	}
 	profile := mustHandle[ownerProfile](t, reloaded, "profile.get", nil)
 	if profile.DisplayName != "Owner Name" || profile.Email != "owner@example.com" {
@@ -1031,6 +1059,18 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	comments := mustHandle[map[string]any](t, reloaded, "channels.comments.list", map[string]any{"post_id": post.PostID})
 	if got, ok := comments["comments"].([]channelCommentRecord); !ok || len(got) != 1 || got[0].Body != "comment body" {
 		t.Fatalf("expected restored comment, got %#v", comments)
+	}
+	reports, err := reloadedStore.ListReports(ctx, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 ||
+		reports[0].ReportID != "report_1" ||
+		reports[0].TargetChannelID != ch.ChannelID ||
+		reports[0].ReporterMXID != "@alice:remote.example" ||
+		len(reports[0].ImageURLs) != 1 ||
+		reports[0].ImageURLs[0] != "mxc://example.com/evidence" {
+		t.Fatalf("expected restored report, got %#v", reports)
 	}
 }
 

@@ -330,6 +330,18 @@ Clients should prefer WS `client.lifecycle` and `client.focus`. During migration
 
 Backend startup now also ensures the portal owner has a room-level Matrix push rule for the real `agent_room_id` with empty actions, so new or repaired agents rooms default to no system push. Existing explicit room push rules for the same room are preserved.
 
+## 2026-07-07 Owner Report Notifications
+
+Reintroduced `reports.submit` as a public ProductCore action for owner-directed
+group/channel reports only. Friend reports and official report submissions stay
+on signed imadmin public APIs. The owner node validates the target
+group/channel, persists a `p2p_reports` row, and sends a Matrix `m.notice` into
+the durable `system_room_id` with `msg_type=report`,
+`p2p_kind=system_report`, reporter metadata, target metadata, reason/body, and
+Matrix media `image_urls`. Portal auth and `sync.bootstrap` now return
+`system_room_id`. The system room is intentionally not given the agent room's
+empty-action push rule because owner report cards should notify.
+
 ## 2026-06-29 P2P Reports Submit Removed
 
 Removed `reports.submit` from the message-server P2P action surface. User-facing report submission remains on the signed imadmin public API, so this server no longer registers the P2P report action or persists P2P report rows.

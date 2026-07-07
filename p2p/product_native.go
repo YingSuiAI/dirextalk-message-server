@@ -16,6 +16,7 @@ const (
 	DirextalkRoomTypeDirect  = productpolicy.DirextalkRoomTypeDirect
 	DirextalkRoomTypeGroup   = productpolicy.DirextalkRoomTypeGroup
 	DirextalkRoomTypeChannel = productpolicy.DirextalkRoomTypeChannel
+	DirextalkRoomTypeSystem  = "io.dirextalk.room.system"
 
 	DirextalkRoomProfileEventType  = productpolicy.DirextalkRoomProfileEventType
 	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType

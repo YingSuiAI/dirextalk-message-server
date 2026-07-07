@@ -18,10 +18,11 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 						initialized BIGINT NOT NULL,
 						password TEXT NOT NULL,
 						access_token TEXT NOT NULL,
-						agent_token TEXT NOT NULL,
-						owner_mxid TEXT NOT NULL,
-						agent_room_id TEXT NOT NULL,
-					user_id TEXT NOT NULL,
+							agent_token TEXT NOT NULL,
+							owner_mxid TEXT NOT NULL,
+							agent_room_id TEXT NOT NULL,
+							system_room_id TEXT NOT NULL DEFAULT '',
+						user_id TEXT NOT NULL,
 					display_name TEXT NOT NULL,
 					domain TEXT NOT NULL,
 					avatar_url TEXT NOT NULL,
@@ -591,6 +592,40 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 					PRIMARY KEY (plugin_id, name)
 				)`,
 				`CREATE INDEX IF NOT EXISTS p2p_plugin_secrets_updated_idx ON p2p_plugin_secrets(plugin_id, updated_at)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: system reports v33",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_portal")
+			if err != nil {
+				return err
+			}
+			if exists {
+				if _, err = txn.ExecContext(ctx, `ALTER TABLE p2p_portal ADD COLUMN IF NOT EXISTS system_room_id TEXT NOT NULL DEFAULT ''`); err != nil {
+					return err
+				}
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_reports (
+					report_id TEXT PRIMARY KEY NOT NULL,
+					target_type TEXT NOT NULL,
+					target_room_id TEXT NOT NULL,
+					target_channel_id TEXT NOT NULL DEFAULT '',
+					target_name TEXT NOT NULL DEFAULT '',
+					reporter_mxid TEXT NOT NULL DEFAULT '',
+					reporter_display_name TEXT NOT NULL DEFAULT '',
+					reason TEXT NOT NULL DEFAULT '',
+					body TEXT NOT NULL DEFAULT '',
+					image_urls_json TEXT NOT NULL DEFAULT '[]',
+					system_room_id TEXT NOT NULL DEFAULT '',
+					event_id TEXT NOT NULL DEFAULT '',
+					origin_server_ts BIGINT NOT NULL DEFAULT 0,
+					created_at TEXT NOT NULL DEFAULT ''
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_reports_target_idx ON p2p_reports(target_type, target_room_id, created_at)`,
+				`CREATE INDEX IF NOT EXISTS p2p_reports_reporter_idx ON p2p_reports(reporter_mxid, created_at)`,
 			})
 		},
 	})

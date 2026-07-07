@@ -11,6 +11,7 @@ var publicActions = []string{
 	"channels.public.join_request",
 	"channels.public.join_result",
 	"users.public_channels",
+	"reports.submit",
 }
 
 var agentActions = []string{

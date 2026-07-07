@@ -18,6 +18,7 @@ type memberRecord = domain.MemberRecord
 type p2pEvent = domain.Event
 type eventBounds = domain.EventBounds
 type blockRecord = domain.BlockRecord
+type reportRecord = domain.ReportRecord
 type pluginCatalogEntry = domain.PluginCatalogEntry
 type pluginInstance = domain.PluginInstance
 type pluginJob = domain.PluginJob
@@ -29,6 +30,7 @@ const (
 	conversationKindDirect       = domain.ConversationKindDirect
 	conversationKindGroup        = domain.ConversationKindGroup
 	conversationKindChannel      = domain.ConversationKindChannel
+	conversationKindSystem       = domain.ConversationKindSystem
 	conversationLifecycleDeleted = domain.ConversationLifecycleDeleted
 )
 

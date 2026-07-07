@@ -115,6 +115,7 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	s.mu.Lock()
 	userID := s.ownerMXID
 	agentRoomID := s.agentRoomID
+	systemRoomID := s.systemRoomID
 	s.mu.Unlock()
 	var groups []groupRecord
 	var channels []channel
@@ -166,12 +167,13 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 		}
 	}
 	return map[string]any{
-		"synced_at":     time.Now().UTC().Format(time.RFC3339Nano),
-		"user":          map[string]any{"user_id": userID},
-		"agent_room_id": agentRoomID,
-		"contacts":      contacts,
-		"groups":        visibleGroups,
-		"channels":      visibleChannels,
+		"synced_at":      time.Now().UTC().Format(time.RFC3339Nano),
+		"user":           map[string]any{"user_id": userID},
+		"agent_room_id":  agentRoomID,
+		"system_room_id": systemRoomID,
+		"contacts":       contacts,
+		"groups":         visibleGroups,
+		"channels":       visibleChannels,
 		"pending": map[string]any{
 			"friend_requests": pendingFriendRequestsFromContacts(contacts),
 			"group_invites":   pendingGroupInvitesFromMembers(members, groups),

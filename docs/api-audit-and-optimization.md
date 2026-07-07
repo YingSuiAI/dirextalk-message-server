@@ -31,7 +31,7 @@ Generated/maintained outputs:
 - Current P2P product API exposes 81 actions from `p2p.Service.Handle`.
 - Current Postman collection includes the live P2P product action requests plus Matrix/Dirextalk Message Server route-index requests.
 - The P2P API is not a placeholder implementation. Requests pass through real handler validation, action dispatch, optional Bearer authorization, service logic, persistence, Matrix transport, and roomserver projection.
-- The P2P store has concrete PostgreSQL/SQLite-compatible migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, and follows. Ordinary messages use Matrix/syncapi storage only. User-facing reports are handled by the signed imadmin public API.
+- The P2P store has concrete PostgreSQL/SQLite-compatible migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, follows, and owner-directed report notifications. Ordinary messages use Matrix/syncapi storage only. Friend and official reports are handled by the signed imadmin public API; group/channel owner reports use ProductCore `reports.submit`.
 - Multi-node communication is implemented through Matrix federation for room/member/message/redaction/state events and a narrow unauthenticated public-action proxy for public channel discovery and join requests. Product projections cover group/channel lifecycle and channel post/comment state; ordinary message history remains Matrix-native.
 - Runtime behavior changes were made for security and consistency; see `docs/api-interface-change-record.md`.
 
@@ -150,7 +150,7 @@ Implemented areas:
 - Calls create/incoming/get/event/list/active
 - Favorites add/list/delete/batch delete
 - Follows add/list/remove
-- User-facing report submission via signed imadmin public API
+- Friend and official report submission via signed imadmin public API; group/channel owner report notifications via ProductCore `reports.submit` and Matrix `system_room_id`
 - Agent password/config/status and API permission enable/disable
 
 ## Real Implementation Evidence

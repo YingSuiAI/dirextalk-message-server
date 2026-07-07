@@ -80,6 +80,7 @@ type Service struct {
 	agentToken     string
 	ownerMXID      string
 	agentRoomID    string
+	systemRoomID   string
 	profile        ownerProfile
 	agentConfig    agentConfig
 	actions        map[string]actionHandler
@@ -191,6 +192,8 @@ type Store interface {
 	GetPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error)
 	UpsertPluginSecret(ctx context.Context, secret pluginSecret) error
 	GetPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error)
+	InsertReport(ctx context.Context, report reportRecord) error
+	ListReports(ctx context.Context, targetRoomID string, limit int) ([]reportRecord, error)
 }
 
 type portalState = domain.PortalState
@@ -218,6 +221,7 @@ type pluginCatalogEntry = domain.PluginCatalogEntry
 type pluginInstance = domain.PluginInstance
 type pluginJob = domain.PluginJob
 type pluginSecret = domain.PluginSecret
+type reportRecord = domain.ReportRecord
 
 func NewService(cfg Config) *Service {
 	return newService(cfg, nil, nil, portalState{}, false)
@@ -245,7 +249,11 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 	if err != nil {
 		return nil, err
 	}
-	if shouldPersist || agentRoomChanged {
+	systemRoomChanged, err := service.ensureSystemRoom(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if shouldPersist || agentRoomChanged || systemRoomChanged {
 		service.mu.Lock()
 		state = service.portalStateLocked()
 		service.mu.Unlock()
@@ -502,16 +510,17 @@ func (s *Service) SetProjectorStarted(started bool) {
 }
 
 type portalCredentialsFile struct {
-	Version     int       `json:"version"`
-	GeneratedAt time.Time `json:"generated_at"`
-	OwnerUserID string    `json:"owner_user_id"`
-	UserID      string    `json:"user_id"`
-	Homeserver  string    `json:"homeserver"`
-	AccessToken string    `json:"access_token"`
-	DeviceID    string    `json:"device_id"`
-	AgentToken  string    `json:"agent_token"`
-	Password    string    `json:"password"`
-	AgentRoomID string    `json:"agent_room_id"`
+	Version      int       `json:"version"`
+	GeneratedAt  time.Time `json:"generated_at"`
+	OwnerUserID  string    `json:"owner_user_id"`
+	UserID       string    `json:"user_id"`
+	Homeserver   string    `json:"homeserver"`
+	AccessToken  string    `json:"access_token"`
+	DeviceID     string    `json:"device_id"`
+	AgentToken   string    `json:"agent_token"`
+	Password     string    `json:"password"`
+	AgentRoomID  string    `json:"agent_room_id"`
+	SystemRoomID string    `json:"system_room_id"`
 }
 
 func newService(cfg Config, store Store, transport Transport, state portalState, hasPortal bool) *Service {
@@ -588,6 +597,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		agentToken:                 state.AgentToken,
 		ownerMXID:                  state.OwnerMXID,
 		agentRoomID:                state.AgentRoomID,
+		systemRoomID:               state.SystemRoomID,
 		profile:                    state.Profile,
 		agentConfig:                state.AgentConfig,
 		readMarkers:                map[string]readMarker{},

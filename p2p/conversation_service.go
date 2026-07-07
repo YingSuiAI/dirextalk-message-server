@@ -310,6 +310,9 @@ func conversationHydration(view conversationView) (string, string) {
 func conversationCapabilitiesForView(view conversationView) conversationCapabilities {
 	active := view.Lifecycle == conversationLifecycleActive
 	ready := view.HydrationState == string(conversationProjectionReady)
+	if view.Kind == conversationKindSystem {
+		return conversationCapabilities{Open: ready && active}
+	}
 	joined := strings.EqualFold(view.Membership, "join") || strings.EqualFold(view.Membership, "joined")
 	owner := productOwnerRole(view.Role)
 	open := ready && active && joined

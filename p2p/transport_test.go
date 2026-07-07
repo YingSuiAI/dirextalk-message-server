@@ -320,11 +320,86 @@ func TestEnsureAgentRoomInvitesOwnerFromAgentWhenOwnerJoinRequiresInvite(t *test
 func TestSyncBootstrapIncludesAgentRoomID(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.agentRoomID = "!agents-real:example.com"
+	service.systemRoomID = "!system-real:example.com"
 	bootstrapService(t, service)
 
 	bootstrap := mustHandle[map[string]any](t, service, "sync.bootstrap", nil)
 	if bootstrap["agent_room_id"] != "!agents-real:example.com" {
 		t.Fatalf("expected sync.bootstrap agent_room_id, got %#v", bootstrap)
+	}
+	if bootstrap["system_room_id"] != "!system-real:example.com" {
+		t.Fatalf("expected sync.bootstrap system_room_id, got %#v", bootstrap)
+	}
+}
+
+func TestReportSubmitCreatesSystemNotificationMessage(t *testing.T) {
+	transport := &recordingTransport{roomID: "!system:example.com", eventID: "$report:example.com", ts: 1783433640000}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com",
+		"name":    "Product Exchange Group",
+	})
+
+	result := mustHandle[reportRecord](t, service, "reports.submit", map[string]any{
+		"target_type":           "group",
+		"room_id":               group.RoomID,
+		"reason":                "Spam / Advertisement",
+		"body":                  "Suspicious advertisement",
+		"reporter_mxid":         "@zhangsan:remote.example",
+		"reporter_display_name": "Zhang San",
+		"image_urls":            []any{"mxc://example.com/a", "mxc://example.com/b"},
+	})
+
+	if result.EventID != "$report:example.com" || result.SystemRoomID != "!system:example.com" {
+		t.Fatalf("expected report response to include system message ids, got %#v", result)
+	}
+	if service.systemRoomID != "!system:example.com" {
+		t.Fatalf("expected service system room id to be persisted in memory, got %q", service.systemRoomID)
+	}
+	if len(transport.createRooms) != 1 {
+		t.Fatalf("expected one system room create after explicit group room id, got %#v", transport.createRooms)
+	}
+	if transport.createRooms[0].Name != "System Notification" ||
+		transport.createRooms[0].Visibility != "private" ||
+		transport.createRooms[0].RoomType != DirextalkRoomTypeSystem {
+		t.Fatalf("expected private system room creation, got %#v", transport.createRooms[0])
+	}
+	if len(transport.messages) != 1 {
+		t.Fatalf("expected one system report message, got %#v", transport.messages)
+	}
+	message := transport.messages[0]
+	if message.RoomID != "!system:example.com" || message.SenderMXID != "@owner:example.com" {
+		t.Fatalf("expected owner to send report notification into system room, got %#v", message)
+	}
+	if message.Content["msg_type"] != "report" ||
+		message.Content["p2p_kind"] != "system_report" ||
+		message.Content["target_room_id"] != group.RoomID ||
+		message.Content["target_name"] != "Product Exchange Group" ||
+		message.Content["reporter_mxid"] != "@zhangsan:remote.example" ||
+		message.Content["reporter_display_name"] != "Zhang San" ||
+		message.Content["reason"] != "Spam / Advertisement" {
+		t.Fatalf("expected report notification content, got %#v", message.Content)
+	}
+	images, ok := message.Content["image_urls"].([]string)
+	if !ok || len(images) != 2 || images[0] != "mxc://example.com/a" {
+		t.Fatalf("expected report image urls in notification, got %#v", message.Content["image_urls"])
+	}
+	list := mustHandle[map[string]any](t, service, "conversations.list", nil)
+	conversations := list["conversations"].([]conversationView)
+	var systemConversation conversationView
+	for _, conversation := range conversations {
+		if conversation.Kind == conversationKindSystem {
+			systemConversation = conversation
+			break
+		}
+	}
+	if systemConversation.MatrixRoomID != "!system:example.com" ||
+		systemConversation.Title != systemRoomName ||
+		systemConversation.LastEventID != "$report:example.com" ||
+		systemConversation.LastActivityAt != 1783433640000 ||
+		!systemConversation.Capabilities.Open {
+		t.Fatalf("expected open system conversation after report, got %#v", conversations)
 	}
 }
 

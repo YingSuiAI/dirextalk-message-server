@@ -230,7 +230,7 @@ Channel posts/comments/reactions：
 Calls/Favorites/Follows：
 
 - calls 是产品会话 read model，支持 create/incoming/get/list/active/event，持久化接通/结束时间、结束方和原因，并通过 `call.changed` P2P event 推送实时状态。
-- favorites 和 follows 是 P2P product state，使用 P2P store 持久化。用户举报提交保留在 signed imadmin public API，不再作为 message-server P2P action 维护。
+- favorites 和 follows 是 P2P product state，使用 P2P store 持久化。好友举报和官方举报仍走 signed imadmin public API；群聊/频道所有者举报通过 ProductCore `reports.submit` 写入 owner 节点 `p2p_reports`，并向 `system_room_id` 发送 `msg_type=report` 的 Matrix 通知。
 
 Push：
 

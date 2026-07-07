@@ -9,6 +9,7 @@ const (
 	conversationKindGroup   = domain.ConversationKindGroup
 	conversationKindChannel = domain.ConversationKindChannel
 	conversationKindAgent   = domain.ConversationKindAgent
+	conversationKindSystem  = domain.ConversationKindSystem
 )
 
 type conversationLifecycle = domain.ConversationLifecycle

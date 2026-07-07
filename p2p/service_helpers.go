@@ -14,14 +14,15 @@ import (
 
 func (s *Service) sessionLocked() map[string]any {
 	return map[string]any{
-		"access_token":  s.accessToken,
-		"device_id":     cleanMatrixDeviceID(s.matrixDeviceID),
-		"agent_token":   s.agentToken,
-		"user_id":       s.ownerMXID,
-		"homeserver":    s.homeserver,
-		"agent_room_id": s.agentRoomID,
-		"password":      s.password,
-		"initialized":   s.initialized,
+		"access_token":   s.accessToken,
+		"device_id":      cleanMatrixDeviceID(s.matrixDeviceID),
+		"agent_token":    s.agentToken,
+		"user_id":        s.ownerMXID,
+		"homeserver":     s.homeserver,
+		"agent_room_id":  s.agentRoomID,
+		"system_room_id": s.systemRoomID,
+		"password":       s.password,
+		"initialized":    s.initialized,
 	}
 }
 
@@ -34,6 +35,7 @@ func (s *Service) portalStateLocked() portalState {
 		AgentToken:     s.agentToken,
 		OwnerMXID:      s.ownerMXID,
 		AgentRoomID:    s.agentRoomID,
+		SystemRoomID:   s.systemRoomID,
 		Profile:        s.profile,
 		AgentConfig:    s.agentConfig,
 	}
@@ -448,16 +450,17 @@ func (s *Service) writePortalCredentialsFile() error {
 	}
 	s.mu.Lock()
 	credentials := portalCredentialsFile{
-		Version:     1,
-		GeneratedAt: time.Now().UTC(),
-		OwnerUserID: s.ownerMXID,
-		UserID:      s.ownerMXID,
-		Homeserver:  s.homeserver,
-		AccessToken: s.accessToken,
-		DeviceID:    matrixPortalDeviceID,
-		AgentToken:  s.agentToken,
-		Password:    s.password,
-		AgentRoomID: s.agentRoomID,
+		Version:      1,
+		GeneratedAt:  time.Now().UTC(),
+		OwnerUserID:  s.ownerMXID,
+		UserID:       s.ownerMXID,
+		Homeserver:   s.homeserver,
+		AccessToken:  s.accessToken,
+		DeviceID:     matrixPortalDeviceID,
+		AgentToken:   s.agentToken,
+		Password:     s.password,
+		AgentRoomID:  s.agentRoomID,
+		SystemRoomID: s.systemRoomID,
 	}
 	s.mu.Unlock()
 

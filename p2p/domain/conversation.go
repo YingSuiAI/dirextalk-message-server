@@ -14,6 +14,7 @@ const (
 	ConversationKindGroup   ConversationKind = "group"
 	ConversationKindChannel ConversationKind = "channel"
 	ConversationKindAgent   ConversationKind = "agent"
+	ConversationKindSystem  ConversationKind = "system"
 )
 
 type ConversationLifecycle string
