@@ -8,7 +8,9 @@ Last updated: 2026-07-07
 
 The Agent keeps the existing owner call surface: lifecycle/config/health through `plugins.*`, non-stream calls through `plugins.invoke`, and streaming through owner WS `client.plugin_stream`. Model calls support request-scoped `model_profile` values for `openai`, `anthropic`, `deepseek`, and `openai_compatible`. Model API keys are accepted only per request and are not persisted, returned by config APIs, or injected into plugin env.
 
-Native Agent now owns dynamic skills, third-party MCP clients, runtime CLI tools, orchestration loops, server-side conversation memory, context compression, and built-in Dirextalk tools. Built-in tools proxy contacts, rooms, ordinary messages, room members, channel posts/comments, summaries, and message/comment writes through existing P2P/Matrix boundaries. Homeserver/sync DB reads are read-only; Matrix writes continue through `p2p.Transport`/roomserver.
+Native Agent chat responses and `agent.chat.stream` done payloads include `native=true` and `framework="eino"` so clients and smoke tests can verify the embedded Eino runtime path is active.
+
+Native Agent now owns dynamic skills, third-party MCP clients, runtime CLI tools, orchestration loops, server-side conversation memory, context compression, and built-in Dirextalk tools. Eino ReAct is the single orchestration path; model providers use maintained Eino OpenAI and DeepSeek components, Anthropic is direct API only through an Eino `ToolCallingChatModel` adapter, third-party MCP uses Eino official MCP, and installed runtime CLI tools are exposed as Eino tools for in-loop execution and summarization. Built-in tools proxy contacts, rooms, ordinary messages, room members, channel posts/comments, summaries, and message/comment writes through existing P2P/Matrix boundaries. Homeserver/sync DB reads are read-only; Matrix writes continue through `p2p.Transport`/roomserver.
 
 ## 2026-07-05 Official Ops Plugin
 

@@ -2,30 +2,18 @@ package nativeagent
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestHTTPMCPToolCanBeInstalledAndUsedByModelLoop(t *testing.T) {
-	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode mcp request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		switch payload["method"] {
-		case "tools/list":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"echo","description":"Echo text.","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}`))
-		case "tools/call":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"mcp-echo"}]}}`))
-		default:
-			t.Fatalf("unexpected mcp method %#v", payload["method"])
-		}
-	}))
+	mcpServer := newHTTPTestMCPServer("mcp-echo")
 	defer mcpServer.Close()
 
 	var modelCalls int
@@ -99,51 +87,13 @@ func TestHTTPMCPToolCanBeInstalledAndUsedByModelLoop(t *testing.T) {
 
 func TestStdioMCPInstallDiscoversTools(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "mcp-test.py")
-	if err := os.WriteFile(script, []byte(`#!/usr/bin/env python3
-import json, sys
-
-def read_frame():
-    headers = {}
-    while True:
-        line = sys.stdin.buffer.readline()
-        if not line:
-            return None
-        line = line.decode().strip()
-        if not line:
-            break
-        key, value = line.split(":", 1)
-        headers[key.lower()] = value.strip()
-    length = int(headers.get("content-length", "0"))
-    return json.loads(sys.stdin.buffer.read(length).decode())
-
-def write_frame(payload):
-    data = json.dumps(payload).encode()
-    sys.stdout.buffer.write(f"Content-Length: {len(data)}\r\n\r\n".encode() + data)
-    sys.stdout.buffer.flush()
-
-while True:
-    frame = read_frame()
-    if frame is None:
-        break
-    method = frame.get("method")
-    if method == "initialize":
-        write_frame({"jsonrpc":"2.0","id":frame.get("id"),"result":{"protocolVersion":"2024-11-05","capabilities":{},"serverInfo":{"name":"test","version":"1"}}})
-    elif method == "notifications/initialized":
-        pass
-    elif method == "tools/list":
-        write_frame({"jsonrpc":"2.0","id":frame.get("id"),"result":{"tools":[{"name":"ping","description":"Ping","inputSchema":{"type":"object","properties":{}}}]}})
-    elif method == "tools/call":
-        write_frame({"jsonrpc":"2.0","id":frame.get("id"),"result":{"content":[{"type":"text","text":"pong"}]}})
-`), 0o700); err != nil {
-		t.Fatalf("write mcp script: %v", err)
-	}
+	binary := buildStdioTestMCPServer(t, dir)
 
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	install, err := runtime.Invoke(context.Background(), "agent.mcp.servers.install", map[string]any{
 		"id":             "stdio-test",
 		"transport":      "stdio",
-		"command":        script,
+		"command":        binary,
 		"discover_tools": true,
 	})
 	if err != nil {
@@ -153,4 +103,51 @@ while True:
 	if len(configList(serverRecord, "tools")) != 1 {
 		t.Fatalf("expected stdio mcp tool discovery, got %#v", install)
 	}
+}
+
+func newHTTPTestMCPServer(response string) *httptest.Server {
+	server := mcp.NewServer(&mcp.Implementation{Name: "echo-server", Version: "v0.0.1"}, nil)
+	type echoArgs struct {
+		Text string `json:"text" jsonschema:"text to echo"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "Echo text."}, func(ctx context.Context, req *mcp.CallToolRequest, args echoArgs) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: response}}}, nil, nil
+	})
+	return httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return server
+	}, nil))
+}
+
+func buildStdioTestMCPServer(t *testing.T, dir string) string {
+	t.Helper()
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(`package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func main() {
+	server := mcp.NewServer(&mcp.Implementation{Name: "stdio-test", Version: "v0.0.1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "ping", Description: "Ping"}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "pong"}}}, nil, nil
+	})
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		log.Fatal(err)
+	}
+}
+`), 0o600); err != nil {
+		t.Fatalf("write stdio mcp source: %v", err)
+	}
+	binary := filepath.Join(dir, "mcp-test")
+	cmd := exec.Command("go", "build", "-o", binary, source)
+	cmd.Dir = filepath.Join("..", "..")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build stdio mcp server: %v\n%s", err, string(output))
+	}
+	return binary
 }

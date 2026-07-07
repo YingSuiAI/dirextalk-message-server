@@ -46,7 +46,6 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 			tools = append(tools, tool)
 		}
 	}
-	tools = append(tools, r.enabledMCPTools(ctx, config)...)
 	return tools
 }
 

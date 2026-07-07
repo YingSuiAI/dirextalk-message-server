@@ -69,12 +69,69 @@ func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
 	if result["text"] != "总结：联系人 Ada 已找到。" {
 		t.Fatalf("expected final model answer, got %#v", result)
 	}
+	if result["framework"] != "eino" {
+		t.Fatalf("expected eino framework marker, got %#v", result)
+	}
 	memory, err := runtime.loadMemory(context.Background(), "loop-test")
 	if err != nil {
 		t.Fatalf("load memory: %v", err)
 	}
-	if len(memory.Turns) != 2 || memory.Turns[0].Role != "user" || memory.Turns[1].Role != "assistant" {
-		t.Fatalf("expected user and assistant memory turns, got %#v", memory)
+	if len(memory.Messages) != 4 || memory.Messages[0].Role != "user" || memory.Messages[1].Role != "assistant" || memory.Messages[2].Role != "tool" || memory.Messages[3].Role != "assistant" {
+		t.Fatalf("expected Eino user/tool-loop/assistant memory messages, got %#v", memory.Messages)
+	}
+	if len(memory.Messages[1].ToolCalls) != 1 || memory.Messages[2].ToolName != "dirextalk_contacts_list" {
+		t.Fatalf("expected tool call and tool result in Eino memory, got %#v", memory.Messages)
+	}
+}
+
+func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
+	var requestCount int
+	var sawRuntimeOutput bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "runtime-eino from-model") {
+				sawRuntimeOutput = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_runtime","type":"function","function":{"name":"runtime__hello_agent","arguments":"{\"args\":[\"from-model\"]}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"CLI 已执行并返回结果。"}}]}`))
+	}))
+	defer server.Close()
+
+	store := &testConfigStore{config: map[string]any{}}
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: store})
+	if _, err := runtime.Invoke(context.Background(), "agent.runtime.install", map[string]any{
+		"id":       "hello-agent",
+		"filename": "hello-agent",
+		"content":  "#!/bin/sh\necho runtime-eino \"$@\"\n",
+	}); err != nil {
+		t.Fatalf("install runtime tool: %v", err)
+	}
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "调用 hello-agent 工具并总结",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawRuntimeOutput || result["text"] != "CLI 已执行并返回结果。" {
+		t.Fatalf("expected runtime CLI tool loop, requestCount=%d sawRuntimeOutput=%v result=%#v", requestCount, sawRuntimeOutput, result)
 	}
 }
 
@@ -147,6 +204,9 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Event != "delta" || events[1].Event != "done" {
 		t.Fatalf("expected delta and done events, got %#v", events)
+	}
+	if events[1].Data["framework"] != "eino" {
+		t.Fatalf("expected eino stream done marker, got %#v", events[1])
 	}
 }
 

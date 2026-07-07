@@ -136,34 +136,35 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		return err
 	}
 	profile := r.resolveModelProfile(config, params)
-	tools := r.enabledTools(ctx, config, params)
-	if len(tools) > 0 || strings.EqualFold(profile.Provider, "anthropic") {
-		result, err := r.chat(ctx, params)
-		if err != nil {
-			return err
-		}
-		text := trimString(result["text"])
-		if text != "" {
-			if err := emit(Event{Event: "delta", Data: map[string]any{"text": text}}); err != nil {
-				return err
-			}
-		}
-		return emit(Event{Event: "done", Data: result})
-	}
 	if profile.APIKey == "" {
 		if err := emit(Event{Event: "error", Data: map[string]any{"error": "model_profile.api_key is required"}}); err != nil {
 			return err
 		}
-		return emit(Event{Event: "done", Data: map[string]any{"ok": false, "model_ready": false}})
+		return emit(Event{Event: "done", Data: map[string]any{"ok": false, "native": true, "framework": "eino", "model_ready": false}})
 	}
-	messages, systemPrompt := r.agentMessages(ctx, config, params)
-	messages = compactAgentMessages(messages, profile.ContextWindow)
-	text, err := r.streamOpenAICompatible(ctx, profile, messages, systemPrompt, emit)
+	run, err := r.prepareEinoRun(ctx, config, params, profile)
 	if err != nil {
 		return err
 	}
-	r.rememberTurn(ctx, config, params, text)
-	return nil
+	tools, cleanup, err := r.enabledEinoTools(ctx, config, params)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	text, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit)
+	if err != nil {
+		return err
+	}
+	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
+	return emit(Event{Event: "done", Data: map[string]any{
+		"ok":         true,
+		"native":     true,
+		"framework":  "eino",
+		"provider":   profile.Provider,
+		"model":      profile.Model,
+		"text":       text,
+		"tool_calls": toolCalls,
+	}})
 }
 
 func (r *Runtime) ensureDataDirs() error {
@@ -200,6 +201,7 @@ func (r *Runtime) runtimeInspect(ctx context.Context) (map[string]any, error) {
 	return map[string]any{
 		"ok":            true,
 		"native":        true,
+		"framework":     "eino",
 		"configured":    exists,
 		"data_dir":      r.dataDir,
 		"skills":        configList(config, "skills"),

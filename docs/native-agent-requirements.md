@@ -14,7 +14,9 @@ Clients keep the current call surface:
 
 - `io.dirextalk.agent` always routes to native runtime, never to the Docker Agent container.
 - No migration from old Agent config or runtime state is required.
+- Native Agent uses CloudWeGo Eino as the only model orchestration path. The runtime must track the latest stable Eino release, use Eino ReAct for model/tool loops, use maintained Eino model components for OpenAI and DeepSeek, use direct-only Anthropic Messages API as an Eino `ToolCallingChatModel` adapter, and use Eino official MCP tooling backed by `modelcontextprotocol/go-sdk`.
 - Native Agent supports `openai`, `anthropic`, `deepseek`, and `openai_compatible`.
+- `anthropic` first-version support is direct Anthropic API only. Bedrock and Vertex are intentionally not supported, and AWS/Google SDK dependencies must not be introduced for this provider.
 - Requests may pass `model_profile` with `provider`, `model`, `base_url`, `api_key`, `temperature`, `top_p`, `max_output_tokens`, and `context_window`.
 - DeepSeek defaults to the OpenAI-compatible endpoint `https://api.deepseek.com`.
 - API keys are request-local or temporary environment values only. They must not be persisted, logged, committed, or returned by config APIs.
@@ -51,6 +53,7 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 - Third-party MCP servers can be installed, listed, enabled, disabled, and uninstalled.
 - Supported transports are `stdio`, remote HTTP/SSE, and streamable HTTP.
 - MCP tools discovered from enabled servers become dynamic Agent tools.
+- MCP discovery and tool invocation must go through `github.com/cloudwego/eino-ext/components/tool/mcp/officialmcp` and `github.com/modelcontextprotocol/go-sdk/mcp`, not a custom JSON-RPC client.
 - MCP server command/env configuration may be stored, but secrets must be passed through request-local values or temporary env references.
 
 ## Runtime CLI Tools
@@ -58,6 +61,7 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 - Runtime CLI tools can be installed, recorded, found, and executed under the native Agent data directory.
 - Supported actions include install, inspect, which, and run.
 - Execution is bounded by timeout and returns stdout/stderr/exit status.
+- Enabled installed runtime CLI tools are exposed to the Agent as Eino tools, so the model can call them inside the same orchestration loop and summarize their results.
 
 ## Storage And Data Directory
 

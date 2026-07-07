@@ -36,7 +36,7 @@ func TestSkillInstallListsAndInjectsStaticSkillPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	_, systemPrompt := runtime.agentMessages(ctx, config, map[string]any{"prompt": "hello"})
+	systemPrompt := runtime.agentSystemPrompt(ctx, config, map[string]any{"prompt": "hello"}, "")
 	if !strings.Contains(systemPrompt, "SKILL_USED") {
 		t.Fatalf("expected static skill text in system prompt, got %q", systemPrompt)
 	}
@@ -47,7 +47,7 @@ func TestSkillInstallListsAndInjectsStaticSkillPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load disabled config: %v", err)
 	}
-	_, systemPrompt = runtime.agentMessages(ctx, config, map[string]any{"prompt": "hello"})
+	systemPrompt = runtime.agentSystemPrompt(ctx, config, map[string]any{"prompt": "hello"}, "")
 	if strings.Contains(systemPrompt, "SKILL_USED") {
 		t.Fatalf("disabled skill must not be injected, got %q", systemPrompt)
 	}

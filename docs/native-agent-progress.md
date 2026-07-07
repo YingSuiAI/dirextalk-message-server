@@ -92,3 +92,20 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [x] Runtime CLI install/which/run works.
 - [x] Built-in contacts, rooms, message list, summarize, and send tools are exercised.
 - [x] Temporary DeepSeek key is absent from logs, docs, git diff, persisted config, and test output.
+
+## Eino Correction
+
+- [x] Eino examples were downloaded locally and reviewed before correcting implementation.
+- [x] Eino latest stable core (`v0.9.12`), Eino OpenAI model, Eino DeepSeek model, Eino official MCP, and `modelcontextprotocol/go-sdk` dependencies are added.
+- [x] Native Agent model/tool loop uses Eino ReAct instead of the previous hand-written loop.
+- [x] OpenAI, DeepSeek, and OpenAI-compatible providers use Eino model components.
+- [x] Anthropic uses a direct-only Eino `ToolCallingChatModel` adapter and does not introduce AWS/Google SDK dependencies.
+- [x] Built-in Dirextalk tools are wrapped as Eino `InvokableTool` implementations.
+- [x] Third-party MCP tools use Eino official MCP and the official Go MCP SDK transports.
+- [x] Conversation memory stores Eino `schema.Message` history captured from ReAct `WithMessageFuture`.
+- [x] Context compaction runs through Eino message rewriting and optional Eino model summarization.
+- [x] Installed runtime CLI tools are exposed as Eino tools and covered by an Agent loop test.
+- [x] Eino-specific native Agent unit tests pass: `go test ./p2p/nativeagent -count=1`.
+- [x] Full backend verification has been rerun after the Eino correction.
+- [x] Real interface acceptance has been rerun after the Eino correction.
+- [x] Final diff and secret scan have been rerun after the Eino correction.

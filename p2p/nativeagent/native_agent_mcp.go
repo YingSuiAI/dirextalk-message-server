@@ -96,80 +96,8 @@ func (r *Runtime) mcpServerUninstall(ctx context.Context, params map[string]any)
 	return map[string]any{"ok": removed, "id": id}, nil
 }
 
-func (r *Runtime) enabledMCPTools(ctx context.Context, config map[string]any) []Tool {
-	servers := configList(config, "mcp_servers")
-	tools := []Tool{}
-	for _, server := range servers {
-		if !boolParam(server["enabled"]) {
-			continue
-		}
-		serverID := sanitizeNativeID(trimString(server["id"]))
-		for _, toolRecord := range configList(server, "tools") {
-			toolName := sanitizeMCPToolName(trimString(toolRecord["name"]))
-			if serverID == "" || toolName == "" {
-				continue
-			}
-			openAIName := "mcp__" + serverID + "__" + toolName
-			serverCopy := cloneAnyMap(server)
-			rawToolName := trimString(toolRecord["name"])
-			tools = append(tools, Tool{
-				Name:        openAIName,
-				Description: fallbackString(trimString(toolRecord["description"]), "MCP tool "+rawToolName),
-				Parameters:  mcpToolInputSchema(toolRecord),
-				Handler: func(ctx context.Context, args map[string]any) (any, error) {
-					return r.callMCPTool(ctx, serverCopy, rawToolName, args)
-				},
-			})
-		}
-	}
-	return tools
-}
-
 func (r *Runtime) discoverMCPTools(ctx context.Context, server map[string]any) ([]any, error) {
-	transport := strings.ToLower(fallbackString(trimString(server["transport"]), "stdio"))
-	switch transport {
-	case "stdio":
-		return r.mcpStdioListTools(ctx, server)
-	case "http", "sse", "streamable_http", "streamable-http":
-		return r.mcpHTTPListTools(ctx, server)
-	default:
-		return nil, fmt.Errorf("unsupported mcp transport %q", transport)
-	}
-}
-
-func (r *Runtime) callMCPTool(ctx context.Context, server map[string]any, toolName string, args map[string]any) (any, error) {
-	transport := strings.ToLower(fallbackString(trimString(server["transport"]), "stdio"))
-	switch transport {
-	case "stdio":
-		return r.mcpStdioCallTool(ctx, server, toolName, args)
-	case "http", "sse", "streamable_http", "streamable-http":
-		return r.mcpHTTPCallTool(ctx, server, toolName, args)
-	default:
-		return nil, fmt.Errorf("unsupported mcp transport %q", transport)
-	}
-}
-
-func mcpToolsFromResult(result any) []any {
-	resultMap, _ := result.(map[string]any)
-	rawTools, _ := resultMap["tools"].([]any)
-	tools := make([]any, 0, len(rawTools))
-	for _, raw := range rawTools {
-		tool, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		tools = append(tools, tool)
-	}
-	return tools
-}
-
-func mcpToolInputSchema(tool map[string]any) map[string]any {
-	for _, key := range []string{"inputSchema", "input_schema", "parameters"} {
-		if schema, ok := tool[key].(map[string]any); ok && len(schema) > 0 {
-			return schema
-		}
-	}
-	return objectSchema(map[string]any{})
+	return r.discoverOfficialMCPTools(ctx, server)
 }
 
 func sanitizeMCPToolName(value string) string {
