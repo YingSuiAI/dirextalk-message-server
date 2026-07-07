@@ -30,7 +30,7 @@ Dirextalk 产品 API 使用 body-action 入口：
 - `GET /_p2p/health`
 - `POST /_p2p/query`
 - `POST /_p2p/command`
-- `GET /_p2p/events`
+- `GET /_p2p/ws`
 - `GET /.well-known/portal/owner.json`
 
 请求 envelope：
@@ -109,12 +109,16 @@ go test ./p2p ./internal/productpolicy -count=1
 
 ## 文档
 
+当前维护文档保持精简。继承自 Dendrite 的站点文档、过时 tracker 和一次性实施计划不再作为本 fork 的维护文档。
+
 - [当前项目文档](docs/current-project-documentation.md)
 - [实现说明](docs/p2p-integrated-as-implementation.md)
 - [API 变更记录](docs/api-interface-change-record.md)
 - [API 审计与优化记录](docs/api-audit-and-optimization.md)
 - [Postman collection](docs/postman/dirextalk-message-server.postman_collection.json)
+- [插件 Postman collection](docs/postman/dirextalk-plugins.postman_collection.json)
 - [Docker 镜像说明](docs/dirextalk-message-server.md)
+- [Push Gateway 合约](docs/dirextalk-push-gateway.md)
 
 ## License
 

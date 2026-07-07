@@ -22,7 +22,6 @@ Primary sources:
 Generated/maintained outputs:
 
 - `AGENTS.md`
-- `docs/feature-inventory.md`
 - `docs/postman/dirextalk-message-server.postman_collection.json`
 - `docs/api-interface-change-record.md`
 
@@ -132,8 +131,6 @@ These items are intentionally not implemented in this server-side pass. They req
 - Commit after each verified optimization batch so the roadmap can be trusted after context compaction.
 
 ## Confirmed Implemented Feature Areas
-
-See `docs/feature-inventory.md` for the full action checklist.
 
 Implemented areas:
 
@@ -333,7 +330,7 @@ Remaining operational guidance:
 
 Recommended improvement:
 
-- generate `docs/feature-inventory.md` and Postman collection from the action switch in CI;
+- generate Postman collection metadata from the action switch in CI;
 - add a test that verifies docs metadata count or generated artifacts are current.
 
 ### P2: Duplicate P2P Message Sync Surface - Fixed

@@ -30,7 +30,7 @@ Dirextalk product APIs use the body-action surface:
 - `GET /_p2p/health`
 - `POST /_p2p/query`
 - `POST /_p2p/command`
-- `GET /_p2p/events`
+- `GET /_p2p/ws`
 - `GET /.well-known/portal/owner.json`
 
 Product requests use this envelope:
@@ -109,12 +109,16 @@ The Go test helper creates isolated `dendrite_test_*` databases and drops them w
 
 ## Documentation
 
+Current maintained docs are intentionally small. Historical Dendrite site docs, obsolete trackers, and one-off implementation plans are not maintained in this fork.
+
 - [Current project documentation](docs/current-project-documentation.md)
 - [Implementation notes](docs/p2p-integrated-as-implementation.md)
 - [API change record](docs/api-interface-change-record.md)
 - [API audit and optimization notes](docs/api-audit-and-optimization.md)
 - [Postman collection](docs/postman/dirextalk-message-server.postman_collection.json)
+- [Plugin Postman collection](docs/postman/dirextalk-plugins.postman_collection.json)
 - [Docker image notes](docs/dirextalk-message-server.md)
+- [Push gateway contract](docs/dirextalk-push-gateway.md)
 
 ## License
 

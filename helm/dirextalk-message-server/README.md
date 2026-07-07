@@ -14,7 +14,7 @@ This chart creates a monolith deployment, including an optionally enabled Postgr
 
 (You can skip this, if you're deploying the PostgreSQL dependency)
 
-You'll need to create the following database before starting Dirextalk Message Server (see [installation](../../docs/installation/manual/2_database.md)):
+You'll need to create the following database before starting Dirextalk Message Server:
 
 ```postgres
 create database dendrite

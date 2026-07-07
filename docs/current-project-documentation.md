@@ -343,9 +343,10 @@ docker compose -f docker-compose.p2p-dual.yml config
 
 ## 10. 文档规则
 
-- README/AGENTS 级文档只描述当前运行与开发规则。
+- README/AGENTS 级文档只描述当前运行与开发规则，不维护继承自 Dendrite 的站点式安装、管理、FAQ 或历史计划文档。
 - 本文件是当前项目事实源。
 - `docs/api-interface-change-record.md` 记录接口变更审计。
 - `docs/api-audit-and-optimization.md` 记录当前审计与优化结论。
 - `docs/p2p-integrated-as-implementation.md` 记录实现细节。
+- `docs/dirextalk-message-server.md` 记录 Docker 镜像和运行说明，`docs/dirextalk-push-gateway.md` 记录 Push Gateway 合约，`docs/postman/` 只保留可导入 JSON 示例。
 - 不在活文档、Postman、技能规则或示例中保留旧接口作为当前可用能力。

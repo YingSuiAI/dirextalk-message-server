@@ -184,9 +184,11 @@ Keep project skills as Dirextalk-specific guidance. Do not duplicate generic sys
 
 ## Documentation Rules
 
-- Keep README-level docs focused on operating the service.
+- Keep README-level docs focused on operating and developing the current Dirextalk Message Server.
 - Treat `docs/current-project-documentation.md` as the current project fact source.
 - Put detailed implementation notes in `docs/p2p-integrated-as-implementation.md`.
 - Put audit findings and optimization notes in `docs/api-audit-and-optimization.md`.
 - Put request/response contract changes in `docs/api-interface-change-record.md`.
+- Keep Docker image notes in `docs/dirextalk-message-server.md`, push-gateway notes in `docs/dirextalk-push-gateway.md`, and importable manual examples in `docs/postman/`.
+- Do not recreate inherited Dendrite documentation-site pages, historical implementation trackers, or one-off plan archives unless explicitly requested.
 - Keep Postman examples importable JSON.

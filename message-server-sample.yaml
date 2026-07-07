@@ -354,8 +354,8 @@ user_api:
   # worker_count: 8
 
 # Configuration for Opentracing.
-# See https://github.com/YingSuiAI/dirextalk-message-server/tree/master/docs/tracing for information on
-# how this works and how to set it up.
+# This inherited option is kept for config compatibility. Current Dirextalk
+# deployment notes live in README.md and docs/current-project-documentation.md.
 tracing:
   enabled: false
   jaeger:

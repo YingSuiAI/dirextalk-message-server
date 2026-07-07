@@ -1,6 +1,6 @@
 {{- define "validate.config" }}
 {{- if and (not .Values.signing_key.create) (eq .Values.signing_key.existingSecret "") -}}
-{{-  fail "You must create a signing key for configuration.signing_key OR specify an existing secret name in .Values.signing_key.existingSecret to mount it. (see https://github.com/YingSuiAI/dirextalk-message-server/blob/master/docs/INSTALL.md#server-key-generation)" -}}
+{{-  fail "You must create a signing key for configuration.signing_key OR specify an existing secret name in .Values.signing_key.existingSecret to mount it. See the repository README and current project documentation for deployment guidance." -}}
 {{- end -}}
 {{- if and (not .Values.postgresql.enabled) (eq .Values.dendrite_config.global.database.connection_string "") -}}
 {{-  fail "Database connection string must be set." -}}
