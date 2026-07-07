@@ -109,3 +109,15 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [x] Full backend verification has been rerun after the Eino correction.
 - [x] Real interface acceptance has been rerun after the Eino correction.
 - [x] Final diff and secret scan have been rerun after the Eino correction.
+
+## Extended Agent-Reach And Context7 Smoke
+
+- [x] Agent-Reach skill was installed through `plugins.invoke -> agent.skills.install` from the GitHub `SKILL.md`.
+- [x] Agent-Reach runtime CLI was installed/registered through `plugins.invoke -> agent.runtime.install`.
+- [x] Bilibili runtime search tool was installed through `agent.runtime.install` and called through `agent.runtime.run`.
+- [x] DeepSeek/Eino `agent.chat` called `runtime__agent_reach` and `runtime__bili`, then summarized Bilibili Shanghai food-guide results.
+- [x] Context7 was installed through `plugins.invoke -> agent.mcp.servers.install`.
+- [x] DeepSeek/Eino `agent.chat` called Context7 MCP tools and answered from retrieved Gin documentation.
+- [x] XiaoHongShu and Twitter/X runtime tools were invoked and returned real missing-prerequisite output for login/cookies/native CLI dependency setup.
+- [ ] Authenticated XiaoHongShu search succeeds after `xhs` cookies or `xiaohongshu-mcp` QR login backend is configured.
+- [ ] Authenticated Twitter/X search succeeds after `twitter-cli` cookies/login are configured.

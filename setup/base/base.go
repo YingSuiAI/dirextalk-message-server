@@ -46,7 +46,7 @@ var staticContent embed.FS
 var loginFallback embed.FS
 var StaticContent = staticContent
 
-const HTTPServerTimeout = time.Minute * 5
+const HTTPServerTimeout = time.Minute * 15
 
 // CreateClient creates a new client (normally used for media fetch requests).
 // Should only be called once per component.

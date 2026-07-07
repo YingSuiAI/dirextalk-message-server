@@ -38,6 +38,9 @@ func (r *Runtime) runtimeInstall(ctx context.Context, params map[string]any) (ma
 			return nil, err
 		}
 		installResult = result
+		if result["ok"] != true {
+			return nil, fmt.Errorf("runtime install command failed with exit code %v: %s", result["exit_code"], strings.TrimSpace(trimString(result["stderr"])))
+		}
 	}
 	record := cloneAnyMap(tool)
 	record["id"] = id
@@ -91,6 +94,10 @@ func (r *Runtime) runtimeRun(ctx context.Context, params map[string]any) (map[st
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	prepareRuntimeCommand(cmd)
+	done := make(chan struct{})
+	defer close(done)
+	go killRuntimeCommandOnCancel(runCtx, cmd, done)
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
@@ -117,12 +124,17 @@ func (r *Runtime) runtimeRun(ctx context.Context, params map[string]any) (map[st
 func (r *Runtime) runShell(ctx context.Context, command string, timeout time.Duration) (map[string]any, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, "bash", "-lc", command)
+	shell, shellArgs := runtimeShell(command)
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	cmd.Dir = filepath.Join(r.dataDir, "runtime")
 	cmd.Env = runtimeEnv(r.dataDir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	prepareRuntimeCommand(cmd)
+	done := make(chan struct{})
+	defer close(done)
+	go killRuntimeCommandOnCancel(runCtx, cmd, done)
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
@@ -137,6 +149,16 @@ func (r *Runtime) runShell(ctx context.Context, command string, timeout time.Dur
 		}
 	}
 	return map[string]any{"ok": exitCode == 0, "stdout": stdout.String(), "stderr": stderr.String(), "exit_code": exitCode}, nil
+}
+
+func runtimeShell(command string) (string, []string) {
+	if bash, err := exec.LookPath("bash"); err == nil {
+		return bash, []string{"-lc", command}
+	}
+	if sh, err := exec.LookPath("sh"); err == nil {
+		return sh, []string{"-c", command}
+	}
+	return "sh", []string{"-c", command}
 }
 
 func runtimePATH(dataDir string) string {

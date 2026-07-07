@@ -61,6 +61,8 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 - Runtime CLI tools can be installed, recorded, found, and executed under the native Agent data directory.
 - Supported actions include install, inspect, which, and run.
 - Execution is bounded by timeout and returns stdout/stderr/exit status.
+- Install and run commands must work in minimal Alpine runtime images that provide `sh` but not `bash`.
+- Timed-out install and run commands must clean up their child process groups so dynamic dependency installs cannot continue indefinitely after the request is cancelled.
 - Enabled installed runtime CLI tools are exposed to the Agent as Eino tools, so the model can call them inside the same orchestration loop and summarize their results.
 
 ## Storage And Data Directory
