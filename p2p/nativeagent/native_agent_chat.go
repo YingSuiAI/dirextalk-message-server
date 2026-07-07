@@ -36,6 +36,7 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 		return nil, err
 	}
 	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
+	trace := buildAgentTrace(run, produced, toolCalls, text)
 	return map[string]any{
 		"ok":         true,
 		"native":     true,
@@ -44,6 +45,8 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 		"model":      profile.Model,
 		"text":       text,
 		"tool_calls": toolCalls,
+		"steps":      trace["steps"],
+		"trace":      trace,
 	}, nil
 }
 

@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
+
+## 2026-07-08 Native Agent Observable Trace
+
+Native Agent `agent.chat` responses now include `steps` and `trace` fields. `steps` is a compact list of observable execution steps such as context loading, tool calls, tool results, assistant messages, and final output previews. `trace` wraps those steps with framework metadata, context usage, tool calls, and the final answer text.
+
+Native Agent WS `client.plugin_stream` for `agent.chat` now emits a `server.plugin_stream.event` with `event="trace"` before the final `done` event. The `done` payload also includes `steps` and `trace` alongside the existing `text` and `tool_calls` fields.
+
+The trace is an auditable progress/tool/result display surface for clients. It must not be treated as hidden model chain-of-thought; the payload includes a disclaimer and only exposes observable runtime state and model/tool outputs.
 
 ## 2026-07-07 Native Agent Runtime
 

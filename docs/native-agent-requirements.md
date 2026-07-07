@@ -23,6 +23,8 @@ Clients keep the current call surface:
 - System prompts come from plugin config, request overrides, and enabled static skills.
 - `agent.chat` returns a complete response.
 - `agent.chat.stream` emits `delta`, `error`, and `done` frames through the existing WebSocket protocol and respects client cancellation.
+- Chat responses and stream completion payloads expose observable `steps` and `trace` data for UI display of context use, tool calls, tool results, and final output. Streamed chats also emit a `trace` event before `done`.
+- Trace data must not expose hidden model chain-of-thought. It is limited to observable runtime progress, tool inputs/outputs, context metadata, and final answer previews.
 
 ## Native Tools
 

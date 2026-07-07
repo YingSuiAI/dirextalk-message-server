@@ -72,6 +72,17 @@ func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
 	if result["framework"] != "eino" {
 		t.Fatalf("expected eino framework marker, got %#v", result)
 	}
+	steps, ok := result["steps"].([]map[string]any)
+	if !ok || len(steps) < 4 {
+		t.Fatalf("expected trace steps for context/tool/final display, got %#v", result["steps"])
+	}
+	if !traceHasStep(steps, "tool_call", "dirextalk_contacts_list") || !traceHasStep(steps, "tool_result", "dirextalk_contacts_list") {
+		t.Fatalf("expected tool call and tool result trace steps, got %#v", steps)
+	}
+	trace, ok := result["trace"].(map[string]any)
+	if !ok || trace["framework"] != "eino" || trace["disclaimer"] == "" {
+		t.Fatalf("expected observable Eino trace with disclaimer, got %#v", result["trace"])
+	}
 	memory, err := runtime.loadMemory(context.Background(), "loop-test")
 	if err != nil {
 		t.Fatalf("load memory: %v", err)
@@ -202,12 +213,24 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	if last["content"] != "new" {
 		t.Fatalf("expected newest message after compaction, got %#v", gotMessages)
 	}
-	if len(events) != 2 || events[0].Event != "delta" || events[1].Event != "done" {
-		t.Fatalf("expected delta and done events, got %#v", events)
+	if len(events) != 3 || events[0].Event != "delta" || events[1].Event != "trace" || events[2].Event != "done" {
+		t.Fatalf("expected delta, trace, and done events, got %#v", events)
 	}
-	if events[1].Data["framework"] != "eino" {
-		t.Fatalf("expected eino stream done marker, got %#v", events[1])
+	if events[1].Data["framework"] != "eino" || events[1].Data["steps"] == nil {
+		t.Fatalf("expected eino stream trace marker, got %#v", events[1])
 	}
+	if events[2].Data["framework"] != "eino" || events[2].Data["trace"] == nil {
+		t.Fatalf("expected eino stream done marker with trace, got %#v", events[2])
+	}
+}
+
+func traceHasStep(steps []map[string]any, stepType, name string) bool {
+	for _, step := range steps {
+		if step["type"] == stepType && step["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAnthropicProviderUsesMessagesEndpoint(t *testing.T) {

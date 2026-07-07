@@ -121,3 +121,14 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [x] XiaoHongShu and Twitter/X runtime tools were invoked and returned real missing-prerequisite output for login/cookies/native CLI dependency setup.
 - [ ] Authenticated XiaoHongShu search succeeds after `xhs` cookies or `xiaohongshu-mcp` QR login backend is configured.
 - [ ] Authenticated Twitter/X search succeeds after `twitter-cli` cookies/login are configured.
+
+## Extended DeepSeek Multi-Scenario Smoke
+
+- [x] Multiple enabled skills were installed and listed through `plugins.invoke`: content skills plus GitHub Agent-Reach.
+- [x] Runtime tools were installed through `agent.runtime.install` while using temporary China mirrors only in the smoke run.
+- [x] DeepSeek `agent.chat` used enabled skill prompt behavior and returned observable `trace`/`steps`.
+- [x] Local HTTP MCP server was installed through `agent.mcp.servers.install`, discovered, called by DeepSeek, and summarized in the final answer.
+- [x] Context7 MCP was installed and called by DeepSeek in the same native Eino tool framework.
+- [x] Conversation memory was retained, compressed through `agent.context.compress`, and reused by a later DeepSeek chat.
+- [x] WS `client.plugin_stream` emitted streamed `delta`, `trace`, and `done` events, and the trace showed the runtime tool call.
+- [x] Temporary mirror/proxy settings were restored after the smoke run and were not written to repository code.

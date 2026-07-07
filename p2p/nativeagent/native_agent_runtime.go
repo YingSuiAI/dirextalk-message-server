@@ -156,6 +156,10 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		return err
 	}
 	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
+	trace := buildAgentTrace(run, produced, toolCalls, text)
+	if err := emit(Event{Event: "trace", Data: trace}); err != nil {
+		return err
+	}
 	return emit(Event{Event: "done", Data: map[string]any{
 		"ok":         true,
 		"native":     true,
@@ -164,6 +168,8 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		"model":      profile.Model,
 		"text":       text,
 		"tool_calls": toolCalls,
+		"steps":      trace["steps"],
+		"trace":      trace,
 	}})
 }
 
