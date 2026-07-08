@@ -17,3 +17,5 @@ type KickUserRequest = transportapi.KickUserRequest
 type UpdateMemberProfileRequest = transportapi.UpdateMemberProfileRequest
 type RedactEventRequest = transportapi.RedactEventRequest
 type RedactEventResult = transportapi.RedactEventResult
+type RoomChannel = transportapi.RoomChannel
+type RoomMember = transportapi.RoomMember

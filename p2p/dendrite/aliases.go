@@ -2,7 +2,6 @@ package dendrite
 
 import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/transportapi"
 )
 
@@ -13,8 +12,8 @@ const (
 	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType
 )
 
-type channel = domain.Channel
-type memberRecord = domain.MemberRecord
+type channel = transportapi.RoomChannel
+type memberRecord = transportapi.RoomMember
 
 type CreateRoomRequest = transportapi.CreateRoomRequest
 type RoomStateEvent = transportapi.RoomStateEvent

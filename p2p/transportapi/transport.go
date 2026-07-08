@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 )
+
+type RoomChannel = dirextalkdomain.Channel
+type RoomMember = dirextalkdomain.MemberRecord
 
 type Transport interface {
 	CreateRoom(ctx context.Context, req CreateRoomRequest) (CreateRoomResult, error)
@@ -15,8 +18,8 @@ type Transport interface {
 	JoinRoom(ctx context.Context, req JoinRoomRequest) (JoinRoomResult, error)
 	LeaveRoom(ctx context.Context, req LeaveRoomRequest) error
 	KickUser(ctx context.Context, req KickUserRequest) error
-	GetRoomChannel(ctx context.Context, roomID string) (domain.Channel, bool, error)
-	ListRoomMembers(ctx context.Context, roomID string) ([]domain.MemberRecord, error)
+	GetRoomChannel(ctx context.Context, roomID string) (RoomChannel, bool, error)
+	ListRoomMembers(ctx context.Context, roomID string) ([]RoomMember, error)
 	UpdateMemberProfile(ctx context.Context, req UpdateMemberProfileRequest) error
 	RedactEvent(ctx context.Context, req RedactEventRequest) (RedactEventResult, error)
 }
