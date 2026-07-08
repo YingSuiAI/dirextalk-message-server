@@ -20,6 +20,18 @@ Native Agent chat responses and `agent.chat.stream` done payloads include `nativ
 
 Native Agent now owns dynamic skills, third-party MCP clients, runtime CLI tools, orchestration loops, server-side conversation memory, context compression, and built-in Dirextalk tools. Eino ReAct is the single orchestration path; model providers use maintained Eino OpenAI and DeepSeek components, Anthropic is direct API only through an Eino `ToolCallingChatModel` adapter, third-party MCP uses Eino official MCP, and installed runtime CLI tools are exposed as Eino tools for in-loop execution and summarization. Built-in tools proxy contacts, rooms, ordinary messages, room members, channel posts/comments, summaries, and message/comment writes through existing P2P/Matrix boundaries. Homeserver/sync DB reads are read-only; Matrix writes continue through `p2p.Transport`/roomserver.
 
+## 2026-07-08 MCP Unified Channel Time Pagination
+
+MCP read actions now use readable UTC RFC3339/RFC3339Nano timestamps and stable snapshot cursors. `mcp.messages.list`, `mcp.channel_posts.list`, and `mcp.channel_comments.list` accept `from_time`, `to_time`, `cursor`, and `limit`; legacy `from_ts` and `to_ts` are rejected with `400`.
+
+The default order is newest first. Cursor pages keep the first-page snapshot fixed, so posts, comments, or messages inserted after the first page do not appear in that cursor chain. Clients must start a fresh query without `cursor` to fetch newer content.
+
+MCP responses no longer return `ts` or `last_ts`. Message, post, comment, send, and comment-create summaries return `created_at`; room summaries return `last_message_at`; member summaries return string `joined_at`.
+
+`mcp.channel_posts.list` post summaries now include `comment_count`, `like_count`, `favorite_count`, and `favorited_by_me`. Favorite state is owner-local message-server favorite state, not a federated/global channel count. Channel ordinary chat remains separate and is read through `mcp.messages.list`, which continues to filter out product `p2p_kind` post/comment events.
+
+The embedded Native Agent Dirextalk tools use the same contract: `dirextalk_messages_list`, `dirextalk_channel_posts_list`, and `dirextalk_channel_comments_list` expose `from_time`, `to_time`, `cursor`, and `limit` instead of legacy millisecond timestamp fields.
+
 ## 2026-07-05 Official Ops Plugin
 
 Added official catalog plugin `io.dirextalk.ops` for single-node private deployment operations. It uses `docker.io/dirextalk/ops-plugin:latest` and exposes owner-invoked plugin actions through existing `plugins.invoke`:

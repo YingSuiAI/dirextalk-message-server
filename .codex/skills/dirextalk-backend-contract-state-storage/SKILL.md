@@ -14,6 +14,7 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 - `agent_token` is accepted only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
 - `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+- MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.
 
 When adding, removing, renaming, or changing fields/auth, update focused tests, current docs, Postman examples, `AGENTS.md`, and project-local skills in the same change.
 

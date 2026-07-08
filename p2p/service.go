@@ -139,10 +139,12 @@ type Store interface {
 	GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostRecord, bool, error)
 	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostRecord, bool, error)
 	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error)
+	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostRecord, bool, error)
 	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
 	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error)
 	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
 	ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error)
+	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentRecord, bool, error)
 	UpsertContact(ctx context.Context, contact contactRecord) error
 	ListContacts(ctx context.Context) ([]contactRecord, error)
 	DeleteContact(ctx context.Context, roomID string) error

@@ -35,10 +35,6 @@ func mcpLimit(params map[string]any) int {
 	return limit
 }
 
-func inMCPTimeRange(ts, fromTS, toTS int64) bool {
-	return mcp.InTimeRange(ts, fromTS, toTS)
-}
-
 func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (any, *apiError) {
 	query := strings.ToLower(trimString(params["query"]))
 	kind := strings.ToLower(trimString(params["type"]))
@@ -75,10 +71,10 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		rooms = append(rooms, summary)
 	}
 	sort.SliceStable(rooms, func(i, j int) bool {
-		if rooms[i].LastTS == rooms[j].LastTS {
+		if rooms[i].LastActivityTS == rooms[j].LastActivityTS {
 			return rooms[i].Name < rooms[j].Name
 		}
-		return rooms[i].LastTS > rooms[j].LastTS
+		return rooms[i].LastActivityTS > rooms[j].LastActivityTS
 	})
 	limit := mcpLimit(params)
 	if len(rooms) > limit {
@@ -232,10 +228,10 @@ func (s *Service) mcpMessagesSend(ctx context.Context, params map[string]any) (a
 		return nil, transportWriteError(err)
 	}
 	return map[string]any{
-		"ok":       true,
-		"room_id":  roomID,
-		"event_id": res.EventID,
-		"ts":       res.OriginServerTS,
+		"ok":         true,
+		"room_id":    roomID,
+		"event_id":   res.EventID,
+		"created_at": mcpFormatTime(res.OriginServerTS),
 	}, nil
 }
 
@@ -254,19 +250,17 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
 		return nil, apiErr
 	}
-	fromTS := int64Param(params["from_ts"])
-	toTS := int64Param(params["to_ts"])
-	if fromTS > 0 && toTS > 0 && fromTS > toTS {
-		return nil, badRequest("from_ts must be less than or equal to to_ts")
+	page, apiErr := mcpPageFromParams(params, "mcp.messages.list", roomID)
+	if apiErr != nil {
+		return nil, apiErr
 	}
-	limit := mcpLimit(params)
 	s.mu.Lock()
 	reader := s.matrixMessages
 	s.mu.Unlock()
 	if reader == nil {
 		return nil, internalError(errors.New("MCP message reader is unavailable"))
 	}
-	messages, err := reader.ListOrdinaryMessages(ctx, roomID, fromTS, toTS, limit)
+	pageResult, err := reader.ListOrdinaryMessages(ctx, roomID, page)
 	if err != nil {
 		return nil, mcpMatrixMessageReadError(err)
 	}
@@ -274,8 +268,14 @@ func (s *Service) mcpMessagesList(ctx context.Context, params map[string]any) (a
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	messages := pageResult.Messages
 	messages = s.enrichMCPMessageSenders(ctx, roomID, messages)
-	return map[string]any{"room_id": roomID, "name": name, "messages": messages}, nil
+	result := map[string]any{"room_id": roomID, "name": name, "messages": messages}
+	lastTS, lastID := lastMCPMessageKey(messages)
+	if apiErr := mcpAttachPagination(result, "mcp.messages.list", roomID, page, pageResult.HasMore, lastTS, lastID); apiErr != nil {
+		return nil, apiErr
+	}
+	return result, nil
 }
 
 func mcpMatrixMessageReadError(err error) *apiError {
@@ -605,7 +605,7 @@ func mergeMCPMemberSummary(existing, incoming mcpMemberSummary) mcpMemberSummary
 	if strings.TrimSpace(existing.Role) == "" || strings.TrimSpace(existing.Role) == "member" {
 		existing.Role = incoming.Role
 	}
-	if existing.JoinedAt == 0 {
+	if strings.TrimSpace(existing.JoinedAt) == "" {
 		existing.JoinedAt = incoming.JoinedAt
 	}
 	return existing
@@ -693,7 +693,7 @@ func mcpMemberSummaryFromIdentity(userID, displayName, avatarURL, membership, ro
 		AvatarURL:   strings.TrimSpace(avatarURL),
 		Membership:  strings.TrimSpace(membership),
 		Role:        normalizeProductMemberRole(role),
-		JoinedAt:    joinedAt,
+		JoinedAt:    mcpFormatTime(joinedAt),
 	}
 }
 
@@ -705,6 +705,10 @@ func (s *Service) mcpChannelPostsList(ctx context.Context, params map[string]any
 	if apiErr := s.requireMCPRoomAllowed(roomID); apiErr != nil {
 		return nil, apiErr
 	}
+	page, apiErr := mcpPageFromParams(params, "mcp.channel_posts.list", roomID)
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	ch, ok, err := s.channelByIDOrRoom(ctx, "", roomID)
 	if err != nil {
 		return nil, internalError(err)
@@ -712,37 +716,30 @@ func (s *Service) mcpChannelPostsList(ctx context.Context, params map[string]any
 	if !ok {
 		return nil, statusError(http.StatusNotFound, "channel not found")
 	}
-	postsAny := s.channelPosts(ctx, map[string]any{"channel_id": ch.ChannelID})
-	rawPosts := postsAny.(map[string]any)["posts"].([]channelPostRecord)
-	fromTS := int64Param(params["from_ts"])
-	toTS := int64Param(params["to_ts"])
-	if fromTS > 0 && toTS > 0 && fromTS > toTS {
-		return nil, badRequest("from_ts must be less than or equal to to_ts")
+	rawPosts, hasMore, err := s.mcpChannelPostPage(ctx, ch.ChannelID, page)
+	if err != nil {
+		return nil, internalError(err)
 	}
-	limit := mcpLimit(params)
 	posts := make([]mcpPostSummary, 0, len(rawPosts))
 	for _, post := range rawPosts {
-		if !inMCPTimeRange(post.OriginServerTS, fromTS, toTS) {
-			continue
-		}
-		posts = append(posts, mcpPostSummary{
-			PostID:       post.PostID,
-			TS:           post.OriginServerTS,
-			Sender:       fallbackString(post.AuthorName, post.AuthorMXID),
-			Msg:          post.Body,
-			CommentCount: post.CommentCount,
-		})
-		if len(posts) >= limit {
-			break
-		}
+		posts = append(posts, s.mcpPostSummary(ctx, post))
 	}
-	return map[string]any{"room_id": ch.RoomID, "name": ch.Name, "posts": posts}, nil
+	result := map[string]any{"room_id": ch.RoomID, "name": ch.Name, "posts": posts}
+	lastTS, lastID := lastMCPPostKey(rawPosts)
+	if apiErr := mcpAttachPagination(result, "mcp.channel_posts.list", roomID, page, hasMore, lastTS, lastID); apiErr != nil {
+		return nil, apiErr
+	}
+	return result, nil
 }
 
 func (s *Service) mcpChannelCommentsList(ctx context.Context, params map[string]any) (any, *apiError) {
 	postID := trimString(params["post_id"])
 	if postID == "" {
 		return nil, badRequest("post_id is required")
+	}
+	page, apiErr := mcpPageFromParams(params, "mcp.channel_comments.list", postID)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	post, ok, err := s.channelPostByID(ctx, postID, "")
 	if err != nil {
@@ -754,30 +751,20 @@ func (s *Service) mcpChannelCommentsList(ctx context.Context, params map[string]
 	if apiErr := s.requireMCPRoomAllowed(post.RoomID); apiErr != nil {
 		return nil, apiErr
 	}
-	commentsAny := s.channelComments(ctx, map[string]any{"post_id": postID})
-	rawComments := commentsAny.(map[string]any)["comments"].([]channelCommentRecord)
-	fromTS := int64Param(params["from_ts"])
-	toTS := int64Param(params["to_ts"])
-	if fromTS > 0 && toTS > 0 && fromTS > toTS {
-		return nil, badRequest("from_ts must be less than or equal to to_ts")
+	rawComments, hasMore, err := s.mcpChannelCommentPage(ctx, postID, page)
+	if err != nil {
+		return nil, internalError(err)
 	}
-	limit := mcpLimit(params)
 	comments := make([]mcpCommentSummary, 0, len(rawComments))
 	for _, comment := range rawComments {
-		if !inMCPTimeRange(comment.OriginServerTS, fromTS, toTS) {
-			continue
-		}
-		comments = append(comments, mcpCommentSummary{
-			CommentID: comment.CommentID,
-			TS:        comment.OriginServerTS,
-			Sender:    fallbackString(comment.AuthorName, comment.AuthorMXID),
-			Msg:       comment.Body,
-		})
-		if len(comments) >= limit {
-			break
-		}
+		comments = append(comments, s.mcpCommentSummary(comment))
 	}
-	return map[string]any{"post_id": postID, "comments": comments}, nil
+	result := map[string]any{"post_id": postID, "comments": comments}
+	lastTS, lastID := lastMCPCommentKey(rawComments)
+	if apiErr := mcpAttachPagination(result, "mcp.channel_comments.list", postID, page, hasMore, lastTS, lastID); apiErr != nil {
+		return nil, apiErr
+	}
+	return result, nil
 }
 
 func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -814,7 +801,7 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 		"ok":         true,
 		"post_id":    comment.PostID,
 		"comment_id": comment.CommentID,
-		"ts":         comment.OriginServerTS,
+		"created_at": mcpFormatTime(comment.OriginServerTS),
 	}, nil
 }
 
@@ -864,12 +851,13 @@ func mcpRoomSummaryFromConversation(view conversationView) mcpRoomSummary {
 		subtitle = mcpFormatMemberCount(view.MemberCount)
 	}
 	return mcpRoomSummary{
-		Type:     roomType,
-		Name:     fallbackString(view.Title, view.MatrixRoomID),
-		RoomID:   view.MatrixRoomID,
-		Subtitle: subtitle,
-		LastMsg:  view.LastMessage,
-		LastTS:   view.LastActivityAt,
+		Type:           roomType,
+		Name:           fallbackString(view.Title, view.MatrixRoomID),
+		RoomID:         view.MatrixRoomID,
+		Subtitle:       subtitle,
+		LastMsg:        view.LastMessage,
+		LastMessageAt:  mcpFormatTime(view.LastActivityAt),
+		LastActivityTS: view.LastActivityAt,
 	}
 }
 

@@ -2727,10 +2727,10 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "按 portal owner 视角查询指定房间的普通消息摘要；不包含频道帖子和评论。服务端复用当前 owner access_token 读取 Matrix history，不创建或刷新 Matrix session。响应会返回 `sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart` 供 Agent 解释发言人身份。\n\nList concise ordinary message summaries for a room from the portal owner view. Channel posts and comments are excluded. The server reuses the current owner access_token for Matrix history and does not create or refresh Matrix sessions. Responses include `sender_mxid`, `sender_display_name`, `sender_domain`, and `sender_localpart` so agents can explain who said what.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "按 portal owner 视角查询指定房间的普通消息摘要；不包含频道帖子和评论。服务端复用当前 owner access_token 读取 Matrix history，不创建或刷新 Matrix session。使用 RFC3339/RFC3339Nano `from_time`/`to_time`、`cursor` 和 `limit` 稳定分页；响应返回 `created_at`、`sender_mxid`、`sender_display_name`、`sender_domain` 和 `sender_localpart` 供 Agent 解释发言人身份。\n\nList concise ordinary message summaries for a room from the portal owner view. Channel posts and comments are excluded. The server reuses the current owner access_token for Matrix history and does not create or refresh Matrix sessions. Use RFC3339/RFC3339Nano `from_time`/`to_time`, `cursor`, and `limit` for stable pagination. Responses include `created_at`, `sender_mxid`, `sender_display_name`, `sender_domain`, and `sender_localpart` so agents can explain who said what.\n\nAction: `mcp.messages.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"mcp.messages.list\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"from_ts\": 1710000000000,\n    \"to_ts\": 1710086400000,\n    \"limit\": 50\n  }\n}",
+                  "raw": "{\n  \"action\": \"mcp.messages.list\",\n  \"params\": {\n    \"room_id\": \"!room:example.com\",\n    \"from_time\": \"2026-07-06T00:00:00Z\",\n    \"to_time\": \"2026-07-06T23:59:59Z\",\n    \"cursor\": \"\",\n    \"limit\": 50\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2791,10 +2791,10 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询频道房间内的帖子摘要。\n\nList concise channel post summaries for a channel room.\n\nAction: `mcp.channel_posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "查询频道房间内的帖子摘要。返回 `created_at`、`comment_count`、`like_count`、当前 owner 本地 `favorite_count` 和 `favorited_by_me`。使用 RFC3339/RFC3339Nano `from_time`/`to_time`、`cursor` 和 `limit` 稳定分页；频道聊天内容请调用 `mcp.messages.list`。\n\nList concise channel post summaries for a channel room. Returns `created_at`, `comment_count`, `like_count`, owner-local `favorite_count`, and `favorited_by_me`. Use RFC3339/RFC3339Nano `from_time`/`to_time`, `cursor`, and `limit` for stable pagination; use `mcp.messages.list` for channel chat messages.\n\nAction: `mcp.channel_posts.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"mcp.channel_posts.list\",\n  \"params\": {\n    \"room_id\": \"!channel:example.com\",\n    \"limit\": 50\n  }\n}",
+                  "raw": "{\n  \"action\": \"mcp.channel_posts.list\",\n  \"params\": {\n    \"room_id\": \"!channel:example.com\",\n    \"from_time\": \"2026-07-06T00:00:00Z\",\n    \"to_time\": \"2026-07-06T23:59:59Z\",\n    \"cursor\": \"\",\n    \"limit\": 50\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2823,10 +2823,10 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "查询指定频道帖子的评论摘要。\n\nList concise comment summaries for a channel post.\n\nAction: `mcp.channel_comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
+                "description": "查询指定频道帖子的评论摘要。使用 RFC3339/RFC3339Nano `from_time`/`to_time`、`cursor` 和 `limit` 稳定分页。\n\nList concise comment summaries for a channel post. Use RFC3339/RFC3339Nano `from_time`/`to_time`, `cursor`, and `limit` for stable pagination.\n\nAction: `mcp.channel_comments.list`\nEndpoint: `POST /_p2p/query`\nAuth: 使用 agent_token（`{{agentToken}}`）或 access_token。",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"mcp.channel_comments.list\",\n  \"params\": {\n    \"post_id\": \"post_123\",\n    \"limit\": 50\n  }\n}",
+                  "raw": "{\n  \"action\": \"mcp.channel_comments.list\",\n  \"params\": {\n    \"post_id\": \"post_123\",\n    \"from_time\": \"2026-07-06T00:00:00Z\",\n    \"to_time\": \"2026-07-06T23:59:59Z\",\n    \"cursor\": \"\",\n    \"limit\": 50\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"

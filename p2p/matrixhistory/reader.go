@@ -36,44 +36,72 @@ func NewHTTPMessageReader(baseURL string, token func(context.Context) (string, e
 	return &HTTPMessageReader{BaseURL: strings.TrimRight(baseURL, "/"), Token: token, Client: client}
 }
 
-func (r *HTTPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]MessageSummary, error) {
+func (r *HTTPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, page Page) (MessagePageResult, error) {
 	token, err := r.accessToken(ctx)
 	if err != nil {
-		return nil, err
+		return MessagePageResult{}, err
 	}
-	values := url.Values{}
-	values.Set("dir", "b")
-	values.Set("limit", strconv.Itoa(limit))
-	payload, err := r.getMessages(ctx, token, roomID, values)
-	if err != nil {
-		return nil, err
+	if page.Limit <= 0 {
+		page.Limit = 50
 	}
-	messages := make([]MessageSummary, 0, len(payload.Chunk))
-	for _, event := range payload.Chunk {
-		if event.Type != "m.room.message" || !InTimeRange(event.OriginServerTS, fromTS, toTS) {
-			continue
+	messages := make([]MessageSummary, 0, page.Limit+1)
+	seenTokens := map[string]struct{}{}
+	next := ""
+	for len(messages) <= page.Limit {
+		values := url.Values{}
+		values.Set("dir", "b")
+		values.Set("limit", strconv.Itoa(100))
+		if next != "" {
+			values.Set("from", next)
 		}
-		if trimString(event.Content["p2p_kind"]) != "" {
-			continue
+		payload, err := r.getMessages(ctx, token, roomID, values)
+		if err != nil {
+			return MessagePageResult{}, err
 		}
-		body := trimString(event.Content["body"])
-		if body == "" {
-			continue
-		}
-		localpart, domain := splitMXID(event.Sender)
-		messages = append(messages, MessageSummary{
-			TS:              event.OriginServerTS,
-			Sender:          displayNameFromMXID(event.Sender),
-			SenderMXID:      event.Sender,
-			SenderDomain:    domain,
-			SenderLocalpart: localpart,
-			Msg:             body,
-		})
-		if len(messages) >= limit {
+		if len(payload.Chunk) == 0 {
 			break
 		}
+		for _, event := range payload.Chunk {
+			if event.Type != "m.room.message" || !InPage(event.OriginServerTS, event.EventID, page) {
+				continue
+			}
+			if trimString(event.Content["p2p_kind"]) != "" {
+				continue
+			}
+			body := trimString(event.Content["body"])
+			if body == "" {
+				continue
+			}
+			localpart, domain := splitMXID(event.Sender)
+			messages = append(messages, MessageSummary{
+				EventID:         event.EventID,
+				OriginServerTS:  event.OriginServerTS,
+				CreatedAt:       FormatTime(event.OriginServerTS),
+				Sender:          displayNameFromMXID(event.Sender),
+				SenderMXID:      event.Sender,
+				SenderDomain:    domain,
+				SenderLocalpart: localpart,
+				Msg:             body,
+			})
+			if len(messages) > page.Limit {
+				break
+			}
+		}
+		if strings.TrimSpace(payload.End) == "" || payload.End == next {
+			break
+		}
+		if _, ok := seenTokens[payload.End]; ok {
+			break
+		}
+		seenTokens[payload.End] = struct{}{}
+		next = payload.End
 	}
-	return messages, nil
+	SortMessageSummaries(messages)
+	hasMore := len(messages) > page.Limit
+	if hasMore {
+		messages = messages[:page.Limit]
+	}
+	return MessagePageResult{Messages: messages, HasMore: hasMore}, nil
 }
 
 func (r *HTTPMessageReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]Event, error) {

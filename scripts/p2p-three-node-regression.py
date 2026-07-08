@@ -973,15 +973,15 @@ def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None
         text = f"mcp agent group message {sender.label} {suffix}"
         sent = mcp(sender, "command", "mcp.messages.send", {"room_id": room_id, "msg": text})
         expect(sent.get("ok") is True and sent.get("event_id"), f"{sender.label} mcp.messages.send failed")
-        from_ts = max(0, int(sent.get("ts") or 0) - 60_000)
+        from_time = sent.get("created_at") or ""
 
         for viewer in nodes:
             wait_until(
                 f"{viewer.label} mcp.messages.list did not see {sender.label} message",
-                lambda v=viewer, t=text, f=from_ts: any(
+                lambda v=viewer, t=text, f=from_time: any(
                     message.get("msg") == t
                     for message in list(
-                        mcp(v, "query", "mcp.messages.list", {"room_id": room_id, "from_ts": f, "limit": 100}).get("messages")
+                        mcp(v, "query", "mcp.messages.list", {"room_id": room_id, "from_time": f, "limit": 100}).get("messages")
                         or []
                     )
                 ),

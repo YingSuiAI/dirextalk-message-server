@@ -10,12 +10,13 @@ const DefaultLimit = 50
 const MaxLimit = 100
 
 type RoomSummary struct {
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	RoomID   string `json:"room_id"`
-	Subtitle string `json:"subtitle,omitempty"`
-	LastMsg  string `json:"last_msg,omitempty"`
-	LastTS   int64  `json:"last_ts,omitempty"`
+	Type           string `json:"type"`
+	Name           string `json:"name"`
+	RoomID         string `json:"room_id"`
+	Subtitle       string `json:"subtitle,omitempty"`
+	LastMsg        string `json:"last_msg,omitempty"`
+	LastMessageAt  string `json:"last_message_at,omitempty"`
+	LastActivityTS int64  `json:"-"`
 }
 
 type ContactSummary struct {
@@ -29,6 +30,8 @@ type ContactSummary struct {
 }
 
 type MessageSummary = matrixhistory.MessageSummary
+type MessagePage = matrixhistory.Page
+type MessagePageResult = matrixhistory.MessagePageResult
 
 type MemberSummary struct {
 	UserID      string `json:"user_id"`
@@ -39,26 +42,29 @@ type MemberSummary struct {
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Membership  string `json:"membership,omitempty"`
 	Role        string `json:"role,omitempty"`
-	JoinedAt    int64  `json:"joined_at,omitempty"`
+	JoinedAt    string `json:"joined_at,omitempty"`
 }
 
 type PostSummary struct {
-	PostID       string `json:"post_id"`
-	TS           int64  `json:"ts"`
-	Sender       string `json:"sender"`
-	Msg          string `json:"msg"`
-	CommentCount int64  `json:"comment_count"`
+	PostID        string `json:"post_id"`
+	CreatedAt     string `json:"created_at"`
+	Sender        string `json:"sender"`
+	Msg           string `json:"msg"`
+	CommentCount  int64  `json:"comment_count"`
+	LikeCount     int64  `json:"like_count"`
+	FavoriteCount int64  `json:"favorite_count"`
+	FavoritedByMe bool   `json:"favorited_by_me"`
 }
 
 type CommentSummary struct {
 	CommentID string `json:"comment_id"`
-	TS        int64  `json:"ts"`
+	CreatedAt string `json:"created_at"`
 	Sender    string `json:"sender"`
 	Msg       string `json:"msg"`
 }
 
 type MessageReader interface {
-	ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]MessageSummary, error)
+	ListOrdinaryMessages(ctx context.Context, roomID string, page MessagePage) (MessagePageResult, error)
 }
 
 func InTimeRange(ts, fromTS, toTS int64) bool {

@@ -30,54 +30,62 @@ func NewReader(db storage.Database, rsAPI roomserverAPI.SyncRoomserverAPI, userI
 	}
 }
 
-func (r *Reader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]matrixhistory.MessageSummary, error) {
+func (r *Reader) ListOrdinaryMessages(ctx context.Context, roomID string, page matrixhistory.Page) (matrixhistory.MessagePageResult, error) {
 	if r == nil || r.DB == nil {
-		return nil, fmt.Errorf("sync DB reader is unavailable")
+		return matrixhistory.MessagePageResult{}, fmt.Errorf("sync DB reader is unavailable")
 	}
 	roomID = strings.TrimSpace(roomID)
 	if roomID == "" {
-		return nil, fmt.Errorf("room_id is required")
+		return matrixhistory.MessagePageResult{}, fmt.Errorf("room_id is required")
 	}
-	if limit <= 0 {
-		limit = 50
+	if page.Limit <= 0 {
+		page.Limit = 50
 	}
 	snapshot, err := r.DB.NewDatabaseSnapshot(ctx)
 	if err != nil {
-		return nil, err
+		return matrixhistory.MessagePageResult{}, err
 	}
 	defer snapshot.Rollback()
 
 	maxPos, err := snapshot.MaxStreamPositionForPDUs(ctx)
 	if err != nil {
-		return nil, err
+		return matrixhistory.MessagePageResult{}, err
 	}
 	if maxPos <= 0 {
-		return nil, nil
+		return matrixhistory.MessagePageResult{}, nil
 	}
 	from, err := snapshot.StreamToTopologicalPosition(ctx, roomID, maxPos, true)
 	if err != nil {
-		return nil, err
+		return matrixhistory.MessagePageResult{}, err
 	}
 	to := types.TopologyToken{}
 	eventType := "m.room.message"
 	filter := synctypes.DefaultRoomEventFilter()
-	filter.Limit = limit * 3
-	if filter.Limit < limit {
-		filter.Limit = limit
+	filter.Limit = page.Limit * 4
+	if filter.Limit < page.Limit+1 {
+		filter.Limit = page.Limit + 1
 	}
 	filter.Types = &[]string{eventType}
 	streamEvents, _, _, err := snapshot.GetEventsInTopologicalRange(ctx, &from, &to, roomID, &filter, true)
 	if err != nil {
-		return nil, err
+		return matrixhistory.MessagePageResult{}, err
 	}
 	events := snapshot.StreamEventsToEvents(ctx, nil, streamEvents, r.RSAPI)
 	events, err = r.filterVisibleEvents(ctx, snapshot, roomID, events)
 	if err != nil {
-		return nil, err
+		return matrixhistory.MessagePageResult{}, err
 	}
-	messages := make([]matrixhistory.MessageSummary, 0, limit)
+	messages := make([]matrixhistory.MessageSummary, 0, page.Limit+1)
 	for _, event := range events {
-		if event == nil || event.Type() != eventType || !matrixhistory.InTimeRange(int64(event.OriginServerTS()), fromTS, toTS) {
+		eventID := ""
+		if event != nil {
+			eventID = event.EventID()
+		}
+		originServerTS := int64(0)
+		if event != nil {
+			originServerTS = int64(event.OriginServerTS())
+		}
+		if event == nil || event.Type() != eventType || !matrixhistory.InPage(originServerTS, eventID, page) {
 			continue
 		}
 		content := map[string]any{}
@@ -94,18 +102,25 @@ func (r *Reader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS
 		sender := senderMXID(event)
 		localpart, domain := splitMXID(sender)
 		messages = append(messages, matrixhistory.MessageSummary{
-			TS:              int64(event.OriginServerTS()),
+			EventID:         eventID,
+			OriginServerTS:  originServerTS,
+			CreatedAt:       matrixhistory.FormatTime(originServerTS),
 			Sender:          displayNameFromMXID(sender),
 			SenderMXID:      sender,
 			SenderDomain:    domain,
 			SenderLocalpart: localpart,
 			Msg:             body,
 		})
-		if len(messages) >= limit {
+		if len(messages) > page.Limit {
 			break
 		}
 	}
-	return messages, nil
+	matrixhistory.SortMessageSummaries(messages)
+	hasMore := len(messages) > page.Limit
+	if hasMore {
+		messages = messages[:page.Limit]
+	}
+	return matrixhistory.MessagePageResult{Messages: messages, HasMore: hasMore}, nil
 }
 
 func (r *Reader) filterVisibleEvents(ctx context.Context, snapshot storage.DatabaseTransaction, roomID string, events []*rstypes.HeaderedEvent) ([]*rstypes.HeaderedEvent, error) {

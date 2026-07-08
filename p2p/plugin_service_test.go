@@ -783,7 +783,7 @@ func TestNativeAgentBuiltInDirextalkToolsUseServiceCapabilities(t *testing.T) {
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com", NativeAgentDataDir: t.TempDir()}, transport)
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1000, Sender: "Alice", SenderMXID: "@alice:example.com", Msg: "hello from db reader"},
+		{EventID: "$native-agent-message", OriginServerTS: 1710000000000, CreatedAt: "2024-03-09T16:00:00Z", Sender: "Alice", SenderMXID: "@alice:example.com", Msg: "hello from db reader"},
 	}})
 	if err := service.saveContact(context.Background(), contactRecord{
 		PeerMXID:    "@alice:example.com",
@@ -821,7 +821,7 @@ func TestNativeAgentBuiltInDirextalkToolsUseServiceCapabilities(t *testing.T) {
 	if len(rooms) != 1 || rooms[0].RoomID != "!group:example.com" {
 		t.Fatalf("expected rooms through native agent, got %#v", rooms)
 	}
-	messages := nativeAgentToolResult(t, service, "agent.messages.list", map[string]any{"room_id": "!room:example.com"})["messages"].([]mcpMessageSummary)
+	messages := nativeAgentToolResult(t, service, "agent.messages.list", map[string]any{"room_id": "!room:example.com", "from_time": "2024-03-09T15:59:00Z"})["messages"].([]mcpMessageSummary)
 	if len(messages) != 1 || messages[0].Msg != "hello from db reader" {
 		t.Fatalf("expected messages through native agent reader, got %#v", messages)
 	}

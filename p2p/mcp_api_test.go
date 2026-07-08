@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
@@ -245,7 +246,7 @@ func TestMCPMessagesRejectBlockedRooms(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1710000000000, Sender: "Alice", Msg: "secret", SenderMXID: "@alice:example.com"},
+		{EventID: "$secret", OriginServerTS: 1710000000000, CreatedAt: "2024-03-09T16:00:00Z", Sender: "Alice", Msg: "secret", SenderMXID: "@alice:example.com"},
 	}})
 	mustHandle[map[string]any](t, service, "agent.config.update", map[string]any{
 		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
@@ -274,20 +275,23 @@ type fakeMCPMessageReader struct {
 	err      error
 }
 
-func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
+func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, page mcpMessagePage) (mcpMessagePageResult, error) {
 	if r.err != nil {
-		return nil, r.err
+		return mcpMessagePageResult{}, r.err
 	}
 	out := make([]mcpMessageSummary, 0, len(r.messages))
 	for _, msg := range r.messages {
-		if inMCPTimeRange(msg.TS, fromTS, toTS) {
+		if mcpPageIncludes(msg.OriginServerTS, msg.EventID, page) {
 			out = append(out, msg)
 		}
 	}
-	if len(out) > limit {
-		out = out[:limit]
+	matrixhistory.SortMessageSummaries(out)
+	hasMore := false
+	if len(out) > page.Limit {
+		hasMore = true
+		out = out[:page.Limit]
 	}
-	return out, nil
+	return mcpMessagePageResult{Messages: out, HasMore: hasMore}, nil
 }
 
 type fakeMatrixProfileResolver struct {
@@ -301,8 +305,8 @@ func (r *fakeMatrixProfileResolver) ResolveMatrixProfile(ctx context.Context, us
 func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1710000000000, Sender: "Alice", Msg: "old", SenderMXID: "@alice:remote.example"},
-		{TS: 1710000100000, Sender: "Alice", Msg: "inside", SenderMXID: "@alice:remote.example", SenderDomain: "remote.example", SenderLocalpart: "alice"},
+		{EventID: "$old", OriginServerTS: 1710000000000, CreatedAt: "2024-03-09T16:00:00Z", Sender: "Alice", Msg: "old", SenderMXID: "@alice:remote.example"},
+		{EventID: "$inside", OriginServerTS: 1710000100000, CreatedAt: "2024-03-09T16:01:40Z", Sender: "Alice", Msg: "inside", SenderMXID: "@alice:remote.example", SenderDomain: "remote.example", SenderLocalpart: "alice"},
 	}})
 	if err := service.saveConversation(context.Background(), conversationRecord{
 		MatrixRoomID: "!room:example.com",
@@ -314,9 +318,9 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 	}
 
 	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
-		"room_id": "!room:example.com",
-		"from_ts": float64(1710000050000),
-		"limit":   float64(20),
+		"room_id":   "!room:example.com",
+		"from_time": "2024-03-09T16:00:50Z",
+		"limit":     float64(20),
 	})
 	if result["room_id"] != "!room:example.com" || result["name"] != "Alice" {
 		t.Fatalf("unexpected message list envelope: %#v", result)
@@ -335,6 +339,8 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 			SenderMXID      string `json:"sender_mxid"`
 			SenderDomain    string `json:"sender_domain"`
 			SenderLocalpart string `json:"sender_localpart"`
+			CreatedAt       string `json:"created_at"`
+			TS              int64  `json:"ts,omitempty"`
 			Msg             string `json:"msg"`
 		} `json:"messages"`
 	}
@@ -345,8 +351,101 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 		decoded.Messages[0].Sender != "Alice" ||
 		decoded.Messages[0].SenderMXID != "@alice:remote.example" ||
 		decoded.Messages[0].SenderDomain != "remote.example" ||
-		decoded.Messages[0].SenderLocalpart != "alice" {
+		decoded.Messages[0].SenderLocalpart != "alice" ||
+		decoded.Messages[0].CreatedAt != "2024-03-09T16:01:40Z" ||
+		decoded.Messages[0].TS != 0 {
 		t.Fatalf("expected message JSON to expose sender identity, got %s", string(payload))
+	}
+}
+
+func TestMCPMessagesPaginationUsesStableSnapshot(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	reader := &fakeMCPMessageReader{}
+	service.SetMatrixMessageReader(reader)
+	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		id := "msg_" + string(rune('a'+i))
+		reader.messages = append(reader.messages, mcpMessageSummary{
+			EventID:        "$" + id,
+			OriginServerTS: base.Add(time.Duration(i) * time.Minute).UnixMilli(),
+			CreatedAt:      base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339),
+			Sender:         "Owner",
+			SenderMXID:     "@owner:example.com",
+			Msg:            id,
+		})
+	}
+
+	first := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+		"room_id": "!channel:example.com",
+		"to_time": "2026-07-05T10:12:00Z",
+		"limit":   float64(5),
+	})
+	firstMessages := first["messages"].([]mcpMessageSummary)
+	if len(firstMessages) != 5 || firstMessages[0].Msg != "msg_l" || firstMessages[4].Msg != "msg_h" {
+		t.Fatalf("expected newest five ordinary messages, got %#v", firstMessages)
+	}
+	cursor, _ := first["next_cursor"].(string)
+	if cursor == "" {
+		t.Fatalf("expected next_cursor in first page: %#v", first)
+	}
+
+	for i := 0; i < 10; i++ {
+		id := "new_msg_" + string(rune('a'+i))
+		reader.messages = append(reader.messages, mcpMessageSummary{
+			EventID:        "$" + id,
+			OriginServerTS: base.Add(time.Hour + time.Duration(i)*time.Minute).UnixMilli(),
+			CreatedAt:      base.Add(time.Hour + time.Duration(i)*time.Minute).Format(time.RFC3339),
+			Sender:         "Owner",
+			SenderMXID:     "@owner:example.com",
+			Msg:            id,
+		})
+	}
+
+	second := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+		"room_id": "!channel:example.com",
+		"cursor":  cursor,
+		"limit":   float64(5),
+	})
+	secondMessages := second["messages"].([]mcpMessageSummary)
+	if len(secondMessages) != 5 || secondMessages[0].Msg != "msg_g" || secondMessages[4].Msg != "msg_c" {
+		t.Fatalf("expected cursor to continue original message snapshot, got %#v", secondMessages)
+	}
+	for _, msg := range secondMessages {
+		if strings.HasPrefix(msg.Msg, "new_msg_") {
+			t.Fatalf("cursor page must not include newer inserts: %#v", secondMessages)
+		}
+	}
+}
+
+func TestMCPRejectsLegacyTimestampParams(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{})
+
+	for _, tc := range []struct {
+		action string
+		params map[string]any
+	}{
+		{"mcp.messages.list", map[string]any{"room_id": "!room:example.com", "from_ts": float64(1710000000000)}},
+		{"mcp.channel_posts.list", map[string]any{"room_id": "!channel:example.com", "to_ts": float64(1710000000000)}},
+		{"mcp.channel_comments.list", map[string]any{"post_id": "post_1", "from_ts": float64(1710000000000)}},
+	} {
+		_, apiErr := service.Handle(context.Background(), tc.action, tc.params)
+		if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "from_time") {
+			t.Fatalf("expected %s to reject legacy timestamp params, got %#v", tc.action, apiErr)
+		}
+	}
+}
+
+func TestMCPRejectsNonUTCTimeParams(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.SetMatrixMessageReader(&fakeMCPMessageReader{})
+
+	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+		"room_id":   "!room:example.com",
+		"from_time": "2024-03-10T00:00:00+08:00",
+	})
+	if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "UTC") {
+		t.Fatalf("expected non-UTC time to be rejected, got %#v", apiErr)
 	}
 }
 
@@ -372,7 +471,9 @@ func TestMCPMessagesListEnrichesSenderDisplayNamesFromRoomMembers(t *testing.T) 
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
 		{
-			TS:              1710000100000,
+			EventID:         "$alice",
+			OriginServerTS:  1710000100000,
+			CreatedAt:       "2024-03-09T16:01:40Z",
 			Sender:          "alice",
 			SenderMXID:      "@alice:remote.example",
 			SenderDomain:    "remote.example",
@@ -422,7 +523,9 @@ func TestMCPMessagesListEnrichesFallbackSenderNameFromMatrixProfile(t *testing.T
 	}})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
 		{
-			TS:              1710000100000,
+			EventID:         "$t8",
+			OriginServerTS:  1710000100000,
+			CreatedAt:       "2024-03-09T16:01:40Z",
 			Sender:          "owner",
 			SenderMXID:      "@owner:t8.dirextalk.ai",
 			SenderDomain:    "t8.dirextalk.ai",
@@ -639,8 +742,8 @@ func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
 	service.agentRoomID = "!agents:example.com"
 	service.agentConfig.DisplayName = "Codex"
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
-		{TS: 1710000000000, Sender: "owner", Msg: "question", SenderMXID: "@owner:example.com"},
-		{TS: 1710000100000, Sender: "agent", Msg: "answer", SenderMXID: "@agent:example.com"},
+		{EventID: "$question", OriginServerTS: 1710000000000, CreatedAt: "2024-03-09T16:00:00Z", Sender: "owner", Msg: "question", SenderMXID: "@owner:example.com"},
+		{EventID: "$answer", OriginServerTS: 1710000100000, CreatedAt: "2024-03-09T16:01:40Z", Sender: "agent", Msg: "answer", SenderMXID: "@agent:example.com"},
 	}})
 
 	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
@@ -650,7 +753,7 @@ func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
 		t.Fatalf("unexpected agent room envelope: %#v", result)
 	}
 	messages := result["messages"].([]mcpMessageSummary)
-	if len(messages) != 2 || messages[1].Sender != "Codex" {
+	if len(messages) != 2 || messages[0].Sender != "Codex" {
 		t.Fatalf("expected agent sender display name, got %#v", messages)
 	}
 }
@@ -694,6 +797,171 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 	gotComments := comments["comments"].([]mcpCommentSummary)
 	if len(gotComments) != 1 || gotComments[0].Msg != "comment body" {
 		t.Fatalf("unexpected comment summaries: %#v", gotComments)
+	}
+}
+
+func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "product",
+		"room_id":          "!channel:example.com",
+		"name":             "Product Channel",
+		"comments_enabled": true,
+	})
+	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		service.posts = append(service.posts, channelPostRecord{
+			PostID:         "post_" + string(rune('a'+i)),
+			ChannelID:      ch.ChannelID,
+			RoomID:         ch.RoomID,
+			EventID:        "$post_" + string(rune('a'+i)),
+			AuthorMXID:     "@owner:example.com",
+			AuthorName:     "Owner",
+			Body:           "post body",
+			OriginServerTS: base.Add(time.Duration(i) * time.Minute).UnixMilli(),
+		})
+	}
+	service.comments = append(service.comments, channelCommentRecord{
+		CommentID:      "comment_1",
+		PostID:         "post_l",
+		ChannelID:      ch.ChannelID,
+		OriginServerTS: base.Add(13 * time.Minute).UnixMilli(),
+	})
+	service.reactions[reactionKey("post", "post_l", "like", "@owner:example.com")] = reactionRecord{
+		TargetType: "post",
+		TargetID:   "post_l",
+		Reaction:   "like",
+		UserID:     "@owner:example.com",
+		Active:     true,
+	}
+	service.favorites[1] = favoriteRecord{
+		ID:             1,
+		EventID:        "$post_l",
+		RoomID:         ch.RoomID,
+		MessageType:    "channel_post",
+		OriginServerTS: base.Add(11 * time.Minute).UnixMilli(),
+	}
+
+	first := mustHandle[map[string]any](t, service, "mcp.channel_posts.list", map[string]any{
+		"room_id": ch.RoomID,
+		"limit":   float64(5),
+	})
+	firstPosts := first["posts"].([]mcpPostSummary)
+	if len(firstPosts) != 5 || firstPosts[0].PostID != "post_l" || firstPosts[4].PostID != "post_h" {
+		t.Fatalf("expected newest five posts, got %#v", firstPosts)
+	}
+	if firstPosts[0].CreatedAt != "2026-07-05T10:11:00Z" ||
+		firstPosts[0].CommentCount != 1 ||
+		firstPosts[0].LikeCount != 1 ||
+		firstPosts[0].FavoriteCount != 1 ||
+		!firstPosts[0].FavoritedByMe {
+		t.Fatalf("expected readable post counts and time, got %#v", firstPosts[0])
+	}
+	cursor, _ := first["next_cursor"].(string)
+	if cursor == "" {
+		t.Fatalf("expected next_cursor in first page: %#v", first)
+	}
+
+	for i := 0; i < 10; i++ {
+		service.posts = append(service.posts, channelPostRecord{
+			PostID:         "new_post_" + string(rune('a'+i)),
+			ChannelID:      ch.ChannelID,
+			RoomID:         ch.RoomID,
+			EventID:        "$new_post_" + string(rune('a'+i)),
+			AuthorMXID:     "@owner:example.com",
+			AuthorName:     "Owner",
+			Body:           "newer post",
+			OriginServerTS: time.Now().UTC().Add(time.Hour + time.Duration(i)*time.Minute).UnixMilli(),
+		})
+	}
+
+	second := mustHandle[map[string]any](t, service, "mcp.channel_posts.list", map[string]any{
+		"room_id": ch.RoomID,
+		"cursor":  cursor,
+		"limit":   float64(5),
+	})
+	secondPosts := second["posts"].([]mcpPostSummary)
+	if len(secondPosts) != 5 || secondPosts[0].PostID != "post_g" || secondPosts[4].PostID != "post_c" {
+		t.Fatalf("expected cursor to continue original snapshot, got %#v", secondPosts)
+	}
+	for _, post := range secondPosts {
+		if strings.HasPrefix(post.PostID, "new_post_") {
+			t.Fatalf("cursor page must not include newer inserts: %#v", secondPosts)
+		}
+	}
+}
+
+func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "product",
+		"room_id":          "!channel:example.com",
+		"name":             "Product Channel",
+		"comments_enabled": true,
+	})
+	service.posts = append(service.posts, channelPostRecord{
+		PostID:         "post",
+		ChannelID:      ch.ChannelID,
+		RoomID:         ch.RoomID,
+		EventID:        "$post",
+		OriginServerTS: time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC).UnixMilli(),
+	})
+	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		service.comments = append(service.comments, channelCommentRecord{
+			CommentID:      "comment_" + string(rune('a'+i)),
+			PostID:         "post",
+			ChannelID:      ch.ChannelID,
+			AuthorMXID:     "@owner:example.com",
+			AuthorName:     "Owner",
+			Body:           "comment body",
+			OriginServerTS: base.Add(time.Duration(i) * time.Minute).UnixMilli(),
+		})
+	}
+
+	first := mustHandle[map[string]any](t, service, "mcp.channel_comments.list", map[string]any{
+		"post_id": "post",
+		"limit":   float64(5),
+	})
+	firstComments := first["comments"].([]mcpCommentSummary)
+	if len(firstComments) != 5 || firstComments[0].CommentID != "comment_l" || firstComments[4].CommentID != "comment_h" {
+		t.Fatalf("expected newest five comments, got %#v", firstComments)
+	}
+	if firstComments[0].CreatedAt != "2026-07-05T10:11:00Z" {
+		t.Fatalf("expected readable comment time, got %#v", firstComments[0])
+	}
+	cursor, _ := first["next_cursor"].(string)
+	if cursor == "" {
+		t.Fatalf("expected next_cursor in first page: %#v", first)
+	}
+
+	for i := 0; i < 10; i++ {
+		service.comments = append(service.comments, channelCommentRecord{
+			CommentID:      "new_comment_" + string(rune('a'+i)),
+			PostID:         "post",
+			ChannelID:      ch.ChannelID,
+			AuthorMXID:     "@owner:example.com",
+			AuthorName:     "Owner",
+			Body:           "newer comment",
+			OriginServerTS: time.Now().UTC().Add(time.Hour + time.Duration(i)*time.Minute).UnixMilli(),
+		})
+	}
+
+	second := mustHandle[map[string]any](t, service, "mcp.channel_comments.list", map[string]any{
+		"post_id": "post",
+		"cursor":  cursor,
+		"limit":   float64(5),
+	})
+	secondComments := second["comments"].([]mcpCommentSummary)
+	if len(secondComments) != 5 || secondComments[0].CommentID != "comment_g" || secondComments[4].CommentID != "comment_c" {
+		t.Fatalf("expected cursor to continue original snapshot, got %#v", secondComments)
+	}
+	for _, comment := range secondComments {
+		if strings.HasPrefix(comment.CommentID, "new_comment_") {
+			t.Fatalf("cursor page must not include newer inserts: %#v", secondComments)
+		}
 	}
 }
 

@@ -2079,8 +2079,8 @@ type fakeChannelBackfillReader struct {
 	calls  int
 }
 
-func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, fromTS, toTS int64, limit int) ([]mcpMessageSummary, error) {
-	return nil, nil
+func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, page mcpMessagePage) (mcpMessagePageResult, error) {
+	return mcpMessagePageResult{}, nil
 }
 
 func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error) {
