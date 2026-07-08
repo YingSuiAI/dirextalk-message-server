@@ -2101,6 +2101,17 @@ func TestDeletedContactRequestRestoresOriginalRoomAfterReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hidden := mustHandle[map[string]any](t, reloaded, "contacts.list", nil)["contacts"].([]contactRecord)
+	if findContact(hidden, accepted.PeerMXID).PeerMXID != "" {
+		t.Fatalf("expected deleted contact to remain hidden after reload, got %#v", hidden)
+	}
+	raw, err := reloaded.rawContacts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained := findContact(raw, accepted.PeerMXID); retained.Status != "deleted" || retained.RoomID != accepted.RoomID {
+		t.Fatalf("expected deleted contact identity to survive reload, got %#v", raw)
+	}
 	restored := mustHandle[contactRecord](t, reloaded, "contacts.request", map[string]any{
 		"mxid":         accepted.PeerMXID,
 		"display_name": accepted.DisplayName,
