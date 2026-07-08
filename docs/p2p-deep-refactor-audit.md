@@ -402,7 +402,9 @@ type ActionSpec struct {
    - Completed twentieth Phase D slice: shared durable/product value records for read markers, blocks, calls, favorites, follows, reactions, reports, invite grants, P2P events, portal/profile/agent config, and event bounds now live in `internal/dirextalkdomain`.
    - Completed twenty-first Phase D slice: non-Agent plugin record values now live in `internal/dirextalkplugin`; p2p keeps plugin action orchestration and Docker runner behavior.
    - Completed twenty-second Phase D slice: `p2p/storage/aliases.go` now points directly at owning internal value packages for moved records while leaving response-shaped contact/group/channel post/comment types behind the p2p facade.
-   - Next Phase D slice: do not mechanically move remaining `p2p/domain` response-shaped types. Split durable base records from API response views only as part of Phase E storage/interface separation, with tests proving JSON responses and reload behavior stay stable.
+   - Completed twenty-third Phase D slice: service, projector, MCP pagination, and Native Agent runtime paths now access durable state through focused p2p store adapters instead of direct `s.store.<method>` calls.
+   - Completed twenty-fourth Phase D slice: store adapter usage is guarded so adapter helpers are captured and nil-checked before method calls; `sync.bootstrap` also routes joined group/channel reads through focused adapters.
+   - Phase D checkpoint: lower-level adapter moves are complete enough to stop moving facade-shaped records mechanically. Remaining `p2p/domain` response-shaped types should be split only during Phase E storage/interface separation, with tests proving JSON responses and reload behavior stay stable.
    - Keep `internal/productpolicy` below the transport adapter and do not import p2p from it.
 
 8. Phase E: split storage boundaries after behavior is stable.
