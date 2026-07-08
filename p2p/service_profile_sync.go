@@ -285,6 +285,17 @@ func pendingItem(id, title string, ts int64) map[string]any {
 	return item
 }
 
+type readMarkerStore interface {
+	SaveReadMarker(ctx context.Context, marker readMarker) error
+}
+
+func (s *Service) readMarkerStore() readMarkerStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) updateReadMarker(ctx context.Context, params map[string]any) (any, *apiError) {
 	roomID := trimString(params["room_id"])
 	eventID := trimString(params["event_id"])
@@ -299,8 +310,8 @@ func (s *Service) updateReadMarker(ctx context.Context, params map[string]any) (
 	s.mu.Lock()
 	s.readMarkers[roomID] = marker
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SaveReadMarker(ctx, marker); err != nil {
+	if store := s.readMarkerStore(); store != nil {
+		if err := store.SaveReadMarker(ctx, marker); err != nil {
 			return nil, internalError(err)
 		}
 	}
