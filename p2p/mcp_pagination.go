@@ -186,8 +186,8 @@ func (s *Service) mcpCommentSummary(comment channelCommentRecord) mcpCommentSumm
 
 func (s *Service) mcpFavoriteStateForPost(ctx context.Context, post channelPostRecord) (int64, bool) {
 	var favorites []favoriteRecord
-	if s.store != nil {
-		stored, err := s.store.ListFavorites(ctx, "")
+	if store := s.socialStore(); store != nil {
+		stored, err := store.ListFavorites(ctx, "")
 		if err != nil {
 			return 0, false
 		}
