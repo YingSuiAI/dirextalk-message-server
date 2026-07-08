@@ -13,7 +13,7 @@ type einoAgentSession struct {
 }
 
 func (s einoAgentSession) rewrite(_ context.Context, messages []*schema.Message) []*schema.Message {
-	return compactEinoMessages(messages, s.contextWindow)
+	return sanitizeEinoMessagesForModel(compactEinoMessages(messages, s.contextWindow))
 }
 
 func (s einoAgentSession) modify(_ context.Context, messages []*schema.Message) []*schema.Message {
@@ -47,7 +47,7 @@ func requestEinoMessages(params map[string]any) []*schema.Message {
 	if len(result) == 0 {
 		result = append(result, schema.UserMessage("你好"))
 	}
-	return result
+	return sanitizeEinoMessagesForModel(result)
 }
 
 func mapToEinoMessage(message map[string]any) *schema.Message {
@@ -75,13 +75,42 @@ func compactEinoMessages(messages []*schema.Message, contextWindow int) []*schem
 		contextWindow = 48
 	}
 	if len(messages) <= contextWindow {
-		return messages
+		return sanitizeEinoMessagesForModel(messages)
 	}
 	result := make([]*schema.Message, 0, contextWindow+1)
 	if messages[0] != nil && messages[0].Role == schema.System {
 		result = append(result, messages[0])
 	}
 	result = append(result, messages[len(messages)-contextWindow:]...)
+	return sanitizeEinoMessagesForModel(result)
+}
+
+func sanitizeEinoMessagesForModel(messages []*schema.Message) []*schema.Message {
+	result := make([]*schema.Message, 0, len(messages))
+	pendingToolCalls := map[string]struct{}{}
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		switch message.Role {
+		case schema.Tool:
+			if _, ok := pendingToolCalls[strings.TrimSpace(message.ToolCallID)]; !ok {
+				continue
+			}
+			delete(pendingToolCalls, strings.TrimSpace(message.ToolCallID))
+			result = append(result, message)
+		default:
+			pendingToolCalls = map[string]struct{}{}
+			if message.Role == schema.Assistant && len(message.ToolCalls) > 0 {
+				for _, call := range message.ToolCalls {
+					if id := strings.TrimSpace(call.ID); id != "" {
+						pendingToolCalls[id] = struct{}{}
+					}
+				}
+			}
+			result = append(result, message)
+		}
+	}
 	return result
 }
 

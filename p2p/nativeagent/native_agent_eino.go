@@ -14,9 +14,36 @@ import (
 )
 
 const nativeAgentGraphName = "DirextalkNativeAgent"
+const nativeAgentMaxStepLimit = 100
 
-func (r *Runtime) runEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool) (string, []map[string]any, []*schema.Message, error) {
-	agentRunner, err := r.newEinoAgent(ctx, profile, tools, session)
+func nativeAgentMaxSteps(config map[string]any, params map[string]any) int {
+	if steps := int(int64Param(params["max_steps"])); steps > 0 {
+		return clampNativeAgentMaxSteps(steps)
+	}
+	if steps := int(int64Param(config["max_steps"])); steps > 0 {
+		return clampNativeAgentMaxSteps(steps)
+	}
+	if calls := int(int64Param(params["max_tool_calls"])); calls > 0 {
+		return clampNativeAgentMaxSteps(calls*2 + 4)
+	}
+	if calls := int(int64Param(config["max_tool_calls"])); calls > 0 {
+		return clampNativeAgentMaxSteps(calls*2 + 4)
+	}
+	return nativeAgentToolCallLimit*2 + 4
+}
+
+func clampNativeAgentMaxSteps(steps int) int {
+	if steps <= 0 {
+		return nativeAgentToolCallLimit*2 + 4
+	}
+	if steps > nativeAgentMaxStepLimit {
+		return nativeAgentMaxStepLimit
+	}
+	return steps
+}
+
+func (r *Runtime) runEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool, maxSteps int) (string, []map[string]any, []*schema.Message, error) {
+	agentRunner, err := r.newEinoAgent(ctx, profile, tools, session, maxSteps)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -33,14 +60,14 @@ func (r *Runtime) runEinoAgent(ctx context.Context, profile nativeModelProfile, 
 	if message == nil {
 		return "", recorder.snapshot(), produced, fmt.Errorf("model returned empty response")
 	}
-	if len(produced) == 0 && message != nil {
+	if len(produced) == 0 {
 		produced = append(produced, message)
 	}
 	return strings.TrimSpace(message.Content), recorder.snapshot(), produced, nil
 }
 
-func (r *Runtime) streamEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool, emit func(Event) error) (string, []map[string]any, []*schema.Message, error) {
-	agentRunner, err := r.newEinoAgent(ctx, profile, tools, session)
+func (r *Runtime) streamEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool, emit func(Event) error, maxSteps int) (string, []map[string]any, []*schema.Message, error) {
+	agentRunner, err := r.newEinoAgent(ctx, profile, tools, session, maxSteps)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -75,7 +102,7 @@ func (r *Runtime) streamEinoAgent(ctx context.Context, profile nativeModelProfil
 	return full.String(), recorder.snapshot(), produced, nil
 }
 
-func (r *Runtime) newEinoAgent(ctx context.Context, profile nativeModelProfile, tools []einotool.BaseTool, session einoAgentSession) (*react.Agent, error) {
+func (r *Runtime) newEinoAgent(ctx context.Context, profile nativeModelProfile, tools []einotool.BaseTool, session einoAgentSession, maxSteps int) (*react.Agent, error) {
 	chatModel, err := r.newEinoChatModel(ctx, profile)
 	if err != nil {
 		return nil, err
@@ -89,7 +116,7 @@ func (r *Runtime) newEinoAgent(ctx context.Context, profile nativeModelProfile, 
 				return jsonValue(map[string]any{"error": fmt.Sprintf("tool %q is not available", name), "arguments": input}), nil
 			},
 		},
-		MaxStep:               nativeAgentToolCallLimit*2 + 4,
+		MaxStep:               fallbackInt(maxSteps, nativeAgentToolCallLimit*2+4),
 		GraphName:             nativeAgentGraphName,
 		ModelNodeName:         "NativeAgentModel",
 		ToolsNodeName:         "NativeAgentTools",

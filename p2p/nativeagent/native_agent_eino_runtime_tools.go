@@ -13,7 +13,12 @@ import (
 
 func (r *Runtime) enabledRuntimeEinoTools(config map[string]any) []einotool.BaseTool {
 	records := configList(config, "runtime_tools")
-	tools := make([]einotool.BaseTool, 0, len(records))
+	tools := make([]einotool.BaseTool, 0, len(records)+1)
+	if runtimeShellEinoToolEnabled(config) {
+		if info, err := runtimeShellEinoToolInfo(); err == nil {
+			tools = append(tools, &einoRuntimeShellTool{runtime: r, info: info})
+		}
+	}
 	for _, record := range records {
 		if enabled, ok := record["enabled"].(bool); ok && !enabled {
 			continue
@@ -41,6 +46,16 @@ func (r *Runtime) enabledRuntimeEinoTools(config map[string]any) []einotool.Base
 		})
 	}
 	return tools
+}
+
+func runtimeShellEinoToolEnabled(config map[string]any) bool {
+	if _, ok := config["runtime_shell_enabled"]; ok {
+		return boolParam(config["runtime_shell_enabled"])
+	}
+	if _, ok := config["shell_enabled"]; ok {
+		return boolParam(config["shell_enabled"])
+	}
+	return true
 }
 
 func runtimeEinoToolName(id string) string {
@@ -83,6 +98,39 @@ func runtimeEinoToolInfo(name string, record map[string]any) (*schema.ToolInfo, 
 	}, nil
 }
 
+func runtimeShellEinoToolInfo() (*schema.ToolInfo, error) {
+	params := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command": map[string]any{
+				"type":        "string",
+				"description": "Shell command to run in the server-side Native Agent runtime directory.",
+			},
+			"cmd": map[string]any{
+				"type":        "string",
+				"description": "Alias for command.",
+			},
+			"timeout_seconds": map[string]any{
+				"type":        "number",
+				"description": "Optional execution timeout in seconds.",
+			},
+		},
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	js := &jsonschema.Schema{}
+	if err := json.Unmarshal(data, js); err != nil {
+		return nil, err
+	}
+	return &schema.ToolInfo{
+		Name:        "runtime__shell",
+		Desc:        "Run a shell command inside the server-side Native Agent runtime directory. Use it only when the user explicitly asks for command execution or deployment/runtime operations.",
+		ParamsOneOf: schema.NewParamsOneOfByJSONSchema(js),
+	}, nil
+}
+
 type einoRuntimeTool struct {
 	runtime *Runtime
 	record  map[string]any
@@ -118,6 +166,36 @@ func (t *einoRuntimeTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 	result, err := t.runtime.runtimeRun(ctx, params)
 	if err != nil {
 		return jsonValue(map[string]any{"error": fmt.Sprintf("runtime tool failed: %v", err)}), nil
+	}
+	return jsonValue(map[string]any{"result": result}), nil
+}
+
+type einoRuntimeShellTool struct {
+	runtime *Runtime
+	info    *schema.ToolInfo
+}
+
+func (t *einoRuntimeShellTool) Info(context.Context) (*schema.ToolInfo, error) {
+	return t.info, nil
+}
+
+func (t *einoRuntimeShellTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
+	var args map[string]any
+	if strings.TrimSpace(argumentsInJSON) != "" {
+		if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+			return jsonValue(map[string]any{"error": err.Error()}), nil
+		}
+	}
+	command := fallbackString(trimString(args["command"]), trimString(args["cmd"]))
+	if command == "" {
+		return jsonValue(map[string]any{"error": "command is required"}), nil
+	}
+	if err := t.runtime.ensureDataDirs(); err != nil {
+		return jsonValue(map[string]any{"error": fmt.Sprintf("runtime shell setup failed: %v", err)}), nil
+	}
+	result, err := t.runtime.runShell(ctx, command, durationSeconds(args["timeout_seconds"], 30))
+	if err != nil {
+		return jsonValue(map[string]any{"error": fmt.Sprintf("runtime shell failed: %v", err)}), nil
 	}
 	return jsonValue(map[string]any{"result": result}), nil
 }

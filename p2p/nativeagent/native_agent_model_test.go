@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	einotool "github.com/cloudwego/eino/components/tool"
 )
 
 func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
@@ -143,6 +145,151 @@ func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 	}
 	if requestCount != 2 || !sawRuntimeOutput || result["text"] != "CLI 已执行并返回结果。" {
 		t.Fatalf("expected runtime CLI tool loop, requestCount=%d sawRuntimeOutput=%v result=%#v", requestCount, sawRuntimeOutput, result)
+	}
+}
+
+func TestModelLoopCanCallBuiltInRuntimeShellTool(t *testing.T) {
+	var requestCount int
+	var sawShellOutput bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "shell-eino") {
+				sawShellOutput = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_shell","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"printf shell-eino\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Shell 已执行并返回结果。"}}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "执行 shell 命令并总结",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawShellOutput || result["text"] != "Shell 已执行并返回结果。" {
+		t.Fatalf("expected runtime shell tool loop, requestCount=%d sawShellOutput=%v result=%#v", requestCount, sawShellOutput, result)
+	}
+}
+
+func TestRuntimeShellToolCanBeDisabled(t *testing.T) {
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{"runtime_shell_enabled": false}, map[string]any{})
+	if err != nil {
+		t.Fatalf("enabled Eino tools: %v", err)
+	}
+	defer cleanup()
+	for _, tool := range tools {
+		info, err := tool.Info(context.Background())
+		if err != nil {
+			t.Fatalf("tool info: %v", err)
+		}
+		if info.Name == "runtime__shell" {
+			t.Fatalf("runtime__shell should be disabled")
+		}
+	}
+}
+
+func TestRuntimeShellEinoToolRunsCommand(t *testing.T) {
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{}, map[string]any{})
+	if err != nil {
+		t.Fatalf("enabled Eino tools: %v", err)
+	}
+	defer cleanup()
+	for _, tool := range tools {
+		info, err := tool.Info(context.Background())
+		if err != nil {
+			t.Fatalf("tool info: %v", err)
+		}
+		if info.Name != "runtime__shell" {
+			continue
+		}
+		invokable, ok := tool.(interface {
+			InvokableRun(context.Context, string, ...einotool.Option) (string, error)
+		})
+		if !ok {
+			t.Fatalf("runtime__shell is not invokable")
+		}
+		result, err := invokable.InvokableRun(context.Background(), `{"command":"printf shell-direct"}`)
+		if err != nil {
+			t.Fatalf("run runtime shell tool: %v", err)
+		}
+		if !strings.Contains(result, "shell-direct") {
+			t.Fatalf("expected shell output, got %s", result)
+		}
+		return
+	}
+	t.Fatalf("expected runtime__shell tool")
+}
+
+func TestModelLoopHonorsConfiguredMaxToolCalls(t *testing.T) {
+	const shellCalls = 8
+	var requestCount int
+	var observedShellResults int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "shell-loop-") {
+				observedShellResults++
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount <= shellCalls {
+			callID := "call_shell_" + string(rune('0'+requestCount))
+			body := `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"` + callID + `","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"printf shell-loop-` + callID + `\"}"}}]}}]}`
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"所有 shell 步骤已完成。"}}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{
+		DataDir: filepath.Join(t.TempDir(), "agent"),
+		Store: &testConfigStore{config: map[string]any{
+			"max_tool_calls": shellCalls,
+		}},
+	})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "连续执行多个 shell 步骤",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != shellCalls+1 || observedShellResults < shellCalls || result["text"] != "所有 shell 步骤已完成。" {
+		t.Fatalf("expected configured shell loop to finish, requestCount=%d observedShellResults=%d result=%#v", requestCount, observedShellResults, result)
 	}
 }
 

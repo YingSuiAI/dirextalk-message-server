@@ -2,6 +2,14 @@
 
 Last updated: 2026-07-08
 
+## 2026-07-08 Native Agent Runtime Shell Tool
+
+Native Agent `agent.chat` now exposes a built-in `runtime__shell` Eino tool by default. The tool accepts `command`/`cmd` and optional `timeout_seconds`, runs inside the message-server container's Native Agent runtime directory, and returns the same observable `ok`, `stdout`, `stderr`, and `exit_code` shape as other runtime command execution.
+
+Operators may disable the chat shell tool with Agent config `runtime_shell_enabled=false`. The final Docker runtime image now installs `bash` in addition to `/bin/sh`, so bash-based deployment/runtime scripts can run in the container when those scripts are present in the Agent runtime environment.
+
+Native Agent ReAct execution now uses a higher default graph step budget and accepts `max_tool_calls` or `max_steps` in Agent config or request params. This lets deployment-style shell workflows complete multiple command/tool rounds without `[GraphRunError] exceeds max steps`; `max_steps` is capped server-side to prevent unbounded loops.
+
 ## 2026-07-08 Native Agent Dialogue Management Tools
 
 Native Agent `agent.chat` can now expose owner-scoped management tools to the model for explicit user requests to install, list, enable, disable, or uninstall native skills and MCP servers. The tool names are `native_agent_skills_*` and `native_agent_mcp_servers_*`; they call the same native runtime handlers as `plugins.invoke` actions such as `agent.skills.install` and `agent.mcp.servers.install`.

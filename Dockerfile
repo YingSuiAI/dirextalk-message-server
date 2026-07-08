@@ -33,7 +33,7 @@ RUN --mount=target=. \
 # per-instance initialization tools.
 #
 FROM alpine:latest
-RUN apk --update --no-cache add ca-certificates docker-cli
+RUN apk --update --no-cache add bash ca-certificates docker-cli
 LABEL org.opencontainers.image.title="Dirextalk Message Server"
 LABEL org.opencontainers.image.description="Dirextalk Matrix homeserver and P2P product API server"
 LABEL org.opencontainers.image.source="https://github.com/YingSuiAI/dirextalk-message-server"

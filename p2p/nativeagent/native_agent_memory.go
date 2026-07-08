@@ -23,6 +23,7 @@ type nativeAgentRunContext struct {
 	inputMessages  []*schema.Message
 	memoryMessages []*schema.Message
 	session        einoAgentSession
+	maxSteps       int
 	memoryDisabled bool
 }
 
@@ -30,6 +31,7 @@ func (r *Runtime) prepareEinoRun(ctx context.Context, config map[string]any, par
 	run := nativeAgentRunContext{
 		conversationID: nativeAgentConversationKey(params),
 		memoryDisabled: boolParam(params["memory_disabled"]) || boolParam(config["memory_disabled"]),
+		maxSteps:       nativeAgentMaxSteps(config, params),
 	}
 	requestMessages := requestEinoMessages(params)
 	systemPrompt := r.agentSystemPrompt(ctx, config, params, "")

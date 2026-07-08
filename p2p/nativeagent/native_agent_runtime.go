@@ -13,7 +13,7 @@ import (
 const (
 	defaultNativeAgentDataDir = "/var/dirextalk-message-server/agent"
 	nativeAgentHTTPTimeout    = 90 * time.Second
-	nativeAgentToolCallLimit  = 4
+	nativeAgentToolCallLimit  = 12
 )
 
 type Config struct {
@@ -151,7 +151,7 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		return err
 	}
 	defer cleanup()
-	text, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit)
+	text, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit, run.maxSteps)
 	if err != nil {
 		return err
 	}

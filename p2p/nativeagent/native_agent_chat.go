@@ -31,7 +31,7 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 		return nil, err
 	}
 	defer cleanup()
-	text, toolCalls, produced, err := r.runEinoAgent(ctx, profile, run.inputMessages, run.session, tools)
+	text, toolCalls, produced, err := r.runEinoAgent(ctx, profile, run.inputMessages, run.session, tools, run.maxSteps)
 	if err != nil {
 		return nil, err
 	}
