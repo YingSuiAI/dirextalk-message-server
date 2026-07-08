@@ -18,6 +18,7 @@ Clients use the current call surface:
 
 - First-class owner `agent.*` body actions for Native Agent chat, model listing, runtime, skills, MCP, context compression, config patch proposal, and built-in Dirextalk tools.
 - `client.native_agent_stream` over realtime WebSocket for Native Agent streaming, with `client.native_agent_stream.cancel` for cancellation.
+- Standard external MCP clients call `POST /_p2p/mcp` with MCP Streamable HTTP JSON-RPC and `Authorization: Bearer <agent_token>`.
 - Plugin manager actions remain for Ops and future non-Agent plugins only.
 
 ## Runtime Requirements
@@ -53,6 +54,8 @@ The runtime exposes Dirextalk tools generated from the shared `internal/dirextal
 
 Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access is read-only and only for context/history/state material.
 
+The external `POST /_p2p/mcp` transport must call the same `internal/dirextalkmcp` service as these built-in tools. Do not duplicate Dirextalk MCP business logic in Native Agent, fixed `mcp.*` body-action wrappers, or the MCP HTTP transport.
+
 ## Skills
 
 - Skills can be installed, listed, enabled, disabled, and uninstalled.
@@ -66,6 +69,7 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 
 - Third-party MCP servers can be installed, listed, enabled, disabled, and uninstalled.
 - Supported transports are `stdio`, remote HTTP/SSE, and streamable HTTP.
+- Dirextalk's own standard MCP server endpoint is `POST /_p2p/mcp`. It supports JSON-RPC `initialize`, `tools/list`, and `tools/call` over POST, requires `Authorization: Bearer <agent_token>`, rejects query-string tokens, validates `Origin`, returns 405 for GET/SSE while server-to-client streaming is unused, and must not pass the inbound bearer token to downstream services.
 - MCP tools discovered from enabled servers become dynamic Agent tools.
 - MCP discovery and tool invocation must go through `github.com/cloudwego/eino-ext/components/tool/mcp/officialmcp` and `github.com/modelcontextprotocol/go-sdk/mcp`, not a custom JSON-RPC client.
 - MCP server command/env configuration may be stored, but secrets must be passed through request-local values or temporary env references.

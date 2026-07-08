@@ -34,9 +34,13 @@ Resolved first-version auth decision:
 - It must not accept access tokens or agent tokens in query strings.
 - It must not pass inbound MCP bearer tokens through to downstream services.
 
-Blocking decisions still required before exposing the endpoint:
+Resolved endpoint decision:
 
-- Endpoint path: choose exactly one public path, such as `/mcp` or `/_p2p/mcp`.
+- The standard MCP Streamable HTTP endpoint path is `POST /_p2p/mcp`.
+- It lives under the existing Dirextalk P2P route prefix but does not use the Dirextalk body-action envelope.
+
+Blocking decision still required for Phase MCP-D:
+
 - Compatibility timing: decide whether old `mcp.*` body actions are removed immediately or kept temporarily as wrappers around `internal/dirextalkmcp`.
 
 Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman collections, project-local `.codex/skills`, and focused tests together. This is an intentional contract change from the previous "no URL-shaped product endpoints" rule.
@@ -87,12 +91,13 @@ Dependencies must enter through small interfaces, not through `p2p.Service`:
 
 Native Agent Dirextalk tools should be generated from the same `internal/dirextalkmcp` registry and schemas. `p2p/native_agent_runner.go:nativeAgentTools` and `p2p/nativeagent/native_agent_tools.go` should not keep duplicated Dirextalk MCP business logic after Phase MCP-B.
 
-External standard MCP clients should use an MCP Streamable HTTP transport endpoint, not the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The endpoint contract should:
+External standard MCP clients use `POST /_p2p/mcp` as the MCP Streamable HTTP transport endpoint, not the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The endpoint contract is:
 
 - implement JSON-RPC lifecycle sufficient for `initialize`, `tools/list`, and `tools/call`;
 - support HTTP POST for client-to-server JSON-RPC messages;
 - return 405 for HTTP GET/SSE unless server-to-client streaming is actually needed;
 - require `Authorization: Bearer <agent_token>` in the first version;
+- reject owner `access_token` on the standard MCP endpoint;
 - validate `Origin` for HTTP/SSE connections;
 - reject query-string tokens;
 - avoid passing inbound bearer tokens to downstream services;
@@ -178,7 +183,7 @@ These items should be deleted in a later implementation phase only with the note
 | Removed Native Agent/plugin names can be reintroduced during cleanup. | `p2p/routing_test.go`: `TestAgentStatusActionRemoved`, `TestSyncBootstrapOmitsDeprecatedAgentOnline`; `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `docs/current-project-documentation.md`: `agent.status`/`agent_online` removal | Moving action/plugin registration may accidentally expose removed `agent.status`, `agents.status`, `agent_online`, or `io.dirextalk.agent` plugin surfaces. | Keep negative contract tests while removing compatibility code. |
 | `client.command` removal is a WS client contract change. | `p2p/realtime_ws.go`: rejection branch for `"client.command"`; `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandIsRemoved`; `docs/current-project-documentation.md`: removed-alias note | Deleting the alias without docs/client coordination breaks older owner clients. | Phase C treats this as a contract change and documents that clients must use `client.request`. |
 | MCP pagination and response field names must not regress. | `p2p/mcp_pagination.go`: `mcpPageFromParams`, `rejectLegacyMCPTimeParams`; `p2p/mcp_api.go`: `mcpMessagesList`, channel posts/comments list actions; `p2p/mcp_api_test.go`: legacy timestamp rejection cases; `docs/current-project-documentation.md`: `from_time`/`to_time`, `cursor`, no old `ts`/`last_ts` fields | Moving history readers can accidentally reintroduce `from_ts`, `to_ts`, `ts`, or `last_ts`. | Keep explicit schema tests around request rejection and response field absence. |
-| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: previous no-URL-shaped-product-endpoint rule; `docs/current-project-documentation.md`: currently says no public `POST /_p2p/mcp`; `p2p/action_registry_mcp.go`: current body-action `mcp.*` surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | Exposing `/mcp` or `/_p2p/mcp` changes the contract from body-action-only product capability access. | Block Phase MCP-C until endpoint path is chosen, first-version `agent_token` auth is documented, Origin/token handling tests exist, and old `mcp.*` wrapper timing is decided. |
+| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: no-URL-shaped-product-endpoint rule with explicit MCP exception; `docs/current-project-documentation.md`: `POST /_p2p/mcp` endpoint contract; `p2p/routing_mcp.go`: standard MCP JSON-RPC transport; `p2p/action_registry_mcp.go`: current body-action `mcp.*` wrapper surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | `POST /_p2p/mcp` changes the contract from body-action-only product capability access for external MCP clients. | Phase MCP-C pins endpoint path, first-version `agent_token` auth, Origin/token handling, GET 405, and no bearer forwarding. Phase MCP-D must decide old `mcp.*` body-action removal timing. |
 | Remote public lookup security must survive adapter moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; `p2p/service_channels.go`: `channelPublicGet`, `channelPublicSearch`; `p2p/service_channel_join.go`: `channelJoinRequest`, `notifyRemoteChannelJoinResult` | Public lookup must reject malformed Matrix IDs, URL-shaped server names, and private/internal hosts, while requiring request-provided `remote_node_base_url`. | Keep multi-node and validation tests before moving this code. |
 | Matrix-native product state must remain authoritative. | `p2p/service_channels.go`: `publishChannelState`, `publishMemberPolicyState`, `publishJoinRequestState`; `p2p/service_groups.go`: `publishGroupState`; `p2p/projector.go`: `ProjectRoomEvent`; `internal/productpolicy/productpolicy.go`: validation functions | Refactoring can accidentally treat projections as source-of-truth for membership or ordinary messages. | Tests must assert Matrix membership/state events remain the final joined/dissolved/policy facts. |
 
@@ -209,7 +214,7 @@ These items should be deleted in a later implementation phase only with the note
 | Compatibility deletion tests need to be inverted or retired deliberately. | `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandIsRemoved`; `p2p/plugin_runner_test.go`: Agent plugin volume rejection tests; `p2p/native_agent_contract_test.go`: legacy import and native sanitizer tests; `scripts/p2p-dual-smoke.ps1`: removed `agent.status` smoke calls | Phase C updates tests to assert current-only behavior and removes stale smoke script calls. |
 | Native Agent/plugin separation needs stronger negative coverage after cleanup. | `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`, `pluginInvokeRequest`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `p2p/plugin_service_test.go`: plugin manager tests | Add tests that `io.dirextalk.agent` cannot be installed, listed, invoked, logged, or configured through `plugins.*`, while Native Agent config migration still works if kept. |
 | Unified MCP service parity is covered for the service boundary and still needs broader fixture parity. | `internal/dirextalkmcp/service_test.go`: registry/tool/authorization tests; `p2p/mcp_unified_service_test.go`: body-action and Native Agent tool invocation through the same service; `p2p/mcp_api_test.go`: behavior coverage for contacts, rooms, messages, members, channel posts/comments, blocked rooms, and pagination | Boundary tests prove old `mcp.*` wrappers and Native Agent Dirextalk tools invoke the same `internal/dirextalkmcp` service. | Add future fixture parity across every capability when MCP-C JSON-RPC transport is introduced. |
-| Standard MCP HTTP transport has no contract tests yet. | future endpoint path such as `/mcp` or `/_p2p/mcp`; `p2p/routing.go`: `Register`; future `internal/dirextalkmcp` transport adapter | Add JSON-RPC tests for `initialize`, `tools/list`, and `tools/call`; auth tests for first-version `agent_token`; Origin validation; 405 GET behavior when SSE is not needed; query-string token rejection; no downstream bearer-token forwarding. |
+| Standard MCP HTTP transport contract tests now exist and should be kept focused. | `p2p/routing_mcp.go`: `handleMCP`, JSON-RPC adapters; `p2p/mcp_http_test.go`: `TestMCPHTTPInitializeAndToolsListRequireAgentToken`, `TestMCPHTTPToolsCallInvokesUnifiedService`, `TestMCPHTTPRejectsQueryTokensBadOriginAndGET` | Future changes still need broader fixture parity across every capability, but the route/auth/transport contract is pinned for `initialize`, `tools/list`, `tools/call`, first-version `agent_token`, Origin validation, GET 405, query-string token rejection, and no downstream bearer-token forwarding. |
 | Remote public lookup security should be regression-tested around helper moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; multi-node regression `scripts/p2p-three-node-regression.py` | Add focused unit tests for malformed room IDs, URL-shaped server names, private hosts, missing `remote_node_base_url`, and remote approval callback behavior. |
 | Import-cycle safety is not represented by a small focused check. | `syncapi/agenthistory/reader.go`: import of `p2p/matrixhistory`; `p2p/transportapi/transport.go`: import of `p2p/domain` | `go test ./...` catches cycles late; add package-boundary review checks or keep Phase D moves small and compile after each package move. |
 
@@ -271,9 +276,9 @@ Phase MCP-B must have:
 
 Phase MCP-C must have:
 
-- chosen endpoint path implemented as an MCP Streamable HTTP endpoint;
+- chosen endpoint path implemented as `POST /_p2p/mcp`;
 - JSON-RPC tests for `initialize`, `tools/list`, and `tools/call`;
-- first-version `Authorization: Bearer <agent_token>` tests;
+- first-version `Authorization: Bearer <agent_token>` tests, including owner-token rejection on the standard MCP endpoint;
 - Origin validation tests;
 - query-string token rejection tests;
 - HTTP GET/SSE behavior pinned, returning 405 when server-to-client streaming is not needed;
@@ -288,6 +293,8 @@ Phase MCP-D must have:
 - `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills` synchronized.
 
 ## 10. Recommended Order For The Next Implementation Phases
+
+Status after Phase MCP-C: Phase B, Phase C, Phase MCP-B, and Phase MCP-C have implementation coverage in this branch. The next MCP-specific implementation decision is Phase MCP-D: remove old `mcp.*` body actions or keep them as temporary wrappers with a deletion marker.
 
 1. Phase MCP-A: document the unified MCP capability architecture.
    - Add only design guidance to this audit document.
@@ -345,9 +352,10 @@ type ActionSpec struct {
    - Preserve existing `mcp.*` response behavior for current tests.
 
 5. Phase MCP-C: expose the standard MCP Streamable HTTP transport.
-   - Add the chosen endpoint path, such as `/mcp` or `/_p2p/mcp`.
+   - Add the chosen endpoint path: `POST /_p2p/mcp`.
    - Implement JSON-RPC `initialize`, `tools/list`, and `tools/call`.
    - Require first-version `Authorization: Bearer <agent_token>` on protected requests.
+   - Reject owner `access_token` on the standard MCP endpoint.
    - Validate `Origin`; reject query-string tokens; do not forward inbound bearer tokens downstream.
    - Return 405 for GET unless SSE/server-to-client streaming is actually needed.
    - Add tests that use JSON-RPC requests rather than Dirextalk action envelopes.

@@ -2,9 +2,17 @@
 
 Last updated: 2026-07-08
 
+## 2026-07-08 Standard Dirextalk MCP HTTP Endpoint
+
+External standard MCP clients can now call `POST /_p2p/mcp` using MCP Streamable HTTP JSON-RPC instead of the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The first supported lifecycle is `initialize`, `tools/list`, and `tools/call`.
+
+The endpoint requires `Authorization: Bearer <agent_token>`. Owner `access_token` is intentionally rejected on this endpoint, access tokens and agent tokens are not accepted in query strings, and the inbound bearer token is not forwarded into downstream Dirextalk MCP capability calls. The endpoint validates `Origin`; HTTP GET/SSE returns `405` while server-to-client streaming is not used.
+
+`tools/list` is generated from the shared `internal/dirextalkmcp` registry. `tools/call` maps MCP tool names such as `dirextalk_messages_list` to the same unified capability service used by fixed `mcp.*` body-action wrappers and Native Agent built-in Dirextalk tools. Existing MCP rules still apply: `mcp_blocked_room_ids` hides/rejects blocked rooms, ordinary message history remains Matrix Client-Server backed, sends go through `p2p.Transport`, channel posts/comments remain separate from channel chat, pagination uses `from_time`/`to_time`/`cursor`, and old `from_ts`/`to_ts`/`ts`/`last_ts` fields remain unsupported.
+
 ## 2026-07-08 Native Agent Backend Contract
 
-Native Agent is now exposed through first-class owner `agent.*` product actions instead of the legacy Agent plugin invoke envelope. The direct action surface includes `agent.chat`, `agent.models.list`, `agent.runtime.inspect/install/which/run`, `agent.skills.list/install/enable/disable/uninstall/registry.search`, `agent.mcp.servers.list/install/enable/disable/uninstall`, `agent.mcp.registry.search`, `agent.context.compress`, `agent.config.propose_patch`, reserved knowledge actions, and built-in Dirextalk tool actions such as `agent.contacts.list`, `agent.rooms.search`, `agent.messages.list/send`, and channel post/comment actions. These are owner-token actions; `agent_token` remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
+Native Agent is now exposed through first-class owner `agent.*` product actions instead of the legacy Agent plugin invoke envelope. The direct action surface includes `agent.chat`, `agent.models.list`, `agent.runtime.inspect/install/which/run`, `agent.skills.list/install/enable/disable/uninstall/registry.search`, `agent.mcp.servers.list/install/enable/disable/uninstall`, `agent.mcp.registry.search`, `agent.context.compress`, `agent.config.propose_patch`, reserved knowledge actions, and built-in Dirextalk tool actions such as `agent.contacts.list`, `agent.rooms.search`, `agent.messages.list/send`, and channel post/comment actions. These are owner-token actions; `agent_token` remains limited to `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /_p2p/mcp`.
 
 Native Agent streaming moved to dedicated realtime frames:
 
@@ -116,11 +124,11 @@ Added protected owner-only plugin management actions on the existing body-action
 
 These actions require owner `access_token`. `agent_token` cannot call plugin management or plugin invoke actions. `plugins.catalog.list` returns an empty `plugins` list when the Docker plugin runner is not enabled, so clients should hide plugin entry points until catalog entries are available. Agent-specific plugin catalog/config/invoke details in this historical section are superseded by the 2026-07-08 Native Agent Backend Contract. Current plugin install/enable/disable/uninstall jobs are for non-Agent official plugins such as `io.dirextalk.ops`, and must use official catalog metadata whose Docker image belongs to the official `dirextalk` Docker Hub organization. Digest metadata is optional and is not required for first-version installs.
 
-Native Agent action details now live on the first-class `agent.*` product action surface. `agent.models.list` may return provider metadata such as `context_length` and `max_output_tokens`; clients should use those values to seed model defaults and keep API keys client-local. `agent.runtime.inspect` resolves request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Native Agent owns standard MCP client orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages), while the message-server continues to expose only the fixed backend `mcp.*` capability actions to `agent_token`.
+Native Agent action details now live on the first-class `agent.*` product action surface. `agent.models.list` may return provider metadata such as `context_length` and `max_output_tokens`; clients should use those values to seed model defaults and keep API keys client-local. `agent.runtime.inspect` resolves request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Native Agent owns standard MCP client orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages), while the message-server exposes fixed backend `mcp.*` capability actions and the standard `POST /_p2p/mcp` endpoint to `agent_token`.
 
 `plugins.invoke` calls an enabled official non-Agent plugin over the first-version Docker HTTP runner and returns `{ "plugin_id", "action", "result" }`. `plugins.invoke.stream` remains registered only to return `400 action requires websocket`; Native Agent streaming uses `client.native_agent_stream`, not the legacy Agent plugin stream frame. `client.request` remains unavailable for `plugins.*`.
 
-The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. `mcp.contacts.list` and `mcp.contacts.search` expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Native Agent skills, model/provider request handling, MCP client wiring, and orchestration are embedded in message-server behind owner `agent.*` actions. `POST /_p2p/mcp` is not a current backend route.
+The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions and the standard `POST /_p2p/mcp` endpoint stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. `mcp.contacts.list` and `mcp.contacts.search` expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Native Agent skills, model/provider request handling, MCP client wiring, and orchestration are embedded in message-server behind owner `agent.*` actions. External standard MCP clients should use `POST /_p2p/mcp` JSON-RPC instead of the Dirextalk action envelope.
 
 ## 2026-07-03 Unified Channel Post+Chat
 
@@ -167,7 +175,7 @@ Logged-in client product actions now use ready-WS first instead of WS-only. Clie
 
 Business errors returned by WS, such as permission or validation failures, should not be retried over HTTP. Clients should also de-duplicate identical in-flight user actions such as `contacts.requests.accept` or `groups.join` so duplicate taps do not send duplicate mutations or show duplicate success UI. If a WS request was already sent and the response is lost, clients should only HTTP-fallback actions that are safe to repeat, such as contact decisions, joins, read markers, and product queries.
 
-`agent_token` permissions do not change: it remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. `agent.matrix_session.create` and fixed MCP actions remain HTTP-only and still return `action requires http` if sent over WS.
+`agent_token` permissions did not change for product body actions in this pass: it remained limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Current servers also allow `agent_token` on the standard `POST /_p2p/mcp` endpoint. `agent.matrix_session.create` and fixed MCP body actions remain HTTP-only and still return `action requires http` if sent over WS.
 
 Realtime WS owner tickets now advertise `expires_in_ms: 120000` to tolerate mobile weak-network upgrade delays. A failed HTTP request to `GET /_p2p/ws?ticket=...` that never completes the WebSocket upgrade no longer consumes the ticket; accepted WebSocket upgrades remain single-use.
 
@@ -195,7 +203,7 @@ Remote Matrix member profile updates still refresh peer avatar metadata, but the
 
 Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.dirextalk.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its `@agent:<server>` Matrix session. The server no longer treats `agent.config.enabled=true` or an agent-token WS session as online; startup/agents-room repair and `agent.config.update enabled=false` only publish `online=false` as a fallback.
 
-`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
+`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and current `POST /_p2p/mcp`.
 
 `agent.matrix_session.create` remains a retained HTTP body action and may be called with either owner `access_token` or `agent_token`. It returns a Matrix Client-Server session for the local `@agent:<server>` bridge user so dirextalk-connect can bootstrap Matrix-native Agent room sync/send/edit without owner credentials. It must not be migrated into Product WS and must not evict owner devices.
 
@@ -457,7 +465,7 @@ Clients may send `channel_type` only in `channels.create`; missing or invalid va
 
 Agent-token dynamic permission management is removed. `apis.list` and `apis.status` are no longer P2P actions and calls to those action names return `unknown action`.
 
-Protected product actions require bearer `access_token`. `agent_token` is accepted only for `agent.matrix_session.create` and fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` was a route-level exception for passive gateway listening at the time and was later removed; other protected body actions reject `agent_token`.
+Protected product actions require bearer `access_token`. At this point, `agent_token` was accepted only for `agent.matrix_session.create` and fixed MCP actions: `mcp.rooms.search`, `mcp.messages.send`, `mcp.messages.list`, `mcp.channel_posts.list`, `mcp.channel_comments.list`, and `mcp.channel_comments.create`. `GET /_p2p/events` was a route-level exception for passive gateway listening at the time and was later removed; other protected body actions reject `agent_token`. The later standard `POST /_p2p/mcp` endpoint is recorded in the 2026-07-08 entry.
 
 The first-party CLI module and its helper package are removed: `cmd/dirextalk-cli`, `internal/agentclient`, CLI build scripts, CLI agent-skill docs, and the project-local `dirextalk-cli` Codex skill.
 
@@ -665,7 +673,7 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /_p2p/mcp`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 The live P2P action count is now 90.
 

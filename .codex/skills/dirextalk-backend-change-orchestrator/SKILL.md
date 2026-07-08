@@ -20,7 +20,7 @@ Map only the touched surfaces:
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
 - Projection and sync: `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
 - Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.
-- Agent/MCP: `internal/dirextalkmcp`, `p2p/mcp`, `p2p/serviceapi/actions.go`, Agent-token authorization.
+- Agent/MCP: `internal/dirextalkmcp`, `p2p/mcp`, `p2p/routing_mcp.go`, `p2p/serviceapi/actions.go`, Agent-token authorization.
 
 ## Routing
 
@@ -29,7 +29,7 @@ Map only the touched surfaces:
 
 ## Backend Defaults
 
-- Keep Dirextalk product APIs on the small body-action surface unless a current product rule requires a Matrix or well-known route.
+- Keep Dirextalk product APIs on the small body-action surface unless a current product rule requires a Matrix, well-known, or standard MCP route. The current MCP route exception is `POST /_p2p/mcp`.
 - Product-originated Matrix room/member/state/message/redaction writes go through `p2p.Transport`.
 - Matrix Client-Server writes must satisfy `internal/productpolicy`.
 - Product read models are projections unless a domain rule explicitly makes storage source-of-truth.

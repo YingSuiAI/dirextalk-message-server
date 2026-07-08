@@ -16,7 +16,7 @@ Run commands from the repository root in the current shell.
 
 ## Pick By Surface
 
-- Product actions, transport, projection, product policy, or product storage: `go test ./p2p ./internal/productpolicy -count=1`.
+- Product actions, MCP transport, projection, product policy, or product storage: `go test ./p2p ./internal/dirextalkmcp ./internal/productpolicy -count=1`.
 - Route auth, HTTP helpers, setup, monolith wiring, or config: `go test ./internal/httputil ./setup -count=1`.
 - Startup, build tags, command wiring, or broad package contracts: `go build ./cmd/dirextalk-message-server`.
 - Storage migrations or SQL helpers: owning package storage tests plus `go test ./internal/sqlutil -count=1` when helper behavior changed.
