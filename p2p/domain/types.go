@@ -238,49 +238,10 @@ type GroupRecord struct {
 	Conversation *ConversationView `json:"conversation,omitempty"`
 }
 
-type CallRecord struct {
-	CallID        string `json:"call_id"`
-	RoomID        string `json:"room_id"`
-	RoomType      string `json:"room_type"`
-	MediaType     string `json:"media_type"`
-	CreatedByMXID string `json:"created_by_mxid"`
-	State         string `json:"state"`
-	CreatedAt     string `json:"created_at"`
-	AnsweredAt    string `json:"answered_at,omitempty"`
-	EndedAt       string `json:"ended_at,omitempty"`
-	EndedByMXID   string `json:"ended_by_mxid,omitempty"`
-	EndReason     string `json:"end_reason,omitempty"`
-	DurationMS    int64  `json:"duration_ms,omitempty"`
-}
-
-type FavoriteRecord struct {
-	ID             int64  `json:"id"`
-	EventID        string `json:"event_id"`
-	RoomID         string `json:"room_id"`
-	SenderID       string `json:"sender_id"`
-	SenderName     string `json:"sender_name"`
-	Content        string `json:"content"`
-	MessageType    string `json:"message_type"`
-	OriginServerTS int64  `json:"origin_server_ts"`
-	CreatedAt      string `json:"created_at"`
-}
-
-type FollowRecord struct {
-	Domain    string `json:"domain"`
-	CreatedAt string `json:"created_at"`
-}
-
-type ReactionRecord struct {
-	TargetType string `json:"target_type"`
-	TargetID   string `json:"target_id"`
-	ChannelID  string `json:"channel_id"`
-	PostID     string `json:"post_id"`
-	CommentID  string `json:"comment_id"`
-	Reaction   string `json:"reaction"`
-	UserID     string `json:"user_id"`
-	Active     bool   `json:"active"`
-	CreatedAt  string `json:"created_at"`
-}
+type CallRecord = dirextalkdomain.CallRecord
+type FavoriteRecord = dirextalkdomain.FavoriteRecord
+type FollowRecord = dirextalkdomain.FollowRecord
+type ReactionRecord = dirextalkdomain.ReactionRecord
 
 type ChannelReactionHistory struct {
 	Reaction ReactionRecord        `json:"reaction"`
@@ -289,22 +250,7 @@ type ChannelReactionHistory struct {
 	Comment  *ChannelCommentRecord `json:"comment,omitempty"`
 }
 
-type ReportRecord struct {
-	ReportID            string   `json:"report_id"`
-	TargetType          string   `json:"target_type"`
-	TargetRoomID        string   `json:"target_room_id"`
-	TargetChannelID     string   `json:"target_channel_id,omitempty"`
-	TargetName          string   `json:"target_name"`
-	ReporterMXID        string   `json:"reporter_mxid"`
-	ReporterDisplayName string   `json:"reporter_display_name"`
-	Reason              string   `json:"reason"`
-	Body                string   `json:"body"`
-	ImageURLs           []string `json:"image_urls"`
-	SystemRoomID        string   `json:"system_room_id"`
-	EventID             string   `json:"event_id"`
-	OriginServerTS      int64    `json:"origin_server_ts"`
-	CreatedAt           string   `json:"created_at"`
-}
+type ReportRecord = dirextalkdomain.ReportRecord
 
 type MemberRecord = dirextalkdomain.MemberRecord
 
