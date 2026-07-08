@@ -77,7 +77,7 @@ func (r *Runtime) Invoke(ctx context.Context, action string, params map[string]a
 	case "agent.chat":
 		return r.chat(ctx, params)
 	case "agent.models.list":
-		return r.modelsList(), nil
+		return r.modelsList(ctx, params)
 	case "agent.runtime.inspect":
 		return r.runtimeInspect(ctx)
 	case "agent.runtime.install":
@@ -186,17 +186,6 @@ func (r *Runtime) ensureDataDirs() error {
 		}
 	}
 	return nil
-}
-
-func (r *Runtime) modelsList() map[string]any {
-	return map[string]any{
-		"providers": []map[string]any{
-			{"provider": "openai", "default_base_url": "https://api.openai.com/v1", "default_model": defaultModelForProvider("openai"), "requires_api_key": true},
-			{"provider": "anthropic", "default_base_url": "https://api.anthropic.com", "default_model": defaultModelForProvider("anthropic"), "requires_api_key": true},
-			{"provider": "deepseek", "default_base_url": "https://api.deepseek.com", "default_model": defaultModelForProvider("deepseek"), "requires_api_key": true},
-			{"provider": "openai_compatible", "default_base_url": "", "default_model": defaultModelForProvider("openai_compatible"), "requires_api_key": true},
-		},
-	}
 }
 
 func (r *Runtime) runtimeInspect(ctx context.Context) (map[string]any, error) {
