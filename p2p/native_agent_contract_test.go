@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/coder/websocket"
 )
@@ -270,10 +271,10 @@ func TestNativeAgentToolsUseBlockedRoomsFromNativeConfigStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fixed := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{"type": "group"})
-	fixedRooms := fixed["rooms"].([]mcpRoomSummary)
-	if len(fixedRooms) != 1 || fixedRooms[0].RoomID != "!visible:example.com" {
-		t.Fatalf("fixed MCP action must use native blocked-room config, got %#v", fixedRooms)
+	capability := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{"type": "group"})
+	capabilityRooms := capability["rooms"].([]mcpRoomSummary)
+	if len(capabilityRooms) != 1 || capabilityRooms[0].RoomID != "!visible:example.com" {
+		t.Fatalf("MCP capability service must use native blocked-room config, got %#v", capabilityRooms)
 	}
 
 	var roomsTool *nativeagentToolForTest

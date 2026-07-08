@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -328,7 +329,7 @@ func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	}
 }
 
-func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
+func TestAgentTokenCanOnlyCallAgentBootstrapAndStandardMCP(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	agentToken := service.AgentToken()
@@ -336,11 +337,11 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 	if !service.Authorize(agentToken, "agent.matrix_session.create") {
 		t.Fatal("expected agent token to authorize agent Matrix session bootstrap")
 	}
-	if !service.Authorize(agentToken, "mcp.rooms.search") {
-		t.Fatal("expected agent token to authorize MCP actions")
+	if service.Authorize(agentToken, "mcp.rooms.search") {
+		t.Fatal("expected agent token to reject removed fixed MCP body actions")
 	}
-	if !service.Authorize(agentToken, "mcp.contacts.search") {
-		t.Fatal("expected agent token to authorize MCP contact search")
+	if service.Authorize(agentToken, "mcp.contacts.search") {
+		t.Fatal("expected agent token to reject removed fixed MCP contact search body action")
 	}
 	if service.Authorize(service.AccessToken(), "does.not.exist") {
 		t.Fatal("expected owner token to reject unknown actions")
@@ -365,8 +366,8 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndMCPActions(t *testing.T) {
 	mcpReq.Header.Set("Authorization", "Bearer "+agentToken)
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
-	if mcpRec.Code != http.StatusOK {
-		t.Fatalf("expected HTTP MCP action to succeed, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
+	if mcpRec.Code != http.StatusBadRequest || !strings.Contains(mcpRec.Body.String(), "unknown action") {
+		t.Fatalf("expected removed HTTP MCP body action to be unknown, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
 	}
 
 	wsTicketReq := jsonRequest(t, "/_p2p/command", map[string]any{

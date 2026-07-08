@@ -9,7 +9,6 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 	s.registerPortalActions(actions)
 	s.registerProfileAndSyncActions(actions)
 	s.registerAgentActions(actions)
-	s.registerMCPActions(actions)
 	s.registerPluginActions(actions)
 	s.registerContactActions(actions)
 	s.registerBlockActions(actions)

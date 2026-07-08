@@ -296,8 +296,8 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 	if ownerMCP["type"] != "server.response" ||
 		ownerMCP["ok"] != false ||
 		int(ownerMCP["status"].(float64)) != http.StatusBadRequest ||
-		ownerMCP["error"] != "action requires http" {
-		t.Fatalf("expected owner MCP request to require HTTP, got %#v", ownerMCP)
+		ownerMCP["error"] != "unknown action" {
+		t.Fatalf("expected removed MCP body action to be unknown over WS, got %#v", ownerMCP)
 	}
 
 	writeRealtimeFrame(t, ownerConn, map[string]any{

@@ -21,20 +21,19 @@ func (i *recordingDirextalkMCPInvoker) InvokeCapability(ctx context.Context, act
 	}, nil
 }
 
-func TestMCPBodyActionsInvokeUnifiedDirextalkMCPService(t *testing.T) {
+func TestDirectMCPServiceInvokeUsesUnifiedDirextalkMCPService(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	invoker := &recordingDirextalkMCPInvoker{}
 	service.mcpCapabilities = dirextalkmcp.NewService(invoker)
-	service.actions = service.actionHandlers()
 
-	result := mustHandle[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!room:example.com",
 	})
 	if result["via"] != "unified-dirextalkmcp" || invoker.action != dirextalkmcp.ActionMessagesList {
-		t.Fatalf("expected body action to use unified MCP service, result=%#v invoker=%#v", result, invoker)
+		t.Fatalf("expected direct MCP service invoke to use unified MCP service, result=%#v invoker=%#v", result, invoker)
 	}
 	if invoker.params["room_id"] != "!room:example.com" {
-		t.Fatalf("expected body action params to reach unified MCP service, got %#v", invoker.params)
+		t.Fatalf("expected direct MCP params to reach unified MCP service, got %#v", invoker.params)
 	}
 }
 

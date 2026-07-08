@@ -8,8 +8,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
+
+func mustInvokeMCP[T any](t *testing.T, service *Service, action string, params map[string]any) T {
+	t.Helper()
+	result, apiErr := service.invokeDirextalkMCP(context.Background(), action, params)
+	if apiErr != nil {
+		t.Fatalf("MCP action %s failed: %d %s", action, apiErr.Status, apiErr.Error)
+	}
+	typed, ok := result.(T)
+	if !ok {
+		t.Fatalf("MCP action %s returned %T, want requested type", action, result)
+	}
+	return typed
+}
 
 func TestMCPSearchRoomsReturnsConciseMixedRooms(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
@@ -29,7 +43,7 @@ func TestMCPSearchRoomsReturnsConciseMixedRooms(t *testing.T) {
 		"channel_type": "post",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{
 		"query": "product",
 		"type":  "all",
 		"limit": float64(10),
@@ -50,7 +64,7 @@ func TestMCPSearchRoomsEmptyQueryListsByType(t *testing.T) {
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{
 		"type": "group",
 	})
 	rooms := result["rooms"].([]mcpRoomSummary)
@@ -71,7 +85,7 @@ func TestMCPSearchRoomsUsesMatrixMemberCountWhenProductCountIsStale(t *testing.T
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{
 		"type":  "group",
 		"query": "Design",
 	})
@@ -95,7 +109,7 @@ func TestMCPBlockedRoomsAreFilteredFromRoomSearch(t *testing.T) {
 		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{
 		"type": "group",
 	})
 	rooms := result["rooms"].([]mcpRoomSummary)
@@ -126,7 +140,7 @@ func TestMCPContactsListReturnsAcceptedContacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := mustHandle[map[string]any](t, service, "mcp.contacts.list", map[string]any{})
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionContactsList, map[string]any{})
 	contacts := result["contacts"].([]mcpContactSummary)
 	if len(contacts) != 1 {
 		t.Fatalf("expected only visible contacts, got %#v", contacts)
@@ -157,7 +171,7 @@ func TestMCPContactsSearchMatchesNamePeerAndDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := mustHandle[map[string]any](t, service, "mcp.contacts.search", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionContactsSearch, map[string]any{
 		"query": "remote",
 		"limit": float64(10),
 	})
@@ -166,7 +180,7 @@ func TestMCPContactsSearchMatchesNamePeerAndDomain(t *testing.T) {
 		t.Fatalf("expected remote Alice contact, got %#v", contacts)
 	}
 
-	result = mustHandle[map[string]any](t, service, "mcp.contacts.search", map[string]any{
+	result = mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionContactsSearch, map[string]any{
 		"query": "product",
 	})
 	contacts = result["contacts"].([]mcpContactSummary)
@@ -180,7 +194,7 @@ func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.profile.DisplayName = "Owner"
 
-	result := mustHandle[map[string]any](t, service, "mcp.messages.send", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesSend, map[string]any{
 		"room_id": "!room:example.com",
 		"msg":     "hello",
 	})
@@ -207,7 +221,7 @@ func TestMCPMessagesSendMarksGatewayReplies(t *testing.T) {
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.agentRoomID = "!agents:example.com"
 
-	mustHandle[map[string]any](t, service, "mcp.messages.send", map[string]any{
+	mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesSend, map[string]any{
 		"room_id":        "!agents:example.com",
 		"msg":            "agent reply",
 		"agent_gateway":  true,
@@ -230,7 +244,7 @@ func TestMCPMessagesSendRejectsOwnerSendToAgentRoom(t *testing.T) {
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.agentRoomID = "!agents:example.com"
 
-	_, apiErr := service.Handle(context.Background(), "mcp.messages.send", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesSend, map[string]any{
 		"room_id": "!agents:example.com",
 		"msg":     "hello agent room",
 	})
@@ -252,13 +266,13 @@ func TestMCPMessagesRejectBlockedRooms(t *testing.T) {
 		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
 	})
 
-	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!blocked:example.com",
 	})
 	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
 		t.Fatalf("expected blocked room list to fail, got %#v", apiErr)
 	}
-	_, apiErr = service.Handle(context.Background(), "mcp.messages.send", map[string]any{
+	_, apiErr = service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesSend, map[string]any{
 		"room_id": "!blocked:example.com",
 		"msg":     "secret",
 	})
@@ -317,7 +331,7 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id":   "!room:example.com",
 		"from_time": "2024-03-09T16:00:50Z",
 		"limit":     float64(20),
@@ -375,7 +389,7 @@ func TestMCPMessagesPaginationUsesStableSnapshot(t *testing.T) {
 		})
 	}
 
-	first := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!channel:example.com",
 		"to_time": "2026-07-05T10:12:00Z",
 		"limit":   float64(5),
@@ -401,7 +415,7 @@ func TestMCPMessagesPaginationUsesStableSnapshot(t *testing.T) {
 		})
 	}
 
-	second := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	second := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!channel:example.com",
 		"cursor":  cursor,
 		"limit":   float64(5),
@@ -425,11 +439,11 @@ func TestMCPRejectsLegacyTimestampParams(t *testing.T) {
 		action string
 		params map[string]any
 	}{
-		{"mcp.messages.list", map[string]any{"room_id": "!room:example.com", "from_ts": float64(1710000000000)}},
-		{"mcp.channel_posts.list", map[string]any{"room_id": "!channel:example.com", "to_ts": float64(1710000000000)}},
-		{"mcp.channel_comments.list", map[string]any{"post_id": "post_1", "from_ts": float64(1710000000000)}},
+		{dirextalkmcp.ActionMessagesList, map[string]any{"room_id": "!room:example.com", "from_ts": float64(1710000000000)}},
+		{dirextalkmcp.ActionChannelPostsList, map[string]any{"room_id": "!channel:example.com", "to_ts": float64(1710000000000)}},
+		{dirextalkmcp.ActionChannelCommentsList, map[string]any{"post_id": "post_1", "from_ts": float64(1710000000000)}},
 	} {
-		_, apiErr := service.Handle(context.Background(), tc.action, tc.params)
+		_, apiErr := service.invokeDirextalkMCP(context.Background(), tc.action, tc.params)
 		if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "from_time") {
 			t.Fatalf("expected %s to reject legacy timestamp params, got %#v", tc.action, apiErr)
 		}
@@ -440,7 +454,7 @@ func TestMCPRejectsNonUTCTimeParams(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{})
 
-	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id":   "!room:example.com",
 		"from_time": "2024-03-10T00:00:00+08:00",
 	})
@@ -455,7 +469,7 @@ func TestMCPMessagesListPropagatesMatrixAccessErrors(t *testing.T) {
 		err: matrixhistory.StatusError{StatusCode: http.StatusForbidden, Message: "matrix messages failed with status 403"},
 	})
 
-	_, apiErr := service.Handle(context.Background(), "mcp.messages.list", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!room:example.com",
 	})
 	if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not allowed") {
@@ -486,7 +500,7 @@ func TestMCPMessagesListEnrichesSenderDisplayNamesFromRoomMembers(t *testing.T) 
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!group:example.com",
 	})
 	payload, err := json.Marshal(result)
@@ -538,7 +552,7 @@ func TestMCPMessagesListEnrichesFallbackSenderNameFromMatrixProfile(t *testing.T
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!group:example.com",
 	})
 	messages := result["messages"].([]mcpMessageSummary)
@@ -561,7 +575,7 @@ func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 		"display_name": "Alice Remote",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
 	})
 	payload, err := json.Marshal(result)
@@ -611,7 +625,7 @@ func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
 	})
 	payload, err := json.Marshal(result)
@@ -644,7 +658,7 @@ func TestMCPRoomMembersListRejectsUnknownRoomsBeforeMatrixLookup(t *testing.T) {
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 
-	_, apiErr := service.Handle(context.Background(), "mcp.room_members.list", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": "!secret:example.com",
 	})
 	if apiErr == nil || apiErr.Status != 404 || !strings.Contains(apiErr.Error, "room not found") {
@@ -663,7 +677,7 @@ func TestMCPRoomMembersListFiltersMergedMatrixMembers(t *testing.T) {
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
 		"role":    "member",
 	})
@@ -689,7 +703,7 @@ func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T)
 		"name":    "Design Group",
 	})
 
-	result := mustHandle[map[string]any](t, service, "mcp.room_members.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
 	})
 	payload, err := json.Marshal(result)
@@ -729,7 +743,7 @@ func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
 		"mcp_blocked_room_ids": []any{group.RoomID},
 	})
 
-	_, apiErr := service.Handle(context.Background(), "mcp.room_members.list", map[string]any{
+	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
 	})
 	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
@@ -746,7 +760,7 @@ func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
 		{EventID: "$answer", OriginServerTS: 1710000100000, CreatedAt: "2024-03-09T16:01:40Z", Sender: "agent", Msg: "answer", SenderMXID: "@agent:example.com"},
 	}})
 
-	result := mustHandle[map[string]any](t, service, "mcp.messages.list", map[string]any{
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesList, map[string]any{
 		"room_id": "!agents:example.com",
 	})
 	if result["room_id"] != "!agents:example.com" || result["name"] != agentRoomName {
@@ -775,7 +789,7 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 		"room_id":    ch.RoomID,
 		"body":       "post body",
 	})
-	commentResult := mustHandle[map[string]any](t, service, "mcp.channel_comments.create", map[string]any{
+	commentResult := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelCommentsCreate, map[string]any{
 		"post_id": post.PostID,
 		"msg":     "comment body",
 	})
@@ -783,7 +797,7 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 		t.Fatalf("unexpected comment create result: %#v", commentResult)
 	}
 
-	posts := mustHandle[map[string]any](t, service, "mcp.channel_posts.list", map[string]any{
+	posts := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
 	})
 	gotPosts := posts["posts"].([]mcpPostSummary)
@@ -791,7 +805,7 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 		t.Fatalf("unexpected post summaries: %#v", gotPosts)
 	}
 
-	comments := mustHandle[map[string]any](t, service, "mcp.channel_comments.list", map[string]any{
+	comments := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelCommentsList, map[string]any{
 		"post_id": post.PostID,
 	})
 	gotComments := comments["comments"].([]mcpCommentSummary)
@@ -843,7 +857,7 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 		OriginServerTS: base.Add(11 * time.Minute).UnixMilli(),
 	}
 
-	first := mustHandle[map[string]any](t, service, "mcp.channel_posts.list", map[string]any{
+	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
 		"limit":   float64(5),
 	})
@@ -876,7 +890,7 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 		})
 	}
 
-	second := mustHandle[map[string]any](t, service, "mcp.channel_posts.list", map[string]any{
+	second := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
 		"cursor":  cursor,
 		"limit":   float64(5),
@@ -921,7 +935,7 @@ func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
 		})
 	}
 
-	first := mustHandle[map[string]any](t, service, "mcp.channel_comments.list", map[string]any{
+	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelCommentsList, map[string]any{
 		"post_id": "post",
 		"limit":   float64(5),
 	})
@@ -949,7 +963,7 @@ func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
 		})
 	}
 
-	second := mustHandle[map[string]any](t, service, "mcp.channel_comments.list", map[string]any{
+	second := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelCommentsList, map[string]any{
 		"post_id": "post",
 		"cursor":  cursor,
 		"limit":   float64(5),
@@ -990,11 +1004,11 @@ func TestMCPChannelContentRejectsBlockedRooms(t *testing.T) {
 		action string
 		params map[string]any
 	}{
-		{"mcp.channel_posts.list", map[string]any{"room_id": ch.RoomID}},
-		{"mcp.channel_comments.list", map[string]any{"post_id": post.PostID}},
-		{"mcp.channel_comments.create", map[string]any{"post_id": post.PostID, "msg": "blocked"}},
+		{dirextalkmcp.ActionChannelPostsList, map[string]any{"room_id": ch.RoomID}},
+		{dirextalkmcp.ActionChannelCommentsList, map[string]any{"post_id": post.PostID}},
+		{dirextalkmcp.ActionChannelCommentsCreate, map[string]any{"post_id": post.PostID, "msg": "blocked"}},
 	} {
-		_, apiErr := service.Handle(context.Background(), tc.action, tc.params)
+		_, apiErr := service.invokeDirextalkMCP(context.Background(), tc.action, tc.params)
 		if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
 			t.Fatalf("expected %s to reject blocked room, got %#v", tc.action, apiErr)
 		}

@@ -3,6 +3,7 @@ package p2p
 import (
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 )
 
@@ -17,6 +18,22 @@ func TestActionRegistryCoversPublicAndAgentActions(t *testing.T) {
 	for _, action := range serviceapi.AgentActions() {
 		if _, ok := service.actions[action]; !ok {
 			t.Errorf("agent action %q has no registered handler", action)
+		}
+	}
+}
+
+func TestFixedMCPBodyActionsAreRemovedFromProductRegistry(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+
+	for _, action := range dirextalkmcp.Tools() {
+		if _, ok := service.actions[action.Action]; ok {
+			t.Fatalf("fixed MCP body action %s must not be registered as a product action", action.Action)
+		}
+		if _, ok := serviceapi.ActionSpecFor(action.Action); ok {
+			t.Fatalf("fixed MCP body action %s must not be listed in product action metadata", action.Action)
+		}
+		if serviceapi.AgentAction(action.Action) {
+			t.Fatalf("fixed MCP body action %s must not authorize agent_token through product actions", action.Action)
 		}
 	}
 }

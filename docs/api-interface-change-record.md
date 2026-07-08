@@ -1,12 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
-## 2026-07-08 MCP Body-Action Compatibility Deferral
+## 2026-07-09 MCP Body-Action Compatibility Removal
 
-Product decision for this pass: do not delete the old fixed `mcp.*` body actions yet. They remain temporary compatibility wrappers around `internal/dirextalkmcp`; no new MCP business logic should be added to those wrappers.
+MCP-D is complete for the fixed Dirextalk body-action wrapper surface. The old fixed `mcp.*` actions are removed from `/_p2p/query`, `/_p2p/command`, the product action registry, and `serviceapi.AgentAction`.
 
-The canonical external MCP contract is `POST /mcp` with MCP Streamable HTTP JSON-RPC and `Authorization: Bearer <agent_token>`. Fixed `mcp.*` body-action wrappers remain temporary compatibility until final backend/three-node verification completes. After that verification, the MCP-D task is to remove `mcp.*` from the product action registry, `serviceapi.AgentAction`, Postman examples, docs, and wrapper-specific tests unless product explicitly extends the compatibility window.
+`agent_token` is now accepted only for product body-action `agent.matrix_session.create` and the standard `POST /mcp` endpoint. Owner `access_token` also cannot call fixed `mcp.*` body actions through `/_p2p/query` or `/_p2p/command`; those requests are `400 unknown action`.
+
+External MCP clients must call `POST /mcp` using MCP Streamable HTTP JSON-RPC. Native Agent built-in Dirextalk tools and `POST /mcp` continue to share the same `internal/dirextalkmcp` registry, schemas, pagination, room authorization, DTOs, errors, and p2p adapter invocation. Remaining `mcp.*` strings are internal capability action IDs, not public product body actions.
 
 ## 2026-07-08 Standard Dirextalk MCP HTTP Endpoint
 
@@ -14,11 +16,11 @@ External standard MCP clients can now call `POST /mcp` using MCP Streamable HTTP
 
 The endpoint requires `Authorization: Bearer <agent_token>`. Owner `access_token` is intentionally rejected on this endpoint, access tokens and agent tokens are not accepted in query strings, and the inbound bearer token is not forwarded into downstream Dirextalk MCP capability calls. The endpoint validates `Origin`; HTTP GET/SSE returns `405` while server-to-client streaming is not used.
 
-`tools/list` is generated from the shared `internal/dirextalkmcp` registry. `tools/call` maps MCP tool names such as `dirextalk_messages_list` to the same unified capability service used by fixed `mcp.*` body-action wrappers and Native Agent built-in Dirextalk tools. Existing MCP rules still apply: `mcp_blocked_room_ids` hides/rejects blocked rooms, ordinary message history remains Matrix Client-Server backed, sends go through `p2p.Transport`, channel posts/comments remain separate from channel chat, pagination uses `from_time`/`to_time`/`cursor`, and old `from_ts`/`to_ts`/`ts`/`last_ts` fields remain unsupported.
+`tools/list` is generated from the shared `internal/dirextalkmcp` registry. `tools/call` maps MCP tool names such as `dirextalk_messages_list` to the same unified capability service used by Native Agent built-in Dirextalk tools. Existing MCP rules still apply: `mcp_blocked_room_ids` hides/rejects blocked rooms, ordinary message history remains Matrix Client-Server backed, sends go through `p2p.Transport`, channel posts/comments remain separate from channel chat, pagination uses `from_time`/`to_time`/`cursor`, and old `from_ts`/`to_ts`/`ts`/`last_ts` fields remain unsupported.
 
 ## 2026-07-08 Native Agent Backend Contract
 
-Native Agent is now exposed through first-class owner `agent.*` product actions instead of the legacy Agent plugin invoke envelope. The direct action surface includes `agent.chat`, `agent.models.list`, `agent.runtime.inspect/install/which/run`, `agent.skills.list/install/enable/disable/uninstall/registry.search`, `agent.mcp.servers.list/install/enable/disable/uninstall`, `agent.mcp.registry.search`, `agent.context.compress`, `agent.config.propose_patch`, reserved knowledge actions, and built-in Dirextalk tool actions such as `agent.contacts.list`, `agent.rooms.search`, `agent.messages.list/send`, and channel post/comment actions. These are owner-token actions; `agent_token` remains limited to `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /mcp`.
+Native Agent is now exposed through first-class owner `agent.*` product actions instead of the legacy Agent plugin invoke envelope. The direct action surface includes `agent.chat`, `agent.models.list`, `agent.runtime.inspect/install/which/run`, `agent.skills.list/install/enable/disable/uninstall/registry.search`, `agent.mcp.servers.list/install/enable/disable/uninstall`, `agent.mcp.registry.search`, `agent.context.compress`, `agent.config.propose_patch`, reserved knowledge actions, and built-in Dirextalk tool actions such as `agent.contacts.list`, `agent.rooms.search`, `agent.messages.list/send`, and channel post/comment actions. These are owner-token actions; `agent_token` remains limited to product body-action `agent.matrix_session.create` and `POST /mcp`.
 
 Native Agent streaming moved to dedicated realtime frames:
 
@@ -130,11 +132,11 @@ Added protected owner-only plugin management actions on the existing body-action
 
 These actions require owner `access_token`. `agent_token` cannot call plugin management or plugin invoke actions. `plugins.catalog.list` returns an empty `plugins` list when the Docker plugin runner is not enabled, so clients should hide plugin entry points until catalog entries are available. Agent-specific plugin catalog/config/invoke details in this historical section are superseded by the 2026-07-08 Native Agent Backend Contract. Current plugin install/enable/disable/uninstall jobs are for non-Agent official plugins such as `io.dirextalk.ops`, and must use official catalog metadata whose Docker image belongs to the official `dirextalk` Docker Hub organization. Digest metadata is optional and is not required for first-version installs.
 
-Native Agent action details now live on the first-class `agent.*` product action surface. `agent.models.list` uses the request-scoped `provider`, `base_url`, and `api_key` to fetch the real model list from supported OpenAI-compatible providers and returns `models[]` entries such as `id`, `name`, `context_length`, and `max_output_tokens`; it must not persist or echo API keys. `agent.runtime.inspect` resolves request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Native Agent owns standard MCP client orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages), while the message-server exposes temporary fixed backend `mcp.*` capability wrappers and the standard `POST /mcp` endpoint to `agent_token`.
+Native Agent action details now live on the first-class `agent.*` product action surface. `agent.models.list` uses the request-scoped `provider`, `base_url`, and `api_key` to fetch the real model list from supported OpenAI-compatible providers and returns `models[]` entries such as `id`, `name`, `context_length`, and `max_output_tokens`; it must not persist or echo API keys. `agent.runtime.inspect` resolves request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Native Agent owns standard MCP client orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages), while the message-server exposes the standard `POST /mcp` endpoint to `agent_token`.
 
 `plugins.invoke` calls an enabled official non-Agent plugin over the first-version Docker HTTP runner and returns `{ "plugin_id", "action", "result" }`. `plugins.invoke.stream` remains registered only to return `400 action requires websocket`; Native Agent streaming uses `client.native_agent_stream`, not the legacy Agent plugin stream frame. `client.request` remains unavailable for `plugins.*`.
 
-The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions and the standard `POST /mcp` endpoint stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. `mcp.contacts.list` and `mcp.contacts.search` expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Native Agent skills, model/provider request handling, MCP client wiring, and orchestration are embedded in message-server behind owner `agent.*` actions. External standard MCP clients should use `POST /mcp` JSON-RPC instead of the Dirextalk action envelope.
+The backend remains the Dirextalk capability boundary for Agent/MCP access: Native Agent built-in tools and the standard `POST /mcp` endpoint share owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement through `internal/dirextalkmcp`. Contact list/search capabilities expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Native Agent skills, model/provider request handling, MCP client wiring, and orchestration are embedded in message-server behind owner `agent.*` actions. External standard MCP clients should use `POST /mcp` JSON-RPC instead of the Dirextalk action envelope.
 
 ## 2026-07-03 Unified Channel Post+Chat
 
@@ -173,7 +175,7 @@ Inbound Matrix direct invites from blocked contacts are ignored by projection an
 
 `avatar_url` is a display-only Agent profile setting for clients. `mcp_blocked_room_ids` is a durable room blacklist under Agent config. `agent.config.update` replaces the blacklist with the supplied normalized list; omitted fields keep their previous values.
 
-Fixed MCP actions remain HTTP-only and owner-scoped. Rooms in `mcp_blocked_room_ids` are not returned by `mcp.rooms.search`; direct MCP access to blocked rooms through ordinary message send/list, member list, channel post list, channel comment list, or channel comment creation is rejected with `403 room is blocked for MCP`.
+At that point, fixed MCP actions remained HTTP-only and owner-scoped. Current MCP clients use `POST /mcp`, which enforces the same room blacklist rules. Rooms in `mcp_blocked_room_ids` are not returned by MCP room search; direct MCP access to blocked rooms through ordinary message send/list, member list, channel post list, channel comment list, or channel comment creation is rejected with `403 room is blocked for MCP`.
 
 ## 2026-06-30 Owner HTTP Fallback For Product Actions
 
@@ -181,7 +183,7 @@ Logged-in client product actions now use ready-WS first instead of WS-only. Clie
 
 Business errors returned by WS, such as permission or validation failures, should not be retried over HTTP. Clients should also de-duplicate identical in-flight user actions such as `contacts.requests.accept` or `groups.join` so duplicate taps do not send duplicate mutations or show duplicate success UI. If a WS request was already sent and the response is lost, clients should only HTTP-fallback actions that are safe to repeat, such as contact decisions, joins, read markers, and product queries.
 
-`agent_token` permissions did not change for product body actions in this pass: it remained limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions. Current servers also allow `agent_token` on the standard `POST /mcp` endpoint. `agent.matrix_session.create` and fixed MCP body actions remain HTTP-only and still return `action requires http` if sent over WS.
+`agent_token` permissions did not change for product body actions in this pass: it remained limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions at that point. This was superseded by the 2026-07-09 MCP-D removal: current servers accept `agent_token` for product body-action `agent.matrix_session.create` and standard `POST /mcp`; fixed `mcp.*` body actions are unknown.
 
 Realtime WS owner tickets now advertise `expires_in_ms: 120000` to tolerate mobile weak-network upgrade delays. A failed HTTP request to `GET /_p2p/ws?ticket=...` that never completes the WebSocket upgrade no longer consumes the ticket; accepted WebSocket upgrades remain single-use.
 
@@ -209,7 +211,7 @@ Remote Matrix member profile updates still refresh peer avatar metadata, but the
 
 Agent bridge online display remains Matrix-native room state in the real `agent_room_id`: event type `io.dirextalk.agent.status`, state key `@agent:<server>`, and content field `online`. The running local bridge writes `online=true/false` through its `@agent:<server>` Matrix session. The server no longer treats `agent.config.enabled=true` or an agent-token WS session as online; startup/agents-room repair and `agent.config.update enabled=false` only publish `online=false` as a fallback.
 
-`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and current `POST /mcp`.
+`agent_token` no longer creates realtime WS tickets. `realtime.ws_ticket.create` is owner-token only; `agent_token` remains limited to product body-action `agent.matrix_session.create` and current `POST /mcp`.
 
 `agent.matrix_session.create` remains a retained HTTP body action and may be called with either owner `access_token` or `agent_token`. It returns a Matrix Client-Server session for the local `@agent:<server>` bridge user so dirextalk-connect can bootstrap Matrix-native Agent room sync/send/edit without owner credentials. It must not be migrated into Product WS and must not evict owner devices.
 
@@ -219,13 +221,13 @@ No response fields change: `sync.bootstrap` still returns only `agent_room_id` f
 
 ## 2026-06-30 MCP HTTP Boundary And WS Client State Flags
 
-Fixed MCP actions remain HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they are not migrated into WS `client.request`. Owner `access_token` and fixed `agent_token` may call the existing MCP allowlist over HTTP. `agent.matrix_session.create` is also HTTP-only. If an owner or agent WS session sends a `client.request` for `mcp.*` or `agent.matrix_session.create`, the server returns:
+At this point, fixed MCP actions remained HTTP body actions on `POST /_p2p/query` or `POST /_p2p/command`; they were not migrated into WS `client.request`. That compatibility surface was removed on 2026-07-09. `agent.matrix_session.create` remains HTTP-only. If an owner or agent WS session sends a `client.request` for `agent.matrix_session.create`, the server returns:
 
 ```json
 {
   "type": "server.response",
   "id": "req-1",
-  "action": "mcp.rooms.search",
+  "action": "agent.matrix_session.create",
   "ok": false,
   "status": 400,
   "error": "action requires http"
@@ -262,7 +264,7 @@ Push suppression requires a fresh foreground WS session that is not hidden and h
 
 ## 2026-06-30 WS Product API Full Migration
 
-Logged-in Dirextalk client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, `agent.matrix_session.create`, fixed MCP actions, `realtime.ws_ticket.create`, and node-to-node public/callback actions.
+Logged-in Dirextalk client/product actions now use `GET /_p2p/ws` request/response frames instead of HTTP body-action calls. HTTP `/query` and `/command` remain for portal bootstrap/auth/status/password, `agent.matrix_session.create`, `realtime.ws_ticket.create`, and node-to-node public/callback actions. Standard MCP clients use `POST /mcp`.
 
 This WS-only HTTP rejection rule was superseded later on 2026-06-30 by the owner HTTP fallback contract above. Current clients are WS-first, not WS-only.
 
@@ -306,7 +308,7 @@ Error response frame:
 
 `GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
 
-Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create`, `agent.matrix_session.create`, and fixed MCP actions. Agent-token callers cannot create WS sessions; Agent bridge bootstrap and MCP actions stay on HTTP. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, local delete, and Agent bridge room traffic.
+Owner WS sessions may call protected logged-in product actions except `realtime.ws_ticket.create` and `agent.matrix_session.create`. Agent-token callers cannot create WS sessions; Agent bridge bootstrap stays on HTTP body actions, and MCP clients use `POST /mcp`. Matrix Client-Server remains the protocol source for ordinary timeline, media, history, search, redaction, local delete, and Agent bridge room traffic.
 
 HTTP `/query` and `/command` now return an explicit error for non-retained logged-in client actions:
 
@@ -425,7 +427,7 @@ Clients should treat this as a product cache gap: clear local product projection
 
 ## 2026-06-29 MCP Room Member Identities
 
-Added protected MCP action `mcp.room_members.list` on `POST /_p2p/query`. Owner `access_token` and fixed MCP `agent_token` may call it. The action accepts `room_id` or `channel_id`, optional `status`/`membership`, optional `role`, and optional `limit`; it returns `room_id`, `name`, `count`, and concise member identities with `user_id`, `user_mxid`, `localpart`, `domain`, `display_name`, `avatar_url`, `membership`, `role`, and `joined_at`.
+Added protected MCP action `mcp.room_members.list` on `POST /_p2p/query`. Owner `access_token` and fixed MCP `agent_token` could call it at that point. This body-action endpoint was removed on 2026-07-09; current clients use the standard MCP tool over `POST /mcp`. The action accepts `room_id` or `channel_id`, optional `status`/`membership`, optional `role`, and optional `limit`; it returns `room_id`, `name`, `count`, and concise member identities with `user_id`, `user_mxid`, `localpart`, `domain`, `display_name`, `avatar_url`, `membership`, `role`, and `joined_at`.
 
 `mcp.room_members.list` is owner-scoped and only reads known Dirextalk product rooms or conversations. It may enrich stale product projections from current Matrix `m.room.member` state and Matrix profile fallback data, but it rejects unknown room IDs instead of exposing arbitrary roomserver state through the MCP surface.
 
@@ -443,7 +445,7 @@ Default owner-scoped `mcp.messages.send` now rejects the configured `agent_room_
 
 ## 2026-06-26 Agent Matrix Session Identity
 
-`agent.matrix_session.create` now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID. Current servers accept either owner `access_token` or fixed `agent_token` for this HTTP-only bootstrap action.
+`agent.matrix_session.create` now creates and returns a Matrix Client-Server session for the local agent user `@agent:<server>` instead of the portal owner. The response fields remain `access_token`, `device_id`, `user_id`, and `homeserver`; `user_id` is now the local agent MXID. Current servers accept either owner `access_token` or `agent_token` for this HTTP-only bootstrap action.
 
 The helper still uses `revokeExistingDevices=false`, so creating a cc-connect or local gateway Matrix session does not evict the portal owner's phone or browser sessions.
 
@@ -459,7 +461,7 @@ Matrix `m.presence` is not part of the Agent online contract, and Dirextalk mono
 
 `GET /_p2p/events` previously accepted bearer `agent_token` as well as owner `access_token` as a narrow passive gateway exception. This path was later removed with SSE and the Agent bridge returned to Matrix Client-Server transport.
 
-Non-MCP protected body actions still reject `agent_token` except the HTTP-only `agent.matrix_session.create` bridge bootstrap action; the fixed MCP action allowlist is unchanged.
+Non-MCP protected body actions still reject `agent_token` except the HTTP-only `agent.matrix_session.create` bridge bootstrap action. The fixed MCP action allowlist mentioned in this historical entry was removed on 2026-07-09.
 
 ## 2026-06-25 Immutable Channel Type
 
@@ -485,7 +487,7 @@ Channel rooms (`notification.room_type=channel`) are not sent to HTTP push gatew
 
 `portal.bootstrap`, `portal.auth`, and `portal.password` now create an exclusive Matrix device session for the portal owner. After the new session is created, the server deletes the owner's other Matrix devices while preserving the current `device_id`, so previous phones receive Matrix `M_UNKNOWN_TOKEN` on later authenticated requests and must ask the user to log in manually.
 
-`agent.matrix_session.create` remains an internal Matrix session helper and does not evict the portal user's phone session. As of 2026-06-26, it returns a session for the local `@agent:<server>` user. Current servers accept either owner `access_token` or fixed `agent_token` for this HTTP-only bridge bootstrap action.
+`agent.matrix_session.create` remains an internal Matrix session helper and does not evict the portal user's phone session. As of 2026-06-26, it returns a session for the local `@agent:<server>` user. Current servers accept either owner `access_token` or `agent_token` for this HTTP-only bridge bootstrap action.
 
 ## 2026-06-24 User Public Channel Lookup
 
@@ -547,7 +549,7 @@ Added six protected MCP-oriented P2P actions for the local Dirextalk MCP adapter
 - `mcp.messages.send` on `POST /_p2p/command`
 - `mcp.channel_comments.create` on `POST /_p2p/command`
 
-All six require bearer auth. Owner `access_token` can call them, and `agent_token` is accepted for these fixed MCP actions. Current servers also allow `agent_token` for the HTTP-only `agent.matrix_session.create` bootstrap action. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
+All six required bearer auth. Owner `access_token` could call them, and `agent_token` was accepted for these fixed MCP actions at that point. The fixed body-action endpoints were removed on 2026-07-09; current clients use `POST /mcp`. The response contracts are intentionally concise for MCP tooling and do not expose full `conversationView`, `channelPostRecord`, `channelCommentRecord`, Matrix event payloads, projection state, capability maps, or internal Matrix tokens.
 
 Ordinary MCP message send/list remains separate from channel post/comment product content. `mcp.messages.send` writes a plain `m.room.message` without `p2p_kind`; `mcp.messages.list` reads ordinary Matrix timeline messages through a server-side Matrix reader and filters out events carrying product `p2p_kind`. No P2P ordinary-message store was added.
 
@@ -679,7 +681,7 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /mcp`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for product body-action `agent.matrix_session.create` and standard `POST /mcp`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 The live P2P action count is now 90.
 

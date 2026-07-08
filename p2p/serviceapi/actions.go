@@ -88,16 +88,6 @@ var actionSpecs = []ActionSpec{
 	{Name: "agent.channel_comments.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.summarize", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 
-	{Name: "mcp.rooms.search", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.contacts.list", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.contacts.search", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.messages.send", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.messages.list", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.room_members.list", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.channel_posts.list", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.channel_comments.list", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-	{Name: "mcp.channel_comments.create", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
-
 	{Name: "plugins.catalog.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "plugins.installed.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "plugins.install", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

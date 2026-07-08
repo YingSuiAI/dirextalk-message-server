@@ -300,13 +300,46 @@ def p2p_status(node: Node, kind: str, action: str, params: Optional[dict[str, An
         return exc.status, exc.body
 
 
-def mcp(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = None) -> Any:
-    return p2p(node, kind, action, params, token=node.agent_token)
+MCP_TOOL_BY_ACTION = {
+    "mcp.rooms.search": "dirextalk_rooms_search",
+    "mcp.messages.send": "dirextalk_messages_send",
+    "mcp.messages.list": "dirextalk_messages_list",
+    "mcp.channel_posts.list": "dirextalk_channel_posts_list",
+    "mcp.channel_comments.create": "dirextalk_channel_comments_create",
+    "mcp.channel_comments.list": "dirextalk_channel_comments_list",
+}
 
 
-def matrix_send_text(node: Node, room_id: str, text: str) -> str:
+def mcp(node: Node, action: str, params: Optional[dict[str, Any]] = None) -> Any:
+    tool_name = MCP_TOOL_BY_ACTION.get(action)
+    if not tool_name:
+        raise RuntimeError(f"unknown MCP regression action {action}")
+    node.request_seq += 1
+    response = request_json(
+        "POST",
+        f"{node.base}/mcp",
+        {
+            "jsonrpc": "2.0",
+            "id": f"{node.label.lower()}-mcp-{node.request_seq}",
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": params or {},
+            },
+        },
+        node.agent_token,
+    )
+    if response.get("error"):
+        raise RuntimeError(f"MCP {action} failed: {response['error']}")
+    result = response.get("result") or {}
+    if result.get("isError"):
+        raise RuntimeError(f"MCP {action} returned error result: {result}")
+    return result.get("structuredContent") or {}
+
+
+def matrix_send_text(node: Node, room_id: str, text: str, txn_id: Optional[str] = None) -> str:
     room_path = urllib.parse.quote(room_id, safe="")
-    txn_id = f"three_node_{int(time.time() * 1000)}"
+    txn_id = txn_id or f"three_node_{int(time.time() * 1000)}"
     body = {"msgtype": "m.text", "body": text}
     res = request_json(
         "PUT",
@@ -315,6 +348,16 @@ def matrix_send_text(node: Node, room_id: str, text: str) -> str:
         node.token,
     )
     return res.get("event_id", "")
+
+
+def wait_matrix_send_text(node: Node, room_id: str, text: str, label: str, seconds: int = WAIT_SECONDS) -> str:
+    txn_id = f"three_node_{int(time.time() * 1000)}"
+
+    return wait_until(
+        label,
+        lambda: matrix_send_text(node, room_id, text, txn_id=txn_id),
+        seconds=seconds,
+    )
 
 
 def matrix_messages(node: Node, room_id: str) -> list[Any]:
@@ -522,8 +565,12 @@ def verify_mutual_delete_readd(requester: Node, accepter: Node, room_id: str, su
         "requester should not receive a duplicate inbound request after its request is accepted",
     )
     text = f"mutual delete readd direct message {suffix}"
-    event_id = matrix_send_text(accepter, requester_contact.get("room_id") or request_room, text)
-    expect(bool(event_id), "Matrix direct send after mutual-delete readd did not return event_id")
+    event_id = wait_matrix_send_text(
+        accepter,
+        requester_contact.get("room_id") or request_room,
+        text,
+        "Matrix direct send after mutual-delete readd did not return event_id",
+    )
     assert_history(requester, requester_contact.get("room_id") or request_room, text)
 
 
@@ -551,8 +598,12 @@ def rebuild_node_with_empty_volumes(node: Node, suffix: int) -> None:
 def verify_rebuilt_peer_readd(retained_peer: Node, rebuilt_peer: Node, suffix: int) -> None:
     old_room = ensure_direct(retained_peer, rebuilt_peer)
     text = f"pre-rebuild direct message {suffix}"
-    event_id = matrix_send_text(retained_peer, old_room, text)
-    expect(bool(event_id), "Matrix direct send before rebuild did not return event_id")
+    event_id = wait_matrix_send_text(
+        retained_peer,
+        old_room,
+        text,
+        "Matrix direct send before rebuild did not return event_id",
+    )
     assert_history(rebuilt_peer, old_room, text)
 
     rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 1)
@@ -714,7 +765,7 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
     group_room = create_group(owner, f"Retained Group {suffix}")
     invite_and_join(owner, rebuilt_peer, group_room)
     group_text = f"pre-rebuild retained group message {suffix}"
-    expect(bool(matrix_send_text(owner, group_room, group_text)), "Matrix retained group send did not return event_id")
+    wait_matrix_send_text(owner, group_room, group_text, "Matrix retained group send did not return event_id")
     assert_history(rebuilt_peer, group_room, group_text)
 
     private_channel = create_channel(owner, f"Retained Private {suffix}", "private", "invite")
@@ -763,7 +814,12 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
         seconds=90,
     )
     group_rejoin_text = f"post-rebuild retained group message {suffix}"
-    expect(bool(matrix_send_text(rebuilt_peer, group_room, group_rejoin_text)), "Matrix retained group send after rejoin did not return event_id")
+    wait_matrix_send_text(
+        rebuilt_peer,
+        group_room,
+        group_rejoin_text,
+        "Matrix retained group send after rejoin did not return event_id",
+    )
     assert_history(owner, group_room, group_rejoin_text)
 
     p2p(
@@ -802,8 +858,10 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
         seconds=90,
     )
     private_channel_text = f"post-rebuild private channel message {suffix}"
-    expect(
-        bool(matrix_send_text(rebuilt_peer, private_channel.get("room_id") or "", private_channel_text)),
+    wait_matrix_send_text(
+        rebuilt_peer,
+        private_channel.get("room_id") or "",
+        private_channel_text,
         "Matrix private channel send after rejoin did not return event_id",
     )
     assert_history(owner, private_channel.get("room_id") or "", private_channel_text)
@@ -812,8 +870,10 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
     assert_matrix_channel_content(rebuilt_peer, public_channel.get("room_id") or "", [f"pre-rebuild public post {suffix}"])
     wait_public_channel_join(owner, rebuilt_peer, public_chat_channel, "retained chat")
     public_chat_text = f"post-rebuild public chat channel message {suffix}"
-    expect(
-        bool(matrix_send_text(rebuilt_peer, public_chat_channel.get("room_id") or "", public_chat_text)),
+    wait_matrix_send_text(
+        rebuilt_peer,
+        public_chat_channel.get("room_id") or "",
+        public_chat_text,
         "Matrix public chat channel send after rejoin did not return event_id",
     )
     assert_history(owner, public_chat_channel.get("room_id") or "", public_chat_text)
@@ -961,7 +1021,7 @@ def verify_account_delete_deprovision_propagates(deleter: Node, peer: Node, obse
 
 def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None:
     for sender in nodes:
-        search = mcp(sender, "query", "mcp.rooms.search", {"type": "group", "limit": 100})
+        search = mcp(sender, "mcp.rooms.search", {"type": "group", "limit": 100})
         rooms = list(search.get("rooms") or [])
         expect(
             any(room.get("room_id") == room_id and room.get("type") == "group" for room in rooms),
@@ -969,7 +1029,7 @@ def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None
         )
 
         text = f"mcp agent group message {sender.label} {suffix}"
-        sent = mcp(sender, "command", "mcp.messages.send", {"room_id": room_id, "msg": text})
+        sent = mcp(sender, "mcp.messages.send", {"room_id": room_id, "msg": text})
         expect(sent.get("ok") is True and sent.get("event_id"), f"{sender.label} mcp.messages.send failed")
         from_time = sent.get("created_at") or ""
 
@@ -979,7 +1039,7 @@ def assert_mcp_group_tools(nodes: list[Node], room_id: str, suffix: int) -> None
                 lambda v=viewer, t=text, f=from_time: any(
                     message.get("msg") == t
                     for message in list(
-                        mcp(v, "query", "mcp.messages.list", {"room_id": room_id, "from_time": f, "limit": 100}).get("messages")
+                        mcp(v, "mcp.messages.list", {"room_id": room_id, "from_time": f, "limit": 100}).get("messages")
                         or []
                     )
                 ),
@@ -1014,18 +1074,18 @@ def assert_mcp_channel_tools(nodes: list[Node], suffix: int) -> None:
         post_id = post.get("post_id") or ""
         expect(bool(post_id), f"{owner.label} channels.posts.create for MCP did not return post_id")
 
-        posts = mcp(owner, "query", "mcp.channel_posts.list", {"room_id": room_id, "limit": 20})
+        posts = mcp(owner, "mcp.channel_posts.list", {"room_id": room_id, "limit": 20})
         expect(
             any(item.get("post_id") == post_id and item.get("msg") == post_body for item in list(posts.get("posts") or [])),
             f"{owner.label} mcp.channel_posts.list did not return created post",
         )
 
         comment_body = f"mcp comment {owner.label} {suffix}"
-        created = mcp(owner, "command", "mcp.channel_comments.create", {"post_id": post_id, "msg": comment_body})
+        created = mcp(owner, "mcp.channel_comments.create", {"post_id": post_id, "msg": comment_body})
         comment_id = created.get("comment_id") or ""
         expect(created.get("ok") is True and comment_id, f"{owner.label} mcp.channel_comments.create failed")
 
-        comments = mcp(owner, "query", "mcp.channel_comments.list", {"post_id": post_id, "limit": 20})
+        comments = mcp(owner, "mcp.channel_comments.list", {"post_id": post_id, "limit": 20})
         expect(
             any(item.get("comment_id") == comment_id and item.get("msg") == comment_body for item in list(comments.get("comments") or [])),
             f"{owner.label} mcp.channel_comments.list did not return created comment",
@@ -1175,8 +1235,7 @@ def main() -> int:
     invite_and_join(b, a, message_group)
     assert_members(b, message_group, [a, b, c])
     group_text = f"three-node group message {suffix}"
-    event_id = matrix_send_text(b, message_group, group_text)
-    expect(bool(event_id), "Matrix group send did not return event_id")
+    event_id = wait_matrix_send_text(b, message_group, group_text, "Matrix group send did not return event_id")
     assert_message_projection([a, b, c], message_group, group_text)
     print("PASS group invite C-first/A-second, member nicknames, group preview capabilities")
 
