@@ -161,3 +161,57 @@ func TestSocialCallReportRecordJSONContracts(t *testing.T) {
 		t.Fatalf("empty report target_channel_id should be omitted, got %#v", got["report"])
 	}
 }
+
+func TestEventAndInviteGrantJSONContracts(t *testing.T) {
+	raw, err := json.Marshal(struct {
+		Grant  ChannelInviteGrant `json:"grant"`
+		Event  Event              `json:"event"`
+		Bounds EventBounds        `json:"bounds"`
+	}{
+		Grant: ChannelInviteGrant{
+			GrantID:     "grant_1",
+			ChannelID:   "channel_1",
+			RoomID:      "!channel:example.com",
+			ShareRoomID: "!share:example.com",
+			CreatedBy:   "@owner:example.com",
+			CreatedAt:   123,
+		},
+		Event: Event{
+			Seq:       7,
+			Type:      "channel.updated",
+			RoomID:    "!channel:example.com",
+			EventID:   "$event:example.com",
+			DedupeKey: "secret-dedupe",
+			Payload:   map[string]any{"ok": true},
+			CreatedAt: "2026-07-08T00:00:00Z",
+		},
+		Bounds: EventBounds{
+			MinSeq: 1,
+			MaxSeq: 9,
+			Count:  3,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var got map[string]map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if got["grant"]["grant_id"] != "grant_1" || got["grant"]["share_room_id"] != "!share:example.com" {
+		t.Fatalf("expected invite grant JSON contract, got %#v", got["grant"])
+	}
+	if got["event"]["seq"] != float64(7) || got["event"]["type"] != "channel.updated" {
+		t.Fatalf("expected event JSON contract, got %#v", got["event"])
+	}
+	if _, ok := got["event"]["DedupeKey"]; ok {
+		t.Fatalf("DedupeKey must not be serialized, got %#v", got["event"])
+	}
+	if _, ok := got["event"]["dedupe_key"]; ok {
+		t.Fatalf("dedupe_key must not be serialized, got %#v", got["event"])
+	}
+	if got["bounds"]["min_seq"] != float64(1) || got["bounds"]["max_seq"] != float64(9) || got["bounds"]["count"] != float64(3) {
+		t.Fatalf("expected event bounds JSON contract, got %#v", got["bounds"])
+	}
+}

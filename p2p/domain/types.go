@@ -164,14 +164,7 @@ type ReadMarker = dirextalkdomain.ReadMarker
 
 type Channel = dirextalkdomain.Channel
 
-type ChannelInviteGrant struct {
-	GrantID     string `json:"grant_id"`
-	ChannelID   string `json:"channel_id"`
-	RoomID      string `json:"room_id"`
-	ShareRoomID string `json:"share_room_id"`
-	CreatedBy   string `json:"created_by"`
-	CreatedAt   int64  `json:"created_at"`
-}
+type ChannelInviteGrant = dirextalkdomain.ChannelInviteGrant
 
 type ChannelPostRecord struct {
 	PostID         string            `json:"post_id"`
@@ -254,18 +247,5 @@ type ReportRecord = dirextalkdomain.ReportRecord
 
 type MemberRecord = dirextalkdomain.MemberRecord
 
-type Event struct {
-	Seq       int64          `json:"seq"`
-	Type      string         `json:"type"`
-	RoomID    string         `json:"room_id,omitempty"`
-	EventID   string         `json:"event_id,omitempty"`
-	DedupeKey string         `json:"-"`
-	Payload   map[string]any `json:"payload,omitempty"`
-	CreatedAt string         `json:"created_at"`
-}
-
-type EventBounds struct {
-	MinSeq int64 `json:"min_seq"`
-	MaxSeq int64 `json:"max_seq"`
-	Count  int64 `json:"count"`
-}
+type Event = dirextalkdomain.Event
+type EventBounds = dirextalkdomain.EventBounds

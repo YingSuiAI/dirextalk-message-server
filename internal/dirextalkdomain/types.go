@@ -50,6 +50,15 @@ type ReadMarker struct {
 	OriginServerTS int64  `json:"origin_server_ts"`
 }
 
+type ChannelInviteGrant struct {
+	GrantID     string `json:"grant_id"`
+	ChannelID   string `json:"channel_id"`
+	RoomID      string `json:"room_id"`
+	ShareRoomID string `json:"share_room_id"`
+	CreatedBy   string `json:"created_by"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 type BlockRecord struct {
 	TargetType  string `json:"target_type"`
 	TargetID    string `json:"target_id"`
@@ -120,6 +129,22 @@ type ReportRecord struct {
 	EventID             string   `json:"event_id"`
 	OriginServerTS      int64    `json:"origin_server_ts"`
 	CreatedAt           string   `json:"created_at"`
+}
+
+type Event struct {
+	Seq       int64          `json:"seq"`
+	Type      string         `json:"type"`
+	RoomID    string         `json:"room_id,omitempty"`
+	EventID   string         `json:"event_id,omitempty"`
+	DedupeKey string         `json:"-"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	CreatedAt string         `json:"created_at"`
+}
+
+type EventBounds struct {
+	MinSeq int64 `json:"min_seq"`
+	MaxSeq int64 `json:"max_seq"`
+	Count  int64 `json:"count"`
 }
 
 func (m MemberRecord) MarshalJSON() ([]byte, error) {
