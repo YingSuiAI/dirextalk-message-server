@@ -170,6 +170,50 @@ func TrimString(value any) string {
 	}
 }
 
+func OrdinaryMessageSummary(eventType, eventID string, originServerTS int64, sender string, content map[string]any, page Page) (MessageSummary, bool) {
+	if eventType != "m.room.message" || !InPage(originServerTS, eventID, page) {
+		return MessageSummary{}, false
+	}
+	if TrimString(content["p2p_kind"]) != "" {
+		return MessageSummary{}, false
+	}
+	body := TrimString(content["body"])
+	if body == "" {
+		return MessageSummary{}, false
+	}
+	sender = strings.TrimSpace(sender)
+	localpart, domain := splitMXID(sender)
+	return MessageSummary{
+		EventID:         eventID,
+		OriginServerTS:  originServerTS,
+		CreatedAt:       FormatTime(originServerTS),
+		Sender:          displayNameFromMXID(sender),
+		SenderMXID:      sender,
+		SenderDomain:    domain,
+		SenderLocalpart: localpart,
+		Msg:             body,
+	}, true
+}
+
+func displayNameFromMXID(mxid string) string {
+	localpart, _ := splitMXID(mxid)
+	if strings.TrimSpace(localpart) == "" {
+		return strings.TrimSpace(mxid)
+	}
+	return localpart
+}
+
+func splitMXID(mxid string) (localpart, domain string) {
+	trimmed := strings.TrimSpace(mxid)
+	withoutSigil := strings.TrimPrefix(trimmed, "@")
+	if idx := strings.Index(withoutSigil, ":"); idx >= 0 {
+		localpart = strings.TrimSpace(withoutSigil[:idx])
+		domain = strings.TrimSpace(withoutSigil[idx+1:])
+		return localpart, domain
+	}
+	return strings.TrimSpace(withoutSigil), ""
+}
+
 func SortMessageSummaries(messages []MessageSummary) {
 	sort.SliceStable(messages, func(i, j int) bool {
 		if messages[i].OriginServerTS == messages[j].OriginServerTS {

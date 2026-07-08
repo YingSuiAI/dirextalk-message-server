@@ -92,25 +92,12 @@ func (r *Reader) ListOrdinaryMessages(ctx context.Context, roomID string, page m
 		if err := json.Unmarshal(event.Content(), &content); err != nil {
 			continue
 		}
-		if trimString(content["p2p_kind"]) != "" {
-			continue
-		}
-		body := trimString(content["body"])
-		if body == "" {
-			continue
-		}
 		sender := senderMXID(event)
-		localpart, domain := splitMXID(sender)
-		messages = append(messages, matrixhistory.MessageSummary{
-			EventID:         eventID,
-			OriginServerTS:  originServerTS,
-			CreatedAt:       matrixhistory.FormatTime(originServerTS),
-			Sender:          displayNameFromMXID(sender),
-			SenderMXID:      sender,
-			SenderDomain:    domain,
-			SenderLocalpart: localpart,
-			Msg:             body,
-		})
+		summary, ok := matrixhistory.OrdinaryMessageSummary(event.Type(), eventID, originServerTS, sender, content, page)
+		if !ok {
+			continue
+		}
+		messages = append(messages, summary)
 		if len(messages) > page.Limit {
 			break
 		}
@@ -146,33 +133,4 @@ func senderMXID(event *rstypes.HeaderedEvent) string {
 		return event.UserID.String()
 	}
 	return string(event.SenderID())
-}
-
-func trimString(value any) string {
-	if value == nil {
-		return ""
-	}
-	if text, ok := value.(string); ok {
-		return strings.TrimSpace(text)
-	}
-	return ""
-}
-
-func displayNameFromMXID(mxid string) string {
-	localpart, _ := splitMXID(mxid)
-	if strings.TrimSpace(localpart) == "" {
-		return strings.TrimSpace(mxid)
-	}
-	return localpart
-}
-
-func splitMXID(mxid string) (localpart, domain string) {
-	trimmed := strings.TrimSpace(mxid)
-	withoutSigil := strings.TrimPrefix(trimmed, "@")
-	if idx := strings.Index(withoutSigil, ":"); idx >= 0 {
-		localpart = strings.TrimSpace(withoutSigil[:idx])
-		domain = strings.TrimSpace(withoutSigil[idx+1:])
-		return localpart, domain
-	}
-	return strings.TrimSpace(withoutSigil), ""
 }

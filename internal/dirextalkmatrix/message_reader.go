@@ -62,27 +62,11 @@ func (r *HTTPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID str
 			break
 		}
 		for _, event := range payload.Chunk {
-			if event.Type != "m.room.message" || !InPage(event.OriginServerTS, event.EventID, page) {
+			summary, ok := OrdinaryMessageSummary(event.Type, event.EventID, event.OriginServerTS, event.Sender, event.Content, page)
+			if !ok {
 				continue
 			}
-			if trimString(event.Content["p2p_kind"]) != "" {
-				continue
-			}
-			body := trimString(event.Content["body"])
-			if body == "" {
-				continue
-			}
-			localpart, domain := splitMXID(event.Sender)
-			messages = append(messages, MessageSummary{
-				EventID:         event.EventID,
-				OriginServerTS:  event.OriginServerTS,
-				CreatedAt:       FormatTime(event.OriginServerTS),
-				Sender:          displayNameFromMXID(event.Sender),
-				SenderMXID:      event.Sender,
-				SenderDomain:    domain,
-				SenderLocalpart: localpart,
-				Msg:             body,
-			})
+			messages = append(messages, summary)
 			if len(messages) > page.Limit {
 				break
 			}
