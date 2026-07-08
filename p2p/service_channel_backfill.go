@@ -42,10 +42,15 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 		return err
 	}
 	sort.SliceStable(events, func(i, j int) bool {
+		leftWeight := channelContentBackfillWeight(events[i])
+		rightWeight := channelContentBackfillWeight(events[j])
+		if leftWeight != rightWeight {
+			return leftWeight < rightWeight
+		}
 		if events[i].OriginServerTS != events[j].OriginServerTS {
 			return events[i].OriginServerTS < events[j].OriginServerTS
 		}
-		return channelContentBackfillWeight(events[i]) < channelContentBackfillWeight(events[j])
+		return events[i].EventID < events[j].EventID
 	})
 	for _, event := range events {
 		if event.RoomID == "" {
