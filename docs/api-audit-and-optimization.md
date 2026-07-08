@@ -14,6 +14,7 @@ Primary sources:
 - `p2p/dendrite_transport.go`
 - `internal/dirextalktransport`
 - `internal/dirextalktransport/dendrite`
+- `internal/dirextalkmatrix`
 - `p2p/projector.go`
 - `p2p/remote_public.go`
 - `p2p/consumer.go`

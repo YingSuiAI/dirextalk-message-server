@@ -1,4 +1,4 @@
-package matrixhistory
+package dirextalkmatrix
 
 import (
 	"context"
@@ -21,8 +21,8 @@ func TestHTTPMessageReaderListOrdinaryMessagesScansPagesAndExcludesProductEvents
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("from") == "" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"chunk": []Event{
+			_ = json.NewEncoder(w).Encode(messagesResponse{
+				Chunk: []Event{
 					{
 						EventID:        "$ordinary_newer",
 						Type:           "m.room.message",
@@ -45,12 +45,12 @@ func TestHTTPMessageReaderListOrdinaryMessagesScansPagesAndExcludesProductEvents
 						Content:        map[string]any{"body": "comment body", "p2p_kind": "channel_comment"},
 					},
 				},
-				"end": "next",
+				End: "next",
 			})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"chunk": []Event{
+		_ = json.NewEncoder(w).Encode(messagesResponse{
+			Chunk: []Event{
 				{
 					EventID:        "$ordinary_older",
 					Type:           "m.room.message",
@@ -84,5 +84,68 @@ func TestHTTPMessageReaderListOrdinaryMessagesScansPagesAndExcludesProductEvents
 		result.Messages[0].CreatedAt != "2024-03-09T16:05:00Z" ||
 		result.Messages[1].EventID != "$ordinary_older" {
 		t.Fatalf("expected only ordinary channel chat messages newest-first, got %#v", result.Messages)
+	}
+}
+
+func TestHTTPMessageReaderListChannelContentIncludesPostsCommentsAndReactions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(messagesResponse{
+			Chunk: []Event{
+				{
+					EventID:        "$ordinary",
+					Type:           "m.room.message",
+					Sender:         "@owner:example.com",
+					OriginServerTS: 1710000300000,
+					Content:        map[string]any{"body": "ordinary chat"},
+				},
+				{
+					EventID:        "$post",
+					Type:           "m.room.message",
+					Sender:         "@owner:example.com",
+					OriginServerTS: 1710000200000,
+					Content:        map[string]any{"body": "post body", "p2p_kind": "channel_post"},
+				},
+				{
+					EventID:        "$comment",
+					Type:           "m.room.message",
+					Sender:         "@owner:example.com",
+					OriginServerTS: 1710000100000,
+					Content:        map[string]any{"body": "comment body", "p2p_kind": "channel_comment"},
+				},
+				{
+					EventID:        "$reaction",
+					Type:           "m.reaction",
+					Sender:         "@owner:example.com",
+					OriginServerTS: 1710000400000,
+					Content:        map[string]any{"m.relates_to": map[string]any{"event_id": "$post"}},
+				},
+				{
+					EventID:        "$unrelated_reaction",
+					Type:           "m.reaction",
+					Sender:         "@owner:example.com",
+					OriginServerTS: 1710000500000,
+					Content:        map[string]any{"body": "ignore"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	reader := NewHTTPMessageReader(server.URL, func(context.Context) (string, error) {
+		return "token", nil
+	}, server.Client())
+	events, err := reader.ListChannelContent(context.Background(), "!channel:example.com", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected post, comment, and related reaction only, got %#v", events)
+	}
+	if events[0].EventID != "$post" || events[0].RoomID != "!channel:example.com" {
+		t.Fatalf("unexpected post event: %#v", events[0])
+	}
+	if events[1].EventID != "$comment" || events[2].EventID != "$reaction" {
+		t.Fatalf("unexpected channel content order: %#v", events)
 	}
 }

@@ -79,6 +79,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `p2p/storage`：P2P projection/read model 持久化。
 - `internal/dirextalktransport`：产品 Matrix 写入 transport contract。
 - `internal/dirextalktransport/dendrite`：真实 Matrix roomserver 写入适配层；`p2p/dendrite_transport.go` 仅保留 facade 构造入口。
+- `internal/dirextalkmatrix`：Matrix Client-Server HTTP profile/history reader；`p2p/matrix_profile_resolver.go`、`p2p/matrix_history_reader.go` 和 `p2p/matrixhistory` 仅保留 facade/compatibility aliases。
 - `p2p/projector_*.go`、`p2p/projection`：roomserver output 到 P2P projection 的投影。
 - `p2p/consumer.go`：订阅 roomserver 输出并调用 projector。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。

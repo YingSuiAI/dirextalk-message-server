@@ -47,6 +47,7 @@ New package:
 - `p2p/dendrite_transport.go`
 - `internal/dirextalktransport`
 - `internal/dirextalktransport/dendrite`
+- `internal/dirextalkmatrix`
 - `p2p/projector.go`
 - `p2p/consumer.go`
 - `p2p/routing_test.go`
