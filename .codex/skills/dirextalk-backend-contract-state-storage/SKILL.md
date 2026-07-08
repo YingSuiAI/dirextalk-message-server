@@ -14,7 +14,7 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 - `POST /mcp` is the standard MCP Streamable HTTP endpoint and uses JSON-RPC `initialize`, `tools/list`, and `tools/call`, not the product action envelope.
 - `agent_token` is accepted only for `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /mcp`.
 - `POST /mcp` requires `Authorization: Bearer <agent_token>`, rejects owner access tokens and query-string tokens, validates `Origin`, returns 405 for GET/SSE while streaming is unused, and must not forward inbound bearer tokens downstream.
-- Fixed `mcp.*` HTTP actions are temporary compatibility wrappers around `internal/dirextalkmcp`; do not add new MCP business logic there, and remove them in the next MCP-D pass unless product explicitly extends compatibility.
+- Fixed `mcp.*` HTTP actions are temporary compatibility wrappers around `internal/dirextalkmcp`; do not add new MCP business logic there, and defer MCP-D removal until final backend/three-node verification completes unless product explicitly extends compatibility.
 - `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.

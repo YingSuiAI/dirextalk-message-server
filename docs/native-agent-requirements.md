@@ -19,7 +19,7 @@ Clients use the current call surface:
 - First-class owner `agent.*` body actions for Native Agent chat, model listing, runtime, skills, MCP, context compression, config patch proposal, and built-in Dirextalk tools.
 - `client.native_agent_stream` over realtime WebSocket for Native Agent streaming, with `client.native_agent_stream.cancel` for cancellation.
 - Standard external MCP clients call `POST /mcp` with MCP Streamable HTTP JSON-RPC and `Authorization: Bearer <agent_token>`.
-- Fixed `mcp.*` body actions are temporary compatibility wrappers around `internal/dirextalkmcp`; Native Agent tools must call the shared service directly, and the next MCP-D pass should delete the wrappers unless product explicitly extends compatibility.
+- Fixed `mcp.*` body actions are temporary compatibility wrappers around `internal/dirextalkmcp`; Native Agent tools must call the shared service directly. MCP-D wrapper deletion is deferred until final backend/three-node verification completes unless product explicitly extends compatibility.
 - Plugin manager actions remain for Ops and future non-Agent plugins only.
 
 ## Runtime Requirements
@@ -55,7 +55,7 @@ The runtime exposes Dirextalk tools generated from the shared `internal/dirextal
 
 Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access is read-only and only for context/history/state material.
 
-The external `POST /mcp` transport must call the same `internal/dirextalkmcp` service as these built-in tools. Do not duplicate Dirextalk MCP business logic in Native Agent, fixed `mcp.*` body-action wrappers, or the MCP HTTP transport. The fixed `mcp.*` body-action wrappers are temporary compatibility only and should be removed in the next MCP-D cleanup unless product explicitly extends the compatibility window.
+The external `POST /mcp` transport must call the same `internal/dirextalkmcp` service as these built-in tools. Do not duplicate Dirextalk MCP business logic in Native Agent, fixed `mcp.*` body-action wrappers, or the MCP HTTP transport. The fixed `mcp.*` body-action wrappers are temporary compatibility only; remove them after final backend/three-node verification unless product explicitly extends the compatibility window.
 
 ## Skills
 

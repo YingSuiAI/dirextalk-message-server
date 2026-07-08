@@ -2954,7 +2954,7 @@
         },
         {
           "name": "MCP（智能体接口）",
-          "description": "Dirextalk Local MCP body-action compatibility wrappers，面向本地 Agent/工具调用。本轮暂不删除这些固定 `mcp.*` action；它们只是 `internal/dirextalkmcp` 的临时兼容 wrapper，下一轮 MCP-D 默认删除。可使用 `agent_token` 或 owner `access_token` 鉴权；标准外部 MCP client 应使用 `POST /mcp` JSON-RPC，且只接受 `agent_token`。MCP capability 按 portal owner 视角代理操作，不暴露 owner token。`agent.config.mcp_blocked_room_ids` 中的房间不会被 MCP 使用：搜索会过滤，直接访问会返回 403。",
+          "description": "Dirextalk Local MCP body-action compatibility wrappers，面向本地 Agent/工具调用。本轮暂不删除这些固定 `mcp.*` action；它们只是 `internal/dirextalkmcp` 的临时兼容 wrapper，保留到最终后端/三节点验证完成，之后执行 MCP-D 删除，除非产品明确延长兼容期。可使用 `agent_token` 或 owner `access_token` 鉴权；标准外部 MCP client 应使用 `POST /mcp` JSON-RPC，且只接受 `agent_token`。MCP capability 按 portal owner 视角代理操作，不暴露 owner token。`agent.config.mcp_blocked_room_ids` 中的房间不会被 MCP 使用：搜索会过滤，直接访问会返回 403。",
           "item": [
             {
               "name": "mcp.rooms.search（搜索房间）",

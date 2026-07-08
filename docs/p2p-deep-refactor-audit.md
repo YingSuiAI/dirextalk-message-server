@@ -43,7 +43,7 @@ Resolved compatibility timing for this pass:
 
 - Do not delete old fixed `mcp.*` body actions in the current pass.
 - Treat them as temporary compatibility wrappers around `internal/dirextalkmcp`.
-- The next MCP-D task is deletion: remove `mcp.*` from the product action registry, `serviceapi.AgentAction`, Postman, docs, and compatibility tests unless product explicitly reopens short-term compatibility.
+- Defer MCP-D deletion until final backend/three-node verification completes; after that, remove `mcp.*` from the product action registry, `serviceapi.AgentAction`, Postman, docs, and compatibility tests unless product explicitly extends compatibility.
 
 Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman collections, project-local `.codex/skills`, and focused tests together. This is an intentional contract change from the previous "no URL-shaped product endpoints" rule.
 
@@ -92,7 +92,7 @@ Dependencies must enter through small interfaces, not through `p2p.Service`:
 - profile resolver;
 - room/blocklist authorizer.
 
-`p2p.Service` should become an adapter that supplies `Store`, `Transport`, Matrix history reader, profile resolver, owner context, and `mcp_blocked_room_ids` behavior to `internal/dirextalkmcp`. Existing `p2p/action_registry_mcp.go` and `p2p/mcp_api.go` `mcp.*` handlers are temporary compatibility wrappers around that service and should be removed in the next MCP-D pass unless product explicitly extends compatibility.
+`p2p.Service` should become an adapter that supplies `Store`, `Transport`, Matrix history reader, profile resolver, owner context, and `mcp_blocked_room_ids` behavior to `internal/dirextalkmcp`. Existing `p2p/action_registry_mcp.go` and `p2p/mcp_api.go` `mcp.*` handlers are temporary compatibility wrappers around that service; defer their MCP-D removal until final backend/three-node verification completes unless product explicitly extends compatibility.
 
 Native Agent Dirextalk tools should be generated from the same `internal/dirextalkmcp` registry and schemas. `p2p/native_agent_runner.go:nativeAgentTools` and `p2p/nativeagent/native_agent_tools.go` should not keep duplicated Dirextalk MCP business logic after Phase MCP-B.
 
@@ -190,7 +190,7 @@ These items should be deleted in a later implementation phase only with the note
 | Removed Native Agent/plugin names can be reintroduced during cleanup. | `p2p/routing_test.go`: `TestAgentStatusActionRemoved`, `TestSyncBootstrapOmitsDeprecatedAgentOnline`; `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `docs/current-project-documentation.md`: `agent.status`/`agent_online` removal | Moving action/plugin registration may accidentally expose removed `agent.status`, `agents.status`, `agent_online`, or `io.dirextalk.agent` plugin surfaces. | Keep negative contract tests while removing compatibility code. |
 | `client.command` removal is a WS client contract change. | `p2p/realtime_ws.go`: rejection branch for `"client.command"`; `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandIsRemoved`; `docs/current-project-documentation.md`: removed-alias note | Deleting the alias without docs/client coordination breaks older owner clients. | Phase C treats this as a contract change and documents that clients must use `client.request`. |
 | MCP pagination and response field names must not regress. | `p2p/mcp_pagination.go`: `mcpPageFromParams`, `rejectLegacyMCPTimeParams`; `p2p/mcp_api.go`: `mcpMessagesList`, channel posts/comments list actions; `p2p/mcp_api_test.go`: legacy timestamp rejection cases; `docs/current-project-documentation.md`: `from_time`/`to_time`, `cursor`, no old `ts`/`last_ts` fields | Moving history readers can accidentally reintroduce `from_ts`, `to_ts`, `ts`, or `last_ts`. | Keep explicit schema tests around request rejection and response field absence. |
-| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: no-URL-shaped-product-endpoint rule with explicit MCP exception; `docs/current-project-documentation.md`: `POST /mcp` endpoint contract; `p2p/routing_mcp.go`: standard MCP JSON-RPC transport; `p2p/action_registry_mcp.go`: current body-action `mcp.*` wrapper surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | `POST /mcp` changes the contract from body-action-only product capability access for external MCP clients. | Phase MCP-C pins endpoint path, first-version `agent_token` auth, Origin/token handling, GET 405, and no bearer forwarding. Current `mcp.*` body actions are temporary wrappers; Phase MCP-D should remove them unless product explicitly extends compatibility. |
+| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: no-URL-shaped-product-endpoint rule with explicit MCP exception; `docs/current-project-documentation.md`: `POST /mcp` endpoint contract; `p2p/routing_mcp.go`: standard MCP JSON-RPC transport; `p2p/action_registry_mcp.go`: current body-action `mcp.*` wrapper surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | `POST /mcp` changes the contract from body-action-only product capability access for external MCP clients. | Phase MCP-C pins endpoint path, first-version `agent_token` auth, Origin/token handling, GET 405, and no bearer forwarding. Current `mcp.*` body actions are temporary wrappers; defer Phase MCP-D removal until final backend/three-node verification completes unless product explicitly extends compatibility. |
 | Remote public lookup security must survive adapter moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; `p2p/service_channels.go`: `channelPublicGet`, `channelPublicSearch`; `p2p/service_channel_join.go`: `channelJoinRequest`, `notifyRemoteChannelJoinResult` | Public lookup must reject malformed Matrix IDs, URL-shaped server names, and private/internal hosts, while requiring request-provided `remote_node_base_url`. | Keep multi-node and validation tests before moving this code. |
 | Matrix-native product state must remain authoritative. | `p2p/service_channels.go`: `publishChannelState`, `publishMemberPolicyState`, `publishJoinRequestState`; `p2p/service_groups.go`: `publishGroupState`; `p2p/projector.go`: `ProjectRoomEvent`; `internal/productpolicy/productpolicy.go`: validation functions | Refactoring can accidentally treat projections as source-of-truth for membership or ordinary messages. | Tests must assert Matrix membership/state events remain the final joined/dissolved/policy facts. |
 
@@ -323,13 +323,13 @@ Phase MCP-C must have:
 Phase MCP-D must have:
 
 - current deferral decision applied: do not delete old `mcp.*` body actions in this pass;
-- next MCP-D deletion removes `mcp.*` from product action registry and `serviceapi.AgentAction` unless product explicitly extends compatibility;
+- post-verification MCP-D deletion removes `mcp.*` from product action registry and `serviceapi.AgentAction` unless product explicitly extends compatibility;
 - if compatibility is extended again, wrappers keep a clear deletion marker and tests proving they call `internal/dirextalkmcp`;
 - `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills` synchronized.
 
 ## 10. Recommended Order For The Next Implementation Phases
 
-Status after Phase MCP-C: Phase B, Phase C, Phase MCP-B, and Phase MCP-C have implementation coverage in this branch. Product decided not to delete old `mcp.*` body actions in this pass; they are temporary wrappers only. The next MCP-specific implementation task is Phase MCP-D deletion unless product explicitly extends compatibility.
+Status after Phase MCP-C: Phase B, Phase C, Phase MCP-B, and Phase MCP-C have implementation coverage in this branch. Product decided not to delete old `mcp.*` body actions in this pass; they are temporary wrappers only. MCP-D deletion remains deferred until final backend/three-node verification completes unless product explicitly extends compatibility.
 
 1. Phase MCP-A: document the unified MCP capability architecture.
    - Add only design guidance to this audit document.
