@@ -20,6 +20,16 @@ type Channel struct {
 	MemberStatus     string `json:"member_status,omitempty"`
 }
 
+type GroupRecord struct {
+	RoomID       string `json:"room_id"`
+	Name         string `json:"name"`
+	Topic        string `json:"topic"`
+	AvatarURL    string `json:"avatar_url"`
+	MemberCount  int64  `json:"member_count"`
+	InvitePolicy string `json:"invite_policy"`
+	Muted        bool   `json:"muted"`
+}
+
 type MemberRecord struct {
 	RoomID               string `json:"room_id"`
 	ChannelID            string `json:"channel_id"`
