@@ -138,8 +138,8 @@ func (s *Service) lookupContactByPeer(ctx context.Context, peerMXID string) (con
 }
 
 func (s *Service) listGroups(ctx context.Context) ([]groupRecord, error) {
-	if s.store != nil {
-		return s.store.ListGroups(ctx)
+	if store := s.groupStore(); store != nil {
+		return store.ListGroups(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

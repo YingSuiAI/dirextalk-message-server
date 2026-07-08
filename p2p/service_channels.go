@@ -627,26 +627,27 @@ func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID stri
 
 func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) error {
 	roomID = strings.TrimSpace(roomID)
-	if s.store == nil || roomID == "" {
+	groupStore := s.groupStore()
+	if groupStore == nil || roomID == "" {
 		return nil
 	}
-	target, ok, err := s.store.GetGroupByRoom(ctx, roomID)
+	target, ok, err := groupStore.GetGroupByRoom(ctx, roomID)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return nil
 	}
-	store := s.memberStore()
-	if store == nil {
+	memberStore := s.memberStore()
+	if memberStore == nil {
 		return nil
 	}
-	memberCount, _, err := store.CountProductMembers(ctx, roomID, "")
+	memberCount, _, err := memberStore.CountProductMembers(ctx, roomID, "")
 	if err != nil {
 		return err
 	}
 	target.MemberCount = memberCount
-	return s.store.UpsertGroup(ctx, target)
+	return groupStore.UpsertGroup(ctx, target)
 }
 
 func (s *Service) refreshChannelCountsLocked(channelID string) {

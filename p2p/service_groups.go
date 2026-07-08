@@ -6,6 +6,21 @@ import (
 	"time"
 )
 
+type groupStore interface {
+	UpsertGroup(ctx context.Context, group groupRecord) error
+	DeleteGroup(ctx context.Context, roomID string) error
+	ListGroups(ctx context.Context) ([]groupRecord, error)
+	GetGroupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error)
+	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupRecord, error)
+}
+
+func (s *Service) groupStore() groupStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) ensureProductRoom(ctx context.Context, kind string, req CreateRoomRequest) (string, *apiError) {
 	if s.transport != nil {
 		s.mu.Lock()
@@ -159,11 +174,11 @@ func (s *Service) groupUpdate(ctx context.Context, params map[string]any) (any, 
 }
 
 func (s *Service) groupList(ctx context.Context) any {
-	if s.store != nil {
+	if store := s.groupStore(); store != nil {
 		s.mu.Lock()
 		ownerMXID := s.ownerMXID
 		s.mu.Unlock()
-		groups, err := s.store.ListJoinedGroupsForUser(ctx, ownerMXID)
+		groups, err := store.ListJoinedGroupsForUser(ctx, ownerMXID)
 		if err != nil {
 			return map[string]any{"groups": []groupRecord{}}
 		}
@@ -223,8 +238,8 @@ func (s *Service) saveGroup(ctx context.Context, group groupRecord) error {
 	s.mu.Lock()
 	s.groups[group.RoomID] = group
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertGroup(ctx, group); err != nil {
+	if store := s.groupStore(); store != nil {
+		if err := store.UpsertGroup(ctx, group); err != nil {
 			return err
 		}
 	}
@@ -254,8 +269,8 @@ func (s *Service) deleteGroup(ctx context.Context, roomID string) error {
 	delete(s.groups, roomID)
 	deleteConversationKindByRoomLocked(s.conversations, roomID, conversationKindGroup)
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.DeleteGroup(ctx, roomID); err != nil {
+	if store := s.groupStore(); store != nil {
+		if err := store.DeleteGroup(ctx, roomID); err != nil {
 			return err
 		}
 		return s.deleteStoredConversationKind(ctx, roomID, conversationKindGroup)
@@ -288,8 +303,8 @@ func (s *Service) dissolveGroup(ctx context.Context, params map[string]any) (any
 }
 
 func (s *Service) groupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
-	if s.store != nil {
-		return s.store.GetGroupByRoom(ctx, roomID)
+	if store := s.groupStore(); store != nil {
+		return store.GetGroupByRoom(ctx, roomID)
 	}
 	groups, err := s.listGroups(ctx)
 	if err != nil {
