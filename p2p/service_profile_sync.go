@@ -93,8 +93,8 @@ func (s *Service) membersForUser(ctx context.Context, userID string) ([]memberRe
 	if userID == "" {
 		return nil, nil
 	}
-	if s.store != nil {
-		return s.store.ListMembersForUser(ctx, userID)
+	if store := s.memberStore(); store != nil {
+		return store.ListMembersForUser(ctx, userID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

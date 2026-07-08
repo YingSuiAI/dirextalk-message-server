@@ -7,6 +7,22 @@ import (
 	"time"
 )
 
+type memberStore interface {
+	UpsertMember(ctx context.Context, member memberRecord) error
+	LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error)
+	ListMembers(ctx context.Context, roomID, channelID string) ([]memberRecord, error)
+	ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error)
+	CountProductMembers(ctx context.Context, roomID, channelID string) (joined, pending int64, err error)
+	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
+}
+
+func (s *Service) memberStore() memberStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
 	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
@@ -14,9 +30,10 @@ func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
 	}
 	var stored memberRecord
 	var hasStored bool
-	if s.store != nil && member.RoomID != "" && member.UserID != "" {
+	store := s.memberStore()
+	if store != nil && member.RoomID != "" && member.UserID != "" {
 		var err error
-		stored, hasStored, err = s.store.LookupMember(ctx, member.RoomID, member.UserID)
+		stored, hasStored, err = store.LookupMember(ctx, member.RoomID, member.UserID)
 		if err != nil {
 			return err
 		}
@@ -34,8 +51,8 @@ func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
 		s.refreshChannelCountsLocked(member.ChannelID)
 	}
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertMember(ctx, member); err != nil {
+	if store != nil {
+		if err := store.UpsertMember(ctx, member); err != nil {
 			return err
 		}
 		if member.ChannelID == "" {
@@ -79,6 +96,10 @@ func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
 	if s.store == nil {
 		return nil
 	}
+	memberStore := s.memberStore()
+	if memberStore == nil {
+		return nil
+	}
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
 	serverName := s.serverName
@@ -94,7 +115,7 @@ func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
 		if !strings.EqualFold(domainFromMatrixID(ch.RoomID, "!"), serverName) {
 			continue
 		}
-		member, ok, err := s.store.LookupMember(ctx, ch.RoomID, ownerMXID)
+		member, ok, err := memberStore.LookupMember(ctx, ch.RoomID, ownerMXID)
 		if err != nil {
 			return err
 		}
@@ -140,8 +161,8 @@ func (s *Service) setProductMemberMute(ctx context.Context, roomID, channelID st
 }
 
 func (s *Service) membersForProduct(ctx context.Context, roomID, channelID string) ([]memberRecord, error) {
-	if s.store != nil {
-		return s.store.ListMembers(ctx, roomID, channelID)
+	if store := s.memberStore(); store != nil {
+		return store.ListMembers(ctx, roomID, channelID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

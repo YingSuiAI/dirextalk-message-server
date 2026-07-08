@@ -257,8 +257,8 @@ func (s *Service) channelConversationView(ctx context.Context, view conversation
 }
 
 func (s *Service) hydrateConversationMembership(ctx context.Context, view conversationView, channelID string) (conversationView, error) {
-	if s.store != nil {
-		joined, err := s.store.CountJoinedMembers(ctx, view.MatrixRoomID, channelID)
+	if store := s.memberStore(); store != nil {
+		joined, err := store.CountJoinedMembers(ctx, view.MatrixRoomID, channelID)
 		if err != nil {
 			return view, err
 		}

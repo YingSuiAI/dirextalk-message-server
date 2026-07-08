@@ -167,8 +167,8 @@ func (s *Service) lookupMember(ctx context.Context, roomID, userID string) (memb
 	if roomID == "" || userID == "" {
 		return memberRecord{}, false, nil
 	}
-	if s.store != nil {
-		return s.store.LookupMember(ctx, roomID, userID)
+	if store := s.memberStore(); store != nil {
+		return store.LookupMember(ctx, roomID, userID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -195,8 +195,8 @@ func (s *Service) memberList(ctx context.Context, params map[string]any) any {
 	channelID := trimString(params["channel_id"])
 	status := fallbackString(trimString(params["status"]), trimString(params["membership"]))
 	role := trimString(params["role"])
-	if s.store != nil {
-		members, err := s.store.ListMembers(ctx, roomID, channelID)
+	if store := s.memberStore(); store != nil {
+		members, err := store.ListMembers(ctx, roomID, channelID)
 		if err == nil {
 			return map[string]any{"members": filterMembers(members, status, role)}
 		}

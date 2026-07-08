@@ -540,8 +540,8 @@ func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (cha
 	if strings.TrimSpace(ch.ChannelID) == "" {
 		return ch, nil
 	}
-	if s.store != nil {
-		memberCount, pendingJoinCount, err := s.store.CountProductMembers(ctx, ch.RoomID, ch.ChannelID)
+	if store := s.memberStore(); store != nil {
+		memberCount, pendingJoinCount, err := store.CountProductMembers(ctx, ch.RoomID, ch.ChannelID)
 		if err != nil {
 			return channel{}, err
 		}
@@ -594,7 +594,11 @@ func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID stri
 	if !ok {
 		return nil
 	}
-	memberCount, pendingJoinCount, err := s.store.CountProductMembers(ctx, target.RoomID, channelID)
+	store := s.memberStore()
+	if store == nil {
+		return nil
+	}
+	memberCount, pendingJoinCount, err := store.CountProductMembers(ctx, target.RoomID, channelID)
 	if err != nil {
 		return err
 	}
@@ -615,7 +619,11 @@ func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) e
 	if !ok {
 		return nil
 	}
-	memberCount, _, err := s.store.CountProductMembers(ctx, roomID, "")
+	store := s.memberStore()
+	if store == nil {
+		return nil
+	}
+	memberCount, _, err := store.CountProductMembers(ctx, roomID, "")
 	if err != nil {
 		return err
 	}
