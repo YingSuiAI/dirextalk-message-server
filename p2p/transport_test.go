@@ -2075,8 +2075,11 @@ func TestChannelReactionDoesNotSaveProjectionWhenMatrixSendFails(t *testing.T) {
 }
 
 type fakeChannelBackfillReader struct {
-	events []matrixhistory.Event
-	calls  int
+	events    []matrixhistory.Event
+	responses [][]matrixhistory.Event
+	err       error
+	errs      []error
+	calls     int
 }
 
 func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, roomID string, page mcpMessagePage) (mcpMessagePageResult, error) {
@@ -2085,10 +2088,29 @@ func (r *fakeChannelBackfillReader) ListOrdinaryMessages(ctx context.Context, ro
 
 func (r *fakeChannelBackfillReader) ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error) {
 	r.calls++
-	if limit > 0 && len(r.events) > limit {
-		return r.events[:limit], nil
+	if len(r.errs) > 0 {
+		index := r.calls - 1
+		if index >= len(r.errs) {
+			index = len(r.errs) - 1
+		}
+		if r.errs[index] != nil {
+			return nil, r.errs[index]
+		}
+	} else if r.err != nil {
+		return nil, r.err
 	}
-	return r.events, nil
+	events := r.events
+	if len(r.responses) > 0 {
+		index := r.calls - 1
+		if index >= len(r.responses) {
+			index = len(r.responses) - 1
+		}
+		events = r.responses[index]
+	}
+	if limit > 0 && len(events) > limit {
+		return events[:limit], nil
+	}
+	return events, nil
 }
 
 func TestChannelJoinBackfillsHistoricalPostsCommentsAndReactions(t *testing.T) {

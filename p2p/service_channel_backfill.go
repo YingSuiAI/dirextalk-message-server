@@ -2,12 +2,19 @@ package p2p
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"sort"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 const maxChannelContentBackfillEvents = 5000
+
+var channelContentBackfillRateLimitRetryDelays = []time.Duration{
+	600 * time.Millisecond,
+}
 
 type channelContentReader interface {
 	ListChannelContent(ctx context.Context, roomID string, limit int) ([]matrixhistory.Event, error)
@@ -37,7 +44,7 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 	if reader == nil {
 		return nil
 	}
-	events, err := reader.ListChannelContent(ctx, roomID, maxChannelContentBackfillEvents)
+	events, err := listJoinedChannelContentBestEffort(ctx, reader, roomID)
 	if err != nil {
 		return err
 	}
@@ -92,6 +99,38 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 		}
 	}
 	return nil
+}
+
+func listJoinedChannelContentBestEffort(ctx context.Context, reader channelContentReader, roomID string) ([]matrixhistory.Event, error) {
+	events, err := reader.ListChannelContent(ctx, roomID, maxChannelContentBackfillEvents)
+	if err == nil {
+		return events, nil
+	}
+	if !matrixHistoryRateLimited(err) {
+		return nil, nil
+	}
+	for _, delay := range channelContentBackfillRateLimitRetryDelays {
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		events, err = reader.ListChannelContent(ctx, roomID, maxChannelContentBackfillEvents)
+		if err == nil {
+			return events, nil
+		}
+		if !matrixHistoryRateLimited(err) {
+			return nil, nil
+		}
+	}
+	return nil, nil
+}
+
+func matrixHistoryRateLimited(err error) bool {
+	var statusErr matrixhistory.StatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusTooManyRequests
 }
 
 func channelContentBackfillWeight(event matrixhistory.Event) int {

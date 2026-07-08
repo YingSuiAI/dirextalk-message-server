@@ -98,7 +98,8 @@ func (m *Monolith) AddAllPublicRoutes(
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeprovisioner(accountDeprovisioner)
-	p2pService.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil))
+	matrixHistoryReader := p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil)
+	p2pService.SetMatrixMessageReader(matrixHistoryReader)
 	p2pService.SetMatrixProfileResolver(matrixProfileResolver)
 	if store, err := p2p.NewDatabaseStore(processCtx.Context(), cm, p2pDatabaseOptions(cfg)); err != nil {
 		logrus.WithError(err).Warn("P2P integrated AS store unavailable; falling back to in-memory business state")
@@ -108,14 +109,18 @@ func (m *Monolith) AddAllPublicRoutes(
 		service.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 		service.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
 		service.SetAccountDeprovisioner(accountDeprovisioner)
-		service.SetMatrixMessageReader(p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil))
+		matrixHistoryReader = p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil)
+		service.SetMatrixMessageReader(matrixHistoryReader)
 		service.SetMatrixProfileResolver(matrixProfileResolver)
 		p2pService = service
 	}
 	if syncDB, err := syncstorage.NewSyncServerDatasource(processCtx.Context(), cm, &cfg.SyncAPI.Database); err != nil {
 		logrus.WithError(err).Warn("P2P native Agent sync DB reader unavailable; using Matrix HTTP history reader")
 	} else {
-		p2pService.SetMatrixMessageReader(agenthistory.NewReader(syncDB, m.RoomserverAPI, p2pService.OwnerMXID()))
+		p2pService.SetMatrixMessageReader(p2p.NewCompositeMatrixHistoryReader(
+			agenthistory.NewReader(syncDB, m.RoomserverAPI, p2pService.OwnerMXID()),
+			matrixHistoryReader,
+		))
 	}
 	if natsInstance != nil {
 		js, _ := natsInstance.Prepare(processCtx, &cfg.Global.JetStream)

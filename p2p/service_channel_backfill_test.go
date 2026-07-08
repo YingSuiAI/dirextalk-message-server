@@ -2,7 +2,9 @@ package p2p
 
 import (
 	"context"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
@@ -54,6 +56,193 @@ func TestChannelContentBackfillProjectsReactionsAfterTargetsDespiteTimestamps(t 
 	if len(posts) != 1 || posts[0].PostID != "post_one" || posts[0].ReactionCount != 1 {
 		t.Fatalf("expected backfilled reaction to resolve after post projection, got %#v", posts)
 	}
+}
+
+func TestCompositeMatrixHistoryReaderKeepsChannelContentReader(t *testing.T) {
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "composite_channel",
+		"room_id":          "!channel:example.com",
+		"name":             "Composite Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	ordinary := &fakeOrdinaryMatrixHistoryReader{}
+	channelReader := &fakeChannelBackfillReader{events: []matrixhistory.Event{
+		{
+			Type:           "m.room.message",
+			EventID:        "$post-one:example.com",
+			Sender:         "@owner:example.com",
+			OriginServerTS: 1000,
+			Content: map[string]any{
+				"p2p_kind": "channel_post",
+				"post_id":  "post_one",
+				"body":     "composite historical post",
+				"msgtype":  "m.text",
+			},
+		},
+	}}
+	service.SetMatrixMessageReader(NewCompositeMatrixHistoryReader(ordinary, channelReader))
+
+	if err := service.backfillJoinedPostChannelContent(context.Background(), ch.RoomID, ch.ChannelID); err != nil {
+		t.Fatalf("backfillJoinedPostChannelContent returned error: %v", err)
+	}
+	if ordinary.calls != 0 {
+		t.Fatalf("channel backfill should not use ordinary message reader, calls=%d", ordinary.calls)
+	}
+	if channelReader.calls != 1 {
+		t.Fatalf("channel backfill should use channel content reader once, calls=%d", channelReader.calls)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].PostID != "post_one" || posts[0].Body != "composite historical post" {
+		t.Fatalf("expected composite reader to project historical post, got %#v", posts)
+	}
+}
+
+func TestChannelJoinBackfillRetriesMatrixRateLimitOnce(t *testing.T) {
+	oldDelays := channelContentBackfillRateLimitRetryDelays
+	channelContentBackfillRateLimitRetryDelays = []time.Duration{0}
+	defer func() {
+		channelContentBackfillRateLimitRetryDelays = oldDelays
+	}()
+
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "eventually_ready_channel",
+		"room_id":          "!channel:example.com",
+		"name":             "Eventually Ready Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	reader := &fakeChannelBackfillReader{responses: [][]matrixhistory.Event{
+		{},
+		{
+			{
+				Type:           "m.room.message",
+				EventID:        "$post-one:example.com",
+				Sender:         "@owner:example.com",
+				OriginServerTS: 1000,
+				Content: map[string]any{
+					"p2p_kind": "channel_post",
+					"post_id":  "post_one",
+					"body":     "eventually visible historical post",
+					"msgtype":  "m.text",
+				},
+			},
+			{
+				Type:           "m.room.message",
+				EventID:        "$comment-one:example.com",
+				Sender:         "@owner:example.com",
+				OriginServerTS: 1100,
+				Content: map[string]any{
+					"p2p_kind":   "channel_comment",
+					"post_id":    "post_one",
+					"comment_id": "comment_one",
+					"body":       "eventually visible historical comment",
+					"msgtype":    "m.text",
+				},
+			},
+			{
+				Type:           "m.reaction",
+				EventID:        "$reaction-post-one:example.com",
+				Sender:         "@owner:example.com",
+				OriginServerTS: 1200,
+				Content: map[string]any{
+					"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$post-one:example.com", "key": "like"},
+				},
+			},
+			{
+				Type:           "m.reaction",
+				EventID:        "$reaction-comment-one:example.com",
+				Sender:         "@owner:example.com",
+				OriginServerTS: 1300,
+				Content: map[string]any{
+					"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": "$comment-one:example.com", "key": "like"},
+				},
+			},
+		},
+	}, errs: []error{
+		matrixhistory.StatusError{StatusCode: http.StatusTooManyRequests, Message: "matrix messages failed with status 429"},
+		nil,
+	}}
+	service.SetMatrixMessageReader(reader)
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok after transient Matrix rate limit, got %#v", joined)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].PostID != "post_one" || posts[0].CommentCount != 1 || posts[0].ReactionCount != 1 {
+		t.Fatalf("expected rate-limit retry to project post/comment/reaction history after join, calls=%d posts=%#v", reader.calls, posts)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("expected backfill to retry Matrix rate limit once, calls=%d", reader.calls)
+	}
+}
+
+func TestChannelJoinBackfillSkipsPersistentMatrixRateLimit(t *testing.T) {
+	oldDelays := channelContentBackfillRateLimitRetryDelays
+	channelContentBackfillRateLimitRetryDelays = []time.Duration{0}
+	defer func() {
+		channelContentBackfillRateLimitRetryDelays = oldDelays
+	}()
+
+	transport := &recordingTransport{roomID: "!channel:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":       "rate_limited_channel",
+		"room_id":          "!channel:example.com",
+		"name":             "Rate Limited Channel",
+		"channel_type":     "post",
+		"comments_enabled": true,
+	})
+	reader := &fakeChannelBackfillReader{
+		err: matrixhistory.StatusError{StatusCode: http.StatusTooManyRequests, Message: "matrix messages failed with status 429"},
+	}
+	service.SetMatrixMessageReader(reader)
+
+	joined := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
+		"room_id":    ch.RoomID,
+		"channel_id": ch.ChannelID,
+		"user_id":    "@alice:example.com",
+	})
+	if joined["status"] != "ok" {
+		t.Fatalf("expected channels.join ok when Matrix backfill is rate-limited, got %#v", joined)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("expected backfill to retry persistent Matrix rate limit once, calls=%d", reader.calls)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{
+		"channel_id": ch.ChannelID,
+	})["posts"].([]channelPostRecord)
+	if len(posts) != 0 {
+		t.Fatalf("persistent Matrix rate limit should skip historical projection, got %#v", posts)
+	}
+}
+
+type fakeOrdinaryMatrixHistoryReader struct {
+	calls int
+}
+
+func (r *fakeOrdinaryMatrixHistoryReader) ListOrdinaryMessages(ctx context.Context, roomID string, page matrixhistory.Page) (matrixhistory.MessagePageResult, error) {
+	r.calls++
+	return matrixhistory.MessagePageResult{}, nil
 }
 
 func TestChannelContentBackfillPersistsProjectionAfterReload(t *testing.T) {
