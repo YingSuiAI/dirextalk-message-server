@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+type callStore interface {
+	UpsertCall(ctx context.Context, call callRecord) error
+	ListCalls(ctx context.Context, roomID string, activeOnly bool) ([]callRecord, error)
+}
+
+func (s *Service) callStore() callStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) favoriteMessage(ctx context.Context, params map[string]any) (any, *apiError) {
 	now := time.Now().UTC()
 	favorite := favoriteRecord{
@@ -163,8 +175,8 @@ func (s *Service) callSession(ctx context.Context, params map[string]any) (any, 
 	s.mu.Lock()
 	s.calls[call.CallID] = call
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertCall(ctx, call); err != nil {
+	if store := s.callStore(); store != nil {
+		if err := store.UpsertCall(ctx, call); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -218,8 +230,8 @@ func (s *Service) callEvent(ctx context.Context, params map[string]any) (any, *a
 	s.mu.Lock()
 	s.calls[call.CallID] = call
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertCall(ctx, call); err != nil {
+	if store := s.callStore(); store != nil {
+		if err := store.UpsertCall(ctx, call); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -277,8 +289,8 @@ func callDurationMS(start, end string) int64 {
 }
 
 func (s *Service) callByID(ctx context.Context, callID string) (callRecord, bool, error) {
-	if s.store != nil {
-		calls, err := s.store.ListCalls(ctx, "", false)
+	if store := s.callStore(); store != nil {
+		calls, err := store.ListCalls(ctx, "", false)
 		if err != nil {
 			return callRecord{}, false, err
 		}
@@ -297,8 +309,8 @@ func (s *Service) callByID(ctx context.Context, callID string) (callRecord, bool
 
 func (s *Service) callList(ctx context.Context, params map[string]any, activeOnly bool) any {
 	roomID := trimString(params["room_id"])
-	if s.store != nil {
-		calls, err := s.store.ListCalls(ctx, roomID, activeOnly)
+	if store := s.callStore(); store != nil {
+		calls, err := store.ListCalls(ctx, roomID, activeOnly)
 		if err == nil {
 			return map[string]any{"calls": calls}
 		}
