@@ -9,6 +9,17 @@ import (
 
 const systemRoomName = "System Notification"
 
+type reportStore interface {
+	InsertReport(ctx context.Context, report reportRecord) error
+}
+
+func (s *Service) reportStore() reportStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) ensureSystemRoom(ctx context.Context) (bool, error) {
 	s.mu.Lock()
 	currentRoomID := strings.TrimSpace(s.systemRoomID)
@@ -145,8 +156,8 @@ func (s *Service) reportSubmit(ctx context.Context, params map[string]any) (any,
 	if report.OriginServerTS <= 0 {
 		report.OriginServerTS = now.UnixMilli()
 	}
-	if s.store != nil {
-		if err := s.store.InsertReport(ctx, report); err != nil {
+	if store := s.reportStore(); store != nil {
+		if err := store.InsertReport(ctx, report); err != nil {
 			return nil, internalError(err)
 		}
 	}
