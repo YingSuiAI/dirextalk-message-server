@@ -35,6 +35,7 @@ Protected product actions require `Authorization: Bearer <access_token>` when is
 - `p2p/action_registry.go` maps product actions to service handlers; `p2p/service_*.go` files own business orchestration.
 - `p2p/transport.go`, `p2p/transportapi`, and `p2p/dendrite_transport.go` keep facade compatibility for product-originated Matrix writes. `internal/dirextalktransport` owns the transport contract, and `internal/dirextalktransport/dendrite` adapts those writes into Matrix room/member/state/message/redaction behavior.
 - `internal/dirextalkmatrix` owns Matrix Client-Server HTTP profile and history readers used by MCP and channel backfill; `p2p/matrix_profile_resolver.go`, `p2p/matrix_history_reader.go`, and `p2p/matrixhistory` keep facade compatibility.
+- `internal/dirextalkprojection` owns neutral projection-only helpers shared by command-side refreshes and projection views.
 - `p2p/consumer.go` and `p2p/projector.go` project roomserver output into Dirextalk read models and product events.
 - Package storage implementations own durable state and migrations for their package.
 - Docker development uses PostgreSQL 18 and writes bootstrap credentials to `/var/dirextalk-message-server/p2p/bootstrap.json`.

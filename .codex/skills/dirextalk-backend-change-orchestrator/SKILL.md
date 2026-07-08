@@ -18,7 +18,7 @@ Map only the touched surfaces:
 - Startup and routes: `cmd/dirextalk-message-server`, `setup/monolith.go`, `setup/config`.
 - Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite_transport.go`, `p2p/matrix_history_reader.go`, `p2p/matrix_profile_resolver.go`, `p2p/matrixhistory`, `internal/dirextalktransport`, `internal/dirextalktransport/dendrite`, `internal/dirextalkmatrix`.
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
-- Projection and sync: `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
+- Projection and sync: `internal/dirextalkprojection`, `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
 - Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.
 - Agent/MCP: `internal/dirextalkmcp`, `p2p/mcp`, `p2p/routing_mcp.go`, `p2p/serviceapi/actions.go`, Agent-token authorization.
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
@@ -253,7 +254,7 @@ func (s *Service) hydrateConversationMembership(ctx context.Context, view conver
 		if err != nil {
 			return view, err
 		}
-		if joined, _ := memberCounts(members); joined > 0 {
+		if joined, _ := dirextalkprojection.ProductMemberCounts(members); joined > 0 {
 			view.MemberCount = joined
 		}
 	}

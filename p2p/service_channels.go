@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
@@ -593,7 +594,7 @@ func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (cha
 	if len(members) == 0 {
 		return ch, nil
 	}
-	memberCount, pendingJoinCount := memberCounts(members)
+	memberCount, pendingJoinCount := dirextalkprojection.ProductMemberCounts(members)
 	if ch.MemberCount == memberCount && ch.PendingJoinCount == pendingJoinCount {
 		return ch, nil
 	}
@@ -661,7 +662,7 @@ func (s *Service) refreshChannelCountsLocked(channelID string) {
 			members = append(members, member)
 		}
 	}
-	ch.MemberCount, ch.PendingJoinCount = memberCounts(members)
+	ch.MemberCount, ch.PendingJoinCount = dirextalkprojection.ProductMemberCounts(members)
 	s.channels[channelID] = ch
 }
 
@@ -680,19 +681,6 @@ func (s *Service) refreshGroupCountsLocked(roomID string) {
 			members = append(members, member)
 		}
 	}
-	group.MemberCount, _ = memberCounts(members)
+	group.MemberCount, _ = dirextalkprojection.ProductMemberCounts(members)
 	s.groups[roomID] = group
-}
-
-func memberCounts(members []memberRecord) (int64, int64) {
-	var joined, pending int64
-	for _, member := range members {
-		switch strings.ToLower(strings.TrimSpace(member.Membership)) {
-		case "join", "joined":
-			joined++
-		case "pending":
-			pending++
-		}
-	}
-	return joined, pending
 }
