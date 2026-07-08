@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -177,6 +178,27 @@ func TestProjectJoinRequestStateToMemberProjection(t *testing.T) {
 	}
 	if member.Membership != "reject" {
 		t.Fatalf("expected rejected join request projection, got %#v", member)
+	}
+}
+
+func TestProjectJoinRequestStateFallsBackToNormalizedUserStateKey(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	owner := test.NewUser(t)
+	requester := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	event := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, productpolicy.UserStateKey(requester.ID), map[string]any{
+		"status": "pending",
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	member, ok, err := service.lookupMember(context.Background(), room.ID, requester.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || member.UserID != requester.ID || member.Membership != "pending" {
+		t.Fatalf("expected join request projection for normalized state key user, got ok=%v member=%#v", ok, member)
 	}
 }
 

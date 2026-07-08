@@ -2,19 +2,18 @@ package p2p
 
 import (
 	"context"
-	"encoding/json"
 
-	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
 func (s *Service) projectRoomProfileState(ctx context.Context, event *types.HeaderedEvent) error {
-	content := map[string]any{}
-	if err := json.Unmarshal(event.Content(), &content); err != nil {
+	profile, err := dirextalkstate.ParseRoomProfileContent(event.Content())
+	if err != nil {
 		return err
 	}
-	kind, _ := conversationKindFromContent(content)
+	kind := conversationKindFromStateKind(profile.Kind)
 	if kind == "" {
 		return nil
 	}
@@ -23,39 +22,50 @@ func (s *Service) projectRoomProfileState(ctx context.Context, event *types.Head
 			return err
 		}
 	}
-	if err := s.projectConversationProfile(ctx, event, kind, content); err != nil {
+	if err := s.projectConversationProfile(ctx, event, kind, profile.Raw); err != nil {
 		return err
 	}
 	switch kind {
 	case conversationKindChannel:
-		return s.projectChannelProfileContent(ctx, event, content)
+		return s.projectChannelProfileContent(ctx, event, profile)
 	case conversationKindGroup:
-		return s.projectGroupProfileContent(ctx, event, content)
+		return s.projectGroupProfileContent(ctx, event, profile)
 	case conversationKindDirect:
-		return s.projectDirectProfileContent(ctx, event, content)
+		return s.projectDirectProfileContent(ctx, event, profile)
 	default:
 		return nil
 	}
 }
 
-func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.HeaderedEvent, content map[string]any) error {
+func conversationKindFromStateKind(kind dirextalkstate.RoomKind) conversationKind {
+	switch kind {
+	case dirextalkstate.RoomKindDirect:
+		return conversationKindDirect
+	case dirextalkstate.RoomKindGroup:
+		return conversationKindGroup
+	case dirextalkstate.RoomKindChannel:
+		return conversationKindChannel
+	default:
+		return ""
+	}
+}
+
+func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.HeaderedEvent, profile dirextalkstate.RoomProfileContent) error {
 	roomID := event.RoomID().String()
 	if err := s.deleteGroup(ctx, roomID); err != nil {
 		return err
 	}
-	if boolParam(content["dissolved"]) && boolParam(content["account_deleted"]) {
-		deletedMXID := trimString(content["deleted_mxid"])
+	if profile.Dissolved && profile.AccountDeleted {
+		deletedMXID := profile.DeletedMXID
 		if deletedMXID == "" {
-			requester := trimString(content["requester_mxid"])
-			target := trimString(content["target_mxid"])
 			s.mu.Lock()
 			ownerMXID := s.ownerMXID
 			s.mu.Unlock()
 			switch {
-			case requester != "" && requester != ownerMXID:
-				deletedMXID = requester
-			case target != "" && target != ownerMXID:
-				deletedMXID = target
+			case profile.RequesterMXID != "" && profile.RequesterMXID != ownerMXID:
+				deletedMXID = profile.RequesterMXID
+			case profile.TargetMXID != "" && profile.TargetMXID != ownerMXID:
+				deletedMXID = profile.TargetMXID
 			}
 		}
 		if err := s.markDirectContactDeleted(ctx, roomID, deletedMXID); err != nil {
@@ -67,7 +77,7 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 		RoomID:    roomID,
 		EventID:   event.EventID(),
 		DedupeKey: projectedEventDedupeKey("profile.changed", event.EventID(), roomID),
-		Payload:   map[string]any{"room_type": DirextalkRoomTypeDirect, "dissolved": boolParam(content["dissolved"])},
+		Payload:   map[string]any{"room_type": DirextalkRoomTypeDirect, "dissolved": profile.Dissolved},
 	})
 }
 
@@ -86,8 +96,8 @@ func (s *Service) markDirectContactDeleted(ctx context.Context, roomID, peerMXID
 	return s.saveContact(ctx, contact)
 }
 
-func (s *Service) projectChannelProfileContent(ctx context.Context, event *types.HeaderedEvent, content map[string]any) error {
-	channelID := trimString(content["channel_id"])
+func (s *Service) projectChannelProfileContent(ctx context.Context, event *types.HeaderedEvent, profile dirextalkstate.RoomProfileContent) error {
+	channelID := profile.ChannelID
 	if channelID == "" {
 		if existing, ok, _ := s.channelByIDOrRoom(ctx, "", event.RoomID().String()); ok {
 			channelID = existing.ChannelID
@@ -97,10 +107,10 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 		channelID = event.RoomID().String()
 	}
 	existing, _, _ := s.channelByIDOrRoom(ctx, channelID, event.RoomID().String())
-	if boolParam(content["dissolved"]) {
+	if profile.Dissolved {
 		return s.deleteChannel(ctx, channelID)
 	}
-	ch := projection.ChannelProfile(event.RoomID().String(), channelID, existing, content)
+	ch := projection.ChannelProfile(event.RoomID().String(), channelID, existing, profile.Raw)
 	s.mu.Lock()
 	s.channels[ch.ChannelID] = ch
 	s.mu.Unlock()
@@ -118,13 +128,13 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 	})
 }
 
-func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.HeaderedEvent, content map[string]any) error {
+func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.HeaderedEvent, profile dirextalkstate.RoomProfileContent) error {
 	roomID := event.RoomID().String()
-	if boolParam(content["dissolved"]) {
+	if profile.Dissolved {
 		return s.deleteGroup(ctx, roomID)
 	}
 	existing, _, _ := s.groupByRoom(ctx, roomID)
-	group := projection.GroupProfile(roomID, existing, content)
+	group := projection.GroupProfile(roomID, existing, profile.Raw)
 	if err := s.saveGroup(ctx, group); err != nil {
 		return err
 	}
@@ -138,22 +148,18 @@ func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.H
 }
 
 func (s *Service) projectMemberPolicyState(ctx context.Context, event *types.HeaderedEvent) error {
-	content := map[string]any{}
-	if err := json.Unmarshal(event.Content(), &content); err != nil {
-		return err
-	}
-	userID := ""
-	if event.StateKey() != nil {
-		userID = productpolicy.UserIDFromStateKey(*event.StateKey())
-	}
-	if userID == "" {
-		return nil
-	}
-	member, ok, err := s.lookupMember(ctx, event.RoomID().String(), userID)
+	policy, err := dirextalkstate.ParseMemberPolicyContent(event.Content(), event.StateKey())
 	if err != nil {
 		return err
 	}
-	member = projection.MemberPolicy(event.RoomID().String(), userID, member, ok, content, eventTime(event))
+	if policy.UserID == "" {
+		return nil
+	}
+	member, ok, err := s.lookupMember(ctx, event.RoomID().String(), policy.UserID)
+	if err != nil {
+		return err
+	}
+	member = projection.MemberPolicy(event.RoomID().String(), policy.UserID, member, ok, policy.Raw, eventTime(event))
 	if err := s.saveMember(ctx, member); err != nil {
 		return err
 	}
@@ -167,26 +173,19 @@ func (s *Service) projectMemberPolicyState(ctx context.Context, event *types.Hea
 }
 
 func (s *Service) projectJoinRequestState(ctx context.Context, event *types.HeaderedEvent) error {
-	content := map[string]any{}
-	if err := json.Unmarshal(event.Content(), &content); err != nil {
-		return err
-	}
-	userID := ""
-	if event.StateKey() != nil {
-		userID = *event.StateKey()
-	}
-	if override := trimString(content["user_id"]); override != "" {
-		userID = override
-	}
-	if userID == "" {
-		return nil
-	}
-	roomID := event.RoomID().String()
-	member, ok, err := s.lookupMember(ctx, roomID, userID)
+	joinRequest, err := dirextalkstate.ParseJoinRequestContent(event.Content(), event.StateKey())
 	if err != nil {
 		return err
 	}
-	member, valid := projection.JoinRequestMember(roomID, trimString(content["channel_id"]), userID, member, ok, content, eventTime(event))
+	if joinRequest.UserID == "" {
+		return nil
+	}
+	roomID := event.RoomID().String()
+	member, ok, err := s.lookupMember(ctx, roomID, joinRequest.UserID)
+	if err != nil {
+		return err
+	}
+	member, valid := projection.JoinRequestMember(roomID, joinRequest.ChannelID, joinRequest.UserID, member, ok, joinRequest.Raw, eventTime(event))
 	if !valid {
 		return nil
 	}
@@ -197,8 +196,8 @@ func (s *Service) projectJoinRequestState(ctx context.Context, event *types.Head
 		Type:      "channel.join_request.changed",
 		RoomID:    roomID,
 		EventID:   event.EventID(),
-		DedupeKey: projectedEventDedupeKey("channel.join_request.changed", event.EventID(), userID),
-		Payload:   map[string]any{"user_id": userID, "status": trimString(content["status"])},
+		DedupeKey: projectedEventDedupeKey("channel.join_request.changed", event.EventID(), joinRequest.UserID),
+		Payload:   map[string]any{"user_id": joinRequest.UserID, "status": joinRequest.Status},
 	})
 }
 

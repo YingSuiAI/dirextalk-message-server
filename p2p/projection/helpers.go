@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
@@ -25,12 +25,12 @@ func ConversationKindFromContent(content map[string]any) (domain.ConversationKin
 }
 
 func ConversationKindFromRoomType(roomType string) domain.ConversationKind {
-	switch strings.ToLower(strings.TrimSpace(roomType)) {
-	case productpolicy.DirextalkRoomTypeDirect:
+	switch dirextalkstate.RoomKindFromRoomType(roomType) {
+	case dirextalkstate.RoomKindDirect:
 		return domain.ConversationKindDirect
-	case productpolicy.DirextalkRoomTypeGroup:
+	case dirextalkstate.RoomKindGroup:
 		return domain.ConversationKindGroup
-	case productpolicy.DirextalkRoomTypeChannel:
+	case dirextalkstate.RoomKindChannel:
 		return domain.ConversationKindChannel
 	default:
 		return ""
