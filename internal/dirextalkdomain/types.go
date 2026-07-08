@@ -2,6 +2,41 @@ package dirextalkdomain
 
 import "encoding/json"
 
+type PortalState struct {
+	Initialized    bool
+	Password       string
+	AccessToken    string
+	MatrixDeviceID string
+	AgentToken     string
+	OwnerMXID      string
+	AgentRoomID    string
+	SystemRoomID   string
+	Profile        OwnerProfile
+	AgentConfig    AgentConfig
+}
+
+type OwnerProfile struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	Domain      string `json:"domain"`
+	AvatarURL   string `json:"avatar_url"`
+	Gender      string `json:"gender"`
+	Birthday    string `json:"birthday"`
+	Phone       string `json:"phone"`
+	Email       string `json:"email"`
+}
+
+type AgentConfig struct {
+	DisplayName       string         `json:"display_name"`
+	AvatarURL         string         `json:"avatar_url"`
+	ContextWindow     int64          `json:"context_window"`
+	Enabled           bool           `json:"enabled"`
+	Model             string         `json:"model"`
+	SystemPrompt      string         `json:"system_prompt"`
+	MCPBlockedRoomIDs []string       `json:"mcp_blocked_room_ids"`
+	Native            map[string]any `json:"-"`
+}
+
 type Channel struct {
 	ChannelID        string `json:"channel_id"`
 	RoomID           string `json:"room_id"`
@@ -145,6 +180,80 @@ type EventBounds struct {
 	MinSeq int64 `json:"min_seq"`
 	MaxSeq int64 `json:"max_seq"`
 	Count  int64 `json:"count"`
+}
+
+func (c *AgentConfig) UnmarshalJSON(data []byte) error {
+	type agentConfigJSON struct {
+		DisplayName       string   `json:"display_name"`
+		AvatarURL         string   `json:"avatar_url"`
+		ContextWindow     int64    `json:"context_window"`
+		Enabled           bool     `json:"enabled"`
+		Model             string   `json:"model"`
+		SystemPrompt      string   `json:"system_prompt"`
+		MCPBlockedRoomIDs []string `json:"mcp_blocked_room_ids"`
+	}
+	var known agentConfigJSON
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for _, key := range agentConfigKnownJSONKeys() {
+		delete(raw, key)
+	}
+	c.DisplayName = known.DisplayName
+	c.AvatarURL = known.AvatarURL
+	c.ContextWindow = known.ContextWindow
+	c.Enabled = known.Enabled
+	c.Model = known.Model
+	c.SystemPrompt = known.SystemPrompt
+	c.MCPBlockedRoomIDs = known.MCPBlockedRoomIDs
+	if len(raw) > 0 {
+		c.Native = raw
+	} else {
+		c.Native = nil
+	}
+	return nil
+}
+
+func (c AgentConfig) MarshalJSON() ([]byte, error) {
+	out := make(map[string]any, len(c.Native)+7)
+	for key, value := range c.Native {
+		if !agentConfigKnownJSONKey(key) {
+			out[key] = value
+		}
+	}
+	out["display_name"] = c.DisplayName
+	out["avatar_url"] = c.AvatarURL
+	out["context_window"] = c.ContextWindow
+	out["enabled"] = c.Enabled
+	out["model"] = c.Model
+	out["system_prompt"] = c.SystemPrompt
+	out["mcp_blocked_room_ids"] = c.MCPBlockedRoomIDs
+	return json.Marshal(out)
+}
+
+func agentConfigKnownJSONKeys() []string {
+	return []string{
+		"display_name",
+		"avatar_url",
+		"context_window",
+		"enabled",
+		"model",
+		"system_prompt",
+		"mcp_blocked_room_ids",
+	}
+}
+
+func agentConfigKnownJSONKey(key string) bool {
+	for _, known := range agentConfigKnownJSONKeys() {
+		if key == known {
+			return true
+		}
+	}
+	return false
 }
 
 func (m MemberRecord) MarshalJSON() ([]byte, error) {

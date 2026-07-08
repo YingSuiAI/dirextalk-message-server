@@ -34,6 +34,50 @@ func TestMemberRecordJSONIncludesCompatibilityFields(t *testing.T) {
 	}
 }
 
+func TestAgentConfigJSONPreservesNativeFields(t *testing.T) {
+	raw, err := json.Marshal(AgentConfig{
+		DisplayName:       "Agent",
+		AvatarURL:         "mxc://agent",
+		ContextWindow:     64,
+		Enabled:           true,
+		Model:             "model-a",
+		SystemPrompt:      "system",
+		MCPBlockedRoomIDs: []string{"!blocked:example.com"},
+		Native: map[string]any{
+			"skills":       []any{map[string]any{"id": "skill-a"}},
+			"display_name": "native-shadow",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var encoded map[string]any
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		t.Fatalf("Unmarshal encoded failed: %v", err)
+	}
+	if encoded["display_name"] != "Agent" {
+		t.Fatalf("known field should override same-name native field, got %#v", encoded)
+	}
+	if _, ok := encoded["skills"]; !ok {
+		t.Fatalf("native skills field should be preserved, got %#v", encoded)
+	}
+
+	var decoded AgentConfig
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if decoded.DisplayName != "Agent" || decoded.Model != "model-a" || !decoded.Enabled {
+		t.Fatalf("expected known fields to round-trip, got %#v", decoded)
+	}
+	if _, ok := decoded.Native["skills"]; !ok {
+		t.Fatalf("expected unknown native fields to round-trip, got %#v", decoded.Native)
+	}
+	if _, ok := decoded.Native["display_name"]; ok {
+		t.Fatalf("known fields must not remain in Native, got %#v", decoded.Native)
+	}
+}
+
 func TestSharedRecordJSONContracts(t *testing.T) {
 	raw, err := json.Marshal(struct {
 		Marker ReadMarker  `json:"marker"`
