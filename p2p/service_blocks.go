@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+type blockStore interface {
+	UpsertBlock(ctx context.Context, block blockRecord) error
+	DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error)
+	ListBlocks(ctx context.Context) ([]blockRecord, error)
+}
+
+func (s *Service) blockStore() blockStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) blockAdd(ctx context.Context, params map[string]any) (any, *apiError) {
 	block, apiErr := s.blockRecordFromParams(ctx, params)
 	if apiErr != nil {
@@ -101,8 +114,8 @@ func (s *Service) saveBlock(ctx context.Context, block blockRecord) error {
 	s.mu.Lock()
 	s.blocks[blockKey(block.TargetType, block.TargetID)] = block
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.UpsertBlock(ctx, block)
+	if store := s.blockStore(); store != nil {
+		return store.UpsertBlock(ctx, block)
 	}
 	return nil
 }
@@ -113,15 +126,15 @@ func (s *Service) deleteBlock(ctx context.Context, targetType, targetID string) 
 	_, removed := s.blocks[key]
 	delete(s.blocks, key)
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.DeleteBlock(ctx, targetType, targetID)
+	if store := s.blockStore(); store != nil {
+		return store.DeleteBlock(ctx, targetType, targetID)
 	}
 	return removed, nil
 }
 
 func (s *Service) listBlocks(ctx context.Context) ([]blockRecord, error) {
-	if s.store != nil {
-		return s.store.ListBlocks(ctx)
+	if store := s.blockStore(); store != nil {
+		return store.ListBlocks(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
