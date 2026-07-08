@@ -11,9 +11,11 @@ import (
 	"context"
 	"crypto/tls"
 	"embed"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"text/template"
 
@@ -43,24 +45,50 @@ func dialer() (*tor.Dialer, error) {
 	if skip {
 		return nil, nil
 	}
+	if terr != nil {
+		return nil, terr
+	}
+	if t == nil {
+		return nil, errors.New("tor is not initialized")
+	}
 	return t.Dialer(context.TODO(), nil)
 }
 
 var (
-	t, terr        = start()
-	tdialer, tderr = dialer()
+	t       *tor.Tor
+	terr    error
+	tdialer *tor.Dialer
+	tderr   error
+	torOnce sync.Once
 )
+
+func ensureTorDialer() error {
+	torOnce.Do(func() {
+		t, terr = start()
+		if terr != nil {
+			return
+		}
+		tdialer, tderr = dialer()
+	})
+	if terr != nil {
+		return terr
+	}
+	if tderr != nil {
+		return tderr
+	}
+	if tdialer == nil {
+		return errors.New("tor dialer is unavailable")
+	}
+	return nil
+}
 
 // Dial either a unix socket address, or connect to a remote address over Tor. Always uses Tor.
 func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	if terr != nil {
-		return nil, terr
-	}
-	if (tderr != nil) || (tdialer == nil) {
-		return nil, tderr
-	}
 	if network == "unix" {
 		return net.Dial(network, addr)
+	}
+	if err := ensureTorDialer(); err != nil {
+		return nil, err
 	}
 	// convert the addr to a full URL
 	url, err := url.Parse(addr)

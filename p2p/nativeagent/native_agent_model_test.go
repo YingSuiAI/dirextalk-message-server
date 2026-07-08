@@ -425,6 +425,32 @@ func TestOpenAIProviderUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 }
 
+func TestDeepSeekProviderUsesChatCompletionsEndpoint(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"deepseek ok"}}]}`))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "deepseek",
+			"model":    "mock-deepseek",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("deepseek provider: %v", err)
+	}
+	if gotPath != "/chat/completions" || result["text"] != "deepseek ok" {
+		t.Fatalf("expected deepseek chat completions, path=%q result=%#v", gotPath, result)
+	}
+}
+
 func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	var gotMessages []any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

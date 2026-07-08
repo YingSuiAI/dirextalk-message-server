@@ -1,0 +1,327 @@
+package nativeagent
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+)
+
+type openAICompatibleDirectChatModel struct {
+	r       *Runtime
+	profile nativeModelProfile
+	tools   []*schema.ToolInfo
+}
+
+func newOpenAICompatibleDirectChatModel(r *Runtime, profile nativeModelProfile) model.ToolCallingChatModel {
+	return &openAICompatibleDirectChatModel{r: r, profile: profile}
+}
+
+func (m *openAICompatibleDirectChatModel) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	payload, err := m.requestPayload(input, false)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := m.post(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	return openAICompatibleMessageFromResponse(decoded), nil
+}
+
+func (m *openAICompatibleDirectChatModel) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	payload, err := m.requestPayload(input, true)
+	if err != nil {
+		return nil, err
+	}
+	req, err := m.newRequest(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := m.r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		return nil, fmt.Errorf("model provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	reader, writer := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer writer.Close()
+		defer resp.Body.Close()
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 1024), 4<<20)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "" || data == "[DONE]" {
+				continue
+			}
+			if msg := openAICompatibleMessageFromStreamEvent([]byte(data)); msg != nil {
+				writer.Send(msg, nil)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			writer.Send(nil, err)
+		}
+	}()
+	return reader, nil
+}
+
+func (m *openAICompatibleDirectChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	clone := *m
+	clone.tools = append([]*schema.ToolInfo{}, tools...)
+	return &clone, nil
+}
+
+func (m *openAICompatibleDirectChatModel) requestPayload(input []*schema.Message, stream bool) (map[string]any, error) {
+	payload := map[string]any{
+		"model":    m.profile.Model,
+		"messages": openAICompatibleMessages(input),
+	}
+	if stream {
+		payload["stream"] = true
+	}
+	if m.profile.MaxOutputTokens > 0 {
+		payload["max_tokens"] = m.profile.MaxOutputTokens
+	}
+	if m.profile.Temperature != nil {
+		payload["temperature"] = *m.profile.Temperature
+	}
+	if m.profile.TopP != nil {
+		payload["top_p"] = *m.profile.TopP
+	}
+	if len(m.tools) > 0 {
+		payload["tools"] = openAICompatibleTools(m.tools)
+	}
+	return payload, nil
+}
+
+func (m *openAICompatibleDirectChatModel) post(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	req, err := m.newRequest(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := m.r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("model provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func (m *openAICompatibleDirectChatModel) newRequest(ctx context.Context, payload map[string]any) (*http.Request, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.chatCompletionsURL(), bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+m.profile.APIKey)
+	return req, nil
+}
+
+func (m *openAICompatibleDirectChatModel) chatCompletionsURL() string {
+	if m.profile.Provider == "deepseek" {
+		base := strings.TrimRight(m.profile.BaseURL, "/")
+		if base == "" {
+			base = defaultBaseURLForProvider(m.profile.Provider)
+		}
+		return base + "/chat/completions"
+	}
+	base := normalizedOpenAIBaseURL(m.profile)
+	return strings.TrimRight(base, "/") + "/chat/completions"
+}
+
+func openAICompatibleMessages(input []*schema.Message) []map[string]any {
+	messages := make([]map[string]any, 0, len(input))
+	for _, message := range input {
+		if message == nil {
+			continue
+		}
+		record := map[string]any{
+			"role": string(message.Role),
+		}
+		switch message.Role {
+		case schema.Tool:
+			record["content"] = message.Content
+			record["tool_call_id"] = message.ToolCallID
+			if message.ToolName != "" {
+				record["name"] = message.ToolName
+			}
+		case schema.Assistant:
+			record["content"] = message.Content
+			if len(message.ToolCalls) > 0 {
+				record["tool_calls"] = openAICompatibleToolCalls(message.ToolCalls)
+			}
+		default:
+			record["content"] = message.Content
+		}
+		messages = append(messages, record)
+	}
+	return messages
+}
+
+func openAICompatibleToolCalls(calls []schema.ToolCall) []map[string]any {
+	result := make([]map[string]any, 0, len(calls))
+	for _, call := range calls {
+		callType := strings.TrimSpace(call.Type)
+		if callType == "" {
+			callType = "function"
+		}
+		result = append(result, map[string]any{
+			"id":   call.ID,
+			"type": callType,
+			"function": map[string]any{
+				"name":      call.Function.Name,
+				"arguments": call.Function.Arguments,
+			},
+		})
+	}
+	return result
+}
+
+func openAICompatibleTools(tools []*schema.ToolInfo) []map[string]any {
+	result := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		if tool == nil {
+			continue
+		}
+		parameters := map[string]any{"type": "object", "properties": map[string]any{}}
+		if tool.ParamsOneOf != nil {
+			if js, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && js != nil {
+				var schemaMap map[string]any
+				if data, err := json.Marshal(js); err == nil {
+					_ = json.Unmarshal(data, &schemaMap)
+				}
+				if len(schemaMap) > 0 {
+					parameters = schemaMap
+				}
+			}
+		}
+		result = append(result, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        tool.Name,
+				"description": tool.Desc,
+				"parameters":  parameters,
+			},
+		})
+	}
+	return result
+}
+
+func openAICompatibleMessageFromResponse(decoded map[string]any) *schema.Message {
+	choices, _ := decoded["choices"].([]any)
+	if len(choices) == 0 {
+		return schema.AssistantMessage("", nil)
+	}
+	choice, _ := choices[0].(map[string]any)
+	rawMessage, _ := choice["message"].(map[string]any)
+	return schema.AssistantMessage(openAICompatibleText(rawMessage["content"]), openAICompatibleToolCallsFromAny(rawMessage["tool_calls"]))
+}
+
+func openAICompatibleMessageFromStreamEvent(data []byte) *schema.Message {
+	var event map[string]any
+	if err := json.Unmarshal(data, &event); err != nil {
+		return nil
+	}
+	choices, _ := event["choices"].([]any)
+	if len(choices) == 0 {
+		return nil
+	}
+	choice, _ := choices[0].(map[string]any)
+	delta, _ := choice["delta"].(map[string]any)
+	content := openAICompatibleText(delta["content"])
+	calls := openAICompatibleToolCallsFromAny(delta["tool_calls"])
+	if content == "" && len(calls) == 0 {
+		return nil
+	}
+	return schema.AssistantMessage(content, calls)
+}
+
+func openAICompatibleText(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []any:
+		var parts []string
+		for _, raw := range v {
+			part, _ := raw.(map[string]any)
+			if text := trimString(part["text"]); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "")
+	default:
+		return ""
+	}
+}
+
+func openAICompatibleToolCallsFromAny(value any) []schema.ToolCall {
+	rawCalls, _ := value.([]any)
+	calls := make([]schema.ToolCall, 0, len(rawCalls))
+	for _, raw := range rawCalls {
+		record, _ := raw.(map[string]any)
+		function, _ := record["function"].(map[string]any)
+		var index *int
+		if idx, ok := intFromJSONNumber(record["index"]); ok {
+			index = &idx
+		}
+		calls = append(calls, schema.ToolCall{
+			Index: index,
+			ID:    trimString(record["id"]),
+			Type:  fallbackString(trimString(record["type"]), "function"),
+			Function: schema.FunctionCall{
+				Name:      trimString(function["name"]),
+				Arguments: trimString(function["arguments"]),
+			},
+		})
+	}
+	return calls
+}
+
+func intFromJSONNumber(value any) (int, bool) {
+	switch v := value.(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		return 0, false
+	}
+}

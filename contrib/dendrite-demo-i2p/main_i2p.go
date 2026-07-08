@@ -11,10 +11,12 @@ import (
 	"context"
 	"crypto/tls"
 	"embed"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"text/template"
 
@@ -54,13 +56,42 @@ func dialer() (*tor.Dialer, error) {
 	if skip {
 		return nil, nil
 	}
+	if terr != nil {
+		return nil, terr
+	}
+	if t == nil {
+		return nil, errors.New("tor is not initialized")
+	}
 	return t.Dialer(context.TODO(), nil)
 }
 
 var (
-	t, terr        = start()
-	tdialer, tderr = dialer()
+	t       *tor.Tor
+	terr    error
+	tdialer *tor.Dialer
+	tderr   error
+	torOnce sync.Once
 )
+
+func ensureTorDialer() error {
+	torOnce.Do(func() {
+		t, terr = start()
+		if terr != nil {
+			return
+		}
+		tdialer, tderr = dialer()
+	})
+	if terr != nil {
+		return terr
+	}
+	if tderr != nil {
+		return tderr
+	}
+	if tdialer == nil {
+		return errors.New("tor dialer is unavailable")
+	}
+	return nil
+}
 
 // Dial a network connection to an I2P server or a unix socket. Use Tor, or Fail for clearnet addresses.
 func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -79,11 +110,8 @@ func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if strings.HasSuffix(url.Host, ".i2p") {
 		return sam.DialContext(ctx, network, addr)
 	}
-	if terr != nil {
-		return nil, terr
-	}
-	if (tderr != nil) || (tdialer == nil) {
-		return nil, tderr
+	if err := ensureTorDialer(); err != nil {
+		return nil, err
 	}
 	return tdialer.DialContext(ctx, network, addr)
 }
