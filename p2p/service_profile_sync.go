@@ -37,8 +37,8 @@ func (s *Service) updateProfile(ctx context.Context, params map[string]any) (any
 	profile := s.profile
 	state := s.portalStateLocked()
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SavePortal(ctx, state); err != nil {
+	if store := s.portalStore(); store != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}

@@ -18,8 +18,8 @@ func (s *Service) bootstrap(ctx context.Context, params map[string]any) (any, *a
 	session := s.sessionLocked()
 	state := s.portalStateLocked()
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SavePortal(ctx, state); err != nil {
+	if store := s.portalStore(); store != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -58,8 +58,8 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 	session := s.sessionLocked()
 	state := s.portalStateLocked()
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SavePortal(ctx, state); err != nil {
+	if store := s.portalStore(); store != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -140,8 +140,8 @@ func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]a
 	state := s.portalStateLocked()
 	session = s.sessionLocked()
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SavePortal(ctx, state); err != nil {
+	if store := s.portalStore(); store != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -207,8 +207,8 @@ func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) 
 	result := agentConfigToMap(s.agentConfig)
 	state := s.portalStateLocked()
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.SavePortal(ctx, state); err != nil {
+	if store := s.portalStore(); store != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}

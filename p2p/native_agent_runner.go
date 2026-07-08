@@ -101,8 +101,8 @@ func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any)
 	s.service.agentConfig = agentConfigFromNativeMap(s.service.agentConfig, config)
 	state := s.service.portalStateLocked()
 	s.service.mu.Unlock()
-	if s.service.store != nil {
-		return s.service.store.SavePortal(ctx, state)
+	if store := s.service.portalStore(); store != nil {
+		return store.SavePortal(ctx, state)
 	}
 	return nil
 }

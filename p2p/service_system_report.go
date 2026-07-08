@@ -100,11 +100,11 @@ func (s *Service) reportSubmit(ctx context.Context, params map[string]any) (any,
 	if err != nil {
 		return nil, internalError(err)
 	}
-	if changed && s.store != nil {
+	if store := s.portalStore(); changed && store != nil {
 		s.mu.Lock()
 		state := s.portalStateLocked()
 		s.mu.Unlock()
-		if err := s.store.SavePortal(ctx, state); err != nil {
+		if err := store.SavePortal(ctx, state); err != nil {
 			return nil, internalError(err)
 		}
 	}

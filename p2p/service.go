@@ -243,7 +243,8 @@ func NewServiceWithStore(ctx context.Context, cfg Config, store Store) (*Service
 }
 
 func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Store, transport Transport) (*Service, error) {
-	state, ok, err := store.LoadPortal(ctx)
+	portalStore := portalStoreFrom(store)
+	state, ok, err := portalStore.LoadPortal(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +269,7 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 		service.mu.Lock()
 		state = service.portalStateLocked()
 		service.mu.Unlock()
-		if err := store.SavePortal(ctx, state); err != nil {
+		if err := portalStore.SavePortal(ctx, state); err != nil {
 			return nil, err
 		}
 	}
