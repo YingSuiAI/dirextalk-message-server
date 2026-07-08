@@ -30,6 +30,7 @@ Map only the touched surfaces:
 ## Backend Defaults
 
 - Keep Dirextalk product APIs on the small body-action surface unless a current product rule requires a Matrix, well-known, or standard MCP route. The current MCP route exception is `POST /mcp`.
+- Treat fixed `mcp.*` body actions as temporary compatibility wrappers around `internal/dirextalkmcp`; route new external MCP clients to `POST /mcp`, avoid new wrapper business logic, and remove the wrappers in the next MCP-D pass unless product explicitly extends compatibility.
 - Product-originated Matrix room/member/state/message/redaction writes go through `p2p.Transport`.
 - Matrix Client-Server writes must satisfy `internal/productpolicy`.
 - Product read models are projections unless a domain rule explicitly makes storage source-of-truth.

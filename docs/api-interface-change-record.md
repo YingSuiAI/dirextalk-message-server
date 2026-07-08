@@ -2,6 +2,12 @@
 
 Last updated: 2026-07-08
 
+## 2026-07-08 MCP Body-Action Compatibility Deferral
+
+Product decision for this pass: do not delete the old fixed `mcp.*` body actions yet. They remain temporary compatibility wrappers around `internal/dirextalkmcp`; no new MCP business logic should be added to those wrappers.
+
+The canonical external MCP contract is `POST /mcp` with MCP Streamable HTTP JSON-RPC and `Authorization: Bearer <agent_token>`. The next MCP-D task is to remove `mcp.*` from the product action registry, `serviceapi.AgentAction`, Postman examples, docs, and wrapper-specific tests unless product explicitly extends the compatibility window.
+
 ## 2026-07-08 Standard Dirextalk MCP HTTP Endpoint
 
 External standard MCP clients can now call `POST /mcp` using MCP Streamable HTTP JSON-RPC instead of the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The first supported lifecycle is `initialize`, `tools/list`, and `tools/call`.
