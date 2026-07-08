@@ -122,9 +122,7 @@ func (s *Service) publishAccountDeletedDirectState(ctx context.Context, contact 
 		return nil
 	}
 	directName := fallbackString(ownerDisplayName, ownerMXID)
-	event := roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, true)
-	event.Content["account_deleted"] = true
-	event.Content["deleted_mxid"] = ownerMXID
+	event := accountDeletedDirectProfile(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark)
 	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
 		RoomID:     contact.RoomID,
 		SenderMXID: ownerMXID,

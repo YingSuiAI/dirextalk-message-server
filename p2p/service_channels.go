@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
-	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 )
 
 func (s *Service) channelResult(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -437,25 +437,10 @@ func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, s
 	if strings.TrimSpace(senderMXID) == "" {
 		return nil
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	content := map[string]any{
-		"status":     status,
-		"room_id":    roomID,
-		"user_id":    userID,
-		"created_at": now,
-		"updated_at": now,
-	}
-	if strings.TrimSpace(reason) != "" {
-		content["reason"] = strings.TrimSpace(reason)
-	}
 	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
 		RoomID:     roomID,
 		SenderMXID: senderMXID,
-		Event: RoomStateEvent{
-			Type:     DirextalkJoinRequestEventType,
-			StateKey: productpolicy.UserStateKey(userID),
-			Content:  content,
-		},
+		Event:      roomStateEvent(dirextalkstate.JoinRequestState(roomID, userID, status, reason, time.Now().UTC())),
 	}); err != nil {
 		return internalError(err)
 	}
@@ -475,16 +460,7 @@ func (s *Service) publishMemberPolicyState(ctx context.Context, member memberRec
 	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
 		RoomID:     member.RoomID,
 		SenderMXID: senderMXID,
-		Event: RoomStateEvent{
-			Type:     DirextalkMemberPolicyEventType,
-			StateKey: productpolicy.UserStateKey(member.UserID),
-			Content: map[string]any{
-				"role":    fallbackString(member.Role, "member"),
-				"muted":   member.Muted,
-				"user_id": member.UserID,
-				"room_id": member.RoomID,
-			},
-		},
+		Event:      roomStateEvent(dirextalkstate.MemberPolicyState(member)),
 	}); err != nil {
 		return internalError(err)
 	}

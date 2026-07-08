@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -28,6 +29,14 @@ const (
 )
 
 type p2pEvent = domain.Event
+
+func roomStateEvent(event dirextalkstate.StateEvent) RoomStateEvent {
+	return RoomStateEvent{
+		Type:     event.Type,
+		StateKey: event.StateKey,
+		Content:  event.Content,
+	}
+}
 
 func dirextalkRoomType(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
@@ -106,62 +115,44 @@ func agentRoomPowerLevelsStateEvent(ownerMXID, agentMXID string) RoomStateEvent 
 }
 
 func roomProfileForDirect(name, requesterMXID, targetMXID, requesterDisplayName, requesterAvatarURL, remark string, dissolved bool) RoomStateEvent {
-	return RoomStateEvent{
-		Type:     DirextalkRoomProfileEventType,
-		StateKey: "",
-		Content: map[string]any{
-			"room_type":      DirextalkRoomTypeDirect,
-			"name":           strings.TrimSpace(name),
-			"visibility":     "private",
-			"join_policy":    "invite",
-			"invite_policy":  "owner",
-			"requester_mxid": strings.TrimSpace(requesterMXID),
-			"target_mxid":    strings.TrimSpace(targetMXID),
-			"display_name":   strings.TrimSpace(requesterDisplayName),
-			"avatar_url":     strings.TrimSpace(requesterAvatarURL),
-			"domain":         domainFromMXID(requesterMXID),
-			"remark":         strings.TrimSpace(remark),
-			"dissolved":      dissolved,
-		},
-	}
+	return roomStateEvent(dirextalkstate.DirectRoomProfile(dirextalkstate.DirectRoomProfileInput{
+		Name:                 name,
+		RequesterMXID:        requesterMXID,
+		TargetMXID:           targetMXID,
+		RequesterDisplayName: requesterDisplayName,
+		RequesterAvatarURL:   requesterAvatarURL,
+		Remark:               remark,
+		Dissolved:            dissolved,
+	}))
+}
+
+func accountDeletedDirectProfile(name, ownerMXID, peerMXID, ownerDisplayName, ownerAvatarURL, remark string) RoomStateEvent {
+	return roomStateEvent(dirextalkstate.DirectRoomProfile(dirextalkstate.DirectRoomProfileInput{
+		Name:                 name,
+		RequesterMXID:        ownerMXID,
+		TargetMXID:           peerMXID,
+		RequesterDisplayName: ownerDisplayName,
+		RequesterAvatarURL:   ownerAvatarURL,
+		Remark:               remark,
+		Dissolved:            true,
+		AccountDeleted:       true,
+		DeletedMXID:          ownerMXID,
+	}))
 }
 
 func roomProfileForGroup(group groupRecord, dissolved bool) RoomStateEvent {
-	return RoomStateEvent{
-		Type:     DirextalkRoomProfileEventType,
-		StateKey: "",
-		Content: map[string]any{
-			"room_type":     DirextalkRoomTypeGroup,
-			"room_id":       group.RoomID,
-			"name":          group.Name,
-			"topic":         group.Topic,
-			"avatar_url":    group.AvatarURL,
-			"invite_policy": fallbackString(group.InvitePolicy, "member"),
-			"muted":         group.Muted,
-			"dissolved":     dissolved,
-		},
-	}
+	return roomStateEvent(dirextalkstate.GroupRoomProfile(dirextalkstate.GroupProfile{
+		RoomID:       group.RoomID,
+		Name:         group.Name,
+		Topic:        group.Topic,
+		AvatarURL:    group.AvatarURL,
+		InvitePolicy: group.InvitePolicy,
+		Muted:        group.Muted,
+	}, dissolved))
 }
 
 func roomProfileForChannel(ch channel, dissolved bool) RoomStateEvent {
-	return RoomStateEvent{
-		Type:     DirextalkRoomProfileEventType,
-		StateKey: "",
-		Content: map[string]any{
-			"room_type":        DirextalkRoomTypeChannel,
-			"channel_id":       ch.ChannelID,
-			"room_id":          ch.RoomID,
-			"name":             ch.Name,
-			"description":      ch.Description,
-			"avatar_url":       ch.AvatarURL,
-			"visibility":       fallbackString(ch.Visibility, "private"),
-			"join_policy":      fallbackString(ch.JoinPolicy, "invite"),
-			"channel_type":     fallbackString(ch.ChannelType, "post"),
-			"comments_enabled": ch.CommentsEnabled,
-			"muted":            ch.Muted,
-			"dissolved":        dissolved,
-		},
-	}
+	return roomStateEvent(dirextalkstate.ChannelRoomProfile(ch, dissolved))
 }
 
 func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
