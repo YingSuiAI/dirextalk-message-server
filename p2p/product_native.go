@@ -155,6 +155,20 @@ func roomProfileForChannel(ch channel, dissolved bool) RoomStateEvent {
 	return roomStateEvent(dirextalkstate.ChannelRoomProfile(ch, dissolved))
 }
 
+type eventStore interface {
+	InsertEvent(ctx context.Context, event p2pEvent) (bool, error)
+	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
+	EventBounds(ctx context.Context) (eventBounds, error)
+	PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error)
+}
+
+func (s *Service) eventStore() eventStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 	now := time.Now().UTC()
 	if event.CreatedAt == "" {
@@ -178,8 +192,8 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 	}
 	s.nextEventSeq = event.Seq
 	s.mu.Unlock()
-	if s.store != nil {
-		inserted, err := s.store.InsertEvent(ctx, event)
+	if store := s.eventStore(); store != nil {
+		inserted, err := store.InsertEvent(ctx, event)
 		if err != nil {
 			return err
 		}
@@ -207,10 +221,11 @@ func (s *Service) pruneP2PEventsAfterAppend(ctx context.Context) error {
 	enabled := s.eventRetentionPruneOnWrite
 	maxRows := s.eventRetentionMaxRows
 	s.mu.Unlock()
-	if !enabled || maxRows <= 0 || s.store == nil {
+	store := s.eventStore()
+	if !enabled || maxRows <= 0 || store == nil {
 		return nil
 	}
-	_, err := s.store.PruneEventsToMaxRows(ctx, maxRows)
+	_, err := store.PruneEventsToMaxRows(ctx, maxRows)
 	return err
 }
 
@@ -235,8 +250,8 @@ func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	if s.store != nil {
-		return s.store.ListEvents(ctx, since, limit)
+	if store := s.eventStore(); store != nil {
+		return store.ListEvents(ctx, since, limit)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -264,8 +279,8 @@ func (s *Service) p2pEventCursorStatus(ctx context.Context, since int64) (p2pEve
 	if since <= 0 {
 		return status, nil
 	}
-	if s.store != nil {
-		bounds, err := s.store.EventBounds(ctx)
+	if store := s.eventStore(); store != nil {
+		bounds, err := store.EventBounds(ctx)
 		if err != nil {
 			return p2pEventCursorStatus{}, err
 		}
