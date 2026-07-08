@@ -1292,6 +1292,69 @@ func TestStoredMemberRolesAndMutesSurviveReload(t *testing.T) {
 	}
 }
 
+func TestStoredChannelCountsSurviveReload(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "stored-counts",
+		"room_id":     "!stored-counts:example.com",
+		"name":        "Stored Counts",
+		"visibility":  "public",
+		"join_policy": "approval",
+	})
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      ch.RoomID,
+		ChannelID:   ch.ChannelID,
+		UserID:      "@bob:remote.example",
+		DisplayName: "Bob",
+		Domain:      "remote.example",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"room_id":      ch.RoomID,
+		"user_mxid":    "@alice:remote.example",
+		"display_name": "Alice",
+	})
+	if request["status"] != "pending" {
+		t.Fatalf("expected pending join request, got %#v", request)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels := mustHandle[map[string]any](t, reloaded, "channels.list", nil)["channels"].([]channel)
+	restored := findChannel(channels, ch.ChannelID)
+	if restored.ChannelID == "" || restored.MemberCount != 2 || restored.PendingJoinCount != 1 {
+		t.Fatalf("expected stored channel counts to survive reload, got %#v", channels)
+	}
+	detail := mustHandle[channel](t, reloaded, "channels.public.get", map[string]any{"channel_id": ch.ChannelID})
+	if detail.MemberCount != 2 || detail.PendingJoinCount != 1 {
+		t.Fatalf("expected public channel detail counts to survive reload, got %#v", detail)
+	}
+}
+
 func TestContactListDeduplicatesPeerAndPrefersAcceptedContact(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
