@@ -121,7 +121,7 @@ P2P action 生命周期：
 5. 需要 Matrix 事实写入时调用 `p2p.Transport`。
 6. Dirextalk Message Server roomserver 产生 output event。
 7. `p2p.consumer` 调用 `ProjectRoomEvent` 更新 P2P read model。
-8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；`client.command` 只作为兼容期别名映射到同一处理路径。Agents room 消息、预览和回复走 Matrix Client-Server，不通过 P2P event 或 WS stream 转发。
+8. `/_p2p/ws` 发送产品投影事件和通用 `server.response`。Owner WS 通过 `client.request` 执行登录后 product 查询/命令，但不包含 MCP action；旧 `client.command` 兼容别名已移除，客户端必须发送 `client.request`。Agents room 消息、预览和回复走 Matrix Client-Server，不通过 P2P event 或 WS stream 转发。
 9. 客户端普通消息、历史、搜索、redaction 继续通过 Matrix Client-Server API。
 
 同步策略：

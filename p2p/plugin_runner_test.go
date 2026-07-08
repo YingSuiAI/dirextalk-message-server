@@ -77,7 +77,7 @@ func TestValidateOfficialPluginOperationRejectsPrivilegedMountForNonOpsPlugin(t 
 	}
 }
 
-func TestValidateOfficialPluginOperationAllowsAgentDataVolume(t *testing.T) {
+func TestValidateOfficialPluginOperationRejectsAgentDataVolume(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "enable",
 		PluginID: "io.dirextalk.agent",
@@ -85,8 +85,8 @@ func TestValidateOfficialPluginOperationAllowsAgentDataVolume(t *testing.T) {
 		Volumes:  []string{"dirextalk_agent_data:/var/lib/dirextalk-agent"},
 	}
 
-	if err := validateOfficialPluginOperation(op); err != nil {
-		t.Fatalf("expected agent data volume to pass, got %v", err)
+	if err := validateOfficialPluginOperation(op); err == nil {
+		t.Fatalf("expected agent data volume to be rejected")
 	}
 }
 

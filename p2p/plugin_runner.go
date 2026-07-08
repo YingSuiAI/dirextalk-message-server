@@ -330,16 +330,6 @@ func validateOfficialPluginVolume(pluginID, volume string) error {
 	if volume == "" {
 		return nil
 	}
-	if pluginID == "io.dirextalk.agent" {
-		if strings.HasSuffix(volume, ":/var/lib/dirextalk-agent") {
-			source := strings.TrimSuffix(volume, ":/var/lib/dirextalk-agent")
-			if source == "" || strings.ContainsAny(source, `/\`) || strings.Contains(source, "..") {
-				return fmt.Errorf("invalid agent data volume %q", volume)
-			}
-			return nil
-		}
-		return fmt.Errorf("agent plugin volume %q is not allowed", volume)
-	}
 	if pluginID != "io.dirextalk.ops" {
 		return fmt.Errorf("plugin %s cannot request privileged volume %q", pluginID, volume)
 	}

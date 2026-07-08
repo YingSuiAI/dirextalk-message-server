@@ -223,6 +223,35 @@ func TestNativeAgentConfigStoreUsesPortalAgentConfigNotPluginRecords(t *testing.
 	}
 }
 
+func TestNativeAgentConfigSanitizerStripsModelAPIKeys(t *testing.T) {
+	sanitized := sanitizeNativeAgentConfigMap(map[string]any{
+		"api_key":     "sk-root",
+		"api_key_ref": "secret:root",
+		"model_profiles": []any{
+			map[string]any{
+				"id":          "deepseek",
+				"api_key":     "sk-profile",
+				"api_key_ref": "secret:profile",
+				"model":       "deepseek-chat",
+			},
+		},
+		"skills": []any{map[string]any{"id": "keep"}},
+	})
+
+	if hasNestedKey(sanitized, "api_key") || hasNestedKey(sanitized, "api_key_ref") {
+		t.Fatalf("native Agent config sanitizer must strip model API keys, got %#v", sanitized)
+	}
+	profiles := sanitized["model_profiles"].([]any)
+	profile := profiles[0].(map[string]any)
+	if profile["id"] != "deepseek" || profile["model"] != "deepseek-chat" {
+		t.Fatalf("native Agent config sanitizer must keep non-secret profile fields, got %#v", profile)
+	}
+	skills := sanitized["skills"].([]any)
+	if skills[0].(map[string]any)["id"] != "keep" {
+		t.Fatalf("native Agent config sanitizer must keep unrelated native config, got %#v", sanitized)
+	}
+}
+
 func TestNativeAgentToolsUseBlockedRoomsFromNativeConfigStore(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	mustHandle[groupRecord](t, service, "groups.create", map[string]any{

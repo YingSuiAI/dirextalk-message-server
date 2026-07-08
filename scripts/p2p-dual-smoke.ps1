@@ -1216,9 +1216,6 @@ $groupsAfterDissolve = P2P $ABase "command" $aAuth.access_token "groups.list" @{
 $dissolvedGroupStillListed = Items($groupsAfterDissolve.groups) | Where-Object { $_.room_id -eq $leaveGroup.room_id }
 Assert ((Items $dissolvedGroupStillListed).Count -eq 0) "groups.dissolve left dissolved group in groups.list"
 
-$agentStatus = P2P $ABase "command" $aAuth.access_token "agent.status" @{}
-Assert ($agentStatus.configured -eq $true) "access token could not read agent.status"
-
 $bootstrapAgain = P2P $ABase "query" $null "portal.bootstrap" @{
   password = $aCred.password
   device_id = "SMOKEBOOT$suffix"

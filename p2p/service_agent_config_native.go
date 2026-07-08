@@ -11,7 +11,7 @@ func agentConfigToNativeMap(cfg agentConfig) map[string]any {
 	out["model"] = cfg.Model
 	out["system_prompt"] = cfg.SystemPrompt
 	out["mcp_blocked_room_ids"] = append([]string(nil), cfg.MCPBlockedRoomIDs...)
-	return sanitizePluginConfig(agentPluginID, out, nil)
+	return sanitizeNativeAgentConfigMap(out)
 }
 
 func agentConfigFromNativeMap(current agentConfig, config map[string]any) agentConfig {
@@ -19,7 +19,7 @@ func agentConfigFromNativeMap(current agentConfig, config map[string]any) agentC
 	for key, value := range config {
 		merged[key] = value
 	}
-	merged = sanitizePluginConfig(agentPluginID, merged, nil)
+	merged = sanitizeNativeAgentConfigMap(merged)
 
 	next := current
 	if _, ok := merged["display_name"]; ok {
@@ -67,7 +67,7 @@ func migrateLegacyAgentPluginConfig(ctx context.Context, store Store, state *por
 	if err != nil || !ok {
 		return false, err
 	}
-	legacy := sanitizePluginConfig(agentPluginID, plugin.Config, nil)
+	legacy := sanitizeNativeAgentConfigMap(plugin.Config)
 	if len(legacy) == 0 {
 		return false, nil
 	}
@@ -140,4 +140,30 @@ func nativeAgentSharedConfigKey(key string) bool {
 	default:
 		return false
 	}
+}
+
+func sanitizeNativeAgentConfigMap(config map[string]any) map[string]any {
+	sanitized := cloneAnyMap(config)
+	delete(sanitized, "api_key")
+	delete(sanitized, "api_key_ref")
+	if profiles, ok := sanitized["model_profiles"].([]any); ok {
+		sanitized["model_profiles"] = sanitizeNativeAgentModelProfiles(profiles)
+	}
+	return sanitized
+}
+
+func sanitizeNativeAgentModelProfiles(profiles []any) []any {
+	sanitized := make([]any, 0, len(profiles))
+	for _, rawProfile := range profiles {
+		profile, ok := rawProfile.(map[string]any)
+		if !ok {
+			sanitized = append(sanitized, rawProfile)
+			continue
+		}
+		cloned := cloneAnyMap(profile)
+		delete(cloned, "api_key")
+		delete(cloned, "api_key_ref")
+		sanitized = append(sanitized, cloned)
+	}
+	return sanitized
 }

@@ -243,7 +243,7 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 		case "client.request":
 			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
 		case "client.command":
-			wsConn.send(s.handleRealtimeWSRequest(ctx, wsConn.record, frame))
+			wsConn.send(realtimeWSResponseError(trimString(frame["id"]), trimString(frame["action"]), http.StatusBadRequest, "unsupported frame type"))
 		case "client.plugin_stream":
 			s.startRealtimeWSPluginStream(ctx, wsConn, frame)
 		case "client.plugin_stream.cancel":

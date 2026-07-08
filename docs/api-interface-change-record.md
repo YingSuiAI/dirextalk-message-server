@@ -288,7 +288,7 @@ Error response frame:
 }
 ```
 
-`client.command` is retained only as a one-release compatibility alias and maps to the same `server.response` path. New Flutter code sends only `client.request`.
+`client.command` was retained only as a one-release compatibility alias and mapped to the same `server.response` path. That compatibility alias is now removed; clients must send `client.request`.
 
 `GET /_p2p/events` is removed. The P2P outbox remains durable because WS `server.event` replay and cursor recovery still use it. Cursor retention gaps are reported only through WS `server.cursor_reset`; clients must recover by issuing `sync.bootstrap` over WS.
 
@@ -324,7 +324,7 @@ Frame shape:
 }
 ```
 
-Successful commands returned `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors returned `server.command_error` with `id`, `status`, and `error`. Current servers map `client.command` to the `client.request` handler and return `server.response`; new clients must use `client.request`. Agent-token WS sessions cannot call owner commands.
+Successful commands returned `server.command_result` with `id`, `action`, and `result`. Validation, auth, and action errors returned `server.command_error` with `id`, `status`, and `error`. Current servers reject `client.command` with `400 unsupported frame type`; clients must use `client.request`. Agent-token WS sessions cannot call owner commands.
 
 This transitional agent stream contract was removed later the same day. Current Agent bridge previews and final replies use Matrix Client-Server messages/edits from `@agent:<server>`; current clients must not emit agent stream WS frames and current servers must not expose Agent bridge traffic on Product WS.
 

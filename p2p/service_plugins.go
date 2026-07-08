@@ -317,80 +317,12 @@ func (s *Service) pluginInvokeRequest(ctx context.Context, params map[string]any
 	} else if params["params"] != nil {
 		return PluginInvokeRequest{}, "", badRequest("params must be an object")
 	}
-	if apiErr := s.enrichAgentPluginInvokeParams(ctx, plugin, invokeParams); apiErr != nil {
-		return PluginInvokeRequest{}, "", apiErr
-	}
 	return PluginInvokeRequest{
 		PluginID:      plugin.ID,
 		ContainerName: pluginContainerName(plugin.ID),
 		Action:        runnerAction,
 		Params:        invokeParams,
 	}, strings.TrimSuffix(clientAction, ".stream"), nil
-}
-
-func (s *Service) enrichAgentPluginInvokeParams(ctx context.Context, plugin pluginInstance, invokeParams map[string]any) *apiError {
-	if plugin.ID != agentPluginID || invokeParams == nil {
-		return nil
-	}
-	if rawProfile, ok := invokeParams["model_profile"].(map[string]any); ok {
-		if savedProfile := savedAgentModelProfileByID(plugin.Config, pluginConfigString(rawProfile, "id")); savedProfile != nil {
-			rawProfile = mergeAgentModelProfile(savedProfile, rawProfile)
-		}
-		invokeParams["model_profile"] = sanitizeAgentInvokeModelProfile(rawProfile)
-		return nil
-	}
-	profileID := trimString(invokeParams["model_profile_id"])
-	if profileID == "" {
-		return nil
-	}
-	profiles, ok := plugin.Config["model_profiles"].([]any)
-	if !ok {
-		return nil
-	}
-	for _, rawProfile := range profiles {
-		profile, ok := rawProfile.(map[string]any)
-		if !ok || pluginConfigString(profile, "id") != profileID {
-			continue
-		}
-		invokeParams["model_profile"] = sanitizeAgentInvokeModelProfile(profile)
-		return nil
-	}
-	return nil
-}
-
-func savedAgentModelProfileByID(config map[string]any, profileID string) map[string]any {
-	profileID = strings.TrimSpace(profileID)
-	if profileID == "" {
-		return nil
-	}
-	profiles, ok := config["model_profiles"].([]any)
-	if !ok {
-		return nil
-	}
-	for _, rawProfile := range profiles {
-		profile, ok := rawProfile.(map[string]any)
-		if ok && pluginConfigString(profile, "id") == profileID {
-			return profile
-		}
-	}
-	return nil
-}
-
-func mergeAgentModelProfile(base map[string]any, override map[string]any) map[string]any {
-	merged := cloneAnyMap(base)
-	for key, value := range override {
-		if value == nil {
-			continue
-		}
-		merged[key] = value
-	}
-	return merged
-}
-
-func sanitizeAgentInvokeModelProfile(profile map[string]any) map[string]any {
-	cloned := cloneAnyMap(profile)
-	delete(cloned, "api_key_ref")
-	return cloned
 }
 
 func pluginActionAllowed(entry pluginCatalogEntry, action string) bool {
@@ -697,9 +629,6 @@ func normalizePluginInstance(plugin pluginInstance) pluginInstance {
 	if plugin.Config == nil {
 		plugin.Config = map[string]any{}
 	}
-	if plugin.ID == agentPluginID {
-		plugin.Config = sanitizePluginConfig(plugin.ID, plugin.Config, nil)
-	}
 	return plugin
 }
 
@@ -717,9 +646,6 @@ func cloneAnyMap(values map[string]any) map[string]any {
 func pluginSecretsFromParams(pluginID string, params map[string]any) map[string]string {
 	secrets := map[string]string{}
 	if params == nil {
-		return secrets
-	}
-	if pluginID == agentPluginID {
 		return secrets
 	}
 	if rawSecrets, ok := params["secrets"].(map[string]any); ok {
@@ -767,34 +693,10 @@ func sanitizePluginConfig(pluginID string, config map[string]any, secrets map[st
 	if secrets == nil {
 		secrets = map[string]string{}
 	}
-	if pluginID == agentPluginID {
-		delete(sanitized, "api_key")
-		delete(sanitized, "api_key_ref")
-		if profiles, ok := sanitized["model_profiles"].([]any); ok {
-			sanitized["model_profiles"] = sanitizeAgentModelProfiles(profiles)
-		}
-		return sanitized
-	}
 	if value := trimString(sanitized["api_key"]); value != "" {
 		secrets["api_key"] = value
 	}
 	delete(sanitized, "api_key")
-	return sanitized
-}
-
-func sanitizeAgentModelProfiles(profiles []any) []any {
-	sanitized := make([]any, 0, len(profiles))
-	for _, rawProfile := range profiles {
-		profile, ok := rawProfile.(map[string]any)
-		if !ok {
-			sanitized = append(sanitized, rawProfile)
-			continue
-		}
-		cloned := cloneAnyMap(profile)
-		delete(cloned, "api_key")
-		delete(cloned, "api_key_ref")
-		sanitized = append(sanitized, cloned)
-	}
 	return sanitized
 }
 
@@ -845,9 +747,6 @@ func pluginProfileSecretName(profile map[string]any, index int) string {
 }
 
 func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (map[string]string, *apiError) {
-	if plugin.ID == agentPluginID {
-		return map[string]string{}, nil
-	}
 	s.mu.Lock()
 	homeserver := strings.TrimSpace(s.homeserver)
 	s.mu.Unlock()
@@ -861,9 +760,6 @@ func (s *Service) pluginRuntimeEnv(ctx context.Context, plugin pluginInstance) (
 }
 
 func pluginRuntimeVolumes(plugin pluginInstance) []string {
-	if plugin.ID == agentPluginID {
-		return nil
-	}
 	if plugin.ID != opsPluginID {
 		return nil
 	}
@@ -893,107 +789,6 @@ func pluginBackendBaseURL(homeserver string) string {
 		return "http://message-server:8008"
 	}
 	return homeserver
-}
-
-func (s *Service) mergeAgentPluginEnv(ctx context.Context, pluginID string, env map[string]string, config map[string]any) *apiError {
-	if value := pluginConfigString(config, "display_name"); value != "" {
-		env["AGENT_DISPLAY_NAME"] = value
-	}
-	if value := pluginConfigString(config, "system_prompt"); value != "" {
-		env["AGENT_SYSTEM_PROMPT"] = value
-	}
-	if value := pluginConfigListString(config, "enabled_tools"); value != "" {
-		env["AGENT_ENABLED_TOOLS"] = value
-	}
-	if value := pluginConfigJSON(config, "skills"); value != "" {
-		env["AGENT_SKILLS_JSON"] = value
-	}
-	if value := pluginConfigJSON(config, "mcp_servers"); value != "" {
-		env["AGENT_MCP_SERVERS_JSON"] = value
-	}
-	return nil
-}
-
-func (s *Service) resolvePluginSecretValue(ctx context.Context, pluginID string, ref string) (string, *apiError) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", nil
-	}
-	if name, ok := secretRefName(ref); ok {
-		secret, exists, err := s.getPluginSecret(ctx, pluginID, name)
-		if err != nil {
-			return "", internalError(err)
-		}
-		if !exists || secret.Value == "" {
-			return "", badRequest("plugin secret is not configured: " + name)
-		}
-		return secret.Value, nil
-	}
-	if name, ok := envRefName(ref); ok {
-		return os.Getenv(name), nil
-	}
-	return ref, nil
-}
-
-func (s *Service) resolvePluginSecretRef(ctx context.Context, pluginID string, env map[string]string, ref string, envName string) (string, *apiError) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", nil
-	}
-	if name, ok := secretRefName(ref); ok {
-		secret, exists, err := s.getPluginSecret(ctx, pluginID, name)
-		if err != nil {
-			return "", internalError(err)
-		}
-		if !exists || secret.Value == "" {
-			return "", badRequest("plugin secret is not configured: " + name)
-		}
-		env[envName] = secret.Value
-		return "env:" + envName, nil
-	}
-	if name, ok := envRefName(ref); ok {
-		if secret := os.Getenv(name); secret != "" {
-			env[name] = secret
-		}
-		return ref, nil
-	}
-	return ref, nil
-}
-
-func (s *Service) resolveAgentModelProfiles(ctx context.Context, pluginID string, env map[string]string, profiles any) ([]any, *apiError) {
-	rawProfiles, ok := profiles.([]any)
-	if !ok {
-		return nil, badRequest("model_profiles must be an array")
-	}
-	resolved := make([]any, 0, len(rawProfiles))
-	for index, rawProfile := range rawProfiles {
-		profile, ok := rawProfile.(map[string]any)
-		if !ok {
-			resolved = append(resolved, rawProfile)
-			continue
-		}
-		cloned := cloneAnyMap(profile)
-		if ref := pluginConfigString(cloned, "api_key_ref"); ref != "" {
-			envName := "AGENT_PROFILE_API_KEY_" + pluginEnvSuffix(pluginProfileEnvID(cloned, index))
-			resolvedRef, apiErr := s.resolvePluginSecretRef(ctx, pluginID, env, ref, envName)
-			if apiErr != nil {
-				return nil, apiErr
-			}
-			cloned["api_key_ref"] = resolvedRef
-		}
-		resolved = append(resolved, cloned)
-	}
-	return resolved, nil
-}
-
-func pluginProfileEnvID(profile map[string]any, index int) string {
-	if value := pluginConfigString(profile, "id"); value != "" {
-		return value
-	}
-	if value := pluginConfigString(profile, "name"); value != "" {
-		return value
-	}
-	return jsonValue(index)
 }
 
 func pluginEnvSuffix(value string) string {
@@ -1028,59 +823,6 @@ func pluginConfigString(config map[string]any, key string) string {
 	default:
 		return ""
 	}
-}
-
-func pluginConfigListString(config map[string]any, key string) string {
-	if config == nil {
-		return ""
-	}
-	switch value := config[key].(type) {
-	case string:
-		return strings.TrimSpace(value)
-	case []string:
-		return strings.Join(value, ",")
-	case []any:
-		items := make([]string, 0, len(value))
-		for _, item := range value {
-			if text := trimString(item); text != "" {
-				items = append(items, text)
-			}
-		}
-		return strings.Join(items, ",")
-	default:
-		return ""
-	}
-}
-
-func pluginConfigJSON(config map[string]any, key string) string {
-	if config == nil {
-		return ""
-	}
-	value, ok := config[key]
-	if !ok || value == nil {
-		return ""
-	}
-	if text, ok := value.(string); ok {
-		return strings.TrimSpace(text)
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func envRefName(ref string) (string, bool) {
-	ref = strings.TrimSpace(ref)
-	const prefix = "env:"
-	if !strings.HasPrefix(ref, prefix) {
-		return "", false
-	}
-	name := strings.TrimSpace(strings.TrimPrefix(ref, prefix))
-	if name == "" || !pluginEnvNamePattern.MatchString(name) {
-		return "", false
-	}
-	return name, true
 }
 
 func jsonValue(value any) string {

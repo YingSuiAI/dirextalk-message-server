@@ -244,7 +244,7 @@ func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSClientCommandAliasUsesServerResponse(t *testing.T) {
+func TestRealtimeWSClientCommandIsRemoved(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
@@ -266,8 +266,11 @@ func TestRealtimeWSClientCommandAliasUsesServerResponse(t *testing.T) {
 		},
 	})
 	frame := readRealtimeResponse(t, conn, "cmd-read-alias")
-	if frame["type"] != "server.response" || frame["ok"] != true || frame["action"] != "channels.read_marker" {
-		t.Fatalf("expected command alias to use server.response, got %#v", frame)
+	if frame["type"] != "server.response" ||
+		frame["ok"] != false ||
+		int(frame["status"].(float64)) != http.StatusBadRequest ||
+		frame["error"] != "unsupported frame type" {
+		t.Fatalf("expected client.command to be rejected, got %#v", frame)
 	}
 }
 
