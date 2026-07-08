@@ -859,8 +859,10 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 			}
 		}
 		if contact.RoomID != "" {
-			if err := s.groupStore().DeleteGroup(ctx, contact.RoomID); err != nil {
-				return err
+			if groupStore := s.groupStore(); groupStore != nil {
+				if err := groupStore.DeleteGroup(ctx, contact.RoomID); err != nil {
+					return err
+				}
 			}
 			if err := s.deleteStoredConversationKind(ctx, contact.RoomID, conversationKindGroup); err != nil {
 				return err
