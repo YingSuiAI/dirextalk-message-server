@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/internal"
