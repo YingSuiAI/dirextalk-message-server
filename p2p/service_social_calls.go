@@ -18,6 +18,23 @@ func (s *Service) callStore() callStore {
 	return s.store
 }
 
+type socialStore interface {
+	UpsertFavorite(ctx context.Context, favorite favoriteRecord) error
+	FindFavoriteByEvent(ctx context.Context, eventID, roomID string) (favoriteRecord, bool, error)
+	ListFavorites(ctx context.Context, messageType string) ([]favoriteRecord, error)
+	DeleteFavorite(ctx context.Context, id int64) error
+	UpsertFollow(ctx context.Context, follow followRecord) error
+	ListFollows(ctx context.Context) ([]followRecord, error)
+	DeleteFollow(ctx context.Context, domain string) error
+}
+
+func (s *Service) socialStore() socialStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) favoriteMessage(ctx context.Context, params map[string]any) (any, *apiError) {
 	now := time.Now().UTC()
 	favorite := favoriteRecord{
@@ -33,8 +50,8 @@ func (s *Service) favoriteMessage(ctx context.Context, params map[string]any) (a
 	}
 	reuseFavoriteID := false
 	if favorite.EventID != "" {
-		if s.store != nil {
-			existing, ok, err := s.store.FindFavoriteByEvent(ctx, favorite.EventID, favorite.RoomID)
+		if store := s.socialStore(); store != nil {
+			existing, ok, err := store.FindFavoriteByEvent(ctx, favorite.EventID, favorite.RoomID)
 			if err != nil {
 				return nil, internalError(err)
 			}
@@ -66,8 +83,8 @@ func (s *Service) favoriteMessage(ctx context.Context, params map[string]any) (a
 	}
 	s.favorites[favorite.ID] = favorite
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertFavorite(ctx, favorite); err != nil {
+	if store := s.socialStore(); store != nil {
+		if err := store.UpsertFavorite(ctx, favorite); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -86,8 +103,8 @@ func sameFavoriteTarget(existing, incoming favoriteRecord) bool {
 
 func (s *Service) favoriteList(ctx context.Context, params map[string]any) any {
 	messageType := trimString(params["message_type"])
-	if s.store != nil {
-		favorites, err := s.store.ListFavorites(ctx, messageType)
+	if store := s.socialStore(); store != nil {
+		favorites, err := store.ListFavorites(ctx, messageType)
 		if err == nil {
 			return map[string]any{"favorites": favorites}
 		}
@@ -108,8 +125,8 @@ func (s *Service) favoriteDelete(ctx context.Context, params map[string]any) (an
 	s.mu.Lock()
 	delete(s.favorites, id)
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.DeleteFavorite(ctx, id); err != nil {
+	if store := s.socialStore(); store != nil {
+		if err := store.DeleteFavorite(ctx, id); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -129,9 +146,9 @@ func (s *Service) favoriteDeleteBatch(ctx context.Context, params map[string]any
 		delete(s.favorites, id)
 	}
 	s.mu.Unlock()
-	if s.store != nil {
+	if store := s.socialStore(); store != nil {
 		for _, id := range ids {
-			if err := s.store.DeleteFavorite(ctx, id); err != nil {
+			if err := store.DeleteFavorite(ctx, id); err != nil {
 				return nil, internalError(err)
 			}
 		}
@@ -348,8 +365,8 @@ func (s *Service) followAdd(ctx context.Context, params map[string]any) (any, *a
 	s.mu.Lock()
 	s.follows[domain] = follow
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertFollow(ctx, follow); err != nil {
+	if store := s.socialStore(); store != nil {
+		if err := store.UpsertFollow(ctx, follow); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -361,8 +378,8 @@ func (s *Service) followRemove(ctx context.Context, params map[string]any) (any,
 	s.mu.Lock()
 	delete(s.follows, domain)
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.DeleteFollow(ctx, domain); err != nil {
+	if store := s.socialStore(); store != nil {
+		if err := store.DeleteFollow(ctx, domain); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -370,8 +387,8 @@ func (s *Service) followRemove(ctx context.Context, params map[string]any) (any,
 }
 
 func (s *Service) followList(ctx context.Context) any {
-	if s.store != nil {
-		follows, err := s.store.ListFollows(ctx)
+	if store := s.socialStore(); store != nil {
+		follows, err := store.ListFollows(ctx)
 		if err == nil {
 			return map[string]any{"follows": follows}
 		}
