@@ -74,6 +74,34 @@ func TestConversationFromGroupAndChannelUseSharedRecords(t *testing.T) {
 	}
 }
 
+func TestConversationFromContactUsesSharedRecord(t *testing.T) {
+	accepted := ConversationFromContact(ContactRecord{
+		RoomID:      "!dm:example.com",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		AvatarURL:   "mxc://remote.example/alice",
+		Status:      "accepted",
+	})
+	if accepted.Kind != ConversationKindDirect ||
+		accepted.Lifecycle != ConversationLifecycleActive ||
+		accepted.MatrixRoomID != "!dm:example.com" ||
+		accepted.PeerMXID != "@alice:remote.example" ||
+		accepted.Title != "Alice" ||
+		accepted.AvatarURL != "mxc://remote.example/alice" {
+		t.Fatalf("unexpected accepted contact conversation: %#v", accepted)
+	}
+
+	pending := ConversationFromContact(ContactRecord{RoomID: "!pending:example.com", PeerMXID: "@bob:remote.example", Status: "pending_outbound"})
+	if pending.Lifecycle != ConversationLifecyclePending || pending.Title != "@bob:remote.example" {
+		t.Fatalf("unexpected pending contact conversation: %#v", pending)
+	}
+
+	deleted := ConversationFromContact(ContactRecord{RoomID: "!deleted:example.com", PeerMXID: "@carol:remote.example", Status: "deleted"})
+	if deleted.Lifecycle != ConversationLifecycleDeleted {
+		t.Fatalf("unexpected deleted contact conversation: %#v", deleted)
+	}
+}
+
 func TestContactDeletedAndFallbackString(t *testing.T) {
 	if !ContactDeleted(" Deleted ") {
 		t.Fatalf("expected deleted status to be normalized")

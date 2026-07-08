@@ -1,10 +1,6 @@
 package domain
 
-import (
-	"strings"
-
-	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
-)
+import "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 
 type ConversationKind = dirextalkdomain.ConversationKind
 
@@ -49,21 +45,16 @@ func ConversationIDForRoomID(roomID string) string {
 }
 
 func ConversationFromContact(contact ContactRecord) ConversationRecord {
-	lifecycle := ConversationLifecycleActive
-	if ContactDeleted(contact.Status) {
-		lifecycle = ConversationLifecycleDeleted
-	} else if !strings.EqualFold(contact.Status, "accepted") {
-		lifecycle = ConversationLifecyclePending
-	}
-	return ConversationRecord{
-		MatrixRoomID:    contact.RoomID,
-		Kind:            ConversationKindDirect,
-		Lifecycle:       lifecycle,
-		PeerMXID:        contact.PeerMXID,
-		Title:           FallbackString(contact.DisplayName, contact.PeerMXID),
-		AvatarURL:       contact.AvatarURL,
-		ProjectionState: ConversationProjectionReady,
-	}
+	return dirextalkdomain.ConversationFromContact(dirextalkdomain.ContactRecord{
+		PeerMXID:            contact.PeerMXID,
+		DisplayName:         contact.DisplayName,
+		DisplayNameOverride: contact.DisplayNameOverride,
+		AvatarURL:           contact.AvatarURL,
+		Domain:              contact.Domain,
+		RoomID:              contact.RoomID,
+		Status:              contact.Status,
+		Remark:              contact.Remark,
+	})
 }
 
 func ConversationFromGroup(group GroupRecord) ConversationRecord {

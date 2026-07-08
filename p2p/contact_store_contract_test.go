@@ -4,11 +4,11 @@ import "context"
 
 type contactOnlyStore struct{}
 
-func (contactOnlyStore) UpsertContact(context.Context, contactRecord) error {
+func (contactOnlyStore) UpsertContact(context.Context, contactStorageRecord) error {
 	return nil
 }
 
-func (contactOnlyStore) ListContacts(context.Context) ([]contactRecord, error) {
+func (contactOnlyStore) ListContacts(context.Context) ([]contactStorageRecord, error) {
 	return nil, nil
 }
 

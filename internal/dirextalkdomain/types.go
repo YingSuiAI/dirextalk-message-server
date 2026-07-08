@@ -26,6 +26,17 @@ type OwnerProfile struct {
 	Email       string `json:"email"`
 }
 
+type ContactRecord struct {
+	PeerMXID            string `json:"peer_mxid"`
+	DisplayName         string `json:"display_name"`
+	DisplayNameOverride bool   `json:"display_name_override,omitempty"`
+	AvatarURL           string `json:"avatar_url"`
+	Domain              string `json:"domain"`
+	RoomID              string `json:"room_id"`
+	Status              string `json:"status"`
+	Remark              string `json:"remark,omitempty"`
+}
+
 type AgentConfig struct {
 	DisplayName       string         `json:"display_name"`
 	AvatarURL         string         `json:"avatar_url"`

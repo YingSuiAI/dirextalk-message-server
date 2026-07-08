@@ -148,8 +148,8 @@ type Store interface {
 	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
 	ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error)
 	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentRecord, bool, error)
-	UpsertContact(ctx context.Context, contact contactRecord) error
-	ListContacts(ctx context.Context) ([]contactRecord, error)
+	UpsertContact(ctx context.Context, contact contactStorageRecord) error
+	ListContacts(ctx context.Context) ([]contactStorageRecord, error)
 	DeleteContact(ctx context.Context, roomID string) error
 	UpsertBlock(ctx context.Context, block blockRecord) error
 	DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error)

@@ -96,7 +96,7 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 	}
 	defer store.Close()
 
-	if storeErr := store.UpsertContact(ctx, contactRecord{
+	if storeErr := store.UpsertContact(ctx, contactStorageRecord{
 		RoomID:      "!first:example.com",
 		PeerMXID:    "@alice:remote.example",
 		DisplayName: "Alice",
@@ -107,7 +107,7 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 	}); storeErr != nil {
 		t.Fatal(storeErr)
 	}
-	if storeErr := store.UpsertContact(ctx, contactRecord{
+	if storeErr := store.UpsertContact(ctx, contactStorageRecord{
 		RoomID:      "!second:example.com",
 		PeerMXID:    "@alice:remote.example",
 		DisplayName: "Alice Updated",
@@ -908,7 +908,7 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	if _, execErr := store.DB().ExecContext(ctx, `CREATE INDEX p2p_contacts_peer_idx ON p2p_contacts(peer_mxid)`); execErr != nil {
 		t.Fatal(execErr)
 	}
-	duplicates := []contactRecord{
+	duplicates := []contactStorageRecord{
 		{RoomID: "!pending:example.com", PeerMXID: "@alice:remote.example", DisplayName: "Pending Alice", Domain: "remote.example", Status: "pending_outbound"},
 		{RoomID: "!accepted:example.com", PeerMXID: "@alice:remote.example", DisplayName: "Accepted Alice", Domain: "remote.example", Status: "accepted"},
 		{RoomID: "!deleted:example.com", PeerMXID: "@alice:remote.example", DisplayName: "Deleted Alice", Domain: "remote.example", Status: "deleted"},
@@ -937,7 +937,7 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	if len(contacts) != 2 {
 		t.Fatalf("expected duplicate peers to be compacted, got %#v", contacts)
 	}
-	alice := findContact(contacts, "@alice:remote.example")
+	alice := findStoredContact(contacts, "@alice:remote.example")
 	if alice.RoomID != "!accepted:example.com" || alice.Status != "accepted" {
 		t.Fatalf("expected migration to keep accepted contact for duplicate peer, got %#v", alice)
 	}
@@ -947,6 +947,15 @@ func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *test
 	`, "!new-alice:example.com", "@alice:remote.example", "Alice Duplicate", "remote.example", "pending_outbound"); err == nil {
 		t.Fatalf("expected migrated contact peer index to reject duplicates")
 	}
+}
+
+func findStoredContact(contacts []contactStorageRecord, peerMXID string) contactStorageRecord {
+	for _, contact := range contacts {
+		if contact.PeerMXID == peerMXID {
+			return contact
+		}
+	}
+	return contactStorageRecord{}
 }
 
 func markP2PMigrationsBeforeContactPeerUnique(ctx context.Context, db *sql.DB) error {

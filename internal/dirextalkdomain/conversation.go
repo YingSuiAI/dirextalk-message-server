@@ -132,6 +132,24 @@ func ConversationIDForRoomID(roomID string) string {
 	return "conv_" + hex.EncodeToString(sum[:12])
 }
 
+func ConversationFromContact(contact ContactRecord) ConversationRecord {
+	lifecycle := ConversationLifecycleActive
+	if ContactDeleted(contact.Status) {
+		lifecycle = ConversationLifecycleDeleted
+	} else if !strings.EqualFold(contact.Status, "accepted") {
+		lifecycle = ConversationLifecyclePending
+	}
+	return ConversationRecord{
+		MatrixRoomID:    contact.RoomID,
+		Kind:            ConversationKindDirect,
+		Lifecycle:       lifecycle,
+		PeerMXID:        contact.PeerMXID,
+		Title:           FallbackString(contact.DisplayName, contact.PeerMXID),
+		AvatarURL:       contact.AvatarURL,
+		ProjectionState: ConversationProjectionReady,
+	}
+}
+
 func ConversationFromGroup(group GroupRecord) ConversationRecord {
 	return ConversationRecord{
 		MatrixRoomID:    group.RoomID,

@@ -11,8 +11,8 @@ import (
 )
 
 type contactStore interface {
-	UpsertContact(ctx context.Context, contact contactRecord) error
-	ListContacts(ctx context.Context) ([]contactRecord, error)
+	UpsertContact(ctx context.Context, contact contactStorageRecord) error
+	ListContacts(ctx context.Context) ([]contactStorageRecord, error)
 	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
 }
@@ -850,7 +850,7 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 	}
 	s.mu.Unlock()
 	if store := s.contactStore(); store != nil {
-		if err := store.UpsertContact(ctx, contact); err != nil {
+		if err := store.UpsertContact(ctx, contactStorageRecordFromContact(contact)); err != nil {
 			return err
 		}
 		for _, roomID := range replacedDirectRoomIDs {
