@@ -1219,6 +1219,79 @@ func TestStoredGroupOwnerCannotLeaveOrRemoveAfterReload(t *testing.T) {
 	}
 }
 
+func TestStoredMemberRolesAndMutesSurviveReload(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService(t, service)
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!stored-members:example.com",
+		"name":    "Stored Members",
+	})
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "stored-channel-members",
+		"room_id":    "!stored-channel-members:example.com",
+		"name":       "Stored Channel Members",
+	})
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      group.RoomID,
+		UserID:      "@alice:remote.example",
+		DisplayName: "Alice",
+		Domain:      "remote.example",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      ch.RoomID,
+		ChannelID:   ch.ChannelID,
+		UserID:      "@bob:remote.example",
+		DisplayName: "Bob",
+		Domain:      "remote.example",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mustHandle[map[string]any](t, service, "groups.mute", map[string]any{"room_id": group.RoomID})
+	mustHandle[map[string]any](t, service, "channels.mute", map[string]any{"channel_id": ch.ChannelID, "room_id": ch.RoomID})
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupMembers := mustHandle[map[string]any](t, reloaded, "groups.members", map[string]any{"room_id": group.RoomID})["members"].([]memberRecord)
+	if owner := findMember(groupMembers, "@owner:example.com"); owner.UserID == "" || owner.Role != "owner" || owner.Muted {
+		t.Fatalf("expected group owner role and unmuted state to survive reload, got %#v", groupMembers)
+	}
+	if alice := findMember(groupMembers, "@alice:remote.example"); alice.UserID == "" || alice.Role != "member" || !alice.Muted {
+		t.Fatalf("expected group member role and muted state to survive reload, got %#v", groupMembers)
+	}
+	channelMembers := mustHandle[map[string]any](t, reloaded, "channels.members", map[string]any{"channel_id": ch.ChannelID})["members"].([]memberRecord)
+	if owner := findMember(channelMembers, "@owner:example.com"); owner.UserID == "" || owner.Role != "owner" || owner.Muted {
+		t.Fatalf("expected channel owner role and unmuted state to survive reload, got %#v", channelMembers)
+	}
+	if bob := findMember(channelMembers, "@bob:remote.example"); bob.UserID == "" || bob.Role != "member" || !bob.Muted {
+		t.Fatalf("expected channel member role and muted state to survive reload, got %#v", channelMembers)
+	}
+}
+
 func TestContactListDeduplicatesPeerAndPrefersAcceptedContact(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
