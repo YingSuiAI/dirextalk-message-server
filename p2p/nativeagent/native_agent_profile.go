@@ -62,6 +62,10 @@ func defaultModelForProvider(provider string) string {
 		return "claude-3-5-sonnet-latest"
 	case "deepseek":
 		return "deepseek-chat"
+	case "openrouter":
+		return "openai/gpt-4.1-mini"
+	case "openai_compatible", "litellm":
+		return "gpt-4.1-mini"
 	default:
 		return "deepseek-chat"
 	}
@@ -75,6 +79,10 @@ func defaultBaseURLForProvider(provider string) string {
 		return "https://api.anthropic.com"
 	case "deepseek":
 		return "https://api.deepseek.com"
+	case "openrouter":
+		return "https://openrouter.ai/api/v1"
+	case "openai_compatible", "litellm":
+		return "http://localhost:4000/v1"
 	default:
 		return ""
 	}

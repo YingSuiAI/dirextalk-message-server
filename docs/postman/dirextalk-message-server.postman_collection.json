@@ -361,10 +361,10 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "List Native Agent model provider defaults through the direct `agent.*` surface.\n\nAction: `agent.models.list`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
+                "description": "Fetch the real Native Agent model list from the selected provider using request-scoped provider/base_url/api_key. The server must not persist or echo the API key.\n\nAction: `agent.models.list`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"action\": \"agent.models.list\",\n  \"params\": {}\n}",
+                  "raw": "{\n  \"action\": \"agent.models.list\",\n  \"params\": {\n    \"provider\": \"deepseek\",\n    \"base_url\": \"https://api.deepseek.com\",\n    \"api_key\": \"{{modelApiKey}}\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
