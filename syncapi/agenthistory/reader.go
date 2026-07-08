@@ -66,41 +66,54 @@ func (r *Reader) ListOrdinaryMessages(ctx context.Context, roomID string, page m
 		filter.Limit = page.Limit + 1
 	}
 	filter.Types = &[]string{eventType}
-	streamEvents, _, _, err := snapshot.GetEventsInTopologicalRange(ctx, &from, &to, roomID, &filter, true)
-	if err != nil {
-		return matrixhistory.MessagePageResult{}, err
-	}
-	events := snapshot.StreamEventsToEvents(ctx, nil, streamEvents, r.RSAPI)
-	events, err = r.filterVisibleEvents(ctx, snapshot, roomID, events)
-	if err != nil {
-		return matrixhistory.MessagePageResult{}, err
-	}
 	messages := make([]matrixhistory.MessageSummary, 0, page.Limit+1)
-	for _, event := range events {
-		eventID := ""
-		if event != nil {
-			eventID = event.EventID()
+	seenEventIDs := make(map[string]struct{})
+	for {
+		streamEvents, _, end, err := snapshot.GetEventsInTopologicalRange(ctx, &from, &to, roomID, &filter, true)
+		if err != nil {
+			return matrixhistory.MessagePageResult{}, err
 		}
-		originServerTS := int64(0)
-		if event != nil {
-			originServerTS = int64(event.OriginServerTS())
+		events := snapshot.StreamEventsToEvents(ctx, nil, streamEvents, r.RSAPI)
+		events, err = r.filterVisibleEvents(ctx, snapshot, roomID, events)
+		if err != nil {
+			return matrixhistory.MessagePageResult{}, err
 		}
-		if event == nil || event.Type() != eventType || !matrixhistory.InPage(originServerTS, eventID, page) {
-			continue
+		for _, event := range events {
+			if event == nil || event.Type() != eventType {
+				continue
+			}
+			eventID := event.EventID()
+			if _, seen := seenEventIDs[eventID]; seen {
+				continue
+			}
+			seenEventIDs[eventID] = struct{}{}
+			originServerTS := int64(event.OriginServerTS())
+			if !matrixhistory.InPage(originServerTS, eventID, page) {
+				continue
+			}
+			content := map[string]any{}
+			if err := json.Unmarshal(event.Content(), &content); err != nil {
+				continue
+			}
+			sender := senderMXID(event)
+			summary, ok := matrixhistory.OrdinaryMessageSummary(event.Type(), eventID, originServerTS, sender, content, page)
+			if !ok {
+				continue
+			}
+			messages = append(messages, summary)
+			if len(messages) > page.Limit {
+				break
+			}
 		}
-		content := map[string]any{}
-		if err := json.Unmarshal(event.Content(), &content); err != nil {
-			continue
-		}
-		sender := senderMXID(event)
-		summary, ok := matrixhistory.OrdinaryMessageSummary(event.Type(), eventID, originServerTS, sender, content, page)
-		if !ok {
-			continue
-		}
-		messages = append(messages, summary)
-		if len(messages) > page.Limit {
+		if len(messages) > page.Limit || end == (types.TopologyToken{}) || end.Depth <= 1 {
 			break
 		}
+		nextFrom := end
+		nextFrom.Decrement()
+		if nextFrom == from {
+			break
+		}
+		from = nextFrom
 	}
 	matrixhistory.SortMessageSummaries(messages)
 	hasMore := len(messages) > page.Limit
