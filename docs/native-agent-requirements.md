@@ -1,28 +1,38 @@
 # Native Agent Requirements
 
+> Current contract: Native Agent is exposed through first-class owner `agent.*`
+> product actions and realtime `client.native_agent_stream` /
+> `client.native_agent_stream.cancel` frames. `io.dirextalk.agent` is not
+> listed, installed, enabled, configured, invoked, checked for health, or tailed
+> through the plugin catalog/list/lifecycle/invoke/log surfaces. Ops and future
+> non-Agent plugins continue to use the plugin manager and Docker runner. B4 is
+> not complete yet: native Agent config storage still uses a hidden legacy
+> Agent plugin record for compatibility and must be migrated to native config
+> storage in a later batch.
+
 ## Scope
 
-Dirextalk message server embeds `io.dirextalk.agent` as a native server feature. The old Agent Docker/plugin-runtime reuse path is deprecated for Agent only. `dirextalk-plugins` is not changed in this version, and non-Agent plugins such as `io.dirextalk.ops` may continue to use the Docker plugin runner.
+Dirextalk message server embeds Native Agent as a native server feature. The old Agent Docker/plugin-runtime reuse path is deprecated for Agent only. `dirextalk-plugins` is not changed in this version, and non-Agent plugins such as `io.dirextalk.ops` may continue to use the Docker plugin runner.
 
-Clients keep the current call surface:
+Clients use the current call surface:
 
-- `plugins.install`, `plugins.enable`, `plugins.disable`, `plugins.uninstall`, `plugins.config.get`, `plugins.config.update`, `plugins.health`
-- `plugins.invoke` with `plugin_id=io.dirextalk.agent`
-- `client.plugin_stream` over realtime WebSocket
+- First-class owner `agent.*` body actions for Native Agent chat, model listing, runtime, skills, MCP, context compression, config patch proposal, and built-in Dirextalk tools.
+- `client.native_agent_stream` over realtime WebSocket for Native Agent streaming, with `client.native_agent_stream.cancel` for cancellation.
+- Plugin manager actions remain for Ops and future non-Agent plugins only.
 
 ## Runtime Requirements
 
-- `io.dirextalk.agent` always routes to native runtime, never to the Docker Agent container.
-- No migration from old Agent config or runtime state is required.
+- Native Agent owner actions always route to the native runtime, never to a Docker Agent container.
+- B4 migration is still pending: old hidden Agent plugin config/runtime state may be read for compatibility, but current clients must not use plugin management as the Native Agent contract.
 - Native Agent uses CloudWeGo Eino as the only model orchestration path. The runtime must track the latest stable Eino release, use Eino ReAct for model/tool loops, use maintained Eino model components for OpenAI and DeepSeek, use direct-only Anthropic Messages API as an Eino `ToolCallingChatModel` adapter, and use Eino official MCP tooling backed by `modelcontextprotocol/go-sdk`.
 - Native Agent supports `openai`, `anthropic`, `deepseek`, and `openai_compatible`.
 - `anthropic` first-version support is direct Anthropic API only. Bedrock and Vertex are intentionally not supported, and AWS/Google SDK dependencies must not be introduced for this provider.
 - Requests may pass `model_profile` with `provider`, `model`, `base_url`, `api_key`, `temperature`, `top_p`, `max_output_tokens`, and `context_window`.
 - DeepSeek defaults to the OpenAI-compatible endpoint `https://api.deepseek.com`.
 - API keys are request-local or temporary environment values only. They must not be persisted, logged, committed, or returned by config APIs.
-- System prompts come from plugin config, request overrides, and enabled static skills.
+- System prompts come from native Agent config, request overrides, and enabled static skills.
 - `agent.chat` returns a complete response.
-- `agent.chat.stream` emits `delta`, `error`, and `done` frames through the existing WebSocket protocol and respects client cancellation.
+- Native stream emits `delta`, `error`, `trace`, and `done` events through `server.native_agent_stream.*` frames and respects client cancellation.
 - Chat responses and stream completion payloads expose observable `steps` and `trace` data for UI display of context use, tool calls, tool results, and final output. Streamed chats also emit a `trace` event before `done`.
 - Trace data must not expose hidden model chain-of-thought. It is limited to observable runtime progress, tool inputs/outputs, context metadata, and final answer previews.
 
@@ -90,9 +100,9 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
   - `python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null`
   - `git diff --check`
 - Real local interface testing passes with a temporary DeepSeek key:
-  - Install and enable native Agent through plugin APIs.
-  - `plugins.invoke -> agent.chat` returns a Chinese reply.
-  - `client.plugin_stream -> agent.chat.stream` emits `delta` and `done`.
+  - Native Agent is absent from plugin catalog/list/lifecycle/invoke surfaces.
+  - Direct `agent.chat` returns a Chinese reply.
+  - Realtime `client.native_agent_stream` emits `delta`, `trace`, and `done`.
   - Skill install/list works and enabled skill text affects the system prompt.
   - MCP install/list works and a discovered MCP tool can be invoked by Agent.
   - Runtime CLI tool install/which/run works.

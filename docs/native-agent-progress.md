@@ -1,5 +1,16 @@
 # Native Agent Progress
 
+> Superseded/current contract note: older checklist items below may describe
+> the temporary Agent-as-plugin implementation path used during early Native
+> Agent work. The current backend contract is first-class owner `agent.*`
+> actions plus realtime `client.native_agent_stream` /
+> `client.native_agent_stream.cancel`. `io.dirextalk.agent` is not exposed
+> through plugin catalog/list/lifecycle/config/invoke/health/logs. Ops and
+> future non-Agent plugins continue to use the plugin manager. B4 is still
+> pending: native Agent config storage currently has a hidden legacy Agent
+> plugin record compatibility path and must migrate to native config storage in
+> a later batch.
+
 Only mark an item after implementation and verification are complete. Do not pre-check planned or partially finished work.
 
 ## Requirements And Tests
@@ -11,11 +22,11 @@ Only mark an item after implementation and verification are complete. Do not pre
 
 ## Runtime Integration
 
-- [x] `io.dirextalk.agent` routes to native runtime and never to Docker runner.
+- [x] Native Agent routes to native runtime and never to Docker runner.
 - [x] Ops and future non-Agent plugins still route to Docker runner when enabled.
-- [x] Agent plugin lifecycle APIs implement native install/enable/disable/uninstall/config/health semantics.
-- [x] Existing `plugins.invoke` action supports native Agent calls.
-- [x] Existing `client.plugin_stream` WebSocket path supports native Agent streaming and cancellation.
+- [x] Historical temporary Agent plugin lifecycle path implemented native install/enable/disable/uninstall/config/health semantics; superseded by first-class `agent.*` actions.
+- [x] First-class `agent.*` actions support native Agent calls.
+- [x] `client.native_agent_stream` WebSocket path supports native Agent streaming and cancellation.
 - [x] `P2P_NATIVE_AGENT_DATA_DIR` is supported with default `/var/dirextalk-message-server/agent`.
 - [x] Docker compose includes a durable native Agent data volume/path.
 
@@ -84,9 +95,9 @@ Only mark an item after implementation and verification are complete. Do not pre
 ## Real Interface Acceptance
 
 - [x] Local service starts for native Agent testing.
-- [x] Owner token installs/enables native Agent.
-- [x] DeepSeek `plugins.invoke -> agent.chat` returns a Chinese reply.
-- [x] DeepSeek `client.plugin_stream -> agent.chat.stream` emits `delta` and `done`.
+- [x] Owner token can call first-class Native Agent actions.
+- [x] DeepSeek direct `agent.chat` returns a Chinese reply.
+- [x] DeepSeek Native Agent realtime stream emits `delta`, `trace`, and `done`.
 - [x] Test skill install/list works and changes system prompt behavior.
 - [x] Test MCP server install/list works and tool is callable.
 - [x] Runtime CLI install/which/run works.
@@ -112,11 +123,11 @@ Only mark an item after implementation and verification are complete. Do not pre
 
 ## Extended Agent-Reach And Context7 Smoke
 
-- [x] Agent-Reach skill was installed through `plugins.invoke -> agent.skills.install` from the GitHub `SKILL.md`.
-- [x] Agent-Reach runtime CLI was installed/registered through `plugins.invoke -> agent.runtime.install`.
+- [x] Agent-Reach skill was installed through the Native Agent skill install action from the GitHub `SKILL.md`.
+- [x] Agent-Reach runtime CLI was installed/registered through the Native Agent runtime install action.
 - [x] Bilibili runtime search tool was installed through `agent.runtime.install` and called through `agent.runtime.run`.
 - [x] DeepSeek/Eino `agent.chat` called `runtime__agent_reach` and `runtime__bili`, then summarized Bilibili Shanghai food-guide results.
-- [x] Context7 was installed through `plugins.invoke -> agent.mcp.servers.install`.
+- [x] Context7 was installed through the Native Agent MCP server install action.
 - [x] DeepSeek/Eino `agent.chat` called Context7 MCP tools and answered from retrieved Gin documentation.
 - [x] XiaoHongShu and Twitter/X runtime tools were invoked and returned real missing-prerequisite output for login/cookies/native CLI dependency setup.
 - [ ] Authenticated XiaoHongShu search succeeds after `xhs` cookies or `xiaohongshu-mcp` QR login backend is configured.
@@ -133,11 +144,11 @@ Only mark an item after implementation and verification are complete. Do not pre
 
 ## Extended DeepSeek Multi-Scenario Smoke
 
-- [x] Multiple enabled skills were installed and listed through `plugins.invoke`: content skills plus GitHub Agent-Reach.
+- [x] Multiple enabled skills were installed and listed through Native Agent skill actions: content skills plus GitHub Agent-Reach.
 - [x] Runtime tools were installed through `agent.runtime.install` while using temporary China mirrors only in the smoke run.
 - [x] DeepSeek `agent.chat` used enabled skill prompt behavior and returned observable `trace`/`steps`.
 - [x] Local HTTP MCP server was installed through `agent.mcp.servers.install`, discovered, called by DeepSeek, and summarized in the final answer.
 - [x] Context7 MCP was installed and called by DeepSeek in the same native Eino tool framework.
 - [x] Conversation memory was retained, compressed through `agent.context.compress`, and reused by a later DeepSeek chat.
-- [x] WS `client.plugin_stream` emitted streamed `delta`, `trace`, and `done` events, and the trace showed the runtime tool call.
+- [x] WS `client.native_agent_stream` emitted streamed `delta`, `trace`, and `done` events, and the trace showed the runtime tool call.
 - [x] Temporary mirror/proxy settings were restored after the smoke run and were not written to repository code.
