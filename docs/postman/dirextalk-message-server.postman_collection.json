@@ -8,7 +8,7 @@
   "item": [
     {
       "name": "P2P Realtime WebSocket（实时WebSocket）",
-      "description": "Realtime WS is the logged-in owner product request/response, product-event stream, and client session-state path. Create a short-lived ticket with owner `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response` after `server.ready`; owner clients use HTTP `/query` or `/command` immediately when WS is not ready or disconnected at click time, while realtime WS reconnects in the background. Transport failure before a response may also use HTTP fallback for safe repeated actions with the same action envelope. `agent.matrix_session.create` and fixed `mcp.*` actions remain HTTP body actions. Agent bridge traffic uses Matrix Client-Server APIs, not product WS stream frames.",
+      "description": "Realtime WS is the logged-in owner product request/response, product-event stream, client session-state path, and Native Agent streaming path. Create a short-lived ticket with owner `realtime.ws_ticket.create`, then connect `GET /_p2p/ws?ticket=<ticket>` as a WebSocket. Owner sessions send non-MCP product actions as `client.request` frames and receive `server.response` after `server.ready`; owner clients use HTTP `/query` or `/command` immediately when WS is not ready or disconnected at click time. Native Agent streaming uses `client.native_agent_stream` and `client.native_agent_stream.cancel`, returning `server.native_agent_stream.event/error/cancelled`. `agent.matrix_session.create` and fixed `mcp.*` actions remain HTTP body actions. Online Agent bridge traffic for the real Matrix `agent_room_id` uses Matrix Client-Server APIs and is not mirrored through Native Agent stream frames.",
       "item": [
         {
           "name": "realtime.ws_ticket.create（创建WS票据）",
@@ -48,14 +48,14 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/_p2p/ws?ticket={{wsTicket}}",
-            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. `client.lifecycle` may include `state`, `hidden`, and `flags`; `client.focus` may include `focused` and `flags`. Owner sessions send non-MCP product actions as `client.request` frames only after `server.ready` and receive `server.response`; if WS is not ready or disconnected at click time, clients use HTTP `/query` or `/command` fallback immediately while realtime WS reconnects in the background. Transport failure before a response may also use HTTP fallback for safe repeated actions with the same body-action envelope. `client.command` remains a one-release compatibility alias. `agent.matrix_session.create` and fixed `mcp.*` actions stay on HTTP. Agent bridge traffic uses Matrix Client-Server APIs. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.pong`, or `server.error`."
+            "description": "Open this URL as a WebSocket after creating `{{wsTicket}}`. First client text frame must be `client.hello`, for example `{ \"type\": \"client.hello\", \"since\": 0, \"client\": \"postman\" }`. Client may then send `client.lifecycle`, `client.focus`, `client.ack`, and `client.ping`. Owner sessions send non-MCP product actions as `client.request` frames only after `server.ready`. Native Agent streaming uses `client.native_agent_stream` with fields `id`, `action`, and `params`; cancellation uses `client.native_agent_stream.cancel`. Server also sends `server.ready`, `server.event`, `server.cursor_reset`, `server.native_agent_stream.event`, `server.native_agent_stream.error`, `server.native_agent_stream.cancelled`, `server.pong`, or `server.error`. `agent.matrix_session.create` and fixed `mcp.*` actions stay on HTTP. Online Agent bridge traffic uses Matrix Client-Server APIs."
           }
         }
       ]
     },
     {
       "name": "P2P Body Action API（P2P动作接口）",
-      "description": "Dirextalk P2P body-action 接口集合。登录后客户端 product action 在 WS `server.ready` 后优先使用 `client.request`；点击时 WS 未 ready 或断线时，立即使用 owner `access_token` 通过 HTTP `/query` 或 `/command` 发送同一 action envelope 作为 fallback，realtime WS 在后台继续重连。已发出 WS request 后响应前传输失败时，只对可安全重复的 action 做 HTTP fallback。WS 业务错误不通过 HTTP 重试。`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、portal auth/password/status/account-delete、以及节点间 public/callback action 仍使用 HTTP。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`，但 `agent_token` 不能调用 owner product action fallback。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, rooms.reactivate, users.public_channels.",
+      "description": "Dirextalk P2P body-action 接口集合。登录后客户端 product action 在 WS `server.ready` 后优先使用 `client.request`；点击时 WS 未 ready 或断线时，立即使用 owner `access_token` 通过 HTTP `/query` 或 `/command` 发送同一 action envelope 作为 fallback，realtime WS 在后台继续重连。已发出 WS request 后响应前传输失败时，只对可安全重复的 action 做 HTTP fallback。WS 业务错误不通过 HTTP 重试。`agent.matrix_session.create`、固定 MCP action、owner `realtime.ws_ticket.create`、portal auth/password/status/account-delete、以及节点间 public/callback action 仍使用 HTTP。Native Agent 非流式能力使用 owner `agent.*` action；流式 chat 使用 WS `client.native_agent_stream`。除公开 action 外，默认使用 `access_token`；`agent.matrix_session.create` 和 MCP 类 action 可使用 `agent_token`，但 `agent_token` 不能调用 owner product action fallback。\n\nComplete action collection generated from the P2P action registry. Public actions: channels.public.get, channels.public.join_request, channels.public.join_result, channels.public.search, contacts.reactivate, portal.auth, portal.bootstrap, portal.status, rooms.reactivate, users.public_channels.",
       "item": [
         {
           "name": "agent（智能体配置）",
@@ -187,9 +187,265 @@
                   }
                 }
               }
+            },
+            {
+              "name": "agent.chat（Native Agent直达聊天）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "Call the embedded Native Agent runtime directly. This is not `plugins.invoke` and does not require `plugin_id=io.dirextalk.agent`. Model API keys are request-scoped and must not be persisted.\n\nAction: `agent.chat`\nEndpoint: `POST /_p2p/command`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.chat\",\n  \"params\": {\n    \"prompt\": \"Hello from Dirextalk Native Agent\",\n    \"model_profile\": {\n      \"id\": \"deepseek:deepseek-chat\",\n      \"name\": \"deepseek/deepseek-chat\",\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"base_url\": \"https://api.deepseek.com\",\n      \"api_key\": \"{{agentApiKey}}\",\n      \"temperature\": 0.2,\n      \"max_output_tokens\": 2048,\n      \"context_window\": 30\n    }\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.models.list（Native Agent模型列表）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "List Native Agent model provider defaults through the direct `agent.*` surface.\n\nAction: `agent.models.list`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.models.list\",\n  \"params\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.runtime.inspect（Native Agent运行时检查）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "Inspect the embedded Native Agent runtime without exposing model API keys.\n\nAction: `agent.runtime.inspect`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.runtime.inspect\",\n  \"params\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.skills.registry.search（Native Agent技能搜索）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "Search the Native Agent skill registry through direct `agent.*` action.\n\nAction: `agent.skills.registry.search`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.skills.registry.search\",\n  \"params\": {\n    \"registry_url\": \"https://skills.sh\",\n    \"query\": \"browser\",\n    \"page_size\": 10\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.mcp.registry.search（Native Agent MCP注册表搜索）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/query",
+                "description": "Search the Native Agent MCP registry through direct `agent.*` action.\n\nAction: `agent.mcp.registry.search`\nEndpoint: `POST /_p2p/query`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.mcp.registry.search\",\n  \"params\": {\n    \"registry_url\": \"https://registry.modelcontextprotocol.io\",\n    \"query\": \"memory\",\n    \"limit\": 10\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.context.compress（Native Agent上下文压缩）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "Compress Native Agent conversation context through direct `agent.*` action.\n\nAction: `agent.context.compress`\nEndpoint: `POST /_p2p/command`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.context.compress\",\n  \"params\": {\n    \"summary\": \"User prefers concise Chinese answers.\",\n    \"messages\": [\n      {\n        \"role\": \"user\",\n        \"text\": \"请记住我使用 DeepSeek。\"\n      },\n      {\n        \"role\": \"assistant\",\n        \"text\": \"已记住。\"\n      }\n    ]\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.config.propose_patch（Native Agent配置补丁建议）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "Ask Native Agent to propose a structured config patch.\n\nAction: `agent.config.propose_patch`\nEndpoint: `POST /_p2p/command`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.config.propose_patch\",\n  \"params\": {\n    \"kind\": \"mcp_server\",\n    \"mcp_server\": {\n      \"name\": \"Memory\",\n      \"transport\": \"stdio\",\n      \"enabled\": true,\n      \"command\": [\n        \"npx\",\n        \"-y\",\n        \"@modelcontextprotocol/server-memory\"\n      ]\n    }\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "agent.chat.stream HTTP boundary（Native Agent流式HTTP边界）",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}",
+                    "type": "text"
+                  }
+                ],
+                "url": "{{baseUrl}}/_p2p/command",
+                "description": "HTTP body action for `agent.chat.stream` returns `action requires websocket`; use `client.native_agent_stream` over realtime WS for streaming.\n\nAction: `agent.chat.stream`\nEndpoint: `POST /_p2p/command`\nAuth: owner access_token only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"agent.chat.stream\",\n  \"params\": {\n    \"prompt\": \"This HTTP action should return action requires websocket\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
             }
           ],
-          "description": "智能体配置、密码和内部 Matrix 会话相关接口。"
+          "description": "Agent config, internal Matrix session, and first-class Native Agent `agent.*` actions. Native Agent streaming uses realtime WS `client.native_agent_stream`, not `plugins.invoke`."
         },
         {
           "name": "calls（通话）",

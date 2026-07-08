@@ -95,6 +95,26 @@ func newNativeAgentRuntime(service *Service, dataDir string) PluginRunner {
 	}
 }
 
+func (s *Service) nativeAgentInvokeAction(action string) actionHandler {
+	return func(ctx context.Context, params map[string]any) (any, *apiError) {
+		if s.nativeAgentRunner == nil {
+			return nil, statusError(502, "native agent runtime is not configured")
+		}
+		result, err := s.nativeAgentRunner.InvokePlugin(ctx, PluginInvokeRequest{
+			Action: strings.TrimSpace(action),
+			Params: cloneAnyMap(params),
+		})
+		if err != nil {
+			return nil, statusError(502, err.Error())
+		}
+		return result, nil
+	}
+}
+
+func (s *Service) nativeAgentInvokeStreamAction(context.Context, map[string]any) (any, *apiError) {
+	return nil, badRequest("action requires websocket")
+}
+
 func (r nativeAgentRuntimeRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error {
 	if r.runtime == nil {
 		return fmt.Errorf("native agent runtime is not configured")
@@ -143,8 +163,17 @@ func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any)
 	}
 	now := time.Now().UTC().UnixMilli()
 	if !exists {
-		entry, _ := findOfficialPlugin(agentPluginID)
-		plugin = pluginFromCatalogEntry(entry, now)
+		plugin = pluginInstance{
+			ID:        agentPluginID,
+			Name:      "Dirextalk Native Agent",
+			Version:   "0.1.0",
+			Image:     "native://dirextalk/agent",
+			Status:    pluginStatusEnabled,
+			Enabled:   true,
+			Config:    map[string]any{},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
 		plugin.Status = pluginStatusEnabled
 		plugin.Enabled = true
 	}

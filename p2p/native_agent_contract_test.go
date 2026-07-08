@@ -1,0 +1,274 @@
+package p2p
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/coder/websocket"
+)
+
+func TestNativeAgentActionsAreOwnerOnlyAndCallNativeRuntimeDirectly(t *testing.T) {
+	dockerRunner := &recordingPluginRunner{}
+	nativeRunner := &recordingPluginRunner{}
+	service := NewService(Config{
+		ServerName:        "example.com",
+		PluginRunner:      dockerRunner,
+		NativeAgentRunner: nativeRunner,
+	})
+	router := newP2PTestRouter(service)
+
+	if service.Authorize(service.AgentToken(), "agent.chat") {
+		t.Fatal("agent_token must not authorize native agent owner actions")
+	}
+
+	agentReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "agent.chat",
+		"params": map[string]any{"prompt": "hello"},
+	})
+	agentReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
+	agentRec := httptest.NewRecorder()
+	router.ServeHTTP(agentRec, agentReq)
+	if agentRec.Code != http.StatusUnauthorized {
+		t.Fatalf("agent_token must be rejected for agent.chat, got %d body=%s", agentRec.Code, agentRec.Body.String())
+	}
+
+	ownerReq := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "agent.chat",
+		"params": map[string]any{
+			"prompt": "hello",
+			"model_profile": map[string]any{
+				"id":       "deepseek:chat",
+				"provider": "deepseek",
+				"model":    "deepseek-chat",
+				"api_key":  "sk-client-only",
+			},
+		},
+	})
+	ownerReq.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	ownerRec := httptest.NewRecorder()
+	router.ServeHTTP(ownerRec, ownerReq)
+	if ownerRec.Code != http.StatusOK {
+		t.Fatalf("owner native agent action must succeed, got %d body=%s", ownerRec.Code, ownerRec.Body.String())
+	}
+	if len(dockerRunner.invokes) != 0 {
+		t.Fatalf("native agent action must not reach docker plugin runner, got %#v", dockerRunner.invokes)
+	}
+	if len(nativeRunner.invokes) != 1 {
+		t.Fatalf("expected one direct native runtime invoke, got %#v", nativeRunner.invokes)
+	}
+	invoke := nativeRunner.invokes[0]
+	if invoke.PluginID != "" || invoke.ContainerName != "" || invoke.Action != "agent.chat" {
+		t.Fatalf("native runtime must be called without agent plugin envelope, got %#v", invoke)
+	}
+	profile, ok := invoke.Params["model_profile"].(map[string]any)
+	if !ok || profile["api_key"] != "sk-client-only" {
+		t.Fatalf("request-scoped model profile must pass through direct action, got %#v", invoke.Params)
+	}
+}
+
+func TestNativeAgentActionsRegisteredForCurrentRuntimeSurface(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: &recordingPluginRunner{}})
+	for _, action := range []string{
+		"agent.chat",
+		"agent.chat.stream",
+		"agent.models.list",
+		"agent.runtime.inspect",
+		"agent.runtime.install",
+		"agent.runtime.which",
+		"agent.runtime.run",
+		"agent.skills.list",
+		"agent.skills.install",
+		"agent.skills.enable",
+		"agent.skills.disable",
+		"agent.skills.uninstall",
+		"agent.skills.registry.search",
+		"agent.mcp.servers.list",
+		"agent.mcp.servers.install",
+		"agent.mcp.servers.enable",
+		"agent.mcp.servers.disable",
+		"agent.mcp.servers.uninstall",
+		"agent.mcp.registry.search",
+		"agent.context.compress",
+		"agent.config.propose_patch",
+	} {
+		if _, ok := service.actions[action]; !ok {
+			t.Fatalf("expected native agent action %q to be registered", action)
+		}
+		if service.Authorize(service.AgentToken(), action) {
+			t.Fatalf("agent_token must not authorize owner native agent action %q", action)
+		}
+	}
+}
+
+func TestNativeAgentIsNotManagedAsPlugin(t *testing.T) {
+	runner := &recordingPluginRunner{}
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: &recordingPluginRunner{}})
+
+	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
+	entries := catalog["plugins"].([]pluginCatalogEntry)
+	if catalogHasPluginID(entries, agentPluginID) {
+		t.Fatalf("agent plugin must not be returned in catalog, got %#v", entries)
+	}
+	if !catalogHasPlugin(entries, opsPluginID) {
+		t.Fatalf("ops plugin must remain available when docker runner is enabled, got %#v", entries)
+	}
+
+	if err := service.savePlugin(context.Background(), pluginInstance{ID: agentPluginID, Name: "Hidden Agent", Status: pluginStatusEnabled, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.savePlugin(context.Background(), pluginInstance{ID: opsPluginID, Name: "Dirextalk Ops", Status: pluginStatusEnabled, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	installed := mustHandle[map[string]any](t, service, "plugins.installed.list", nil)
+	plugins := installed["plugins"].([]pluginInstance)
+	if pluginInstancesHaveID(plugins, agentPluginID) {
+		t.Fatalf("agent plugin must be hidden from installed plugin list, got %#v", plugins)
+	}
+	if !pluginInstancesHaveID(plugins, opsPluginID) {
+		t.Fatalf("ops plugin must remain visible in installed list, got %#v", plugins)
+	}
+
+	for _, action := range []string{"plugins.install", "plugins.enable", "plugins.disable", "plugins.uninstall", "plugins.config.get", "plugins.health", "plugins.logs.tail"} {
+		_, apiErr := service.Handle(context.Background(), action, map[string]any{"plugin_id": agentPluginID})
+		if apiErr == nil || apiErr.Status < http.StatusBadRequest {
+			t.Fatalf("expected %s to reject agent plugin, got %#v", action, apiErr)
+		}
+	}
+	_, apiErr := service.Handle(context.Background(), "plugins.invoke", map[string]any{
+		"plugin_id": agentPluginID,
+		"action":    "agent.chat",
+		"params":    map[string]any{"prompt": "hello"},
+	})
+	if apiErr == nil || apiErr.Status < http.StatusBadRequest {
+		t.Fatalf("plugins.invoke must reject agent plugin, got %#v", apiErr)
+	}
+}
+
+func TestNativeAgentRealtimeStreamFramesUseNativeRuntime(t *testing.T) {
+	dockerRunner := &recordingPluginRunner{}
+	nativeRunner := &recordingPluginRunner{}
+	service := NewService(Config{ServerName: "example.com", PluginRunner: dockerRunner, NativeAgentRunner: nativeRunner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.native_agent_stream",
+		"id":     "native-stream-1",
+		"action": "agent.chat",
+		"params": map[string]any{"prompt": "hello"},
+	})
+	delta := readRealtimeFrame(t, conn)
+	if delta["type"] != "server.native_agent_stream.event" || delta["id"] != "native-stream-1" || delta["event"] != "delta" {
+		t.Fatalf("expected native stream delta frame, got %#v", delta)
+	}
+	done := readRealtimeFrame(t, conn)
+	if done["type"] != "server.native_agent_stream.event" || done["id"] != "native-stream-1" || done["event"] != "done" {
+		t.Fatalf("expected native stream done frame, got %#v", done)
+	}
+	if len(dockerRunner.streams) != 0 {
+		t.Fatalf("native stream must not reach docker plugin runner, got %#v", dockerRunner.streams)
+	}
+	if len(nativeRunner.streams) != 1 || nativeRunner.streams[0].PluginID != "" || nativeRunner.streams[0].Action != "agent.chat.stream" {
+		t.Fatalf("expected direct native runtime stream call, got %#v", nativeRunner.streams)
+	}
+}
+
+func TestNativeAgentRealtimeStreamCancelAndErrorFrames(t *testing.T) {
+	cancelRunner := &blockingNativeAgentRunner{started: make(chan struct{})}
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: cancelRunner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.native_agent_stream",
+		"id":     "native-cancel",
+		"action": "agent.chat.stream",
+		"params": map[string]any{"prompt": "hold"},
+	})
+	<-cancelRunner.started
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.native_agent_stream.cancel", "id": "native-cancel"})
+	cancelled := readRealtimeFrame(t, conn)
+	if cancelled["type"] != "server.native_agent_stream.cancelled" || cancelled["id"] != "native-cancel" || cancelled["ok"] != true {
+		t.Fatalf("expected native stream cancelled frame, got %#v", cancelled)
+	}
+
+	errorRunner := &erroringNativeAgentRunner{}
+	errorService := NewService(Config{ServerName: "example.com", NativeAgentRunner: errorRunner})
+	errorRouter := newP2PTestRouter(errorService)
+	errorServer := httptest.NewServer(errorRouter)
+	defer errorServer.Close()
+	errorConn := dialRealtimeWS(t, errorServer.URL, mustCreateRealtimeWSTicket(t, errorRouter, errorService.AccessToken()))
+	defer errorConn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, errorConn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, errorConn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, errorConn, map[string]any{
+		"type":   "client.native_agent_stream",
+		"id":     "native-error",
+		"action": "agent.chat.stream",
+		"params": map[string]any{"prompt": "boom"},
+	})
+	frame := readRealtimeFrame(t, errorConn)
+	if frame["type"] != "server.native_agent_stream.error" || frame["id"] != "native-error" || int(frame["status"].(float64)) != http.StatusBadGateway {
+		t.Fatalf("expected native stream error frame, got %#v", frame)
+	}
+}
+
+type blockingNativeAgentRunner struct {
+	started chan struct{}
+}
+
+func (r *blockingNativeAgentRunner) ApplyPlugin(context.Context, PluginRunnerOperation) error {
+	return nil
+}
+
+func (r *blockingNativeAgentRunner) InvokePlugin(context.Context, PluginInvokeRequest) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func (r *blockingNativeAgentRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
+	close(r.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type erroringNativeAgentRunner struct{}
+
+func (r *erroringNativeAgentRunner) ApplyPlugin(context.Context, PluginRunnerOperation) error {
+	return nil
+}
+
+func (r *erroringNativeAgentRunner) InvokePlugin(context.Context, PluginInvokeRequest) (map[string]any, error) {
+	return nil, errors.New("native boom")
+}
+
+func (r *erroringNativeAgentRunner) StreamPlugin(context.Context, PluginInvokeRequest, func(PluginStreamEvent) error) error {
+	return errors.New("native boom")
+}
+
+func pluginInstancesHaveID(plugins []pluginInstance, pluginID string) bool {
+	for _, plugin := range plugins {
+		if plugin.ID == pluginID {
+			return true
+		}
+	}
+	return false
+}

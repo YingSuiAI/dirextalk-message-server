@@ -2,6 +2,27 @@
 
 Last updated: 2026-07-08
 
+## 2026-07-08 Native Agent Backend Contract
+
+Native Agent is now exposed through first-class owner `agent.*` product actions instead of `plugins.invoke` with `plugin_id=io.dirextalk.agent`. The direct action surface includes `agent.chat`, `agent.models.list`, `agent.runtime.inspect/install/which/run`, `agent.skills.list/install/enable/disable/uninstall/registry.search`, `agent.mcp.servers.list/install/enable/disable/uninstall`, `agent.mcp.registry.search`, `agent.context.compress`, `agent.config.propose_patch`, reserved knowledge actions, and built-in Dirextalk tool actions such as `agent.contacts.list`, `agent.rooms.search`, `agent.messages.list/send`, and channel post/comment actions. These are owner-token actions; `agent_token` remains limited to `agent.matrix_session.create` and fixed `mcp.*` HTTP actions.
+
+Native Agent streaming moved to dedicated realtime frames:
+
+```json
+{
+  "type": "client.native_agent_stream",
+  "id": "native-agent-stream-1",
+  "action": "agent.chat",
+  "params": {
+    "prompt": "Summarize this conversation"
+  }
+}
+```
+
+The server maps `agent.chat` to the native runtime stream action `agent.chat.stream` and emits `server.native_agent_stream.event` frames for `delta`, `trace`, and `done`, `server.native_agent_stream.error` on failure, and `server.native_agent_stream.cancelled` after `client.native_agent_stream.cancel`. This stream is not the real Matrix `agent_room_id`; Online Agent bridge messages still use Matrix Client-Server sync/send/edit and are not mirrored through Native Agent stream frames.
+
+`io.dirextalk.agent` is removed from plugin management. `plugins.catalog.list` and `plugins.installed.list` do not return it, and `plugins.install/enable/disable/uninstall/config/health/logs/invoke` reject it as not found or unsupported. `io.dirextalk.ops` remains an official Docker-runner plugin.
+
 ## 2026-07-08 Native Agent Runtime Shell Tool
 
 Native Agent `agent.chat` now exposes a built-in `runtime__shell` Eino tool by default. The tool accepts `command`/`cmd` and optional `timeout_seconds`, runs inside the message-server container's Native Agent runtime directory, and returns the same observable `ok`, `stdout`, `stderr`, and `exit_code` shape as other runtime command execution.
@@ -12,7 +33,7 @@ Native Agent ReAct execution now uses a higher default graph step budget and acc
 
 ## 2026-07-08 Native Agent Dialogue Management Tools
 
-Native Agent `agent.chat` can now expose owner-scoped management tools to the model for explicit user requests to install, list, enable, disable, or uninstall native skills and MCP servers. The tool names are `native_agent_skills_*` and `native_agent_mcp_servers_*`; they call the same native runtime handlers as `plugins.invoke` actions such as `agent.skills.install` and `agent.mcp.servers.install`.
+Native Agent `agent.chat` can now expose owner-scoped management tools to the model for explicit user requests to install, list, enable, disable, or uninstall native skills and MCP servers. The tool names are `native_agent_skills_*` and `native_agent_mcp_servers_*`; they call the same native runtime handlers as first-class `agent.skills.*` and `agent.mcp.*` actions.
 
 Skills installed from dialogue are cached as static `SKILL.md` content and do not execute remote skill scripts. A newly installed skill affects the next Agent turn after the system prompt is rebuilt. MCP servers installed from dialogue may discover tools immediately, but those tools become callable on the next Agent turn after the Eino tool list is rebuilt.
 
@@ -20,15 +41,15 @@ Skills installed from dialogue are cached as static `SKILL.md` content and do no
 
 Native Agent `agent.chat` responses now include `steps` and `trace` fields. `steps` is a compact list of observable execution steps such as context loading, tool calls, tool results, assistant messages, and final output previews. `trace` wraps those steps with framework metadata, context usage, tool calls, and the final answer text.
 
-Native Agent WS `client.plugin_stream` for `agent.chat` now emits a `server.plugin_stream.event` with `event="trace"` before the final `done` event. The `done` payload also includes `steps` and `trace` alongside the existing `text` and `tool_calls` fields.
+Native Agent WS `client.native_agent_stream` for `agent.chat` emits a `server.native_agent_stream.event` with `event="trace"` before the final `done` event. The `done` payload also includes `steps` and `trace` alongside the existing `text` and `tool_calls` fields.
 
 The trace is an auditable progress/tool/result display surface for clients. It must not be treated as hidden model chain-of-thought; the payload includes a disclaimer and only exposes observable runtime state and model/tool outputs.
 
 ## 2026-07-07 Native Agent Runtime
 
-`io.dirextalk.agent` is now an embedded native message-server runtime. It no longer uses the Docker plugin runner, and `plugins.catalog.list` includes the Agent entry even when Docker plugins are disabled. Ops and future non-Agent plugins still depend on the Docker runner.
+`io.dirextalk.agent` was temporarily represented as an embedded native message-server runtime in the plugin catalog. This plugin-surface contract is superseded by the 2026-07-08 Native Agent Backend Contract: Native Agent now uses first-class `agent.*` actions and dedicated native stream frames, and is not returned or managed as a plugin. Ops and future non-Agent plugins still depend on the Docker runner.
 
-The Agent keeps the existing owner call surface: lifecycle/config/health through `plugins.*`, non-stream calls through `plugins.invoke`, and streaming through owner WS `client.plugin_stream`. Model calls support request-scoped `model_profile` values for `openai`, `anthropic`, `deepseek`, and `openai_compatible`. Model API keys are accepted only per request and are not persisted, returned by config APIs, or injected into plugin env.
+Model calls support request-scoped `model_profile` values for `openai`, `anthropic`, `deepseek`, and `openai_compatible`. Model API keys are accepted only per request and are not persisted, returned by config APIs, or injected into plugin env.
 
 Native Agent chat responses and `agent.chat.stream` done payloads include `native=true` and `framework="eino"` so clients and smoke tests can verify the embedded Eino runtime path is active.
 
@@ -91,27 +112,13 @@ Added protected owner-only plugin management actions on the existing body-action
 - `plugins.invoke`
 - `plugins.invoke.stream`
 
-These actions require owner `access_token`. `agent_token` cannot call plugin management or plugin invoke actions. `plugins.catalog.list` returns an empty `plugins` list when the Docker plugin runner is not enabled, so clients should hide plugin entry points until catalog entries are available. The first official catalog entry is `io.dirextalk.agent`; plugin install/enable/disable/uninstall jobs are persisted and must use official catalog metadata whose Docker image belongs to the official `dirextalk` Docker Hub organization. Digest metadata is optional and is not required for first-version installs. Agent plugin config may declare non-model runtime settings such as `display_name`, `system_prompt`, `enabled_tools`, `skills`, `mcp_servers`, `skills_registry_url`, and `mcp_registry_url`. Model provider, base URL, model ID, API key, local model aliases, default model selection, and per-model parameters are client-local settings. Clients pass the selected `model_profile` with fields such as `provider`, `model`, `base_url`, `api_key`, `temperature`, `top_p`, `top_k`, `max_output_tokens`, `context_window`, and `reasoning_mode` only on `plugins.invoke` or WS `client.plugin_stream` calls. The message-server must not persist, return, or inject model provider/base URL/model ID/parameters/API keys into the plugin container environment.
+These actions require owner `access_token`. `agent_token` cannot call plugin management or plugin invoke actions. `plugins.catalog.list` returns an empty `plugins` list when the Docker plugin runner is not enabled, so clients should hide plugin entry points until catalog entries are available. Agent-specific plugin catalog/config/invoke details in this historical section are superseded by the 2026-07-08 Native Agent Backend Contract. Current plugin install/enable/disable/uninstall jobs are for non-Agent official plugins such as `io.dirextalk.ops`, and must use official catalog metadata whose Docker image belongs to the official `dirextalk` Docker Hub organization. Digest metadata is optional and is not required for first-version installs.
 
-The official Agent plugin currently advertises owner-invoked actions for model discovery, runtime inspection and installation, registry discovery, structured config patch proposals, and context compression: `agent.models.list`, `agent.runtime.inspect`, `agent.runtime.install`, `agent.skills.list`, `agent.skills.install`, `agent.skills.uninstall`, `agent.skills.registry.search`, `agent.mcp.servers.list`, `agent.mcp.servers.install`, `agent.mcp.servers.uninstall`, `agent.mcp.registry.search`, `agent.config.propose_patch`, and `agent.context.compress`. `agent.models.list` may return provider metadata such as `context_length` and `max_output_tokens`; clients should use those values to seed model defaults and keep API keys client-local. `agent.runtime.inspect` resolves the request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities inside the Agent container, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Agent container owns standard MCP client/server orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages). Third-party MCP servers run inside the Agent plugin boundary, while the message-server continues to expose only the fixed backend `mcp.*` capability actions.
+Native Agent action details now live on the first-class `agent.*` product action surface. `agent.models.list` may return provider metadata such as `context_length` and `max_output_tokens`; clients should use those values to seed model defaults and keep API keys client-local. `agent.runtime.inspect` resolves request-scoped model settings without returning API keys and reports runtime status/tool counts for configured third-party MCP servers and CLI tools. `agent.runtime.install` installs allowed runtime CLI/package-manager capabilities, such as `agent-reach`, without expanding `agent_token` permissions. Knowledge action names remain reserved for compatibility, but first-version Agent returns `supported=false`/`status=unsupported` and clients should not render knowledge UI. The Native Agent owns standard MCP client orchestration and ships package-manager launch support for third-party MCP servers installed from registry metadata (`npx` for npm packages and `uvx` for Python packages), while the message-server continues to expose only the fixed backend `mcp.*` capability actions to `agent_token`.
 
-`plugins.invoke` calls an enabled official plugin over the first-version Docker HTTP runner and returns `{ "plugin_id", "action", "result" }`. Stream actions are not valid through HTTP invoke. `plugins.invoke.stream` is registered only to return `400 action requires websocket`; streaming runs through owner realtime WS frames:
+`plugins.invoke` calls an enabled official non-Agent plugin over the first-version Docker HTTP runner and returns `{ "plugin_id", "action", "result" }`. `plugins.invoke.stream` remains registered only to return `400 action requires websocket`; Native Agent streaming uses `client.native_agent_stream` instead of `client.plugin_stream`. `client.request` remains unavailable for `plugins.*`.
 
-```json
-{
-  "type": "client.plugin_stream",
-  "id": "stream-1",
-  "plugin_id": "io.dirextalk.agent",
-  "action": "agent.chat.stream",
-  "params": {
-    "prompt": "Summarize this conversation"
-  }
-}
-```
-
-The server emits `server.plugin_stream.event` frames carrying `event` values such as `delta` and `done`, `server.plugin_stream.error` on failure, and accepts `client.plugin_stream.cancel` for cancellation. `client.request` remains unavailable for `plugins.*`.
-
-The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. `mcp.contacts.list` and `mcp.contacts.search` expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Standard MCP protocol serving, external MCP client connections, skills, model/provider configuration, and Agent orchestration move to the official Agent plugin rather than being embedded in message-server. `POST /_p2p/mcp` is not a current backend route.
+The backend remains the Dirextalk capability boundary for Agent/MCP access: existing fixed `mcp.*` HTTP actions stay available for `agent_token` and keep owner-scoped access control, Matrix transport writes, product projections, and `mcp_blocked_room_ids` enforcement. `mcp.contacts.list` and `mcp.contacts.search` expose accepted direct contacts to local Agent tooling without requiring a room search fallback. Native Agent skills, model/provider request handling, MCP client wiring, and orchestration are embedded in message-server behind owner `agent.*` actions. `POST /_p2p/mcp` is not a current backend route.
 
 ## 2026-07-03 Unified Channel Post+Chat
 

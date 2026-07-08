@@ -247,6 +247,10 @@ func (s *Service) readRealtimeWSFrames(ctx context.Context, conn *websocket.Conn
 			s.startRealtimeWSPluginStream(ctx, wsConn, frame)
 		case "client.plugin_stream.cancel":
 			s.cancelRealtimeWSPluginStream(wsConn, frame)
+		case "client.native_agent_stream":
+			s.startRealtimeWSNativeAgentStream(ctx, wsConn, frame)
+		case "client.native_agent_stream.cancel":
+			s.cancelRealtimeWSNativeAgentStream(wsConn, frame)
 		default:
 			s.touchRealtimeWSSession(sessionID)
 		}
@@ -416,6 +420,121 @@ func realtimeWSPluginStreamError(id, action string, status int, message string) 
 	}
 	return map[string]any{
 		"type":   "server.plugin_stream.error",
+		"id":     id,
+		"action": action,
+		"ok":     false,
+		"status": status,
+		"error":  message,
+	}
+}
+
+func (s *Service) startRealtimeWSNativeAgentStream(ctx context.Context, wsConn *realtimeWSConnection, frame map[string]any) {
+	id := trimString(frame["id"])
+	action := trimString(frame["action"])
+	if id == "" {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadRequest, "id is required"))
+		return
+	}
+	if action == "" {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadRequest, "action is required"))
+		return
+	}
+	if wsConn.record.Role != "owner" {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusForbidden, "M_FORBIDDEN"))
+		return
+	}
+	params := map[string]any{}
+	if rawParams, ok := frame["params"].(map[string]any); ok {
+		params = cloneAnyMap(rawParams)
+	} else if frame["params"] != nil {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadRequest, "params must be an object"))
+		return
+	}
+	runnerAction := action
+	if !strings.HasSuffix(runnerAction, ".stream") {
+		runnerAction += ".stream"
+	}
+	if s.nativeAgentRunner == nil {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadGateway, "native agent runtime is not configured"))
+		return
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	if !wsConn.startStream(id, cancel) {
+		cancel()
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusConflict, "stream id is already active"))
+		return
+	}
+	go func() {
+		defer wsConn.finishStream(id)
+		doneSent := false
+		err := s.nativeAgentRunner.StreamPlugin(streamCtx, PluginInvokeRequest{
+			Action: runnerAction,
+			Params: params,
+		}, func(event PluginStreamEvent) error {
+			eventName := strings.TrimSpace(event.Event)
+			if eventName == "" {
+				eventName = "message"
+			}
+			if eventName == "done" {
+				doneSent = true
+			}
+			data := event.Data
+			if data == nil {
+				data = map[string]any{}
+			}
+			return wsConn.sendBlocking(streamCtx, map[string]any{
+				"type":   "server.native_agent_stream.event",
+				"id":     id,
+				"action": strings.TrimSuffix(action, ".stream"),
+				"event":  eventName,
+				"data":   data,
+			})
+		})
+		if err != nil {
+			if streamCtx.Err() != nil {
+				return
+			}
+			_ = wsConn.sendBlocking(ctx, realtimeWSNativeAgentStreamError(id, action, http.StatusBadGateway, err.Error()))
+			return
+		}
+		if !doneSent {
+			_ = wsConn.sendBlocking(ctx, map[string]any{
+				"type":   "server.native_agent_stream.event",
+				"id":     id,
+				"action": strings.TrimSuffix(action, ".stream"),
+				"event":  "done",
+				"data":   map[string]any{},
+			})
+		}
+	}()
+}
+
+func (s *Service) cancelRealtimeWSNativeAgentStream(wsConn *realtimeWSConnection, frame map[string]any) {
+	id := trimString(frame["id"])
+	if id == "" {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, "", http.StatusBadRequest, "id is required"))
+		return
+	}
+	if !wsConn.cancelStream(id) {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, "", http.StatusNotFound, "stream is not active"))
+		return
+	}
+	wsConn.send(map[string]any{
+		"type": "server.native_agent_stream.cancelled",
+		"id":   id,
+		"ok":   true,
+	})
+}
+
+func realtimeWSNativeAgentStreamError(id, action string, status int, message string) map[string]any {
+	if status <= 0 {
+		status = http.StatusInternalServerError
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "M_UNKNOWN"
+	}
+	return map[string]any{
+		"type":   "server.native_agent_stream.error",
 		"id":     id,
 		"action": action,
 		"ok":     false,

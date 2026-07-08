@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/coder/websocket"
 )
 
 type recordingPluginRunner struct {
@@ -71,7 +69,7 @@ func TestPluginActionsAreOwnerOnly(t *testing.T) {
 	}
 }
 
-func TestPluginCatalogIncludesNativeAgentWhenDockerRunnerDisabled(t *testing.T) {
+func TestPluginCatalogExcludesNativeAgentWhenDockerRunnerDisabled(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 
 	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
@@ -79,59 +77,11 @@ func TestPluginCatalogIncludesNativeAgentWhenDockerRunnerDisabled(t *testing.T) 
 	if !ok {
 		t.Fatalf("expected typed plugin catalog entries, got %#v", catalog["plugins"])
 	}
-	if !catalogHasPluginID(entries, "io.dirextalk.agent") {
-		t.Fatalf("expected native agent catalog entry without docker runner, got %#v", entries)
+	if catalogHasPluginID(entries, "io.dirextalk.agent") {
+		t.Fatalf("native agent must not be exposed through plugin catalog, got %#v", entries)
 	}
 	if catalogHasPluginID(entries, "io.dirextalk.ops") {
 		t.Fatalf("ops plugin requires docker runner and must be hidden when docker runner is disabled, got %#v", entries)
-	}
-}
-
-func TestNativeAgentInstallAndEnableUseNativeRuntimeAndState(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{
-		ServerName:        "example.com",
-		PluginRunner:      runner,
-		NativeAgentRunner: nativeRunner,
-	})
-
-	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
-	entries, ok := catalog["plugins"].([]pluginCatalogEntry)
-	if !ok || !catalogHasPluginID(entries, "io.dirextalk.agent") || !catalogHasPlugin(entries, "io.dirextalk.ops") {
-		t.Fatalf("expected official agent and ops catalog entries, got %#v", catalog)
-	}
-
-	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	if install["status"] != "installed" || install["job_id"] == "" {
-		t.Fatalf("expected installed plugin job result, got %#v", install)
-	}
-	if len(runner.operations) != 0 {
-		t.Fatalf("native agent install must not reach docker runner, got %#v", runner.operations)
-	}
-	if len(nativeRunner.operations) != 1 || nativeRunner.operations[0].Action != "install" || nativeRunner.operations[0].PluginID != "io.dirextalk.agent" {
-		t.Fatalf("expected native agent install operation, got %#v", nativeRunner.operations)
-	}
-
-	enable := mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	if enable["status"] != "enabled" {
-		t.Fatalf("expected enabled plugin result, got %#v", enable)
-	}
-	if len(runner.operations) != 0 {
-		t.Fatalf("native agent enable must not reach docker runner, got %#v", runner.operations)
-	}
-	if len(nativeRunner.operations) != 2 || nativeRunner.operations[1].Action != "enable" {
-		t.Fatalf("expected native agent enable operation, got %#v", nativeRunner.operations)
-	}
-
-	installed := mustHandle[map[string]any](t, service, "plugins.installed.list", nil)
-	plugins, ok := installed["plugins"].([]pluginInstance)
-	if !ok || len(plugins) != 1 || plugins[0].ID != "io.dirextalk.agent" || !plugins[0].Enabled || plugins[0].Status != "enabled" {
-		t.Fatalf("expected enabled plugin in installed list, got %#v", installed)
 	}
 }
 
@@ -259,105 +209,6 @@ func TestPluginEnableUsesSingleNodeOpsDefaults(t *testing.T) {
 	}
 }
 
-func TestNativeAgentEnableUsesSanitizedNativeConfigOnly(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{
-		ServerName:        "example.com",
-		Homeserver:        "http://message-server:8008",
-		PluginRunner:      runner,
-		NativeAgentRunner: nativeRunner,
-	})
-
-	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"enabled_tools":     []any{"search_rooms", "list_messages"},
-			"system_prompt":     "You are the local agent.",
-			"mcp_servers":       []any{map[string]any{"name": "filesystem", "transport": "stdio", "enabled": false}},
-			"unexpected_key":    "kept in config only",
-			"max_output_tokens": float64(1024),
-			"model_profiles": []any{
-				map[string]any{
-					"id":          "deepseek:deepseek-chat",
-					"provider":    "deepseek",
-					"model":       "deepseek-chat",
-					"api_key":     "sk-test-secret",
-					"api_key_ref": "secret:legacy-profile-key",
-				},
-			},
-		},
-	})
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-
-	if len(runner.operations) != 0 {
-		t.Fatalf("native agent must not receive docker runtime operation, got %#v", runner.operations)
-	}
-	if len(nativeRunner.operations) != 2 {
-		t.Fatalf("expected native install and enable operations, got %#v", nativeRunner.operations)
-	}
-	op := nativeRunner.operations[1]
-	if len(op.Env) != 0 || len(op.Volumes) != 0 {
-		t.Fatalf("native agent must not be configured through plugin env/volumes, got env=%#v volumes=%#v", op.Env, op.Volumes)
-	}
-	if op.Config["system_prompt"] != "You are the local agent." || op.Config["unexpected_key"] != "kept in config only" {
-		t.Fatalf("expected sanitized native config to be passed, got %#v", op.Config)
-	}
-	if strings.Contains(mustJSON(t, op.Config), "api_key") ||
-		strings.Contains(mustJSON(t, op.Config), "secret:") ||
-		strings.Contains(mustJSON(t, op.Config), "sk-test-secret") {
-		t.Fatalf("native config must not include persisted model keys, got %#v", op.Config)
-	}
-}
-
-func TestPluginConfigUpdateReappliesEnabledPluginRuntime(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{
-		ServerName:        "example.com",
-		Homeserver:        "http://message-server:8008",
-		PluginRunner:      runner,
-		NativeAgentRunner: nativeRunner,
-	})
-
-	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"skills": []any{map[string]any{
-				"repo_url": "https://github.com/panniantong/agent-reach",
-				"ref":      "main",
-				"path":     "agent-reach",
-				"enabled":  true,
-			}},
-		},
-	})
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-
-	updated := mustHandle[map[string]any](t, service, "plugins.config.update", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"skills": []any{},
-		},
-	})
-	config := updated["config"].(map[string]any)
-	if skills, ok := config["skills"].([]any); !ok || len(skills) != 0 {
-		t.Fatalf("expected persisted empty skills list, got %#v", updated)
-	}
-	if len(runner.operations) != 0 {
-		t.Fatalf("agent config update must not reapply docker runtime, got %#v", runner.operations)
-	}
-	if len(nativeRunner.operations) != 3 || nativeRunner.operations[2].Action != "enable" {
-		t.Fatalf("expected config update to reapply native runtime, got %#v", nativeRunner.operations)
-	}
-	if skills, ok := nativeRunner.operations[2].Config["skills"].([]any); !ok || len(skills) != 0 {
-		t.Fatalf("expected re-applied native config to clear skills with [], got %#v", nativeRunner.operations[2].Config)
-	}
-}
-
 func TestPluginActionAllowlistIncludesOpsActions(t *testing.T) {
 	entry, ok := findOfficialPlugin("io.dirextalk.ops")
 	if !ok {
@@ -379,48 +230,6 @@ func TestPluginActionAllowlistIncludesOpsActions(t *testing.T) {
 	} {
 		if !pluginActionAllowed(entry, action) {
 			t.Fatalf("expected ops action %q to be allowed by catalog %#v", action, entry.Actions)
-		}
-	}
-}
-
-func TestPluginActionAllowlistIncludesAgentKnowledgeActions(t *testing.T) {
-	entry, ok := findOfficialPlugin("io.dirextalk.agent")
-	if !ok {
-		t.Fatalf("expected agent plugin in official catalog")
-	}
-	for _, action := range []string{
-		"agent.knowledge.config.get",
-		"agent.knowledge.config.update",
-		"agent.knowledge.sources.list",
-		"agent.knowledge.sources.delete",
-		"agent.knowledge.upload.start",
-		"agent.knowledge.upload.chunk",
-		"agent.knowledge.upload.finish",
-		"agent.knowledge.memory.create",
-		"agent.knowledge.search",
-		"agent.knowledge.status",
-	} {
-		if !pluginActionAllowed(entry, action) {
-			t.Fatalf("expected agent knowledge action %q to be allowed by catalog %#v", action, entry.Actions)
-		}
-	}
-}
-
-func TestPluginActionAllowlistIncludesAgentRuntimeInspect(t *testing.T) {
-	entry, ok := findOfficialPlugin("io.dirextalk.agent")
-	if !ok {
-		t.Fatalf("expected agent plugin in official catalog")
-	}
-	for _, action := range []string{
-		"agent.runtime.inspect",
-		"agent.runtime.install",
-		"agent.skills.install",
-		"agent.skills.uninstall",
-		"agent.mcp.servers.install",
-		"agent.mcp.servers.uninstall",
-	} {
-		if !pluginActionAllowed(entry, action) {
-			t.Fatalf("expected agent runtime action %q to be allowed by catalog %#v", action, entry.Actions)
 		}
 	}
 }
@@ -474,203 +283,24 @@ func TestPluginRuntimeEnvironmentUsesConfiguredBackendURLForAutoHomeserver(t *te
 	}
 }
 
-func TestPluginModelProfileAPIKeyIsInvokeOnly(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{
-		ServerName:        "example.com",
-		Homeserver:        "http://message-server:8008",
-		PluginRunner:      runner,
-		NativeAgentRunner: nativeRunner,
-	})
-
-	install := mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"provider":    "openai",
-			"model":       "gpt-4.1-mini",
-			"api_key":     "sk-test-secret",
-			"api_key_ref": "secret:legacy-api-key",
-			"model_profiles": []any{
-				map[string]any{
-					"id":          "deepseek:deepseek-chat",
-					"provider":    "deepseek",
-					"model":       "deepseek-chat",
-					"api_key":     "sk-test-secret",
-					"api_key_ref": "secret:legacy-profile-key",
-				},
-			},
-		},
-	})
-	plugin := install["plugin"].(pluginInstance)
-	if _, ok := plugin.Config["api_key"]; ok {
-		t.Fatalf("raw API key must not be persisted in plugin config: %#v", plugin.Config)
-	}
-	if _, ok := plugin.Config["api_key_ref"]; ok {
-		t.Fatalf("API key refs must not be persisted for client-local model keys: %#v", plugin.Config)
-	}
-	if strings.Contains(mustJSON(t, plugin.Config), "api_key") ||
-		strings.Contains(mustJSON(t, plugin.Config), "secret:") ||
-		strings.Contains(mustJSON(t, plugin.Config), "sk-test-secret") {
-		t.Fatalf("agent config must not persist model API key fields: %#v", plugin.Config)
-	}
-
-	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	if strings.Contains(mustJSON(t, config), "api_key") ||
-		strings.Contains(mustJSON(t, config), "secret:") ||
-		strings.Contains(mustJSON(t, config), "sk-test-secret") {
-		t.Fatalf("config response must not leak plugin secret fields: %#v", config)
-	}
-
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	if len(runner.operations) != 0 {
-		t.Fatalf("native agent lifecycle must not reach docker runner, got %#v", runner.operations)
-	}
-	op := nativeRunner.operations[len(nativeRunner.operations)-1]
-	if strings.Contains(mustJSON(t, op.Env), "sk-test-secret") || strings.Contains(mustJSON(t, op.Config), "sk-test-secret") {
-		t.Fatalf("model API keys must not be injected through native lifecycle config, got op=%#v", op)
-	}
-	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"action":    "agent.chat",
-		"params": map[string]any{
-			"prompt": "hello",
-			"model_profile": map[string]any{
-				"id":       "deepseek:deepseek-chat",
-				"provider": "deepseek",
-				"model":    "deepseek-chat",
-				"api_key":  "sk-test-secret",
-			},
-		},
-	})
-	if len(runner.invokes) != 0 {
-		t.Fatalf("native agent invoke must not reach docker runner, got %#v", runner.invokes)
-	}
-	if len(nativeRunner.invokes) != 1 {
-		t.Fatalf("expected one native agent invoke, got %#v", nativeRunner.invokes)
-	}
-	profile, ok := nativeRunner.invokes[0].Params["model_profile"].(map[string]any)
-	if !ok || profile["api_key"] != "sk-test-secret" {
-		t.Fatalf("expected invoke-only model profile API key, got %#v", nativeRunner.invokes[0].Params)
-	}
-}
-
-func TestPluginInvokeDoesNotResolveSavedAgentModelKeys(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: nativeRunner})
-
-	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"provider": "deepseek",
-			"model":    "deepseek-v4-flash",
-			"model_profiles": []any{
-				map[string]any{
-					"id":          "deepseek:deepseek-v4-flash",
-					"name":        "DeepSeek v4 flash",
-					"provider":    "deepseek",
-					"model":       "deepseek-v4-flash",
-					"base_url":    "https://api.deepseek.com",
-					"api_key":     "sk-test-secret",
-					"api_key_ref": "secret:legacy-profile-key",
-				},
-			},
-		},
-	})
-	config := mustHandle[map[string]any](t, service, "plugins.config.get", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	if strings.Contains(mustJSON(t, config), "api_key") ||
-		strings.Contains(mustJSON(t, config), "secret:") ||
-		strings.Contains(mustJSON(t, config), "sk-test-secret") {
-		t.Fatalf("config response must not leak saved model profile API key fields: %#v", config)
-	}
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-
-	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"action":    "agent.chat",
-		"params": map[string]any{
-			"prompt":           "hello",
-			"model_profile_id": "deepseek:deepseek-v4-flash",
-		},
-	})
-	if len(runner.invokes) != 0 {
-		t.Fatalf("native agent invoke must not reach docker runner, got %#v", runner.invokes)
-	}
-	if len(nativeRunner.invokes) != 1 {
-		t.Fatalf("expected one native agent invoke, got %#v", nativeRunner.invokes)
-	}
-	profile, ok := nativeRunner.invokes[0].Params["model_profile"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected saved model profile to be injected, got %#v", nativeRunner.invokes[0].Params)
-	}
-	if profile["id"] != "deepseek:deepseek-v4-flash" {
-		t.Fatalf("expected saved non-secret profile, got %#v", profile)
-	}
-	if _, exists := profile["api_key"]; exists {
-		t.Fatalf("saved profile API key must not be injected, got %#v", profile)
-	}
-	if _, exists := profile["api_key_ref"]; exists {
-		t.Fatalf("invoke profile must not expose internal api_key_ref, got %#v", profile)
-	}
-
-	mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"action":    "agent.chat",
-		"params": map[string]any{
-			"prompt":           "hello again",
-			"model_profile_id": "deepseek:deepseek-v4-flash",
-			"model_profile": map[string]any{
-				"id":       "deepseek:deepseek-v4-flash",
-				"provider": "deepseek",
-				"model":    "deepseek-v4-flash",
-				"base_url": "https://api.deepseek.com",
-				"api_key":  "sk-client-local",
-			},
-		},
-	})
-	if len(nativeRunner.invokes) != 2 {
-		t.Fatalf("expected second native agent invoke, got %#v", nativeRunner.invokes)
-	}
-	profile, ok = nativeRunner.invokes[1].Params["model_profile"].(map[string]any)
-	if !ok || profile["api_key"] != "sk-client-local" {
-		t.Fatalf("expected invoke request profile key to pass through, got %#v", nativeRunner.invokes[1].Params)
-	}
-}
-
 func TestPluginInvokeIsOwnerOnlyAndCallsEnabledOfficialPlugin(t *testing.T) {
 	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: nativeRunner})
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner})
 	router := newP2PTestRouter(service)
 
 	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"config": map[string]any{
-			"provider": "openai",
-			"model":    "gpt-4.1-mini",
-		},
+		"plugin_id": "io.dirextalk.ops",
 	})
 	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
+		"plugin_id": "io.dirextalk.ops",
 	})
 
 	agentReq := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": "plugins.invoke",
 		"params": map[string]any{
-			"plugin_id": "io.dirextalk.agent",
-			"action":    "agent.chat",
-			"params": map[string]any{
-				"prompt": "hello",
-			},
+			"plugin_id": "io.dirextalk.ops",
+			"action":    "ops.status.get",
+			"params":    map[string]any{},
 		},
 	})
 	agentReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
@@ -683,12 +313,9 @@ func TestPluginInvokeIsOwnerOnlyAndCallsEnabledOfficialPlugin(t *testing.T) {
 	ownerReq := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": "plugins.invoke",
 		"params": map[string]any{
-			"plugin_id": "io.dirextalk.agent",
-			"action":    "agent.chat",
-			"params": map[string]any{
-				"prompt":           "hello",
-				"model_profile_id": "work",
-			},
+			"plugin_id": "io.dirextalk.ops",
+			"action":    "ops.status.get",
+			"params":    map[string]any{},
 		},
 	})
 	ownerReq.Header.Set("Authorization", "Bearer "+service.AccessToken())
@@ -697,83 +324,12 @@ func TestPluginInvokeIsOwnerOnlyAndCallsEnabledOfficialPlugin(t *testing.T) {
 	if ownerRec.Code != http.StatusOK {
 		t.Fatalf("expected owner invoke to succeed, got %d body=%s", ownerRec.Code, ownerRec.Body.String())
 	}
-	if len(runner.invokes) != 0 {
-		t.Fatalf("native agent invoke must not reach docker runner, got %#v", runner.invokes)
-	}
-	if len(nativeRunner.invokes) != 1 || nativeRunner.invokes[0].Action != "agent.chat" || nativeRunner.invokes[0].PluginID != "io.dirextalk.agent" {
-		t.Fatalf("expected native agent invoke runner call, got %#v", nativeRunner.invokes)
+	if len(runner.invokes) != 1 || runner.invokes[0].Action != "ops.status.get" || runner.invokes[0].PluginID != "io.dirextalk.ops" {
+		t.Fatalf("expected ops plugin invoke runner call, got %#v", runner.invokes)
 	}
 	result := decodeJSONMap(t, ownerRec.Body.String())
-	if result["plugin_id"] != "io.dirextalk.agent" || result["action"] != "agent.chat" {
+	if result["plugin_id"] != "io.dirextalk.ops" || result["action"] != "ops.status.get" {
 		t.Fatalf("expected invoke envelope, got %#v", result)
-	}
-}
-
-func TestPluginInvokeStreamUsesRealtimeWebSocketFrames(t *testing.T) {
-	runner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
-	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: nativeRunner})
-	router := newP2PTestRouter(service)
-
-	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-	})
-
-	httpReq := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "plugins.invoke.stream",
-		"params": map[string]any{
-			"plugin_id": "io.dirextalk.agent",
-			"action":    "agent.chat",
-			"params": map[string]any{
-				"prompt": "hello",
-			},
-		},
-	})
-	httpReq.Header.Set("Authorization", "Bearer "+service.AccessToken())
-	httpRec := httptest.NewRecorder()
-	router.ServeHTTP(httpRec, httpReq)
-	if httpRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected HTTP stream invoke to require websocket, got %d body=%s", httpRec.Code, httpRec.Body.String())
-	}
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
-	defer conn.Close(websocket.StatusNormalClosure, "")
-
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
-		t.Fatalf("expected ready, got %#v", got)
-	}
-	writeRealtimeFrame(t, conn, map[string]any{
-		"type":      "client.plugin_stream",
-		"id":        "agent-stream-1",
-		"plugin_id": "io.dirextalk.agent",
-		"action":    "agent.chat",
-		"params": map[string]any{
-			"prompt": "hello",
-		},
-	})
-	delta := readRealtimeFrame(t, conn)
-	if delta["type"] != "server.plugin_stream.event" || delta["id"] != "agent-stream-1" || delta["event"] != "delta" {
-		t.Fatalf("expected plugin stream delta frame, got %#v", delta)
-	}
-	data := delta["data"].(map[string]any)
-	if data["text"] != "hel" {
-		t.Fatalf("expected delta text, got %#v", delta)
-	}
-	done := readRealtimeFrame(t, conn)
-	if done["type"] != "server.plugin_stream.event" || done["id"] != "agent-stream-1" || done["event"] != "done" {
-		t.Fatalf("expected plugin stream done frame, got %#v", done)
-	}
-	if len(runner.streams) != 0 {
-		t.Fatalf("native agent stream must not reach docker runner, got %#v", runner.streams)
-	}
-	if len(nativeRunner.streams) != 1 || nativeRunner.streams[0].Action != "agent.chat.stream" {
-		t.Fatalf("expected native stream runner to use agent.chat.stream, got %#v", nativeRunner.streams)
 	}
 }
 
@@ -809,9 +365,6 @@ func TestNativeAgentBuiltInDirextalkToolsUseServiceCapabilities(t *testing.T) {
 		"channel_id": ch.ChannelID,
 		"body":       "channel post body",
 	})
-
-	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{"plugin_id": "io.dirextalk.agent"})
-	mustHandle[map[string]any](t, service, "plugins.enable", map[string]any{"plugin_id": "io.dirextalk.agent"})
 
 	contacts := nativeAgentToolResult(t, service, "agent.contacts.list", map[string]any{})["contacts"].([]mcpContactSummary)
 	if len(contacts) != 1 || contacts[0].DisplayName != "Alice" {
@@ -850,15 +403,7 @@ func TestNativeAgentBuiltInDirextalkToolsUseServiceCapabilities(t *testing.T) {
 
 func nativeAgentToolResult(t *testing.T, service *Service, action string, params map[string]any) map[string]any {
 	t.Helper()
-	envelope := mustHandle[map[string]any](t, service, "plugins.invoke", map[string]any{
-		"plugin_id": "io.dirextalk.agent",
-		"action":    action,
-		"params":    params,
-	})
-	result, ok := envelope["result"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected native agent result map, got %#v", envelope)
-	}
+	result := mustHandle[map[string]any](t, service, action, params)
 	return result
 }
 

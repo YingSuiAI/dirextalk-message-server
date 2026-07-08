@@ -74,6 +74,7 @@ type Service struct {
 	eventRetentionPruneOnWrite bool
 	realtimeSessions           *realtime.SessionStore
 	pluginRunner               PluginRunner
+	nativeAgentRunner          PluginRunner
 
 	initialized    bool
 	password       string
@@ -627,10 +628,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if nativeAgentRunner == nil {
 		nativeAgentRunner = newNativeAgentRuntime(service, cfg.NativeAgentDataDir)
 	}
-	service.pluginRunner = nativeAgentPluginRunner{
-		native: nativeAgentRunner,
-		base:   basePluginRunner,
-	}
+	service.pluginRunner = basePluginRunner
+	service.nativeAgentRunner = nativeAgentRunner
 	service.actions = service.actionHandlers()
 	return service
 }

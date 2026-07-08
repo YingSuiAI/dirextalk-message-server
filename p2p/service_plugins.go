@@ -23,112 +23,6 @@ const (
 func officialPluginCatalog() []pluginCatalogEntry {
 	return []pluginCatalogEntry{
 		{
-			ID:             agentPluginID,
-			Name:           "Dirextalk Agent",
-			Version:        "0.1.0",
-			Description:    "Native Dirextalk Agent runtime embedded in the message server with dynamic models, tools, skills, MCP, and streaming support.",
-			Image:          "native://dirextalk/agent",
-			Digest:         "",
-			MinBaseVersion: "0.1.0",
-			Permissions: []string{
-				"matrix.messages.read",
-				"matrix.messages.send",
-				"rooms.members.read",
-				"mcp.call",
-				"skills.install",
-				"runtime.install",
-				"runtime.shell",
-			},
-			Events: []string{
-				"message.created",
-				"agent.mentioned",
-			},
-			Actions: []string{
-				"agent.chat",
-				"agent.chat.stream",
-				"agent.context.compress",
-				"agent.runtime.inspect",
-				"agent.runtime.install",
-				"agent.runtime.which",
-				"agent.runtime.run",
-				"agent.models.list",
-				"agent.skills.list",
-				"agent.skills.install",
-				"agent.skills.enable",
-				"agent.skills.disable",
-				"agent.skills.uninstall",
-				"agent.skills.registry.search",
-				"agent.mcp.servers.list",
-				"agent.mcp.servers.install",
-				"agent.mcp.servers.enable",
-				"agent.mcp.servers.disable",
-				"agent.mcp.servers.uninstall",
-				"agent.mcp.registry.search",
-				"agent.knowledge.config.get",
-				"agent.knowledge.config.update",
-				"agent.knowledge.sources.list",
-				"agent.knowledge.sources.delete",
-				"agent.knowledge.upload.start",
-				"agent.knowledge.upload.chunk",
-				"agent.knowledge.upload.finish",
-				"agent.knowledge.memory.create",
-				"agent.knowledge.search",
-				"agent.knowledge.status",
-				"agent.config.propose_patch",
-				"agent.contacts.list",
-				"agent.contacts.search",
-				"agent.rooms.search",
-				"agent.messages.list",
-				"agent.messages.send",
-				"agent.room_members.list",
-				"agent.channel_posts.list",
-				"agent.channel_comments.list",
-				"agent.channel_comments.create",
-				"agent.summarize",
-			},
-			ConfigSchema: map[string]any{
-				"providers":     []string{"openai", "anthropic", "deepseek", "openai_compatible"},
-				"provider":      []string{"openai", "anthropic", "deepseek", "openai_compatible"},
-				"model":         "string",
-				"base_url":      "string",
-				"system_prompt": "string",
-				"enabled_tools": []string{
-					"search_contacts",
-					"search_rooms",
-					"list_messages",
-					"send_message",
-					"summarize_conversation",
-					"agent_skills_list",
-					"agent_skills_install",
-					"agent_skills_enable",
-					"agent_skills_disable",
-					"agent_skills_uninstall",
-					"agent_mcp_servers_list",
-					"agent_mcp_servers_install",
-					"agent_mcp_servers_enable",
-					"agent_mcp_servers_disable",
-					"agent_mcp_servers_uninstall",
-				},
-				"skills_registry_url":   "string",
-				"mcp_registry_url":      "string",
-				"runtime_shell_enabled": "boolean",
-				"skills":                []map[string]any{},
-				"mcp_servers":           []map[string]any{},
-				"knowledge": map[string]any{
-					"supported": false,
-					"enabled":   false,
-					"status":    "unsupported",
-				},
-				"temperature":       "number",
-				"max_output_tokens": "number",
-				"context_window":    "number",
-				"max_tool_calls":    "number",
-				"max_steps":         "number",
-				"top_p":             "number",
-				"top_k":             "number",
-			},
-		},
-		{
 			ID:             opsPluginID,
 			Name:           "Dirextalk Ops",
 			Version:        "0.1.0",
@@ -192,6 +86,9 @@ func (s *Service) loadPlugins(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, plugin := range plugins {
+		if plugin.ID == agentPluginID {
+			continue
+		}
 		s.plugins[plugin.ID] = normalizePluginInstance(plugin)
 	}
 	return nil
@@ -211,7 +108,7 @@ func availablePluginCatalog(r PluginRunner) []pluginCatalogEntry {
 	available := make([]pluginCatalogEntry, 0, len(entries))
 	dockerEnabled := dockerPluginRunnerEnabled(r)
 	for _, entry := range entries {
-		if entry.ID == agentPluginID || dockerEnabled {
+		if dockerEnabled {
 			available = append(available, entry)
 		}
 	}
@@ -630,6 +527,9 @@ func (s *Service) requirePlugin(ctx context.Context, params map[string]any) (plu
 	if pluginID == "" {
 		return pluginInstance{}, badRequest("plugin_id is required")
 	}
+	if pluginID == agentPluginID {
+		return pluginInstance{}, statusError(http.StatusNotFound, "plugin is not installed")
+	}
 	plugin, ok, err := s.getPlugin(ctx, pluginID)
 	if err != nil {
 		return pluginInstance{}, internalError(err)
@@ -646,16 +546,25 @@ func (s *Service) listPluginInstances(ctx context.Context) ([]pluginInstance, er
 		if err != nil {
 			return nil, err
 		}
+		filtered := make([]pluginInstance, 0, len(plugins))
 		for i := range plugins {
-			plugins[i] = normalizePluginInstance(plugins[i])
+			plugin := normalizePluginInstance(plugins[i])
+			if plugin.ID == agentPluginID {
+				continue
+			}
+			filtered = append(filtered, plugin)
 		}
-		return plugins, nil
+		return filtered, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	plugins := make([]pluginInstance, 0, len(s.plugins))
 	for _, plugin := range s.plugins {
-		plugins = append(plugins, normalizePluginInstance(plugin))
+		plugin = normalizePluginInstance(plugin)
+		if plugin.ID == agentPluginID {
+			continue
+		}
+		plugins = append(plugins, plugin)
 	}
 	return plugins, nil
 }
