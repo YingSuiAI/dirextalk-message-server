@@ -13,53 +13,10 @@ const (
 	opsPluginID   = "io.dirextalk.ops"
 )
 
-type nativeAgentPluginRunner struct {
-	native PluginRunner
-	base   PluginRunner
-}
-
-func (r nativeAgentPluginRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error {
-	if isNativeAgentPlugin(op.PluginID) {
-		if r.native == nil {
-			return fmt.Errorf("native agent runtime is not configured")
-		}
-		op.ContainerName = ""
-		op.Env = map[string]string{}
-		op.Volumes = nil
-		return r.native.ApplyPlugin(ctx, op)
-	}
-	if !pluginRunnerEnabled(r.base) {
-		return fmt.Errorf("plugin runner is not enabled")
-	}
-	return r.base.ApplyPlugin(ctx, op)
-}
-
-func (r nativeAgentPluginRunner) InvokePlugin(ctx context.Context, req PluginInvokeRequest) (map[string]any, error) {
-	if isNativeAgentPlugin(req.PluginID) {
-		if r.native == nil {
-			return nil, fmt.Errorf("native agent runtime is not configured")
-		}
-		req.ContainerName = ""
-		return r.native.InvokePlugin(ctx, req)
-	}
-	if !pluginRunnerEnabled(r.base) {
-		return nil, fmt.Errorf("plugin runner is not enabled")
-	}
-	return r.base.InvokePlugin(ctx, req)
-}
-
-func (r nativeAgentPluginRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
-	if isNativeAgentPlugin(req.PluginID) {
-		if r.native == nil {
-			return fmt.Errorf("native agent runtime is not configured")
-		}
-		req.ContainerName = ""
-		return r.native.StreamPlugin(ctx, req, emit)
-	}
-	if !pluginRunnerEnabled(r.base) {
-		return fmt.Errorf("plugin runner is not enabled")
-	}
-	return r.base.StreamPlugin(ctx, req, emit)
+type NativeAgentRunner interface {
+	Apply(ctx context.Context, action string) error
+	Invoke(ctx context.Context, action string, params map[string]any) (map[string]any, error)
+	Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error
 }
 
 func isNativeAgentPlugin(pluginID string) bool {
@@ -67,24 +24,14 @@ func isNativeAgentPlugin(pluginID string) bool {
 }
 
 func dockerPluginRunnerEnabled(r PluginRunner) bool {
-	switch runner := r.(type) {
-	case nativeAgentPluginRunner:
-		return pluginRunnerEnabled(runner.base)
-	case *nativeAgentPluginRunner:
-		if runner == nil {
-			return false
-		}
-		return pluginRunnerEnabled(runner.base)
-	default:
-		return pluginRunnerEnabled(r)
-	}
+	return pluginRunnerEnabled(r)
 }
 
 type nativeAgentRuntimeRunner struct {
 	runtime *nativeagent.Runtime
 }
 
-func newNativeAgentRuntime(service *Service, dataDir string) PluginRunner {
+func newNativeAgentRuntime(service *Service, dataDir string) NativeAgentRunner {
 	return nativeAgentRuntimeRunner{
 		runtime: nativeagent.New(nativeagent.Config{
 			DataDir: dataDir,
@@ -99,10 +46,7 @@ func (s *Service) nativeAgentInvokeAction(action string) actionHandler {
 		if s.nativeAgentRunner == nil {
 			return nil, statusError(502, "native agent runtime is not configured")
 		}
-		result, err := s.nativeAgentRunner.InvokePlugin(ctx, PluginInvokeRequest{
-			Action: strings.TrimSpace(action),
-			Params: cloneAnyMap(params),
-		})
+		result, err := s.nativeAgentRunner.Invoke(ctx, strings.TrimSpace(action), cloneAnyMap(params))
 		if err != nil {
 			return nil, statusError(502, err.Error())
 		}
@@ -114,27 +58,25 @@ func (s *Service) nativeAgentInvokeStreamAction(context.Context, map[string]any)
 	return nil, badRequest("action requires websocket")
 }
 
-func (r nativeAgentRuntimeRunner) ApplyPlugin(ctx context.Context, op PluginRunnerOperation) error {
+func (r nativeAgentRuntimeRunner) Apply(ctx context.Context, action string) error {
 	if r.runtime == nil {
 		return fmt.Errorf("native agent runtime is not configured")
 	}
-	return r.runtime.Apply(ctx, op.Action)
+	return r.runtime.Apply(ctx, strings.TrimSpace(action))
 }
 
-func (r nativeAgentRuntimeRunner) InvokePlugin(ctx context.Context, req PluginInvokeRequest) (map[string]any, error) {
+func (r nativeAgentRuntimeRunner) Invoke(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 	if r.runtime == nil {
 		return nil, fmt.Errorf("native agent runtime is not configured")
 	}
-	return r.runtime.Invoke(ctx, req.Action, req.Params)
+	return r.runtime.Invoke(ctx, strings.TrimSpace(action), cloneAnyMap(params))
 }
 
-func (r nativeAgentRuntimeRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
+func (r nativeAgentRuntimeRunner) Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error {
 	if r.runtime == nil {
 		return fmt.Errorf("native agent runtime is not configured")
 	}
-	return r.runtime.Stream(ctx, req.Action, req.Params, func(event nativeagent.Event) error {
-		return emit(PluginStreamEvent{Event: event.Event, Data: event.Data})
-	})
+	return r.runtime.Stream(ctx, strings.TrimSpace(action), cloneAnyMap(params), emit)
 }
 
 type nativeAgentConfigStore struct {

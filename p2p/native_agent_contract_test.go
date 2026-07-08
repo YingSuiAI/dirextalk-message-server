@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/coder/websocket"
 )
 
 func TestNativeAgentActionsAreOwnerOnlyAndCallNativeRuntimeDirectly(t *testing.T) {
 	dockerRunner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
+	nativeRunner := &recordingNativeAgentRunner{}
 	service := NewService(Config{
 		ServerName:        "example.com",
 		PluginRunner:      dockerRunner,
@@ -60,8 +61,8 @@ func TestNativeAgentActionsAreOwnerOnlyAndCallNativeRuntimeDirectly(t *testing.T
 		t.Fatalf("expected one direct native runtime invoke, got %#v", nativeRunner.invokes)
 	}
 	invoke := nativeRunner.invokes[0]
-	if invoke.PluginID != "" || invoke.ContainerName != "" || invoke.Action != "agent.chat" {
-		t.Fatalf("native runtime must be called without agent plugin envelope, got %#v", invoke)
+	if invoke.Action != "agent.chat" {
+		t.Fatalf("native runtime must be called by native action name, got %#v", invoke)
 	}
 	profile, ok := invoke.Params["model_profile"].(map[string]any)
 	if !ok || profile["api_key"] != "sk-client-only" {
@@ -70,7 +71,7 @@ func TestNativeAgentActionsAreOwnerOnlyAndCallNativeRuntimeDirectly(t *testing.T
 }
 
 func TestNativeAgentActionsRegisteredForCurrentRuntimeSurface(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: &recordingPluginRunner{}})
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: &recordingNativeAgentRunner{}})
 	for _, action := range []string{
 		"agent.chat",
 		"agent.chat.stream",
@@ -105,7 +106,7 @@ func TestNativeAgentActionsRegisteredForCurrentRuntimeSurface(t *testing.T) {
 
 func TestNativeAgentIsNotManagedAsPlugin(t *testing.T) {
 	runner := &recordingPluginRunner{}
-	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: &recordingPluginRunner{}})
+	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: &recordingNativeAgentRunner{}})
 
 	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
 	entries := catalog["plugins"].([]pluginCatalogEntry)
@@ -290,7 +291,7 @@ func hasNestedKey(value any, key string) bool {
 
 func TestNativeAgentRealtimeStreamFramesUseNativeRuntime(t *testing.T) {
 	dockerRunner := &recordingPluginRunner{}
-	nativeRunner := &recordingPluginRunner{}
+	nativeRunner := &recordingNativeAgentRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: dockerRunner, NativeAgentRunner: nativeRunner})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
@@ -319,9 +320,42 @@ func TestNativeAgentRealtimeStreamFramesUseNativeRuntime(t *testing.T) {
 	if len(dockerRunner.streams) != 0 {
 		t.Fatalf("native stream must not reach docker plugin runner, got %#v", dockerRunner.streams)
 	}
-	if len(nativeRunner.streams) != 1 || nativeRunner.streams[0].PluginID != "" || nativeRunner.streams[0].Action != "agent.chat.stream" {
+	if len(nativeRunner.streams) != 1 || nativeRunner.streams[0].Action != "agent.chat.stream" {
 		t.Fatalf("expected direct native runtime stream call, got %#v", nativeRunner.streams)
 	}
+}
+
+type nativeAgentCall struct {
+	Action string
+	Params map[string]any
+}
+
+type recordingNativeAgentRunner struct {
+	applies []string
+	invokes []nativeAgentCall
+	streams []nativeAgentCall
+}
+
+func (r *recordingNativeAgentRunner) Apply(ctx context.Context, action string) error {
+	r.applies = append(r.applies, action)
+	return nil
+}
+
+func (r *recordingNativeAgentRunner) Invoke(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+	r.invokes = append(r.invokes, nativeAgentCall{Action: action, Params: params})
+	return map[string]any{
+		"ok":    true,
+		"text":  "hello from native agent",
+		"model": params["model"],
+	}, nil
+}
+
+func (r *recordingNativeAgentRunner) Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error {
+	r.streams = append(r.streams, nativeAgentCall{Action: action, Params: params})
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "hel"}}); err != nil {
+		return err
+	}
+	return emit(nativeagent.Event{Event: "done", Data: map[string]any{"text": "hello"}})
 }
 
 func TestNativeAgentRealtimeStreamCancelAndErrorFrames(t *testing.T) {
@@ -377,15 +411,15 @@ type blockingNativeAgentRunner struct {
 	started chan struct{}
 }
 
-func (r *blockingNativeAgentRunner) ApplyPlugin(context.Context, PluginRunnerOperation) error {
+func (r *blockingNativeAgentRunner) Apply(context.Context, string) error {
 	return nil
 }
 
-func (r *blockingNativeAgentRunner) InvokePlugin(context.Context, PluginInvokeRequest) (map[string]any, error) {
+func (r *blockingNativeAgentRunner) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
-func (r *blockingNativeAgentRunner) StreamPlugin(ctx context.Context, req PluginInvokeRequest, emit func(PluginStreamEvent) error) error {
+func (r *blockingNativeAgentRunner) Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error {
 	close(r.started)
 	<-ctx.Done()
 	return ctx.Err()
@@ -393,15 +427,15 @@ func (r *blockingNativeAgentRunner) StreamPlugin(ctx context.Context, req Plugin
 
 type erroringNativeAgentRunner struct{}
 
-func (r *erroringNativeAgentRunner) ApplyPlugin(context.Context, PluginRunnerOperation) error {
+func (r *erroringNativeAgentRunner) Apply(context.Context, string) error {
 	return nil
 }
 
-func (r *erroringNativeAgentRunner) InvokePlugin(context.Context, PluginInvokeRequest) (map[string]any, error) {
+func (r *erroringNativeAgentRunner) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
 	return nil, errors.New("native boom")
 }
 
-func (r *erroringNativeAgentRunner) StreamPlugin(context.Context, PluginInvokeRequest, func(PluginStreamEvent) error) error {
+func (r *erroringNativeAgentRunner) Stream(context.Context, string, map[string]any, func(nativeagent.Event) error) error {
 	return errors.New("native boom")
 }
 

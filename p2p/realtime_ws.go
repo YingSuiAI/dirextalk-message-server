@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -467,10 +468,7 @@ func (s *Service) startRealtimeWSNativeAgentStream(ctx context.Context, wsConn *
 	go func() {
 		defer wsConn.finishStream(id)
 		doneSent := false
-		err := s.nativeAgentRunner.StreamPlugin(streamCtx, PluginInvokeRequest{
-			Action: runnerAction,
-			Params: params,
-		}, func(event PluginStreamEvent) error {
+		err := s.nativeAgentRunner.Stream(streamCtx, runnerAction, params, func(event nativeagent.Event) error {
 			eventName := strings.TrimSpace(event.Event)
 			if eventName == "" {
 				eventName = "message"

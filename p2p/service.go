@@ -26,7 +26,7 @@ type Config struct {
 	PushRules                       PushRuleManager
 	RealtimeSessions                *realtime.SessionStore
 	PluginRunner                    PluginRunner
-	NativeAgentRunner               PluginRunner
+	NativeAgentRunner               NativeAgentRunner
 	NativeAgentDataDir              string
 }
 
@@ -74,7 +74,7 @@ type Service struct {
 	eventRetentionPruneOnWrite bool
 	realtimeSessions           *realtime.SessionStore
 	pluginRunner               PluginRunner
-	nativeAgentRunner          PluginRunner
+	nativeAgentRunner          NativeAgentRunner
 
 	initialized    bool
 	password       string
