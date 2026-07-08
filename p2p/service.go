@@ -128,79 +128,21 @@ type AccountDeprovisioner interface {
 }
 
 type Store interface {
-	LoadPortal(ctx context.Context) (portalState, bool, error)
-	SavePortal(ctx context.Context, state portalState) error
-	SaveReadMarker(ctx context.Context, marker readMarker) error
-	UpsertChannel(ctx context.Context, ch channel) error
-	DeleteChannel(ctx context.Context, channelID string) error
-	ListChannels(ctx context.Context) ([]channel, error)
-	GetChannelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error)
-	ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error)
-	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
-	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
-	InsertChannelPost(ctx context.Context, post channelPostStorageRecord) error
-	GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostStorageRecord, bool, error)
-	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostStorageRecord, bool, error)
-	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostStorageRecord, error)
-	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostStorageRecord, bool, error)
-	InsertChannelComment(ctx context.Context, comment channelCommentStorageRecord) error
-	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentStorageRecord, bool, error)
-	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentStorageRecord, bool, error)
-	ListChannelComments(ctx context.Context, postID string) ([]channelCommentStorageRecord, error)
-	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentStorageRecord, bool, error)
-	UpsertContact(ctx context.Context, contact contactStorageRecord) error
-	ListContacts(ctx context.Context) ([]contactStorageRecord, error)
-	DeleteContact(ctx context.Context, roomID string) error
-	UpsertBlock(ctx context.Context, block blockRecord) error
-	DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error)
-	ListBlocks(ctx context.Context) ([]blockRecord, error)
-	UpsertGroup(ctx context.Context, group groupStorageRecord) error
-	DeleteGroup(ctx context.Context, roomID string) error
-	ListGroups(ctx context.Context) ([]groupStorageRecord, error)
-	GetGroupByRoom(ctx context.Context, roomID string) (groupStorageRecord, bool, error)
-	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupStorageRecord, error)
-	UpsertCall(ctx context.Context, call callRecord) error
-	ListCalls(ctx context.Context, roomID string, activeOnly bool) ([]callRecord, error)
-	UpsertFavorite(ctx context.Context, favorite favoriteRecord) error
-	FindFavoriteByEvent(ctx context.Context, eventID, roomID string) (favoriteRecord, bool, error)
-	ListFavorites(ctx context.Context, messageType string) ([]favoriteRecord, error)
-	DeleteFavorite(ctx context.Context, id int64) error
-	UpsertFollow(ctx context.Context, follow followRecord) error
-	ListFollows(ctx context.Context) ([]followRecord, error)
-	DeleteFollow(ctx context.Context, domain string) error
-	UpsertReaction(ctx context.Context, reaction reactionRecord) error
-	GetReaction(ctx context.Context, targetType, targetID, reaction, userID string) (reactionRecord, bool, error)
-	CountActiveReactions(ctx context.Context, targetType, targetID, reaction string) (int64, error)
-	ListReactions(ctx context.Context, userID string) ([]reactionRecord, error)
-	UpsertMember(ctx context.Context, member memberRecord) error
-	LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error)
-	ListMembers(ctx context.Context, roomID, channelID string) ([]memberRecord, error)
-	ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error)
-	CountProductMembers(ctx context.Context, roomID, channelID string) (joined, pending int64, err error)
-	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
-	UpsertConversation(ctx context.Context, record conversationRecord) error
-	GetConversationByID(ctx context.Context, conversationID string) (conversationRecord, bool, error)
-	GetConversationByRoomID(ctx context.Context, matrixRoomID string) (conversationRecord, bool, error)
-	ListConversations(ctx context.Context) ([]conversationRecord, error)
-	DeleteConversationByRoomID(ctx context.Context, matrixRoomID string) error
-	DeleteChannelPost(ctx context.Context, postID string) (bool, error)
-	DeleteChannelComment(ctx context.Context, commentID string) (bool, error)
-	InsertEvent(ctx context.Context, event p2pEvent) (bool, error)
-	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
-	EventBounds(ctx context.Context) (eventBounds, error)
-	PruneEventsBefore(ctx context.Context, beforeSeq int64) (int64, error)
-	PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error)
-	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
-	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
-	UpsertPlugin(ctx context.Context, plugin pluginInstance) error
-	ListPlugins(ctx context.Context) ([]pluginInstance, error)
-	GetPlugin(ctx context.Context, id string) (pluginInstance, bool, error)
-	UpsertPluginJob(ctx context.Context, job pluginJob) error
-	GetPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error)
-	UpsertPluginSecret(ctx context.Context, secret pluginSecret) error
-	GetPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error)
-	InsertReport(ctx context.Context, report reportRecord) error
-	ListReports(ctx context.Context, targetRoomID string, limit int) ([]reportRecord, error)
+	portalStore
+	readMarkerStore
+	channelStore
+	channelContentStore
+	contactStore
+	blockStore
+	groupStore
+	callStore
+	socialStore
+	reactionStore
+	memberStore
+	conversationStore
+	eventStore
+	pluginStore
+	reportStore
 }
 
 type portalState = domain.PortalState
