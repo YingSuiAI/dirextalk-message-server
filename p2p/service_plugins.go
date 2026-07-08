@@ -75,11 +75,29 @@ func findOfficialPlugin(pluginID string) (pluginCatalogEntry, bool) {
 	return pluginCatalogEntry{}, false
 }
 
-func (s *Service) loadPlugins(ctx context.Context) error {
+type pluginStore interface {
+	UpsertPlugin(ctx context.Context, plugin pluginInstance) error
+	ListPlugins(ctx context.Context) ([]pluginInstance, error)
+	GetPlugin(ctx context.Context, id string) (pluginInstance, bool, error)
+	UpsertPluginJob(ctx context.Context, job pluginJob) error
+	GetPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error)
+	UpsertPluginSecret(ctx context.Context, secret pluginSecret) error
+	GetPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error)
+}
+
+func (s *Service) pluginStore() pluginStore {
 	if s.store == nil {
 		return nil
 	}
-	plugins, err := s.store.ListPlugins(ctx)
+	return s.store
+}
+
+func (s *Service) loadPlugins(ctx context.Context) error {
+	store := s.pluginStore()
+	if store == nil {
+		return nil
+	}
+	plugins, err := store.ListPlugins(ctx)
 	if err != nil {
 		return err
 	}
@@ -473,8 +491,8 @@ func (s *Service) requirePlugin(ctx context.Context, params map[string]any) (plu
 }
 
 func (s *Service) listPluginInstances(ctx context.Context) ([]pluginInstance, error) {
-	if s.store != nil {
-		plugins, err := s.store.ListPlugins(ctx)
+	if store := s.pluginStore(); store != nil {
+		plugins, err := store.ListPlugins(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -502,8 +520,8 @@ func (s *Service) listPluginInstances(ctx context.Context) ([]pluginInstance, er
 }
 
 func (s *Service) getPlugin(ctx context.Context, pluginID string) (pluginInstance, bool, error) {
-	if s.store != nil {
-		plugin, ok, err := s.store.GetPlugin(ctx, pluginID)
+	if store := s.pluginStore(); store != nil {
+		plugin, ok, err := store.GetPlugin(ctx, pluginID)
 		if err != nil || !ok {
 			return plugin, ok, err
 		}
@@ -520,8 +538,8 @@ func (s *Service) getPlugin(ctx context.Context, pluginID string) (pluginInstanc
 
 func (s *Service) savePlugin(ctx context.Context, plugin pluginInstance) error {
 	plugin = normalizePluginInstance(plugin)
-	if s.store != nil {
-		return s.store.UpsertPlugin(ctx, plugin)
+	if store := s.pluginStore(); store != nil {
+		return store.UpsertPlugin(ctx, plugin)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -530,8 +548,8 @@ func (s *Service) savePlugin(ctx context.Context, plugin pluginInstance) error {
 }
 
 func (s *Service) savePluginJob(ctx context.Context, job pluginJob) error {
-	if s.store != nil {
-		return s.store.UpsertPluginJob(ctx, job)
+	if store := s.pluginStore(); store != nil {
+		return store.UpsertPluginJob(ctx, job)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -540,8 +558,8 @@ func (s *Service) savePluginJob(ctx context.Context, job pluginJob) error {
 }
 
 func (s *Service) getPluginJob(ctx context.Context, jobID string) (pluginJob, bool, error) {
-	if s.store != nil {
-		return s.store.GetPluginJob(ctx, jobID)
+	if store := s.pluginStore(); store != nil {
+		return store.GetPluginJob(ctx, jobID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -554,12 +572,12 @@ func (s *Service) savePluginSecrets(ctx context.Context, pluginID string, secret
 		return nil
 	}
 	now := time.Now().UTC().UnixMilli()
-	if s.store != nil {
+	if store := s.pluginStore(); store != nil {
 		for name, value := range secrets {
 			if value == "" {
 				continue
 			}
-			if err := s.store.UpsertPluginSecret(ctx, pluginSecret{
+			if err := store.UpsertPluginSecret(ctx, pluginSecret{
 				PluginID:  pluginID,
 				Name:      name,
 				Value:     value,
@@ -590,8 +608,8 @@ func (s *Service) savePluginSecrets(ctx context.Context, pluginID string, secret
 }
 
 func (s *Service) getPluginSecret(ctx context.Context, pluginID, name string) (pluginSecret, bool, error) {
-	if s.store != nil {
-		return s.store.GetPluginSecret(ctx, pluginID, name)
+	if store := s.pluginStore(); store != nil {
+		return store.GetPluginSecret(ctx, pluginID, name)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
