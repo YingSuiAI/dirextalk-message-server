@@ -126,8 +126,8 @@ func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: store})
 	if _, err := runtime.Invoke(context.Background(), "agent.runtime.install", map[string]any{
 		"id":       "hello-agent",
-		"filename": "hello-agent",
-		"content":  "#!/bin/sh\necho runtime-eino \"$@\"\n",
+		"filename": runtimeTestToolFilename("hello-agent"),
+		"content":  runtimeTestToolContent("runtime-eino", true),
 	}); err != nil {
 		t.Fatalf("install runtime tool: %v", err)
 	}

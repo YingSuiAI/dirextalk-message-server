@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -231,6 +232,9 @@ func main() {
 		t.Fatalf("write stdio mcp source: %v", err)
 	}
 	binary := filepath.Join(dir, "mcp-test")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-o", binary, source)
 	cmd.Dir = filepath.Join("..", "..")
 	output, err := cmd.CombinedOutput()

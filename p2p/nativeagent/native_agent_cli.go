@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -23,7 +24,7 @@ func (r *Runtime) runtimeInstall(ctx context.Context, params map[string]any) (ma
 	}
 	binDir := filepath.Join(r.dataDir, "runtime", "bin")
 	if content := trimString(tool["content"]); content != "" {
-		filename := sanitizeNativeID(fallbackString(trimString(tool["filename"]), id))
+		filename := sanitizeRuntimeFilename(fallbackString(trimString(tool["filename"]), id), id)
 		target := filepath.Join(binDir, filename)
 		if err := os.WriteFile(target, []byte(content), 0o700); err != nil {
 			return nil, err
@@ -158,6 +159,12 @@ func runtimeShell(command string) (string, []string) {
 	if sh, err := exec.LookPath("sh"); err == nil {
 		return sh, []string{"-c", command}
 	}
+	if runtime.GOOS == "windows" {
+		if comspec := strings.TrimSpace(os.Getenv("COMSPEC")); comspec != "" {
+			return comspec, []string{"/d", "/s", "/c", command}
+		}
+		return "cmd.exe", []string{"/d", "/s", "/c", command}
+	}
 	return "sh", []string{"-c", command}
 }
 
@@ -190,10 +197,75 @@ func lookPathInPATH(command, pathValue string) (string, error) {
 		if dir == "" {
 			continue
 		}
-		candidate := filepath.Join(dir, command)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-			return candidate, nil
+		for _, candidateName := range executableCandidateNames(command) {
+			candidate := filepath.Join(dir, candidateName)
+			if info, err := os.Stat(candidate); err == nil && runtimeExecutable(info) {
+				return candidate, nil
+			}
 		}
 	}
 	return "", exec.ErrNotFound
+}
+
+func executableCandidateNames(command string) []string {
+	if runtime.GOOS != "windows" || filepath.Ext(command) != "" {
+		return []string{command}
+	}
+	exts := strings.Split(os.Getenv("PATHEXT"), ";")
+	if len(exts) == 0 || strings.TrimSpace(strings.Join(exts, "")) == "" {
+		exts = []string{".COM", ".EXE", ".BAT", ".CMD"}
+	}
+	candidates := make([]string, 0, len(exts)+1)
+	candidates = append(candidates, command)
+	for _, ext := range exts {
+		ext = strings.TrimSpace(ext)
+		if ext == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		candidates = append(candidates, command+ext)
+		candidates = append(candidates, command+strings.ToLower(ext))
+	}
+	return candidates
+}
+
+func runtimeExecutable(info os.FileInfo) bool {
+	if info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode()&0o111 != 0
+}
+
+func sanitizeRuntimeFilename(value, fallback string) string {
+	value = strings.TrimSpace(filepath.Base(value))
+	if value == "." || value == string(os.PathSeparator) {
+		value = ""
+	}
+	if value == "" {
+		value = sanitizeNativeID(fallback)
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(value) {
+		allowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.'
+		if !allowed {
+			if !lastDash {
+				b.WriteRune('-')
+				lastDash = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		lastDash = r == '-'
+	}
+	filename := strings.Trim(b.String(), "-_.")
+	if filename == "" {
+		filename = sanitizeNativeID(fallback)
+	}
+	return filename
 }

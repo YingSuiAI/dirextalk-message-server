@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -13,8 +14,8 @@ func TestRuntimeCLIInstallWhichAndRun(t *testing.T) {
 	ctx := context.Background()
 	_, err := runtime.Invoke(ctx, "agent.runtime.install", map[string]any{
 		"id":       "hello-agent",
-		"filename": "hello-agent",
-		"content":  "#!/bin/sh\necho native-cli\n",
+		"filename": runtimeTestToolFilename("hello-agent"),
+		"content":  runtimeTestToolContent("native-cli", false),
 	})
 	if err != nil {
 		t.Fatalf("install runtime tool: %v", err)
@@ -23,7 +24,7 @@ func TestRuntimeCLIInstallWhichAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runtime which: %v", err)
 	}
-	if which["ok"] != true || !strings.HasSuffix(trimString(which["path"]), "hello-agent") {
+	if which["ok"] != true || !strings.HasSuffix(strings.ToLower(trimString(which["path"])), strings.ToLower(runtimeTestToolFilename("hello-agent"))) {
 		t.Fatalf("expected installed tool path, got %#v", which)
 	}
 	run, err := runtime.Invoke(ctx, "agent.runtime.run", map[string]any{"command": "hello-agent"})
@@ -35,7 +36,7 @@ func TestRuntimeCLIInstallWhichAndRun(t *testing.T) {
 	}
 	_, err = runtime.Invoke(ctx, "agent.runtime.install", map[string]any{
 		"id":              "from-install",
-		"install_command": "printf '#!/bin/sh\\necho install-command\\n' > bin/from-install && chmod +x bin/from-install",
+		"install_command": runtimeTestInstallCommand("from-install", "install-command"),
 	})
 	if err != nil {
 		t.Fatalf("runtime install command: %v", err)
@@ -54,6 +55,28 @@ func TestRuntimeInstallCommandFallsBackToShWhenBashMissing(t *testing.T) {
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATH", binDir)
+		runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
+		result, err := runtime.Invoke(context.Background(), "agent.runtime.install", map[string]any{
+			"id":              "cmd-only",
+			"install_command": runtimeTestInstallCommand("cmd-only", "cmd-only"),
+		})
+		if err != nil {
+			t.Fatalf("runtime install with cmd fallback: %v", err)
+		}
+		if result["ok"] != true {
+			t.Fatalf("expected install ok, got %#v", result)
+		}
+		run, err := runtime.Invoke(context.Background(), "agent.runtime.run", map[string]any{"command": "cmd-only"})
+		if err != nil {
+			t.Fatalf("runtime run cmd-only: %v", err)
+		}
+		if run["ok"] != true || strings.TrimSpace(trimString(run["stdout"])) != "cmd-only" {
+			t.Fatalf("expected cmd-only output, got %#v", run)
+		}
+		return
 	}
 	shPath := filepath.Join(binDir, "sh")
 	if err := os.WriteFile(shPath, []byte("#!/bin/sh\nexec /bin/sh \"$@\"\n"), 0o700); err != nil {
@@ -89,9 +112,44 @@ func TestRuntimeInstallCommandFailureReturnsError(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	_, err := runtime.Invoke(context.Background(), "agent.runtime.install", map[string]any{
 		"id":              "bad-install",
-		"install_command": "printf failed >&2; exit 9",
+		"install_command": runtimeTestFailingInstallCommand(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "runtime install command failed") {
 		t.Fatalf("expected install command failure, got %v", err)
 	}
+}
+
+func runtimeTestToolFilename(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".cmd"
+	}
+	return name
+}
+
+func runtimeTestToolContent(output string, echoArgs bool) string {
+	if runtime.GOOS == "windows" {
+		if echoArgs {
+			return "@echo off\r\necho " + output + " %*\r\n"
+		}
+		return "@echo off\r\necho " + output + "\r\n"
+	}
+	if echoArgs {
+		return "#!/bin/sh\necho " + output + " \"$@\"\n"
+	}
+	return "#!/bin/sh\necho " + output + "\n"
+}
+
+func runtimeTestInstallCommand(name, output string) string {
+	if runtime.GOOS == "windows" {
+		filename := filepath.ToSlash(filepath.Join("bin", name+".cmd"))
+		return "echo @echo off> " + filename + " && echo echo " + output + ">> " + filename
+	}
+	return "printf '#!/bin/sh\\necho " + output + "\\n' > bin/" + name + " && chmod +x bin/" + name
+}
+
+func runtimeTestFailingInstallCommand() string {
+	if runtime.GOOS == "windows" {
+		return "echo failed 1>&2 && exit /b 9"
+	}
+	return "printf failed >&2; exit 9"
 }
