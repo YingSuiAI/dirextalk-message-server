@@ -1,8 +1,20 @@
-package p2p
+package dendrite
 
-import "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport"
+import (
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+)
 
-type Transport = dirextalktransport.Transport
+const (
+	DirextalkRoomTypeChannel       = productpolicy.DirextalkRoomTypeChannel
+	DirextalkRoomProfileEventType  = productpolicy.DirextalkRoomProfileEventType
+	DirextalkJoinRequestEventType  = productpolicy.DirextalkJoinRequestEventType
+	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType
+)
+
+type channel = dirextalktransport.RoomChannel
+type memberRecord = dirextalktransport.RoomMember
+
 type CreateRoomRequest = dirextalktransport.CreateRoomRequest
 type RoomStateEvent = dirextalktransport.RoomStateEvent
 type SendStateEventRequest = dirextalktransport.SendStateEventRequest
@@ -17,5 +29,3 @@ type KickUserRequest = dirextalktransport.KickUserRequest
 type UpdateMemberProfileRequest = dirextalktransport.UpdateMemberProfileRequest
 type RedactEventRequest = dirextalktransport.RedactEventRequest
 type RedactEventResult = dirextalktransport.RedactEventResult
-type RoomChannel = dirextalktransport.RoomChannel
-type RoomMember = dirextalktransport.RoomMember

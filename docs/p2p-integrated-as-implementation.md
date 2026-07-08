@@ -24,8 +24,9 @@ Dirextalk Message Server monolith
         - Dirextalk Message Server-managed P2P database store for portal, profile,
           read markers, contacts, groups, channels, posts, comments,
           reactions, members, calls, favorites, and follows
-        - DendriteTransport for outgoing Matrix room creation and
-          member lifecycle/redaction submission through roomserver APIs
+        - internal dirextalktransport DendriteTransport for outgoing Matrix
+          room creation and member lifecycle/redaction submission through
+          roomserver APIs
         - P2P roomserver output projector for Dirextalk native product
           state, channel post/comment messages, reactions, members,
           and legacy p2p.* state events
@@ -44,6 +45,8 @@ New package:
 - `p2p/storage.go`
 - `p2p/transport.go`
 - `p2p/dendrite_transport.go`
+- `internal/dirextalktransport`
+- `internal/dirextalktransport/dendrite`
 - `p2p/projector.go`
 - `p2p/consumer.go`
 - `p2p/routing_test.go`

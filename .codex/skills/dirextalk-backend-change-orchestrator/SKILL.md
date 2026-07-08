@@ -16,7 +16,7 @@ Use CodeGraph before `rg` or file reads when the repository has `.codegraph/` an
 Map only the touched surfaces:
 
 - Startup and routes: `cmd/dirextalk-message-server`, `setup/monolith.go`, `setup/config`.
-- Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite`.
+- Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite_transport.go`, `internal/dirextalktransport`, `internal/dirextalktransport/dendrite`.
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
 - Projection and sync: `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
 - Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.

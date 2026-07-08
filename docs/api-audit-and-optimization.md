@@ -12,6 +12,8 @@ Primary sources:
 - `p2p/service.go`
 - `p2p/storage.go`
 - `p2p/dendrite_transport.go`
+- `internal/dirextalktransport`
+- `internal/dirextalktransport/dendrite`
 - `p2p/projector.go`
 - `p2p/remote_public.go`
 - `p2p/consumer.go`
