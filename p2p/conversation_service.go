@@ -11,10 +11,25 @@ import (
 	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
+type conversationStore interface {
+	UpsertConversation(ctx context.Context, record conversationRecord) error
+	GetConversationByID(ctx context.Context, conversationID string) (conversationRecord, bool, error)
+	GetConversationByRoomID(ctx context.Context, matrixRoomID string) (conversationRecord, bool, error)
+	ListConversations(ctx context.Context) ([]conversationRecord, error)
+	DeleteConversationByRoomID(ctx context.Context, matrixRoomID string) error
+}
+
+func (s *Service) conversationStore() conversationStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) saveConversation(ctx context.Context, record conversationRecord) error {
 	record = normalizeConversationRecord(record)
-	if s.store != nil {
-		return s.store.UpsertConversation(ctx, record)
+	if store := s.conversationStore(); store != nil {
+		return store.UpsertConversation(ctx, record)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -31,14 +46,15 @@ func (s *Service) saveConversation(ctx context.Context, record conversationRecor
 }
 
 func (s *Service) deleteStoredConversationKind(ctx context.Context, roomID string, kind conversationKind) error {
-	if s.store == nil || roomID == "" {
+	store := s.conversationStore()
+	if store == nil || roomID == "" {
 		return nil
 	}
-	record, ok, err := s.store.GetConversationByRoomID(ctx, roomID)
+	record, ok, err := store.GetConversationByRoomID(ctx, roomID)
 	if err != nil || !ok || record.Kind != kind {
 		return err
 	}
-	return s.store.DeleteConversationByRoomID(ctx, roomID)
+	return store.DeleteConversationByRoomID(ctx, roomID)
 }
 
 func deleteConversationKindByRoomLocked(conversations map[string]conversationRecord, roomID string, kind conversationKind) {
@@ -114,8 +130,8 @@ func (s *Service) conversationGet(ctx context.Context, params map[string]any) (a
 }
 
 func (s *Service) listConversations(ctx context.Context) ([]conversationRecord, error) {
-	if s.store != nil {
-		return s.store.ListConversations(ctx)
+	if store := s.conversationStore(); store != nil {
+		return store.ListConversations(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,11 +155,11 @@ func (s *Service) listConversations(ctx context.Context) ([]conversationRecord, 
 }
 
 func (s *Service) getConversation(ctx context.Context, conversationID, roomID string) (conversationRecord, bool, error) {
-	if s.store != nil {
+	if store := s.conversationStore(); store != nil {
 		if conversationID != "" {
-			return s.store.GetConversationByID(ctx, conversationID)
+			return store.GetConversationByID(ctx, conversationID)
 		}
-		return s.store.GetConversationByRoomID(ctx, roomID)
+		return store.GetConversationByRoomID(ctx, roomID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
