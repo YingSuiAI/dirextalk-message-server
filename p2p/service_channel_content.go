@@ -742,9 +742,23 @@ func (s *Service) attachChannelCommentOperation(ctx context.Context, comment *ch
 	return nil
 }
 
+type reactionStore interface {
+	UpsertReaction(ctx context.Context, reaction reactionRecord) error
+	GetReaction(ctx context.Context, targetType, targetID, reaction, userID string) (reactionRecord, bool, error)
+	CountActiveReactions(ctx context.Context, targetType, targetID, reaction string) (int64, error)
+	ListReactions(ctx context.Context, userID string) ([]reactionRecord, error)
+}
+
+func (s *Service) reactionStore() reactionStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) getReaction(ctx context.Context, targetType, targetID, reaction, userID string) (reactionRecord, bool, error) {
-	if s.store != nil {
-		return s.store.GetReaction(ctx, targetType, targetID, reaction, userID)
+	if store := s.reactionStore(); store != nil {
+		return store.GetReaction(ctx, targetType, targetID, reaction, userID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -756,15 +770,15 @@ func (s *Service) saveReaction(ctx context.Context, record reactionRecord) error
 	s.mu.Lock()
 	s.reactions[reactionKey(record.TargetType, record.TargetID, record.Reaction, record.UserID)] = record
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.UpsertReaction(ctx, record)
+	if store := s.reactionStore(); store != nil {
+		return store.UpsertReaction(ctx, record)
 	}
 	return nil
 }
 
 func (s *Service) countActiveReactions(ctx context.Context, targetType, targetID, reaction string) (int64, error) {
-	if s.store != nil {
-		return s.store.CountActiveReactions(ctx, targetType, targetID, reaction)
+	if store := s.reactionStore(); store != nil {
+		return store.CountActiveReactions(ctx, targetType, targetID, reaction)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -781,8 +795,8 @@ func (s *Service) myReactions(ctx context.Context) any {
 	s.mu.Lock()
 	userID := s.ownerMXID
 	s.mu.Unlock()
-	if s.store != nil {
-		reactions, err := s.store.ListReactions(ctx, userID)
+	if store := s.reactionStore(); store != nil {
+		reactions, err := store.ListReactions(ctx, userID)
 		if err == nil {
 			return map[string]any{"reactions": s.reactionHistory(ctx, reactions, userID)}
 		}
