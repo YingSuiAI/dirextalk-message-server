@@ -189,6 +189,7 @@ func SetupAndServeHTTP(
 	externalRouter.PathPrefix(httputil.PublicMediaPathPrefix).Handler(routers.Media)
 	externalRouter.PathPrefix(httputil.PublicWellKnownPrefix).Handler(routers.WellKnown)
 	externalRouter.PathPrefix(httputil.PublicPortalWellKnownPrefix).Handler(routers.PortalWellKnown)
+	externalRouter.Handle(httputil.MCPPath, routers.MCP)
 	externalRouter.PathPrefix(httputil.P2PPathPrefix).Handler(routers.P2P)
 	externalRouter.PathPrefix(httputil.PublicStaticPath).Handler(routers.Static)
 

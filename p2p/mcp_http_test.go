@@ -23,14 +23,14 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 		},
 	}
 
-	missingAuth := jsonRequest(t, "/_p2p/mcp", initialize)
+	missingAuth := jsonRequest(t, "/mcp", initialize)
 	missingAuthRec := httptest.NewRecorder()
 	router.ServeHTTP(missingAuthRec, missingAuth)
 	if missingAuthRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected missing MCP bearer to return 401, got %d body=%s", missingAuthRec.Code, missingAuthRec.Body.String())
 	}
 
-	ownerAuth := jsonRequest(t, "/_p2p/mcp", initialize)
+	ownerAuth := jsonRequest(t, "/mcp", initialize)
 	ownerAuth.Header.Set("Authorization", "Bearer "+service.AccessToken())
 	ownerAuthRec := httptest.NewRecorder()
 	router.ServeHTTP(ownerAuthRec, ownerAuth)
@@ -38,7 +38,7 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 		t.Fatalf("expected owner token to be rejected by MCP HTTP endpoint, got %d body=%s", ownerAuthRec.Code, ownerAuthRec.Body.String())
 	}
 
-	agentAuth := jsonRequest(t, "/_p2p/mcp", initialize)
+	agentAuth := jsonRequest(t, "/mcp", initialize)
 	agentAuth.Header.Set("Authorization", "Bearer "+service.AgentToken())
 	agentAuthRec := httptest.NewRecorder()
 	router.ServeHTTP(agentAuthRec, agentAuth)
@@ -53,7 +53,7 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 		t.Fatalf("expected initialize tools capability, got %#v", initializeResult["capabilities"])
 	}
 
-	toolsList := jsonRequest(t, "/_p2p/mcp", map[string]any{
+	toolsList := jsonRequest(t, "/mcp", map[string]any{
 		"jsonrpc": "2.0",
 		"id":      2,
 		"method":  "tools/list",
@@ -80,7 +80,7 @@ func TestMCPHTTPToolsCallInvokesUnifiedService(t *testing.T) {
 	service.mcpCapabilities = dirextalkmcp.NewService(invoker)
 	router := newP2PTestRouter(service)
 
-	req := jsonRequest(t, "/_p2p/mcp", map[string]any{
+	req := jsonRequest(t, "/mcp", map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "call-1",
 		"method":  "tools/call",
@@ -131,7 +131,7 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	getReq := httptest.NewRequest(http.MethodGet, "/_p2p/mcp", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	getReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
 	getRec := httptest.NewRecorder()
 	router.ServeHTTP(getRec, getReq)
@@ -139,7 +139,7 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 		t.Fatalf("expected MCP GET to return 405, got %d body=%s", getRec.Code, getRec.Body.String())
 	}
 
-	queryTokenReq := jsonRequest(t, "/_p2p/mcp?access_token=owner-token", mcpInitializeRequest())
+	queryTokenReq := jsonRequest(t, "/mcp?access_token=owner-token", mcpInitializeRequest())
 	queryTokenReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
 	queryTokenRec := httptest.NewRecorder()
 	router.ServeHTTP(queryTokenRec, queryTokenReq)
@@ -147,7 +147,7 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 		t.Fatalf("expected MCP query tokens to return 400, got %d body=%s", queryTokenRec.Code, queryTokenRec.Body.String())
 	}
 
-	badOriginReq := jsonRequest(t, "/_p2p/mcp", mcpInitializeRequest())
+	badOriginReq := jsonRequest(t, "/mcp", mcpInitializeRequest())
 	badOriginReq.Host = "example.com"
 	badOriginReq.Header.Set("Origin", "https://evil.example")
 	badOriginReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
@@ -157,7 +157,7 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 		t.Fatalf("expected bad MCP Origin to return 403, got %d body=%s", badOriginRec.Code, badOriginRec.Body.String())
 	}
 
-	sameOriginReq := jsonRequest(t, "/_p2p/mcp", mcpInitializeRequest())
+	sameOriginReq := jsonRequest(t, "/mcp", mcpInitializeRequest())
 	sameOriginReq.Host = "example.com"
 	sameOriginReq.Header.Set("Origin", "http://example.com")
 	sameOriginReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
@@ -165,6 +165,14 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 	router.ServeHTTP(sameOriginRec, sameOriginReq)
 	if sameOriginRec.Code != http.StatusOK {
 		t.Fatalf("expected same MCP Origin to succeed, got %d body=%s", sameOriginRec.Code, sameOriginRec.Body.String())
+	}
+
+	oldPathReq := jsonRequest(t, "/_p2p/mcp", mcpInitializeRequest())
+	oldPathReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
+	oldPathRec := httptest.NewRecorder()
+	router.ServeHTTP(oldPathRec, oldPathReq)
+	if oldPathRec.Code != http.StatusNotFound {
+		t.Fatalf("expected old /_p2p/mcp path to stay unavailable, got %d body=%s", oldPathRec.Code, oldPathRec.Body.String())
 	}
 }
 

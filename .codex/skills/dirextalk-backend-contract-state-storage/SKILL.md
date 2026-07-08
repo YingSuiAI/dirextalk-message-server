@@ -8,12 +8,12 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 ## Contract Surfaces
 
 - Matrix-compatible routes stay under `/_matrix/*`, `/_synapse/*`, `/_dendrite/*`, and `/.well-known/matrix/*`.
-- Product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `POST /_p2p/mcp`, `GET /_p2p/ws`, and `GET /.well-known/portal/owner.json`.
+- Product routes are `GET /_p2p/health`, `POST /_p2p/query`, `POST /_p2p/command`, `POST /mcp`, `GET /_p2p/ws`, and `GET /.well-known/portal/owner.json`.
 - Product requests use `{ "action": "...", "params": { ... } }`.
 - Protected product actions require owner bearer `access_token`.
-- `POST /_p2p/mcp` is the standard MCP Streamable HTTP endpoint and uses JSON-RPC `initialize`, `tools/list`, and `tools/call`, not the product action envelope.
-- `agent_token` is accepted only for `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /_p2p/mcp`.
-- `POST /_p2p/mcp` requires `Authorization: Bearer <agent_token>`, rejects owner access tokens and query-string tokens, validates `Origin`, returns 405 for GET/SSE while streaming is unused, and must not forward inbound bearer tokens downstream.
+- `POST /mcp` is the standard MCP Streamable HTTP endpoint and uses JSON-RPC `initialize`, `tools/list`, and `tools/call`, not the product action envelope.
+- `agent_token` is accepted only for `agent.matrix_session.create`, fixed `mcp.*` HTTP actions, and `POST /mcp`.
+- `POST /mcp` requires `Authorization: Bearer <agent_token>`, rejects owner access tokens and query-string tokens, validates `Origin`, returns 405 for GET/SSE while streaming is unused, and must not forward inbound bearer tokens downstream.
 - `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
 - Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.
@@ -39,7 +39,7 @@ For report/system/agent notifications, prefer normal Matrix timeline events in t
 - The real `agent_room_id` and `system_room_id` must not use legacy pseudo ids.
 - Agent online state is native Matrix room state `io.dirextalk.agent.status` keyed by `@agent:<server>` with content field `online`.
 - Native Agent runtime config is stored in portal Agent config JSON; old hidden `io.dirextalk.agent` plugin config is only a sanitized, idempotent startup migration source and must not reappear in plugin management surfaces.
-- Fixed `mcp.*` body actions, Native Agent built-in Dirextalk tools, and `POST /_p2p/mcp` share the `internal/dirextalkmcp` registry, schemas, pagination, room authorization, DTOs, errors, and invocation service. `p2p` adapts store/transport/history/profile/blocklist dependencies; do not duplicate MCP business logic in `nativeagent` or the MCP HTTP transport.
+- Fixed `mcp.*` body actions, Native Agent built-in Dirextalk tools, and `POST /mcp` share the `internal/dirextalkmcp` registry, schemas, pagination, room authorization, DTOs, errors, and invocation service. `p2p` adapts store/transport/history/profile/blocklist dependencies; do not duplicate MCP business logic in `nativeagent` or the MCP HTTP transport.
 - Do not mirror agent messages through `agent_room.message`, `client.agent_stream`, or `server.agent_stream`.
 - Channel approval must not report joined until requester-node Matrix join succeeds.
 - Remote public lookup must use request-provided `remote_node_base_url`; do not derive outbound URLs from Matrix room IDs.

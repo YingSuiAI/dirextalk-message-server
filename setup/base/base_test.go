@@ -48,13 +48,20 @@ func TestLandingPage_Tcp(t *testing.T) {
 	time.Sleep(time.Millisecond * 10)
 
 	// When hitting /, we should be redirected to /_matrix/static, which should contain the landing page
-	req, err := http.NewRequest(http.MethodGet, s.URL, nil)
-	assert.NoError(t, err)
-
-	// do the request
-	resp, err := s.Client().Do(req)
-	assert.NoError(t, err)
+	var resp *http.Response
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		req, reqErr := http.NewRequest(http.MethodGet, s.URL, nil)
+		assert.NoError(t, reqErr)
+		resp, err = s.Client().Do(req)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	defer resp.Body.Close()
 
 	// read the response
 	buf := &bytes.Buffer{}
@@ -63,6 +70,39 @@ func TestLandingPage_Tcp(t *testing.T) {
 
 	// Using .String() for user friendly output
 	assert.Equal(t, expectedRes.String(), buf.String(), "response mismatch")
+}
+
+func TestMCPRoute_Tcp(t *testing.T) {
+	processCtx := process.NewProcessContext()
+	routers := httputil.NewRouters()
+	routers.MCP.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	cfg := config.Dendrite{}
+	cfg.Defaults(config.DefaultOpts{Generate: true, SingleDatabase: true})
+
+	s := httptest.NewServer(nil)
+	s.Close()
+
+	address, err := config.HTTPAddress(s.URL)
+	assert.NoError(t, err)
+	go basepkg.SetupAndServeHTTP(processCtx, &cfg, routers, address, nil, nil)
+	time.Sleep(time.Millisecond * 10)
+
+	var resp *http.Response
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		req, reqErr := http.NewRequest(http.MethodPost, s.URL+"/mcp", nil)
+		assert.NoError(t, reqErr)
+		resp, err = s.Client().Do(req)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 }
 
 func TestLandingPage_UnixSocket(t *testing.T) {

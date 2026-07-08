@@ -38,6 +38,7 @@ type Routers struct {
 	Media           *mux.Router
 	WellKnown       *mux.Router
 	PortalWellKnown *mux.Router
+	MCP             *mux.Router
 	Static          *mux.Router
 	P2P             *mux.Router
 	DendriteAdmin   *mux.Router
@@ -52,6 +53,7 @@ func NewRouters() Routers {
 		Media:           mux.NewRouter().SkipClean(true).PathPrefix(PublicMediaPathPrefix).Subrouter().UseEncodedPath(),
 		WellKnown:       mux.NewRouter().SkipClean(true).PathPrefix(PublicWellKnownPrefix).Subrouter().UseEncodedPath(),
 		PortalWellKnown: mux.NewRouter().SkipClean(true).PathPrefix(PublicPortalWellKnownPrefix).Subrouter().UseEncodedPath(),
+		MCP:             mux.NewRouter().SkipClean(true).UseEncodedPath(),
 		Static:          mux.NewRouter().SkipClean(true).PathPrefix(PublicStaticPath).Subrouter().UseEncodedPath(),
 		P2P:             mux.NewRouter().SkipClean(true).PathPrefix(P2PPathPrefix).Subrouter().UseEncodedPath(),
 		DendriteAdmin:   mux.NewRouter().SkipClean(true).PathPrefix(DendriteAdminPathPrefix).Subrouter().UseEncodedPath(),
@@ -78,7 +80,7 @@ var NotFoundCORSHandler = WrapHandlerInCORS(http.HandlerFunc(func(w http.Respons
 func (r *Routers) configureHTTPErrors() {
 	for _, router := range []*mux.Router{
 		r.Client, r.Federation, r.Keys,
-		r.Media, r.WellKnown, r.PortalWellKnown, r.Static, r.P2P,
+		r.Media, r.WellKnown, r.PortalWellKnown, r.MCP, r.Static, r.P2P,
 		r.DendriteAdmin, r.SynapseAdmin,
 	} {
 		router.NotFoundHandler = NotFoundCORSHandler

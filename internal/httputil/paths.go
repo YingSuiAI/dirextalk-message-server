@@ -14,6 +14,7 @@ const (
 	PublicStaticPath            = "/_matrix/static/"
 	PublicWellKnownPrefix       = "/.well-known/matrix/"
 	PublicPortalWellKnownPrefix = "/.well-known/portal/"
+	MCPPath                     = "/mcp"
 	P2PPathPrefix               = "/_p2p/"
 	DendriteAdminPathPrefix     = "/_dendrite/"
 	SynapseAdminPathPrefix      = "/_synapse/"

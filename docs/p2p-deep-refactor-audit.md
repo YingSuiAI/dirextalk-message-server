@@ -36,7 +36,7 @@ Resolved first-version auth decision:
 
 Resolved endpoint decision:
 
-- The standard MCP Streamable HTTP endpoint path is `POST /_p2p/mcp`.
+- The standard MCP Streamable HTTP endpoint path is `POST /mcp`.
 - It lives under the existing Dirextalk P2P route prefix but does not use the Dirextalk body-action envelope.
 
 Blocking decision still required for Phase MCP-D:
@@ -91,7 +91,7 @@ Dependencies must enter through small interfaces, not through `p2p.Service`:
 
 Native Agent Dirextalk tools should be generated from the same `internal/dirextalkmcp` registry and schemas. `p2p/native_agent_runner.go:nativeAgentTools` and `p2p/nativeagent/native_agent_tools.go` should not keep duplicated Dirextalk MCP business logic after Phase MCP-B.
 
-External standard MCP clients use `POST /_p2p/mcp` as the MCP Streamable HTTP transport endpoint, not the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The endpoint contract is:
+External standard MCP clients use `POST /mcp` as the MCP Streamable HTTP transport endpoint, not the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The endpoint contract is:
 
 - implement JSON-RPC lifecycle sufficient for `initialize`, `tools/list`, and `tools/call`;
 - support HTTP POST for client-to-server JSON-RPC messages;
@@ -183,7 +183,7 @@ These items should be deleted in a later implementation phase only with the note
 | Removed Native Agent/plugin names can be reintroduced during cleanup. | `p2p/routing_test.go`: `TestAgentStatusActionRemoved`, `TestSyncBootstrapOmitsDeprecatedAgentOnline`; `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `docs/current-project-documentation.md`: `agent.status`/`agent_online` removal | Moving action/plugin registration may accidentally expose removed `agent.status`, `agents.status`, `agent_online`, or `io.dirextalk.agent` plugin surfaces. | Keep negative contract tests while removing compatibility code. |
 | `client.command` removal is a WS client contract change. | `p2p/realtime_ws.go`: rejection branch for `"client.command"`; `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandIsRemoved`; `docs/current-project-documentation.md`: removed-alias note | Deleting the alias without docs/client coordination breaks older owner clients. | Phase C treats this as a contract change and documents that clients must use `client.request`. |
 | MCP pagination and response field names must not regress. | `p2p/mcp_pagination.go`: `mcpPageFromParams`, `rejectLegacyMCPTimeParams`; `p2p/mcp_api.go`: `mcpMessagesList`, channel posts/comments list actions; `p2p/mcp_api_test.go`: legacy timestamp rejection cases; `docs/current-project-documentation.md`: `from_time`/`to_time`, `cursor`, no old `ts`/`last_ts` fields | Moving history readers can accidentally reintroduce `from_ts`, `to_ts`, `ts`, or `last_ts`. | Keep explicit schema tests around request rejection and response field absence. |
-| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: no-URL-shaped-product-endpoint rule with explicit MCP exception; `docs/current-project-documentation.md`: `POST /_p2p/mcp` endpoint contract; `p2p/routing_mcp.go`: standard MCP JSON-RPC transport; `p2p/action_registry_mcp.go`: current body-action `mcp.*` wrapper surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | `POST /_p2p/mcp` changes the contract from body-action-only product capability access for external MCP clients. | Phase MCP-C pins endpoint path, first-version `agent_token` auth, Origin/token handling, GET 405, and no bearer forwarding. Phase MCP-D must decide old `mcp.*` body-action removal timing. |
+| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: no-URL-shaped-product-endpoint rule with explicit MCP exception; `docs/current-project-documentation.md`: `POST /mcp` endpoint contract; `p2p/routing_mcp.go`: standard MCP JSON-RPC transport; `p2p/action_registry_mcp.go`: current body-action `mcp.*` wrapper surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | `POST /mcp` changes the contract from body-action-only product capability access for external MCP clients. | Phase MCP-C pins endpoint path, first-version `agent_token` auth, Origin/token handling, GET 405, and no bearer forwarding. Phase MCP-D must decide old `mcp.*` body-action removal timing. |
 | Remote public lookup security must survive adapter moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; `p2p/service_channels.go`: `channelPublicGet`, `channelPublicSearch`; `p2p/service_channel_join.go`: `channelJoinRequest`, `notifyRemoteChannelJoinResult` | Public lookup must reject malformed Matrix IDs, URL-shaped server names, and private/internal hosts, while requiring request-provided `remote_node_base_url`. | Keep multi-node and validation tests before moving this code. |
 | Matrix-native product state must remain authoritative. | `p2p/service_channels.go`: `publishChannelState`, `publishMemberPolicyState`, `publishJoinRequestState`; `p2p/service_groups.go`: `publishGroupState`; `p2p/projector.go`: `ProjectRoomEvent`; `internal/productpolicy/productpolicy.go`: validation functions | Refactoring can accidentally treat projections as source-of-truth for membership or ordinary messages. | Tests must assert Matrix membership/state events remain the final joined/dissolved/policy facts. |
 
@@ -276,7 +276,7 @@ Phase MCP-B must have:
 
 Phase MCP-C must have:
 
-- chosen endpoint path implemented as `POST /_p2p/mcp`;
+- chosen endpoint path implemented as `POST /mcp`;
 - JSON-RPC tests for `initialize`, `tools/list`, and `tools/call`;
 - first-version `Authorization: Bearer <agent_token>` tests, including owner-token rejection on the standard MCP endpoint;
 - Origin validation tests;
@@ -352,7 +352,7 @@ type ActionSpec struct {
    - Preserve existing `mcp.*` response behavior for current tests.
 
 5. Phase MCP-C: expose the standard MCP Streamable HTTP transport.
-   - Add the chosen endpoint path: `POST /_p2p/mcp`.
+   - Add the chosen endpoint path: `POST /mcp`.
    - Implement JSON-RPC `initialize`, `tools/list`, and `tools/call`.
    - Require first-version `Authorization: Bearer <agent_token>` on protected requests.
    - Reject owner `access_token` on the standard MCP endpoint.

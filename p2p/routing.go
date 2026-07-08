@@ -30,7 +30,6 @@ type apiError struct {
 func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/query", handle(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", handle(service)).Methods(http.MethodPost, http.MethodOptions)
-	router.HandleFunc("/mcp", handleMCP(service)).Methods(http.MethodPost, http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r)
@@ -40,6 +39,10 @@ func Register(router *mux.Router, service *Service) {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet, http.MethodOptions)
+}
+
+func RegisterMCP(router *mux.Router, service *Service) {
+	router.HandleFunc("/mcp", handleMCP(service)).Methods(http.MethodPost, http.MethodGet, http.MethodOptions)
 }
 
 func RegisterWellKnown(router *mux.Router, service *Service) {

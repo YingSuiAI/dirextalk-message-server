@@ -465,5 +465,6 @@ func jsonRequest(t *testing.T, path string, body map[string]any) *http.Request {
 func newP2PTestRouter(service *Service) *mux.Router {
 	router := mux.NewRouter()
 	Register(router.PathPrefix(PathPrefix).Subrouter(), service)
+	RegisterMCP(router, service)
 	return router
 }

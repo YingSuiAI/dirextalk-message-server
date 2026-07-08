@@ -126,6 +126,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 	}
 	p2p.Register(routers.P2P, p2pService)
+	p2p.RegisterMCP(routers.MCP, p2pService)
 	p2p.RegisterWellKnown(routers.PortalWellKnown, p2pService)
 
 	if m.RelayAPI != nil {
