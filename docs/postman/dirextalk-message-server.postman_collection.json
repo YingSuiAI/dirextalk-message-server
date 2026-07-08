@@ -80,7 +80,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/query",
-                "description": "读取 Agent 配置，响应包含 display_name、avatar_url、context_window、enabled、model、system_prompt、mcp_blocked_room_ids。\n\nRead Agent config, including display_name, avatar_url, context_window, enabled, model, system_prompt, and mcp_blocked_room_ids.\n\nAction: `agent.config.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
+                "description": "读取 native Agent 共享配置，响应包含 display_name、avatar_url、context_window、enabled、model、system_prompt、mcp_blocked_room_ids。Native runtime 的 skills/MCP/runtime config 使用同一份 portal Agent config storage；旧 io.dirextalk.agent plugin config 只会在启动时做一次幂等迁移。\n\nRead shared native Agent config, including display_name, avatar_url, context_window, enabled, model, system_prompt, and mcp_blocked_room_ids. Native runtime skills/MCP/runtime config uses the same portal Agent config storage; old io.dirextalk.agent plugin config is only an idempotent startup migration source.\n\nAction: `agent.config.get`\nEndpoint: `POST /_p2p/query`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.config.get\",\n  \"params\": {}\n}",
@@ -112,7 +112,7 @@
                   }
                 ],
                 "url": "{{baseUrl}}/_p2p/command",
-                "description": "更新 Agent 配置。avatar_url 用于客户端展示；mcp_blocked_room_ids 是 MCP 房间黑名单，列表内房间不会出现在 mcp.rooms.search，直接访问会返回 403。\n\nUpdate Agent config. avatar_url is for client display. mcp_blocked_room_ids is the MCP room blacklist: listed rooms are hidden from mcp.rooms.search and direct MCP access returns 403.\n\nAction: `agent.config.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
+                "description": "更新 native Agent 共享配置。avatar_url 用于客户端展示；mcp_blocked_room_ids 是 MCP 房间黑名单，列表内房间不会出现在 mcp.rooms.search，直接访问会返回 403。模型 API key 不得写入此配置，必须作为请求级 model_profile 输入传入。\n\nUpdate shared native Agent config. avatar_url is for client display. mcp_blocked_room_ids is the MCP room blacklist: listed rooms are hidden from mcp.rooms.search and direct MCP access returns 403. Model API keys must not be written here; pass them only as request-scoped model_profile input.\n\nAction: `agent.config.update`\nEndpoint: `POST /_p2p/command`\nAuth: Protected action; use access_token.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"agent.config.update\",\n  \"params\": {\n    \"display_name\": \"Postman Agent\",\n    \"avatar_url\": \"mxc://example.com/agent\",\n    \"context_window\": 12,\n    \"enabled\": true,\n    \"model\": \"gpt-4.1\",\n    \"system_prompt\": \"You are a local assistant.\",\n    \"mcp_blocked_room_ids\": [\n      \"!room:example.com\"\n    ]\n  }\n}",

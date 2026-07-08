@@ -23,6 +23,8 @@ The server maps `agent.chat` to the native runtime stream action `agent.chat.str
 
 `io.dirextalk.agent` is removed from plugin management. `plugins.catalog.list` and `plugins.installed.list` do not return it, and `plugins.install/enable/disable/uninstall/config/health/logs/invoke` reject it as not found or unsupported. `io.dirextalk.ops` remains an official Docker-runner plugin.
 
+Native Agent runtime config uses native portal Agent config storage rather than the hidden legacy Agent plugin record. On startup, any old `io.dirextalk.agent` plugin config is imported into native Agent config once in a sanitized, idempotent way. Root `api_key`/`api_key_ref` fields and model profile API key/ref fields are stripped during migration and native config save/load; model provider API keys remain request-scoped only.
+
 ## 2026-07-08 Native Agent Runtime Shell Tool
 
 Native Agent `agent.chat` now exposes a built-in `runtime__shell` Eino tool by default. The tool accepts `command`/`cmd` and optional `timeout_seconds`, runs inside the message-server container's Native Agent runtime directory, and returns the same observable `ok`, `stdout`, `stderr`, and `exit_code` shape as other runtime command execution.

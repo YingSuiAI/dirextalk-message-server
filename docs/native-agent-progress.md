@@ -6,10 +6,11 @@
 > actions plus realtime `client.native_agent_stream` /
 > `client.native_agent_stream.cancel`. `io.dirextalk.agent` is not exposed
 > through plugin catalog/list/lifecycle/config/invoke/health/logs. Ops and
-> future non-Agent plugins continue to use the plugin manager. B4 is still
-> pending: native Agent config storage currently has a hidden legacy Agent
-> plugin record compatibility path and must migrate to native config storage in
-> a later batch.
+> future non-Agent plugins continue to use the plugin manager. Native Agent
+> runtime config now lives in native portal Agent config storage; startup
+> performs an idempotent sanitized import from any old hidden
+> `io.dirextalk.agent` plugin config without exposing Agent through plugin
+> management.
 
 Only mark an item after implementation and verification are complete. Do not pre-check planned or partially finished work.
 

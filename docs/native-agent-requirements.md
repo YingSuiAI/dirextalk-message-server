@@ -5,10 +5,10 @@
 > `client.native_agent_stream.cancel` frames. `io.dirextalk.agent` is not
 > listed, installed, enabled, configured, invoked, checked for health, or tailed
 > through the plugin catalog/list/lifecycle/invoke/log surfaces. Ops and future
-> non-Agent plugins continue to use the plugin manager and Docker runner. B4 is
-> not complete yet: native Agent config storage still uses a hidden legacy
-> Agent plugin record for compatibility and must be migrated to native config
-> storage in a later batch.
+> non-Agent plugins continue to use the plugin manager and Docker runner.
+> Native Agent config storage uses the portal Agent config JSON; old hidden
+> `io.dirextalk.agent` plugin config is only a sanitized, idempotent startup
+> migration source.
 
 ## Scope
 
@@ -23,7 +23,7 @@ Clients use the current call surface:
 ## Runtime Requirements
 
 - Native Agent owner actions always route to the native runtime, never to a Docker Agent container.
-- B4 migration is still pending: old hidden Agent plugin config/runtime state may be read for compatibility, but current clients must not use plugin management as the Native Agent contract.
+- Native Agent runtime config is stored in native portal Agent config storage. On startup, old hidden Agent plugin config/runtime state is imported once in a sanitized, idempotent way; current clients must not use plugin management as the Native Agent contract.
 - Native Agent uses CloudWeGo Eino as the only model orchestration path. The runtime must track the latest stable Eino release, use Eino ReAct for model/tool loops, use maintained Eino model components for OpenAI and DeepSeek, use direct-only Anthropic Messages API as an Eino `ToolCallingChatModel` adapter, and use Eino official MCP tooling backed by `modelcontextprotocol/go-sdk`.
 - Native Agent supports `openai`, `anthropic`, `deepseek`, and `openai_compatible`.
 - `anthropic` first-version support is direct Anthropic API only. Bedrock and Vertex are intentionally not supported, and AWS/Google SDK dependencies must not be introduced for this provider.

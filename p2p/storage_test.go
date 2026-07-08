@@ -268,6 +268,113 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreMigratesLegacyAgentPluginConfigToNativePortalConfig(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.UpsertPlugin(ctx, pluginInstance{
+		ID:      agentPluginID,
+		Name:    "Legacy Agent",
+		Status:  pluginStatusEnabled,
+		Enabled: true,
+		Config: map[string]any{
+			"display_name":         "Migrated Agent",
+			"avatar_url":           "mxc://example.com/migrated-agent",
+			"context_window":       float64(48),
+			"enabled":              true,
+			"model":                "legacy-model",
+			"system_prompt":        "legacy prompt",
+			"mcp_blocked_room_ids": []any{"!blocked:example.com"},
+			"skills": []any{
+				map[string]any{"id": "legacy-skill", "enabled": true},
+			},
+			"mcp_servers": []any{
+				map[string]any{"id": "legacy-mcp", "enabled": true, "transport": "stdio"},
+			},
+			"runtime_tools": []any{
+				map[string]any{"id": "legacy-tool", "enabled": true},
+			},
+			"model_profiles": []any{
+				map[string]any{"id": "deepseek", "provider": "deepseek", "model": "deepseek-chat", "api_key": "sk-legacy", "api_key_ref": "legacy-ref"},
+			},
+			"api_key":     "sk-root",
+			"api_key_ref": "root-ref",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentConfig := mustHandle[map[string]any](t, service, "agent.config.get", nil)
+	if agentConfig["display_name"] != "Migrated Agent" ||
+		agentConfig["avatar_url"] != "mxc://example.com/migrated-agent" ||
+		agentConfig["model"] != "legacy-model" ||
+		agentConfig["system_prompt"] != "legacy prompt" ||
+		int64Param(agentConfig["context_window"]) != 48 {
+		t.Fatalf("expected legacy shared config to migrate to native agent config, got %#v", agentConfig)
+	}
+	blockedRooms := agentConfig["mcp_blocked_room_ids"].([]string)
+	if len(blockedRooms) != 1 || blockedRooms[0] != "!blocked:example.com" {
+		t.Fatalf("expected migrated blocked rooms, got %#v", agentConfig["mcp_blocked_room_ids"])
+	}
+
+	skills := mustHandle[map[string]any](t, service, "agent.skills.list", nil)["skills"].([]map[string]any)
+	if len(skills) != 1 || skills[0]["id"] != "legacy-skill" {
+		t.Fatalf("expected legacy skills in native config storage, got %#v", skills)
+	}
+	servers := mustHandle[map[string]any](t, service, "agent.mcp.servers.list", nil)["servers"].([]map[string]any)
+	if len(servers) != 1 || servers[0]["id"] != "legacy-mcp" {
+		t.Fatalf("expected legacy MCP servers in native config storage, got %#v", servers)
+	}
+	loaded, exists, err := (nativeAgentConfigStore{service: service}).Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatalf("expected migrated native config to exist")
+	}
+	if hasNestedKey(loaded, "api_key") || hasNestedKey(loaded, "api_key_ref") {
+		t.Fatalf("migrated native config must not persist model API keys, got %#v", loaded)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadedSkills := mustHandle[map[string]any](t, reloaded, "agent.skills.list", nil)["skills"].([]map[string]any)
+	if len(reloadedSkills) != 1 || reloadedSkills[0]["id"] != "legacy-skill" {
+		t.Fatalf("expected migrated skills to survive restart, got %#v", reloadedSkills)
+	}
+	secondReload, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _, err := (nativeAgentConfigStore{service: secondReload}).Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	againSkills := again["skills"].([]any)
+	if len(againSkills) != 1 {
+		t.Fatalf("expected idempotent migration without duplicated skills, got %#v", againSkills)
+	}
+}
+
 func TestDatabaseStoreListsJoinedGroupsAndChannelsForUser(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

@@ -147,6 +147,147 @@ func TestNativeAgentIsNotManagedAsPlugin(t *testing.T) {
 	}
 }
 
+func TestNativeAgentConfigStoreUsesPortalAgentConfigNotPluginRecords(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	service.agentConfig.Native = map[string]any{
+		"skills": []any{
+			map[string]any{"id": "portal-skill", "enabled": true},
+		},
+		"model_profiles": []any{
+			map[string]any{"id": "portal-profile", "provider": "deepseek", "model": "deepseek-chat"},
+		},
+	}
+	if err := service.savePlugin(context.Background(), pluginInstance{
+		ID:      agentPluginID,
+		Name:    "Legacy Agent",
+		Enabled: true,
+		Config: map[string]any{
+			"skills": []any{
+				map[string]any{"id": "legacy-skill", "enabled": true},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	store := nativeAgentConfigStore{service: service}
+	loaded, exists, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatalf("expected native portal agent config to exist")
+	}
+	skills, ok := loaded["skills"].([]any)
+	if !ok || len(skills) != 1 {
+		t.Fatalf("expected portal-backed skills, got %#v", loaded["skills"])
+	}
+	skill, ok := skills[0].(map[string]any)
+	if !ok || skill["id"] != "portal-skill" {
+		t.Fatalf("native config store must not read legacy plugin config, got %#v", loaded)
+	}
+	if hasNestedKey(loaded, "api_key") || hasNestedKey(loaded, "api_key_ref") {
+		t.Fatalf("native config load must not expose model API keys, got %#v", loaded)
+	}
+
+	if err := store.Save(context.Background(), map[string]any{
+		"display_name": "Saved Native Agent",
+		"skills": []any{
+			map[string]any{"id": "saved-skill", "enabled": true},
+		},
+		"model_profiles": []any{
+			map[string]any{"id": "saved-profile", "api_key": "sk-save", "api_key_ref": "secret-ref", "model": "deepseek-chat"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.agentConfig.DisplayName; got != "Saved Native Agent" {
+		t.Fatalf("expected Save to update portal agent config, got %q", got)
+	}
+	plugin, ok, err := service.getPlugin(context.Background(), agentPluginID)
+	if err != nil || !ok {
+		t.Fatalf("expected untouched legacy plugin to remain for migration compatibility, ok=%v err=%v", ok, err)
+	}
+	legacySkills := plugin.Config["skills"].([]any)
+	legacySkill := legacySkills[0].(map[string]any)
+	if legacySkill["id"] != "legacy-skill" {
+		t.Fatalf("native config store must not write legacy plugin config, got %#v", plugin.Config)
+	}
+	loaded, _, err = store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasNestedKey(loaded, "api_key") || hasNestedKey(loaded, "api_key_ref") {
+		t.Fatalf("native config save must strip model API keys, got %#v", loaded)
+	}
+}
+
+func TestNativeAgentToolsUseBlockedRoomsFromNativeConfigStore(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!visible:example.com",
+		"name":    "Visible Group",
+	})
+	mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!blocked:example.com",
+		"name":    "Blocked Group",
+	})
+
+	store := nativeAgentConfigStore{service: service}
+	if err := store.Save(context.Background(), map[string]any{
+		"mcp_blocked_room_ids": []any{"!blocked:example.com"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fixed := mustHandle[map[string]any](t, service, "mcp.rooms.search", map[string]any{"type": "group"})
+	fixedRooms := fixed["rooms"].([]mcpRoomSummary)
+	if len(fixedRooms) != 1 || fixedRooms[0].RoomID != "!visible:example.com" {
+		t.Fatalf("fixed MCP action must use native blocked-room config, got %#v", fixedRooms)
+	}
+
+	var roomsTool *nativeagentToolForTest
+	for _, tool := range nativeAgentTools(service) {
+		if tool.Name == "dirextalk_rooms_search" {
+			roomsTool = &nativeagentToolForTest{handler: tool.Handler}
+			break
+		}
+	}
+	if roomsTool == nil {
+		t.Fatal("expected dirextalk_rooms_search native tool")
+	}
+	result, err := roomsTool.handler(context.Background(), map[string]any{"type": "group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeRooms := result.(map[string]any)["rooms"].([]mcpRoomSummary)
+	if len(nativeRooms) != 1 || nativeRooms[0].RoomID != "!visible:example.com" {
+		t.Fatalf("native Agent tool must use same blocked-room config as MCP action, got %#v", nativeRooms)
+	}
+}
+
+type nativeagentToolForTest struct {
+	handler func(context.Context, map[string]any) (any, error)
+}
+
+func hasNestedKey(value any, key string) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for k, v := range typed {
+			if k == key || hasNestedKey(v, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if hasNestedKey(item, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestNativeAgentRealtimeStreamFramesUseNativeRuntime(t *testing.T) {
 	dockerRunner := &recordingPluginRunner{}
 	nativeRunner := &recordingPluginRunner{}

@@ -245,7 +245,11 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 	if err != nil {
 		return nil, err
 	}
-	shouldPersist := !ok || !state.Initialized || strings.TrimSpace(state.Password) == ""
+	migratedAgentConfig, err := migrateLegacyAgentPluginConfig(ctx, store, &state)
+	if err != nil {
+		return nil, err
+	}
+	shouldPersist := !ok || !state.Initialized || strings.TrimSpace(state.Password) == "" || migratedAgentConfig
 	service := newService(cfg, store, transport, state, ok)
 	if err := service.loadPlugins(ctx); err != nil {
 		return nil, err
@@ -539,6 +543,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	if !hasPortal {
 		ownerMXID := ownerMXIDForServer(serverName)
+		agentConfig := state.AgentConfig
 		state = portalState{
 			Initialized:    false,
 			Password:       defaultPortalPassword(),
@@ -550,6 +555,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 				UserID: ownerMXID,
 				Domain: serverName,
 			},
+			AgentConfig: agentConfig,
 		}
 	}
 	if strings.TrimSpace(state.Password) == "" {

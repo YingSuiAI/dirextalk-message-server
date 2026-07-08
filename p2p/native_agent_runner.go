@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
@@ -146,43 +145,23 @@ func (s nativeAgentConfigStore) Load(ctx context.Context) (map[string]any, bool,
 	if s.service == nil {
 		return map[string]any{}, false, nil
 	}
-	plugin, exists, err := s.service.getPlugin(ctx, agentPluginID)
-	if err != nil || !exists {
-		return map[string]any{}, exists, err
-	}
-	return cloneAnyMap(plugin.Config), true, nil
+	s.service.mu.Lock()
+	defer s.service.mu.Unlock()
+	return agentConfigToNativeMap(s.service.agentConfig), true, nil
 }
 
 func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any) error {
 	if s.service == nil {
 		return fmt.Errorf("native agent config store is unavailable")
 	}
-	plugin, exists, err := s.service.getPlugin(ctx, agentPluginID)
-	if err != nil {
-		return err
+	s.service.mu.Lock()
+	s.service.agentConfig = agentConfigFromNativeMap(s.service.agentConfig, config)
+	state := s.service.portalStateLocked()
+	s.service.mu.Unlock()
+	if s.service.store != nil {
+		return s.service.store.SavePortal(ctx, state)
 	}
-	now := time.Now().UTC().UnixMilli()
-	if !exists {
-		plugin = pluginInstance{
-			ID:        agentPluginID,
-			Name:      "Dirextalk Native Agent",
-			Version:   "0.1.0",
-			Image:     "native://dirextalk/agent",
-			Status:    pluginStatusEnabled,
-			Enabled:   true,
-			Config:    map[string]any{},
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-		plugin.Status = pluginStatusEnabled
-		plugin.Enabled = true
-	}
-	plugin.Config = sanitizePluginConfig(agentPluginID, cloneAnyMap(config), nil)
-	plugin.UpdatedAt = now
-	if plugin.CreatedAt == 0 {
-		plugin.CreatedAt = now
-	}
-	return s.service.savePlugin(ctx, plugin)
+	return nil
 }
 
 func nativeAgentTools(service *Service) []nativeagent.Tool {
