@@ -2,82 +2,31 @@ package matrixhistory
 
 import (
 	"fmt"
-	"sort"
 	"strings"
-	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 )
 
-type MessageSummary struct {
-	EventID           string `json:"-"`
-	OriginServerTS    int64  `json:"-"`
-	CreatedAt         string `json:"created_at"`
-	Sender            string `json:"sender"`
-	SenderMXID        string `json:"sender_mxid,omitempty"`
-	SenderDisplayName string `json:"sender_display_name,omitempty"`
-	SenderDomain      string `json:"sender_domain,omitempty"`
-	SenderLocalpart   string `json:"sender_localpart,omitempty"`
-	Msg               string `json:"msg"`
-}
-
-type Page struct {
-	FromTS     int64
-	SnapshotTS int64
-	CursorTS   int64
-	CursorID   string
-	Limit      int
-}
-
-type MessagePageResult struct {
-	Messages []MessageSummary
-	HasMore  bool
-}
+type MessageSummary = dirextalkmcp.MessageSummary
+type Page = dirextalkmcp.Page
+type MessagePageResult = dirextalkmcp.MessagePageResult
 
 func SortMessageSummaries(messages []MessageSummary) {
-	sort.SliceStable(messages, func(i, j int) bool {
-		if messages[i].OriginServerTS == messages[j].OriginServerTS {
-			return messages[i].EventID > messages[j].EventID
-		}
-		return messages[i].OriginServerTS > messages[j].OriginServerTS
-	})
+	dirextalkmcp.SortMessageSummaries(messages)
 }
 
-type Event struct {
-	RoomID         string         `json:"room_id"`
-	EventID        string         `json:"event_id"`
-	Type           string         `json:"type"`
-	Sender         string         `json:"sender"`
-	OriginServerTS int64          `json:"origin_server_ts"`
-	Content        map[string]any `json:"content"`
-}
+type Event = dirextalkmcp.Event
 
 func InTimeRange(ts, fromTS, toTS int64) bool {
-	if fromTS > 0 && ts < fromTS {
-		return false
-	}
-	if toTS > 0 && ts > toTS {
-		return false
-	}
-	return true
+	return dirextalkmcp.InTimeRange(ts, fromTS, toTS)
 }
 
 func InPage(ts int64, id string, page Page) bool {
-	if !InTimeRange(ts, page.FromTS, page.SnapshotTS) {
-		return false
-	}
-	if page.CursorTS <= 0 {
-		return true
-	}
-	if ts < page.CursorTS {
-		return true
-	}
-	return ts == page.CursorTS && strings.TrimSpace(id) < strings.TrimSpace(page.CursorID)
+	return dirextalkmcp.InPage(ts, id, page)
 }
 
 func FormatTime(ts int64) string {
-	if ts <= 0 {
-		return ""
-	}
-	return time.UnixMilli(ts).UTC().Format(time.RFC3339Nano)
+	return dirextalkmcp.FormatTime(ts)
 }
 
 func trimString(value any) string {

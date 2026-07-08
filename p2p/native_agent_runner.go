@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
@@ -107,17 +108,12 @@ func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any)
 }
 
 func nativeAgentTools(service *Service) []nativeagent.Tool {
-	return []nativeagent.Tool{
-		nativeAgentServiceTool("dirextalk_contacts_list", "List Dirextalk contacts.", nativeAgentObjectSchema(map[string]any{"query": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpContactsList),
-		nativeAgentServiceTool("dirextalk_contacts_search", "Search Dirextalk contacts.", nativeAgentObjectSchema(map[string]any{"query": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpContactsSearch),
-		nativeAgentServiceTool("dirextalk_rooms_search", "Search Dirextalk rooms, groups, channels, or contacts.", nativeAgentObjectSchema(map[string]any{"query": nativeAgentStringSchema(), "type": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpRoomsSearch),
-		nativeAgentServiceTool("dirextalk_messages_list", "List ordinary messages in an allowed room with optional RFC3339 UTC time range and cursor pagination.", nativeAgentObjectSchema(map[string]any{"room_id": nativeAgentStringSchema(), "from_time": nativeAgentStringSchema(), "to_time": nativeAgentStringSchema(), "cursor": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpMessagesList),
-		nativeAgentServiceTool("dirextalk_messages_send", "Send a Matrix message through Dirextalk transport.", nativeAgentObjectSchema(map[string]any{"room_id": nativeAgentStringSchema(), "msg": nativeAgentStringSchema(), "agent_gateway": nativeAgentBoolSchema()}), service.mcpMessagesSend),
-		nativeAgentServiceTool("dirextalk_room_members_list", "List room members.", nativeAgentObjectSchema(map[string]any{"room_id": nativeAgentStringSchema(), "channel_id": nativeAgentStringSchema(), "status": nativeAgentStringSchema(), "role": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpRoomMembersList),
-		nativeAgentServiceTool("dirextalk_channel_posts_list", "List channel posts with optional RFC3339 UTC time range and cursor pagination.", nativeAgentObjectSchema(map[string]any{"room_id": nativeAgentStringSchema(), "from_time": nativeAgentStringSchema(), "to_time": nativeAgentStringSchema(), "cursor": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpChannelPostsList),
-		nativeAgentServiceTool("dirextalk_channel_comments_list", "List channel comments for a post with optional RFC3339 UTC time range and cursor pagination.", nativeAgentObjectSchema(map[string]any{"post_id": nativeAgentStringSchema(), "from_time": nativeAgentStringSchema(), "to_time": nativeAgentStringSchema(), "cursor": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}), service.mcpChannelCommentsList),
-		nativeAgentServiceTool("dirextalk_channel_comments_create", "Create a channel comment through Dirextalk transport.", nativeAgentObjectSchema(map[string]any{"post_id": nativeAgentStringSchema(), "msg": nativeAgentStringSchema()}), service.mcpChannelCommentCreate),
-		{
+	tools := make([]nativeagent.Tool, 0, len(service.dirextalkMCPService().Tools())+1)
+	for _, tool := range service.dirextalkMCPService().Tools() {
+		tools = append(tools, nativeAgentServiceTool(tool.Name, tool.Description, tool.InputSchema, tool.Write, service.invokeDirextalkMCPAction(tool.Action)))
+	}
+	tools = append(tools,
+		nativeagent.Tool{
 			Name:        "dirextalk_summarize",
 			Description: "Summarize provided text or room messages.",
 			Parameters:  nativeAgentObjectSchema(map[string]any{"room_id": nativeAgentStringSchema(), "text": nativeAgentStringSchema(), "limit": nativeAgentNumberSchema()}),
@@ -125,14 +121,16 @@ func nativeAgentTools(service *Service) []nativeagent.Tool {
 				return nativeAgentSummarize(ctx, service, params)
 			},
 		},
-	}
+	)
+	return tools
 }
 
-func nativeAgentServiceTool(name, description string, schema map[string]any, handler func(context.Context, map[string]any) (any, *apiError)) nativeagent.Tool {
+func nativeAgentServiceTool(name, description string, schema map[string]any, write bool, handler func(context.Context, map[string]any) (any, *apiError)) nativeagent.Tool {
 	return nativeagent.Tool{
 		Name:        name,
 		Description: description,
 		Parameters:  schema,
+		Write:       write,
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			value, apiErr := handler(ctx, params)
 			if apiErr != nil {
@@ -146,7 +144,7 @@ func nativeAgentServiceTool(name, description string, schema map[string]any, han
 func nativeAgentSummarize(ctx context.Context, service *Service, params map[string]any) (map[string]any, error) {
 	text := trimString(params["text"])
 	if text == "" && trimString(params["room_id"]) != "" {
-		value, apiErr := service.mcpMessagesList(ctx, params)
+		value, apiErr := service.invokeDirextalkMCP(ctx, dirextalkmcp.ActionMessagesList, params)
 		if apiErr != nil {
 			return nil, fmt.Errorf("%s", apiErr.Error)
 		}

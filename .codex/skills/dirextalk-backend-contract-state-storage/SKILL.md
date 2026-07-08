@@ -37,6 +37,7 @@ For report/system/agent notifications, prefer normal Matrix timeline events in t
 - The real `agent_room_id` and `system_room_id` must not use legacy pseudo ids.
 - Agent online state is native Matrix room state `io.dirextalk.agent.status` keyed by `@agent:<server>` with content field `online`.
 - Native Agent runtime config is stored in portal Agent config JSON; old hidden `io.dirextalk.agent` plugin config is only a sanitized, idempotent startup migration source and must not reappear in plugin management surfaces.
+- Fixed `mcp.*` body actions and Native Agent built-in Dirextalk tools share the `internal/dirextalkmcp` registry, schemas, pagination, room authorization, DTOs, errors, and invocation service. `p2p` adapts store/transport/history/profile/blocklist dependencies; do not duplicate MCP business logic in `nativeagent`.
 - Do not mirror agent messages through `agent_room.message`, `client.agent_stream`, or `server.agent_stream`.
 - Channel approval must not report joined until requester-node Matrix join succeeds.
 - Remote public lookup must use request-provided `remote_node_base_url`; do not derive outbound URLs from Matrix room IDs.

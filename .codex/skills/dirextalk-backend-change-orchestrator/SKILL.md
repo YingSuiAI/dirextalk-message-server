@@ -20,7 +20,7 @@ Map only the touched surfaces:
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
 - Projection and sync: `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
 - Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.
-- Agent/MCP: `p2p/mcp`, `p2p/serviceapi/actions.go`, Agent-token authorization.
+- Agent/MCP: `internal/dirextalkmcp`, `p2p/mcp`, `p2p/serviceapi/actions.go`, Agent-token authorization.
 
 ## Routing
 

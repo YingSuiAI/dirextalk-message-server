@@ -38,7 +38,7 @@ Clients use the current call surface:
 
 ## Native Tools
 
-The runtime exposes Dirextalk tools implemented against server internals:
+The runtime exposes Dirextalk tools generated from the shared `internal/dirextalkmcp` registry and invoked through the same capability service as fixed `mcp.*` body actions:
 
 - `agent.contacts.list`
 - `agent.contacts.search`

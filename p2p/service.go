@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
@@ -75,6 +76,7 @@ type Service struct {
 	realtimeSessions           *realtime.SessionStore
 	pluginRunner               PluginRunner
 	nativeAgentRunner          NativeAgentRunner
+	mcpCapabilities            *dirextalkmcp.Service
 
 	initialized    bool
 	password       string
@@ -630,6 +632,10 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 
 		realtimeWSTickets: map[string]realtimeWSTicket{},
 	}
+	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
+		Invoker:        p2pDirextalkMCPInvoker{service: service},
+		RoomAuthorizer: p2pDirextalkMCPRoomAuthorizer{service: service},
+	})
 	nativeAgentRunner := cfg.NativeAgentRunner
 	if nativeAgentRunner == nil {
 		nativeAgentRunner = newNativeAgentRuntime(service, cfg.NativeAgentDataDir)

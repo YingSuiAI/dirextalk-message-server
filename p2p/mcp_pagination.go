@@ -2,145 +2,49 @@ package p2p
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 )
 
-type mcpMessagePage = matrixhistory.Page
-type mcpMessagePageResult = matrixhistory.MessagePageResult
-
-type mcpCursorPayload struct {
-	Version        int    `json:"v"`
-	Action         string `json:"action"`
-	TargetID       string `json:"target_id"`
-	FromTimeMS     int64  `json:"from_time_ms,omitempty"`
-	SnapshotTimeMS int64  `json:"snapshot_time_ms"`
-	LastTimeMS     int64  `json:"last_time_ms"`
-	LastID         string `json:"last_id"`
-}
+type mcpMessagePage = dirextalkmcp.Page
+type mcpMessagePageResult = dirextalkmcp.MessagePageResult
+type mcpCursorPayload = dirextalkmcp.CursorPayload
 
 func mcpPageFromParams(params map[string]any, action, targetID string) (mcpMessagePage, *apiError) {
-	if apiErr := rejectLegacyMCPTimeParams(params); apiErr != nil {
-		return mcpMessagePage{}, apiErr
-	}
-	limit := mcpLimit(params)
-	if cursor := trimString(params["cursor"]); cursor != "" {
-		payload, apiErr := decodeMCPCursor(cursor)
-		if apiErr != nil {
-			return mcpMessagePage{}, apiErr
-		}
-		if payload.Action != action || payload.TargetID != targetID || payload.SnapshotTimeMS <= 0 || payload.LastTimeMS <= 0 || strings.TrimSpace(payload.LastID) == "" {
-			return mcpMessagePage{}, badRequest("cursor is invalid for this query")
-		}
-		return mcpMessagePage{
-			FromTS:     payload.FromTimeMS,
-			SnapshotTS: payload.SnapshotTimeMS,
-			CursorTS:   payload.LastTimeMS,
-			CursorID:   payload.LastID,
-			Limit:      limit,
-		}, nil
-	}
-	fromTS, _, apiErr := mcpTimeParam(params, "from_time")
-	if apiErr != nil {
-		return mcpMessagePage{}, apiErr
-	}
-	toTS, hasTo, apiErr := mcpTimeParam(params, "to_time")
-	if apiErr != nil {
-		return mcpMessagePage{}, apiErr
-	}
-	if !hasTo {
-		toTS = time.Now().UTC().UnixMilli()
-	}
-	if fromTS > 0 && fromTS > toTS {
-		return mcpMessagePage{}, badRequest("from_time must be less than or equal to to_time")
-	}
-	return mcpMessagePage{FromTS: fromTS, SnapshotTS: toTS, Limit: limit}, nil
+	page, apiErr := dirextalkmcp.PageFromParams(params, action, targetID)
+	return page, dirextalkMCPErrorToAPI(apiErr)
 }
 
 func rejectLegacyMCPTimeParams(params map[string]any) *apiError {
-	if _, ok := params["from_ts"]; ok {
-		return badRequest("use from_time/to_time instead of from_ts/to_ts")
-	}
-	if _, ok := params["to_ts"]; ok {
-		return badRequest("use from_time/to_time instead of from_ts/to_ts")
-	}
-	return nil
+	return dirextalkMCPErrorToAPI(dirextalkmcp.RejectLegacyTimeParams(params))
 }
 
 func mcpTimeParam(params map[string]any, key string) (int64, bool, *apiError) {
-	value, ok := params[key]
-	if !ok {
-		return 0, false, nil
-	}
-	text := trimString(value)
-	if text == "" {
-		return 0, false, nil
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, text)
-	if err != nil {
-		return 0, false, badRequest(key + " must be RFC3339 UTC")
-	}
-	if _, offset := parsed.Zone(); offset != 0 {
-		return 0, false, badRequest(key + " must be RFC3339 UTC")
-	}
-	return parsed.UTC().UnixMilli(), true, nil
+	ts, ok, apiErr := dirextalkmcp.TimeParam(params, key)
+	return ts, ok, dirextalkMCPErrorToAPI(apiErr)
 }
 
 func decodeMCPCursor(cursor string) (mcpCursorPayload, *apiError) {
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(cursor))
-	if err != nil {
-		return mcpCursorPayload{}, badRequest("cursor is invalid")
-	}
-	var payload mcpCursorPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return mcpCursorPayload{}, badRequest("cursor is invalid")
-	}
-	if payload.Version != 1 {
-		return mcpCursorPayload{}, badRequest("cursor is invalid")
-	}
-	return payload, nil
+	payload, apiErr := dirextalkmcp.DecodeCursor(cursor)
+	return payload, dirextalkMCPErrorToAPI(apiErr)
 }
 
 func encodeMCPCursor(action, targetID string, page mcpMessagePage, lastTS int64, lastID string) (string, error) {
-	raw, err := json.Marshal(mcpCursorPayload{
-		Version:        1,
-		Action:         action,
-		TargetID:       targetID,
-		FromTimeMS:     page.FromTS,
-		SnapshotTimeMS: page.SnapshotTS,
-		LastTimeMS:     lastTS,
-		LastID:         lastID,
-	})
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	return dirextalkmcp.EncodeCursor(action, targetID, page, lastTS, lastID)
 }
 
 func mcpAttachPagination(payload map[string]any, action, targetID string, page mcpMessagePage, hasMore bool, lastTS int64, lastID string) *apiError {
-	payload["has_more"] = hasMore
-	if !hasMore || lastTS <= 0 || strings.TrimSpace(lastID) == "" {
-		return nil
-	}
-	cursor, err := encodeMCPCursor(action, targetID, page, lastTS, lastID)
-	if err != nil {
-		return internalError(err)
-	}
-	payload["next_cursor"] = cursor
-	return nil
+	return dirextalkMCPErrorToAPI(dirextalkmcp.AttachPagination(payload, action, targetID, page, hasMore, lastTS, lastID))
 }
 
 func mcpPageIncludes(ts int64, id string, page mcpMessagePage) bool {
-	return matrixhistory.InPage(ts, id, page)
+	return dirextalkmcp.InPage(ts, id, page)
 }
 
 func mcpFormatTime(ts int64) string {
-	return matrixhistory.FormatTime(ts)
+	return dirextalkmcp.FormatTime(ts)
 }
 
 func mcpPagePostRecords(records []channelPostRecord, page mcpMessagePage) ([]channelPostRecord, bool) {

@@ -10,6 +10,7 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
+	Write       bool
 	Handler     func(context.Context, map[string]any) (any, error)
 }
 
@@ -22,7 +23,7 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 	enabled := map[string]bool{}
 	if len(selected) == 0 {
 		for _, tool := range availableTools {
-			if nativeToolWriteAction(tool.Name) {
+			if tool.Write {
 				continue
 			}
 			enabled[tool.Name] = true
@@ -135,15 +136,6 @@ func (r *Runtime) availableTools() []Tool {
 	tools := append([]Tool{}, r.tools...)
 	tools = append(tools, r.managementTools()...)
 	return tools
-}
-
-func nativeToolWriteAction(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "dirextalk_messages_send", "dirextalk_channel_comments_create":
-		return true
-	default:
-		return false
-	}
 }
 
 func (r *Runtime) invokeDirectTool(ctx context.Context, action string, params map[string]any) (map[string]any, error) {

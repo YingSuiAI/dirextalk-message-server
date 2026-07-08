@@ -1,0 +1,81 @@
+package dirextalkmcp
+
+import (
+	"context"
+	"net/http"
+	"reflect"
+	"testing"
+)
+
+type recordingInvoker struct {
+	action string
+	params map[string]any
+}
+
+func (i *recordingInvoker) InvokeCapability(ctx context.Context, action string, params map[string]any) (any, *Error) {
+	i.action = action
+	i.params = params
+	return map[string]any{"action": action}, nil
+}
+
+func TestServiceOwnsCapabilityRegistryAndInvokesByAction(t *testing.T) {
+	invoker := &recordingInvoker{}
+	service := NewService(invoker)
+
+	result, err := service.Invoke(context.Background(), ActionMessagesList, map[string]any{"room_id": "!room:example.com"})
+	if err != nil {
+		t.Fatalf("expected invoke to pass through unified service, got %v", err)
+	}
+	if invoker.action != ActionMessagesList || invoker.params["room_id"] != "!room:example.com" {
+		t.Fatalf("expected registered action to reach invoker, action=%q params=%#v", invoker.action, invoker.params)
+	}
+	if result.(map[string]any)["action"] != ActionMessagesList {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	if _, err := service.Invoke(context.Background(), "mcp.unknown", map[string]any{}); err == nil || err.Status != http.StatusBadRequest {
+		t.Fatalf("expected unknown MCP action to be rejected by unified service, got %#v", err)
+	}
+}
+
+type staticRoomAuthorizer struct {
+	blocked map[string]bool
+}
+
+func (a staticRoomAuthorizer) MCPRoomBlocked(roomID string) bool {
+	return a.blocked[roomID]
+}
+
+func TestServiceOwnsRoomAuthorizationError(t *testing.T) {
+	service := NewServiceWithConfig(Config{
+		Invoker:        &recordingInvoker{},
+		RoomAuthorizer: staticRoomAuthorizer{blocked: map[string]bool{"!blocked:example.com": true}},
+	})
+
+	if err := service.RequireRoomAllowed("!visible:example.com"); err != nil {
+		t.Fatalf("expected visible room to pass, got %v", err)
+	}
+	if err := service.RequireRoomAllowed("!blocked:example.com"); err == nil || err.Status != http.StatusForbidden || err.Message != "room is blocked for MCP" {
+		t.Fatalf("expected blocked room 403 from unified service, got %#v", err)
+	}
+}
+
+func TestToolsAreGeneratedFromSameRegistryAsActions(t *testing.T) {
+	service := NewService(&recordingInvoker{})
+
+	actions := service.Actions()
+	tools := service.Tools()
+	if len(actions) != len(tools) {
+		t.Fatalf("expected each MCP action to have one native tool, actions=%d tools=%d", len(actions), len(tools))
+	}
+	toolActions := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name == "" || tool.Description == "" || tool.InputSchema["type"] != "object" {
+			t.Fatalf("tool must expose MCP schema metadata, got %#v", tool)
+		}
+		toolActions = append(toolActions, tool.Action)
+	}
+	if !reflect.DeepEqual(actions, toolActions) {
+		t.Fatalf("native tool registry must preserve MCP action order, actions=%#v toolActions=%#v", actions, toolActions)
+	}
+}

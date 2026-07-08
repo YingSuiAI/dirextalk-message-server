@@ -9,30 +9,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/mcp"
 )
 
-const defaultMCPLimit = mcp.DefaultLimit
-const maxMCPLimit = mcp.MaxLimit
+const defaultMCPLimit = dirextalkmcp.DefaultLimit
+const maxMCPLimit = dirextalkmcp.MaxLimit
 
-type mcpRoomSummary = mcp.RoomSummary
-type mcpContactSummary = mcp.ContactSummary
-type mcpMessageSummary = mcp.MessageSummary
-type mcpMemberSummary = mcp.MemberSummary
-type mcpPostSummary = mcp.PostSummary
-type mcpCommentSummary = mcp.CommentSummary
-type matrixMessageReader = mcp.MessageReader
+type mcpRoomSummary = dirextalkmcp.RoomSummary
+type mcpContactSummary = dirextalkmcp.ContactSummary
+type mcpMessageSummary = dirextalkmcp.MessageSummary
+type mcpMemberSummary = dirextalkmcp.MemberSummary
+type mcpPostSummary = dirextalkmcp.PostSummary
+type mcpCommentSummary = dirextalkmcp.CommentSummary
+type matrixMessageReader = dirextalkmcp.MessageReader
 
 func mcpLimit(params map[string]any) int {
-	limit := int(int64Param(params["limit"]))
-	if limit <= 0 {
-		return defaultMCPLimit
-	}
-	if limit > maxMCPLimit {
-		return maxMCPLimit
-	}
-	return limit
+	return dirextalkmcp.Limit(params)
 }
 
 func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -59,7 +52,7 @@ func (s *Service) mcpRoomsSearch(ctx context.Context, params map[string]any) (an
 		if summary.RoomID == "" {
 			continue
 		}
-		if s.mcpRoomBlocked(summary.RoomID) {
+		if !s.dirextalkMCPService().RoomAllowed(summary.RoomID) {
 			continue
 		}
 		if kind != "all" && summary.Type != kind {
@@ -810,10 +803,7 @@ func (s *Service) MatrixHistoryAccessToken(ctx context.Context) (string, error) 
 }
 
 func (s *Service) requireMCPRoomAllowed(roomID string) *apiError {
-	if s.mcpRoomBlocked(roomID) {
-		return statusError(http.StatusForbidden, "room is blocked for MCP")
-	}
-	return nil
+	return dirextalkMCPErrorToAPI(s.dirextalkMCPService().RequireRoomAllowed(roomID))
 }
 
 func (s *Service) mcpRoomBlocked(roomID string) bool {
