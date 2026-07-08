@@ -16,7 +16,7 @@ Use CodeGraph before `rg` or file reads when the repository has `.codegraph/` an
 Map only the touched surfaces:
 
 - Startup and routes: `cmd/dirextalk-message-server`, `setup/monolith.go`, `setup/config`.
-- Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite_transport.go`, `p2p/matrix_history_reader.go`, `p2p/matrix_profile_resolver.go`, `p2p/matrixhistory`, `internal/dirextalktransport`, `internal/dirextalktransport/dendrite`, `internal/dirextalkmatrix`, `internal/dirextalkstate`.
+- Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/domain`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite_transport.go`, `p2p/matrix_history_reader.go`, `p2p/matrix_profile_resolver.go`, `p2p/matrixhistory`, `internal/dirextalkdomain`, `internal/dirextalkplugin`, `internal/dirextalktransport`, `internal/dirextalktransport/dendrite`, `internal/dirextalkmatrix`, `internal/dirextalkstate`.
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
 - Projection and sync: `internal/dirextalkprojection`, `internal/dirextalkstate`, `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
 - Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.
@@ -33,6 +33,7 @@ Map only the touched surfaces:
 - Treat fixed `mcp.*` body actions as temporary compatibility wrappers around `internal/dirextalkmcp`; route new external MCP clients to `POST /mcp`, avoid new wrapper business logic, and remove the wrappers in the next MCP-D pass unless product explicitly extends compatibility.
 - Product-originated Matrix room/member/state/message/redaction writes go through `p2p.Transport`.
 - Matrix Client-Server writes must satisfy `internal/productpolicy`.
+- Shared product value records and pure helpers live in `internal/dirextalkdomain`; plugin record shapes live in `internal/dirextalkplugin`; `p2p/domain` keeps response-shaped facade types and compatibility aliases.
 - Product read models are projections unless a domain rule explicitly makes storage source-of-truth.
 - Ordinary Matrix timeline messages are not copied into a second product ordinary-message store.
 - Agent and system notification rooms are real Matrix rooms. Prefer normal room/timeline events with typed content over new special sync models.

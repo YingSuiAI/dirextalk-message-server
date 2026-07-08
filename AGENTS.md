@@ -37,6 +37,8 @@ Protected product actions require `Authorization: Bearer <access_token>` when is
 - `internal/dirextalkmatrix` owns Matrix Client-Server HTTP profile and history readers used by MCP and channel backfill; `p2p/matrix_profile_resolver.go`, `p2p/matrix_history_reader.go`, and `p2p/matrixhistory` keep facade compatibility.
 - `internal/dirextalkprojection` owns neutral projection-only helpers shared by command-side refreshes and projection views.
 - `internal/dirextalkstate` owns neutral Dirextalk Matrix state-event content builders; `p2p` decides when to publish those state events through the transport facade.
+- `internal/dirextalkdomain` owns shared product value records and pure domain helpers used across p2p, storage, transport, projection, state, and MCP packages. `p2p/domain` keeps response-shaped facade types and compatibility aliases only.
+- `internal/dirextalkplugin` owns plugin catalog/instance/job/secret record shapes for non-Agent plugin management; p2p keeps plugin workflow orchestration and compatibility aliases.
 - `p2p/consumer.go` and `p2p/projector.go` project roomserver output into Dirextalk read models and product events.
 - Package storage implementations own durable state and migrations for their package.
 - Docker development uses PostgreSQL 18 and writes bootstrap credentials to `/var/dirextalk-message-server/p2p/bootstrap.json`.
