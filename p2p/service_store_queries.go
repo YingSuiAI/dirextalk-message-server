@@ -85,8 +85,8 @@ func contactStatusRank(status string) int {
 }
 
 func (s *Service) rawContacts(ctx context.Context) ([]contactRecord, error) {
-	if s.store != nil {
-		return s.store.ListContacts(ctx)
+	if store := s.contactStore(); store != nil {
+		return store.ListContacts(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

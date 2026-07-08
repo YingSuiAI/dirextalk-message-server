@@ -10,6 +10,20 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
+type contactStore interface {
+	UpsertContact(ctx context.Context, contact contactRecord) error
+	ListContacts(ctx context.Context) ([]contactRecord, error)
+	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
+	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
+}
+
+func (s *Service) contactStore() contactStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 type peerContactReactivation struct {
 	PendingInbound bool
 	RoomID         string
@@ -835,8 +849,8 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 		deleteConversationKindByRoomLocked(s.conversations, contact.RoomID, conversationKindGroup)
 	}
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertContact(ctx, contact); err != nil {
+	if store := s.contactStore(); store != nil {
+		if err := store.UpsertContact(ctx, contact); err != nil {
 			return err
 		}
 		for _, roomID := range replacedDirectRoomIDs {
@@ -860,15 +874,15 @@ func (s *Service) saveChannelInviteGrant(ctx context.Context, grant channelInvit
 	s.mu.Lock()
 	s.inviteGrants[grant.GrantID] = grant
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.UpsertChannelInviteGrant(ctx, grant)
+	if store := s.contactStore(); store != nil {
+		return store.UpsertChannelInviteGrant(ctx, grant)
 	}
 	return nil
 }
 
 func (s *Service) listChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error) {
-	if s.store != nil {
-		return s.store.ListChannelInviteGrants(ctx)
+	if store := s.contactStore(); store != nil {
+		return store.ListChannelInviteGrants(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
