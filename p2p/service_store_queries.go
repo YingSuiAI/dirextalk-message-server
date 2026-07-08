@@ -139,7 +139,11 @@ func (s *Service) lookupContactByPeer(ctx context.Context, peerMXID string) (con
 
 func (s *Service) listGroups(ctx context.Context) ([]groupRecord, error) {
 	if store := s.groupStore(); store != nil {
-		return store.ListGroups(ctx)
+		groups, err := store.ListGroups(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return groupRecordsFromStorage(groups), nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -7,11 +7,11 @@ import (
 )
 
 type groupStore interface {
-	UpsertGroup(ctx context.Context, group groupRecord) error
+	UpsertGroup(ctx context.Context, group groupStorageRecord) error
 	DeleteGroup(ctx context.Context, roomID string) error
-	ListGroups(ctx context.Context) ([]groupRecord, error)
-	GetGroupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error)
-	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupRecord, error)
+	ListGroups(ctx context.Context) ([]groupStorageRecord, error)
+	GetGroupByRoom(ctx context.Context, roomID string) (groupStorageRecord, bool, error)
+	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupStorageRecord, error)
 }
 
 func (s *Service) groupStore() groupStore {
@@ -178,11 +178,11 @@ func (s *Service) groupList(ctx context.Context) any {
 		s.mu.Lock()
 		ownerMXID := s.ownerMXID
 		s.mu.Unlock()
-		groups, err := store.ListJoinedGroupsForUser(ctx, ownerMXID)
+		storedGroups, err := store.ListJoinedGroupsForUser(ctx, ownerMXID)
 		if err != nil {
 			return map[string]any{"groups": []groupRecord{}}
 		}
-		return map[string]any{"groups": groups}
+		return map[string]any{"groups": groupRecordsFromStorage(storedGroups)}
 	}
 	groups, err := s.listGroups(ctx)
 	if err != nil {
@@ -239,7 +239,7 @@ func (s *Service) saveGroup(ctx context.Context, group groupRecord) error {
 	s.groups[group.RoomID] = group
 	s.mu.Unlock()
 	if store := s.groupStore(); store != nil {
-		if err := store.UpsertGroup(ctx, group); err != nil {
+		if err := store.UpsertGroup(ctx, groupStorageRecordFromGroup(group)); err != nil {
 			return err
 		}
 	}
@@ -304,7 +304,11 @@ func (s *Service) dissolveGroup(ctx context.Context, params map[string]any) (any
 
 func (s *Service) groupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
 	if store := s.groupStore(); store != nil {
-		return store.GetGroupByRoom(ctx, roomID)
+		group, ok, err := store.GetGroupByRoom(ctx, roomID)
+		if err != nil || !ok {
+			return groupRecord{}, ok, err
+		}
+		return groupRecordFromStorage(group), true, nil
 	}
 	groups, err := s.listGroups(ctx)
 	if err != nil {

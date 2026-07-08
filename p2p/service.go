@@ -154,11 +154,11 @@ type Store interface {
 	UpsertBlock(ctx context.Context, block blockRecord) error
 	DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error)
 	ListBlocks(ctx context.Context) ([]blockRecord, error)
-	UpsertGroup(ctx context.Context, group groupRecord) error
+	UpsertGroup(ctx context.Context, group groupStorageRecord) error
 	DeleteGroup(ctx context.Context, roomID string) error
-	ListGroups(ctx context.Context) ([]groupRecord, error)
-	GetGroupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error)
-	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupRecord, error)
+	ListGroups(ctx context.Context) ([]groupStorageRecord, error)
+	GetGroupByRoom(ctx context.Context, roomID string) (groupStorageRecord, bool, error)
+	ListJoinedGroupsForUser(ctx context.Context, userID string) ([]groupStorageRecord, error)
 	UpsertCall(ctx context.Context, call callRecord) error
 	ListCalls(ctx context.Context, roomID string, activeOnly bool) ([]callRecord, error)
 	UpsertFavorite(ctx context.Context, favorite favoriteRecord) error

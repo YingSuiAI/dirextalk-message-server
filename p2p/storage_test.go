@@ -389,7 +389,7 @@ func TestDatabaseStoreListsJoinedGroupsAndChannelsForUser(t *testing.T) {
 
 	ownerMXID := "@owner:example.com"
 	otherMXID := "@other:example.com"
-	groups := []groupRecord{
+	groups := []groupStorageRecord{
 		{RoomID: "!group-owner:example.com", Name: "Owner Group", InvitePolicy: "owner"},
 		{RoomID: "!group-pending:example.com", Name: "Pending Group", InvitePolicy: "owner"},
 		{RoomID: "!group-other:example.com", Name: "Other Group", InvitePolicy: "owner"},
@@ -463,7 +463,7 @@ func TestDatabaseStoreLooksUpGroupAndChannelWithoutFullList(t *testing.T) {
 	}
 	defer store.Close()
 
-	group := groupRecord{RoomID: "!group:example.com", Name: "Group", Topic: "topic", InvitePolicy: "owner"}
+	group := groupStorageRecord{RoomID: "!group:example.com", Name: "Group", Topic: "topic", InvitePolicy: "owner"}
 	if err := store.UpsertGroup(ctx, group); err != nil {
 		t.Fatal(err)
 	}

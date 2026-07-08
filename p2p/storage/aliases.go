@@ -13,7 +13,7 @@ type channelInviteGrant = dirextalkdomain.ChannelInviteGrant
 type channelPostRecord = domain.ChannelPostRecord
 type channelCommentRecord = domain.ChannelCommentRecord
 type contactRecord = domain.ContactRecord
-type groupRecord = domain.GroupRecord
+type groupRecord = dirextalkdomain.GroupRecord
 type callRecord = dirextalkdomain.CallRecord
 type favoriteRecord = dirextalkdomain.FavoriteRecord
 type followRecord = dirextalkdomain.FollowRecord
@@ -47,7 +47,7 @@ func conversationFromContact(contact contactRecord) conversationRecord {
 }
 
 func conversationFromGroup(group groupRecord) conversationRecord {
-	return domain.ConversationFromGroup(group)
+	return dirextalkdomain.ConversationFromGroup(group)
 }
 
 func conversationFromChannel(ch channel) conversationRecord {

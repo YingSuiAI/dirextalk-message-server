@@ -124,10 +124,11 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	groupStore := s.groupStore()
 	channelStore := s.channelStore()
 	if groupStore != nil && channelStore != nil {
-		visibleGroups, err = groupStore.ListJoinedGroupsForUser(ctx, userID)
+		storedGroups, err := groupStore.ListJoinedGroupsForUser(ctx, userID)
 		if err != nil {
 			return nil, internalError(err)
 		}
+		visibleGroups = groupRecordsFromStorage(storedGroups)
 		visibleChannels, err = channelStore.ListJoinedChannelsForUser(ctx, userID)
 		if err != nil {
 			return nil, internalError(err)

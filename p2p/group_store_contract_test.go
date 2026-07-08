@@ -4,7 +4,7 @@ import "context"
 
 type groupOnlyStore struct{}
 
-func (groupOnlyStore) UpsertGroup(context.Context, groupRecord) error {
+func (groupOnlyStore) UpsertGroup(context.Context, groupStorageRecord) error {
 	return nil
 }
 
@@ -12,15 +12,15 @@ func (groupOnlyStore) DeleteGroup(context.Context, string) error {
 	return nil
 }
 
-func (groupOnlyStore) ListGroups(context.Context) ([]groupRecord, error) {
+func (groupOnlyStore) ListGroups(context.Context) ([]groupStorageRecord, error) {
 	return nil, nil
 }
 
-func (groupOnlyStore) GetGroupByRoom(context.Context, string) (groupRecord, bool, error) {
-	return groupRecord{}, false, nil
+func (groupOnlyStore) GetGroupByRoom(context.Context, string) (groupStorageRecord, bool, error) {
+	return groupStorageRecord{}, false, nil
 }
 
-func (groupOnlyStore) ListJoinedGroupsForUser(context.Context, string) ([]groupRecord, error) {
+func (groupOnlyStore) ListJoinedGroupsForUser(context.Context, string) ([]groupStorageRecord, error) {
 	return nil, nil
 }
 
