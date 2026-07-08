@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	dirextalkAndroidPusherAppID = "com.dirextalk.ai"
-	dirextalkIOSPusherAppID     = "com.dirextalk.app"
+	dirextalkAndroidPusherAppID = "com.dirextalk.app"
+	dirextalkIOSPusherAppID     = "com.direxio.app"
 )
 
 // GetPushers handles /_matrix/client/r0/pushers

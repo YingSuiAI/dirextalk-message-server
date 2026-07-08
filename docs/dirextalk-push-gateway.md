@@ -47,13 +47,13 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-Dirextalk HTTP pushers must use the client build identifiers as Matrix `app_id` values: `com.dirextalk.ai` for Android FCM and `com.dirextalk.app` for iOS APNs.
+Dirextalk HTTP pushers must use the client build identifiers as Matrix `app_id` values: `com.dirextalk.app` for Android FCM and `com.direxio.app` for iOS APNs.
 Each Matrix user keeps only one active Dirextalk pusher. Registering a new Android or iOS token replaces the user's previous pusher, even when the new token uses the other platform's `app_id`.
 
 ```json
 {
   "kind": "http",
-  "app_id": "com.dirextalk.app",
+  "app_id": "com.direxio.app",
   "app_display_name": "Dirextalk",
   "device_display_name": "iPhone",
   "pushkey": "<apns-or-fcm-device-token>",

@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	dirextalkIOSAppID     = "com.dirextalk.app"
-	dirextalkAndroidAppID = "com.dirextalk.ai"
+	dirextalkIOSAppID     = "com.direxio.app"
+	dirextalkAndroidAppID = "com.dirextalk.app"
 	dirextalkAPNsPushKey  = "apns-device-token"
 	dirextalkFCMPushKey   = "fcm-device-token"
 )

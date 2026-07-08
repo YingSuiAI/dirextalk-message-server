@@ -8,8 +8,9 @@ func TestIsDirextalkHTTPPusherAppID(t *testing.T) {
 		appID string
 		want  bool
 	}{
-		{name: "android package", appID: "com.dirextalk.ai", want: true},
-		{name: "ios bundle", appID: "com.dirextalk.app", want: true},
+		{name: "android package", appID: "com.dirextalk.app", want: true},
+		{name: "ios bundle", appID: "com.direxio.app", want: true},
+		{name: "old android package", appID: "com.dirextalk.ai", want: false},
 		{name: "unknown", appID: "custom.web", want: false},
 	}
 

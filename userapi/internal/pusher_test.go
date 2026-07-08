@@ -34,8 +34,8 @@ func TestPerformPusherSetReplacesSameUserPushers(t *testing.T) {
 	localpart := "alice"
 	otherLocalpart := "bob"
 	serverName := spec.ServerName("localhost")
-	androidAppID := "com.dirextalk.ai"
-	iosAppID := "com.dirextalk.app"
+	androidAppID := "com.dirextalk.app"
+	iosAppID := "com.direxio.app"
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		db, closeDB := mustCreateUserDatabase(t, dbType)
@@ -132,8 +132,8 @@ func TestPerformPusherSetStoresLatestDirextalkPusherData(t *testing.T) {
 	serverName := spec.ServerName("localhost")
 
 	const (
-		iosAppID       = "com.dirextalk.app"
-		androidAppID   = "com.dirextalk.ai"
+		iosAppID       = "com.direxio.app"
+		androidAppID   = "com.dirextalk.app"
 		gatewayURL     = "https://push.dirextalk.ai/_matrix/push/v1/notify"
 		oldAPNsToken   = "old-apns-device-token"
 		newAPNsToken   = "new-apns-device-token"

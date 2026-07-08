@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	dirextalkIOSAppID        = "com.dirextalk.app"
-	dirextalkAndroidAppID    = "com.dirextalk.ai"
+	dirextalkIOSAppID        = "com.direxio.app"
+	dirextalkAndroidAppID    = "com.dirextalk.app"
 	dirextalkPushGatewayURL  = "https://push.dirextalk.ai/_matrix/push/v1/notify"
 	dirextalkAPNsPushKey     = "apns-device-token"
 	dirextalkFCMPushKey      = "fcm-device-token"
