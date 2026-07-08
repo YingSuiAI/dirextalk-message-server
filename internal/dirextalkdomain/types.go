@@ -44,6 +44,23 @@ type MemberRecord struct {
 	RequesterNodeBaseURL string `json:"-"`
 }
 
+type ReadMarker struct {
+	RoomID         string `json:"room_id"`
+	EventID        string `json:"event_id"`
+	OriginServerTS int64  `json:"origin_server_ts"`
+}
+
+type BlockRecord struct {
+	TargetType  string `json:"target_type"`
+	TargetID    string `json:"target_id"`
+	RoomID      string `json:"room_id"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	PeerMXID    string `json:"peer_mxid"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 func (m MemberRecord) MarshalJSON() ([]byte, error) {
 	type memberAlias MemberRecord
 	return json.Marshal(struct {
