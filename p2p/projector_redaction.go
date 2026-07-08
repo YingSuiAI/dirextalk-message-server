@@ -33,12 +33,12 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 	}
 	s.comments = comments
 	s.mu.Unlock()
-	if s.store != nil {
-		postRemoved, err := s.store.DeleteChannelPost(ctx, eventID)
+	if store := s.channelContentStore(); store != nil {
+		postRemoved, err := store.DeleteChannelPost(ctx, eventID)
 		if err != nil {
 			return err
 		}
-		commentRemoved, err := s.store.DeleteChannelComment(ctx, eventID)
+		commentRemoved, err := store.DeleteChannelComment(ctx, eventID)
 		if err != nil {
 			return err
 		}

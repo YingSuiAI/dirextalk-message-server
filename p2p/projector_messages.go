@@ -137,8 +137,8 @@ func (s *Service) projectChannelPostContent(ctx context.Context, meta eventProje
 		s.posts = append(s.posts, post)
 	}
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.InsertChannelPost(ctx, post)
+	if store := s.channelContentStore(); store != nil {
+		return store.InsertChannelPost(ctx, post)
 	}
 	return nil
 }
@@ -201,8 +201,8 @@ func (s *Service) projectChannelCommentContent(ctx context.Context, meta eventPr
 		s.comments = append(s.comments, comment)
 	}
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.InsertChannelComment(ctx, comment)
+	if store := s.channelContentStore(); store != nil {
+		return store.InsertChannelComment(ctx, comment)
 	}
 	return nil
 }

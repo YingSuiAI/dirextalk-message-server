@@ -91,8 +91,8 @@ func (s *Service) mcpChannelPostPage(ctx context.Context, channelID string, page
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
-	if s.store != nil {
-		posts, hasMore, err := s.store.ListChannelPostsPage(ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
+	if store := s.channelContentStore(); store != nil {
+		posts, hasMore, err := store.ListChannelPostsPage(ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 		if err != nil {
 			return nil, false, err
 		}
@@ -116,8 +116,8 @@ func (s *Service) mcpChannelCommentPage(ctx context.Context, postID string, page
 	s.mu.Lock()
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
-	if s.store != nil {
-		comments, hasMore, err := s.store.ListChannelCommentsPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
+	if store := s.channelContentStore(); store != nil {
+		comments, hasMore, err := store.ListChannelCommentsPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 		if err != nil {
 			return nil, false, err
 		}
