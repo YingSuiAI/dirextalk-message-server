@@ -151,8 +151,8 @@ func (s *Service) listGroups(ctx context.Context) ([]groupRecord, error) {
 }
 
 func (s *Service) listChannels(ctx context.Context) ([]channel, error) {
-	if s.store != nil {
-		return s.store.ListChannels(ctx)
+	if store := s.channelStore(); store != nil {
+		return store.ListChannels(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

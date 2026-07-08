@@ -126,7 +126,7 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 		if err != nil {
 			return nil, internalError(err)
 		}
-		visibleChannels, err = s.store.ListJoinedChannelsForUser(ctx, userID)
+		visibleChannels, err = s.channelStore().ListJoinedChannelsForUser(ctx, userID)
 		if err != nil {
 			return nil, internalError(err)
 		}

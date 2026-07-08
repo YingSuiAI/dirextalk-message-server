@@ -527,8 +527,8 @@ func (s *Service) channelIDForRoom(ctx context.Context, roomID string) string {
 		}
 	}
 	s.mu.Unlock()
-	if s.store != nil {
-		channels, err := s.store.ListChannels(ctx)
+	if store := s.channelStore(); store != nil {
+		channels, err := store.ListChannels(ctx)
 		if err == nil {
 			for _, ch := range channels {
 				if ch.RoomID == roomID {

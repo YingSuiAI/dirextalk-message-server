@@ -114,8 +114,8 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 	s.mu.Lock()
 	s.channels[ch.ChannelID] = ch
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertChannel(ctx, ch); err != nil {
+	if store := s.channelStore(); store != nil {
+		if err := store.UpsertChannel(ctx, ch); err != nil {
 			return err
 		}
 	}

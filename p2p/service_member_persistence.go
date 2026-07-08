@@ -93,7 +93,8 @@ func normalizeProductMemberRole(role string) string {
 }
 
 func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
-	if s.store == nil {
+	channelStore := s.channelStore()
+	if channelStore == nil {
 		return nil
 	}
 	memberStore := s.memberStore()
@@ -107,7 +108,7 @@ func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {
 	if strings.TrimSpace(ownerMXID) == "" {
 		return nil
 	}
-	channels, err := s.store.ListChannels(ctx)
+	channels, err := channelStore.ListChannels(ctx)
 	if err != nil {
 		return err
 	}

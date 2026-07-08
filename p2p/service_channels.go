@@ -12,6 +12,23 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 )
 
+type channelStore interface {
+	UpsertChannel(ctx context.Context, ch channel) error
+	DeleteChannel(ctx context.Context, channelID string) error
+	ListChannels(ctx context.Context) ([]channel, error)
+	GetChannelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error)
+	ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error)
+	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
+	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
+}
+
+func (s *Service) channelStore() channelStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 func (s *Service) channelResult(ctx context.Context, params map[string]any) (any, *apiError) {
 	channelID := trimString(params["channel_id"])
 	if channelID == "" {
@@ -118,11 +135,11 @@ func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any
 }
 
 func (s *Service) channelList(ctx context.Context) any {
-	if s.store != nil {
+	if store := s.channelStore(); store != nil {
 		s.mu.Lock()
 		ownerMXID := s.ownerMXID
 		s.mu.Unlock()
-		channels, err := s.store.ListJoinedChannelsForUser(ctx, ownerMXID)
+		channels, err := store.ListJoinedChannelsForUser(ctx, ownerMXID)
 		if err != nil {
 			return map[string]any{"channels": []channel{}}
 		}
@@ -217,8 +234,8 @@ func (s *Service) channelPublicSearch(ctx context.Context, params map[string]any
 		}
 		return map[string]any{"channels": []channel{channelResult}, "results": []channel{channelResult}}, nil
 	}
-	if s.store != nil {
-		results, err := s.store.SearchPublicChannels(ctx, query, limit)
+	if store := s.channelStore(); store != nil {
+		results, err := store.SearchPublicChannels(ctx, query, limit)
 		if err != nil {
 			return nil, internalError(err)
 		}
@@ -287,8 +304,8 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 		}
 		return map[string]any{"user_id": fallbackString(remote.UserID, userID), "channels": channels, "results": channels}, nil
 	}
-	if s.store != nil {
-		publicChannels, err := s.store.ListPublicChannelsForOwner(ctx, userID)
+	if store := s.channelStore(); store != nil {
+		publicChannels, err := store.ListPublicChannelsForOwner(ctx, userID)
 		if err != nil {
 			return nil, internalError(err)
 		}
@@ -375,8 +392,8 @@ func (s *Service) saveChannel(ctx context.Context, ch channel) error {
 	s.mu.Lock()
 	s.channels[ch.ChannelID] = ch
 	s.mu.Unlock()
-	if s.store != nil {
-		if err := s.store.UpsertChannel(ctx, ch); err != nil {
+	if store := s.channelStore(); store != nil {
+		if err := store.UpsertChannel(ctx, ch); err != nil {
 			return err
 		}
 	}
@@ -471,8 +488,8 @@ func (s *Service) deleteChannel(ctx context.Context, channelID string) error {
 	s.mu.Lock()
 	delete(s.channels, channelID)
 	s.mu.Unlock()
-	if s.store != nil {
-		return s.store.DeleteChannel(ctx, channelID)
+	if store := s.channelStore(); store != nil {
+		return store.DeleteChannel(ctx, channelID)
 	}
 	return nil
 }
@@ -502,8 +519,8 @@ func (s *Service) dissolveChannel(ctx context.Context, params map[string]any) (a
 }
 
 func (s *Service) channelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error) {
-	if s.store != nil {
-		return s.store.GetChannelByIDOrRoom(ctx, channelID, roomID)
+	if store := s.channelStore(); store != nil {
+		return store.GetChannelByIDOrRoom(ctx, channelID, roomID)
 	}
 	channels, err := s.listChannels(ctx)
 	if err != nil {
@@ -525,8 +542,8 @@ func (s *Service) channelSnapshot(ctx context.Context, channelID string) channel
 	if channelID == "" {
 		return channel{}
 	}
-	if s.store != nil {
-		ch, ok, err := s.store.GetChannelByIDOrRoom(ctx, channelID, "")
+	if store := s.channelStore(); store != nil {
+		ch, ok, err := store.GetChannelByIDOrRoom(ctx, channelID, "")
 		if err == nil && ok {
 			return ch
 		}
@@ -584,21 +601,22 @@ func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (cha
 
 func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID string) error {
 	channelID = strings.TrimSpace(channelID)
-	if s.store == nil || channelID == "" {
+	channelStore := s.channelStore()
+	if channelStore == nil || channelID == "" {
 		return nil
 	}
-	target, ok, err := s.store.GetChannelByIDOrRoom(ctx, channelID, "")
+	target, ok, err := channelStore.GetChannelByIDOrRoom(ctx, channelID, "")
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return nil
 	}
-	store := s.memberStore()
-	if store == nil {
+	memberStore := s.memberStore()
+	if memberStore == nil {
 		return nil
 	}
-	memberCount, pendingJoinCount, err := store.CountProductMembers(ctx, target.RoomID, channelID)
+	memberCount, pendingJoinCount, err := memberStore.CountProductMembers(ctx, target.RoomID, channelID)
 	if err != nil {
 		return err
 	}
