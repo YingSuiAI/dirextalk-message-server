@@ -202,7 +202,7 @@ func (s *Service) projectChannelCommentContent(ctx context.Context, meta eventPr
 	}
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		return store.InsertChannelComment(ctx, comment)
+		return store.InsertChannelComment(ctx, channelCommentStorageRecordFromComment(comment))
 	}
 	return nil
 }

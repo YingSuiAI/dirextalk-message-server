@@ -780,7 +780,7 @@ func TestDatabaseStoreDeleteChannelContentReportsDeletedRows(t *testing.T) {
 		t.Fatalf("expected second post delete to report no deleted row")
 	}
 
-	if err := store.InsertChannelComment(ctx, channelCommentRecord{
+	if err := store.InsertChannelComment(ctx, channelCommentStorageRecord{
 		CommentID:      "comment_1",
 		PostID:         "post_1",
 		ChannelID:      "ch_1",
@@ -849,7 +849,7 @@ func TestDatabaseStoreGetsChannelContentByIDAndEventID(t *testing.T) {
 		t.Fatalf("expected post lookup by event id, got ok=%v post=%#v", ok, postByEvent)
 	}
 
-	if err := store.InsertChannelComment(ctx, channelCommentRecord{
+	if err := store.InsertChannelComment(ctx, channelCommentStorageRecord{
 		CommentID:      "comment_lookup",
 		PostID:         "post_lookup",
 		ChannelID:      "ch_lookup",

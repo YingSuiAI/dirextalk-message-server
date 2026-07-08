@@ -24,23 +24,23 @@ func (channelContentOnlyStore) ListChannelPostsPage(context.Context, string, int
 	return nil, false, nil
 }
 
-func (channelContentOnlyStore) InsertChannelComment(context.Context, channelCommentRecord) error {
+func (channelContentOnlyStore) InsertChannelComment(context.Context, channelCommentStorageRecord) error {
 	return nil
 }
 
-func (channelContentOnlyStore) GetChannelCommentByID(context.Context, string, string) (channelCommentRecord, bool, error) {
-	return channelCommentRecord{}, false, nil
+func (channelContentOnlyStore) GetChannelCommentByID(context.Context, string, string) (channelCommentStorageRecord, bool, error) {
+	return channelCommentStorageRecord{}, false, nil
 }
 
-func (channelContentOnlyStore) GetChannelCommentByEventID(context.Context, string, string) (channelCommentRecord, bool, error) {
-	return channelCommentRecord{}, false, nil
+func (channelContentOnlyStore) GetChannelCommentByEventID(context.Context, string, string) (channelCommentStorageRecord, bool, error) {
+	return channelCommentStorageRecord{}, false, nil
 }
 
-func (channelContentOnlyStore) ListChannelComments(context.Context, string) ([]channelCommentRecord, error) {
+func (channelContentOnlyStore) ListChannelComments(context.Context, string) ([]channelCommentStorageRecord, error) {
 	return nil, nil
 }
 
-func (channelContentOnlyStore) ListChannelCommentsPage(context.Context, string, int64, int64, int64, string, int) ([]channelCommentRecord, bool, error) {
+func (channelContentOnlyStore) ListChannelCommentsPage(context.Context, string, int64, int64, int64, string, int) ([]channelCommentStorageRecord, bool, error) {
 	return nil, false, nil
 }
 

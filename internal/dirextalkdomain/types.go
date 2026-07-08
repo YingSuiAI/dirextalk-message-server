@@ -80,6 +80,22 @@ type ChannelPostRecord struct {
 	CommentCount   int64  `json:"comment_count"`
 }
 
+type ChannelCommentRecord struct {
+	CommentID         string `json:"comment_id"`
+	PostID            string `json:"post_id"`
+	ChannelID         string `json:"channel_id"`
+	EventID           string `json:"event_id"`
+	AuthorMXID        string `json:"author_mxid"`
+	AuthorName        string `json:"author_name"`
+	Body              string `json:"body"`
+	MessageType       string `json:"message_type"`
+	MediaJSON         string `json:"media_json"`
+	ReplyToCommentID  string `json:"reply_to_comment_id"`
+	ReplyToAuthorMXID string `json:"reply_to_author_mxid"`
+	MentionsJSON      string `json:"mentions_json"`
+	OriginServerTS    int64  `json:"origin_server_ts"`
+}
+
 type GroupRecord struct {
 	RoomID       string `json:"room_id"`
 	Name         string `json:"name"`

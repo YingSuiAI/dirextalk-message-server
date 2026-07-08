@@ -143,11 +143,11 @@ type Store interface {
 	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostStorageRecord, bool, error)
 	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostStorageRecord, error)
 	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostStorageRecord, bool, error)
-	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
-	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error)
-	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
-	ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error)
-	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentRecord, bool, error)
+	InsertChannelComment(ctx context.Context, comment channelCommentStorageRecord) error
+	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentStorageRecord, bool, error)
+	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentStorageRecord, bool, error)
+	ListChannelComments(ctx context.Context, postID string) ([]channelCommentStorageRecord, error)
+	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentStorageRecord, bool, error)
 	UpsertContact(ctx context.Context, contact contactStorageRecord) error
 	ListContacts(ctx context.Context) ([]contactStorageRecord, error)
 	DeleteContact(ctx context.Context, roomID string) error

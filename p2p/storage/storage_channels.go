@@ -409,7 +409,7 @@ func (s *DatabaseStore) InsertChannelComment(ctx context.Context, comment channe
 				reacted_by_me = EXCLUDED.reacted_by_me
 		`, comment.CommentID, comment.PostID, comment.ChannelID, comment.EventID, comment.AuthorMXID, comment.AuthorName,
 			comment.Body, comment.MessageType, comment.MediaJSON, comment.ReplyToCommentID, comment.ReplyToAuthorMXID, fallbackString(comment.MentionsJSON, "[]"),
-			comment.OriginServerTS, comment.ReactionCount, boolInt(comment.ReactedByMe))
+			comment.OriginServerTS, int64(0), int64(0))
 		return err
 	})
 }
@@ -516,12 +516,11 @@ const listCommentsSelect = `SELECT comment_id, post_id, channel_id, event_id, au
 
 func scanChannelComment(row channelScanner) (channelCommentRecord, error) {
 	var comment channelCommentRecord
-	var reacted int64
+	var reactionCount, reacted int64
 	if err := row.Scan(&comment.CommentID, &comment.PostID, &comment.ChannelID, &comment.EventID, &comment.AuthorMXID, &comment.AuthorName,
 		&comment.Body, &comment.MessageType, &comment.MediaJSON, &comment.ReplyToCommentID, &comment.ReplyToAuthorMXID, &comment.MentionsJSON,
-		&comment.OriginServerTS, &comment.ReactionCount, &reacted); err != nil {
+		&comment.OriginServerTS, &reactionCount, &reacted); err != nil {
 		return channelCommentRecord{}, err
 	}
-	comment.ReactedByMe = reacted == 1
 	return comment, nil
 }

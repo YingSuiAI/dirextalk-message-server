@@ -3,7 +3,6 @@ package storage
 import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkplugin"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 )
 
 type portalState = dirextalkdomain.PortalState
@@ -11,7 +10,7 @@ type readMarker = dirextalkdomain.ReadMarker
 type channel = dirextalkdomain.Channel
 type channelInviteGrant = dirextalkdomain.ChannelInviteGrant
 type channelPostRecord = dirextalkdomain.ChannelPostRecord
-type channelCommentRecord = domain.ChannelCommentRecord
+type channelCommentRecord = dirextalkdomain.ChannelCommentRecord
 type contactRecord = dirextalkdomain.ContactRecord
 type groupRecord = dirextalkdomain.GroupRecord
 type callRecord = dirextalkdomain.CallRecord

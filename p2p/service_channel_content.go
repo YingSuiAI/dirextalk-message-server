@@ -14,11 +14,11 @@ type channelContentStore interface {
 	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostStorageRecord, bool, error)
 	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostStorageRecord, error)
 	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostStorageRecord, bool, error)
-	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
-	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error)
-	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
-	ListChannelComments(ctx context.Context, postID string) ([]channelCommentRecord, error)
-	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentRecord, bool, error)
+	InsertChannelComment(ctx context.Context, comment channelCommentStorageRecord) error
+	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentStorageRecord, bool, error)
+	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentStorageRecord, bool, error)
+	ListChannelComments(ctx context.Context, postID string) ([]channelCommentStorageRecord, error)
+	ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentStorageRecord, bool, error)
 	DeleteChannelPost(ctx context.Context, postID string) (bool, error)
 	DeleteChannelComment(ctx context.Context, commentID string) (bool, error)
 }
@@ -203,7 +203,7 @@ func (s *Service) channelComment(ctx context.Context, params map[string]any) (an
 	s.comments = append(s.comments, comment)
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		if err := store.InsertChannelComment(ctx, comment); err != nil {
+		if err := store.InsertChannelComment(ctx, channelCommentStorageRecordFromComment(comment)); err != nil {
 			return nil, internalError(err)
 		}
 	}
@@ -219,10 +219,11 @@ func (s *Service) channelComments(ctx context.Context, params map[string]any) an
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		comments, err := store.ListChannelComments(ctx, postID)
+		storedComments, err := store.ListChannelComments(ctx, postID)
 		if err != nil {
 			return map[string]any{"comments": []channelCommentRecord{}}
 		}
+		comments := channelCommentRecordsFromStorage(storedComments)
 		s.enrichChannelComments(ctx, comments, ownerMXID)
 		return map[string]any{"comments": comments}
 	}
@@ -356,7 +357,11 @@ func (s *Service) enrichChannelComments(ctx context.Context, comments []channelC
 
 func (s *Service) listChannelCommentsForPost(ctx context.Context, postID string) ([]channelCommentRecord, error) {
 	if store := s.channelContentStore(); store != nil {
-		return store.ListChannelComments(ctx, postID)
+		comments, err := store.ListChannelComments(ctx, postID)
+		if err != nil {
+			return nil, err
+		}
+		return channelCommentRecordsFromStorage(comments), nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -376,10 +381,11 @@ func (s *Service) myChannelComments(ctx context.Context, params map[string]any) 
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		comments, err := store.ListChannelComments(ctx, postID)
+		storedComments, err := store.ListChannelComments(ctx, postID)
 		if err != nil {
 			return map[string]any{"comments": []channelCommentRecord{}}
 		}
+		comments := channelCommentRecordsFromStorage(storedComments)
 		filtered := make([]channelCommentRecord, 0, len(comments))
 		for _, comment := range comments {
 			if comment.AuthorMXID != ownerMXID {
@@ -557,7 +563,11 @@ func (s *Service) channelPostByEventID(ctx context.Context, eventID, channelID s
 
 func (s *Service) channelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error) {
 	if store := s.channelContentStore(); store != nil {
-		return store.GetChannelCommentByID(ctx, commentID, postID)
+		comment, ok, err := store.GetChannelCommentByID(ctx, commentID, postID)
+		if err != nil || !ok {
+			return channelCommentRecord{}, ok, err
+		}
+		return channelCommentRecordFromStorage(comment), true, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -575,7 +585,11 @@ func (s *Service) channelCommentByEventID(ctx context.Context, eventID, channelI
 		return channelCommentRecord{}, false, nil
 	}
 	if store := s.channelContentStore(); store != nil {
-		return store.GetChannelCommentByEventID(ctx, eventID, channelID)
+		comment, ok, err := store.GetChannelCommentByEventID(ctx, eventID, channelID)
+		if err != nil || !ok {
+			return channelCommentRecord{}, ok, err
+		}
+		return channelCommentRecordFromStorage(comment), true, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

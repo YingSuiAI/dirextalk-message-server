@@ -118,10 +118,11 @@ func (s *Service) mcpChannelCommentPage(ctx context.Context, postID string, page
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		comments, hasMore, err := store.ListChannelCommentsPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
+		storedComments, hasMore, err := store.ListChannelCommentsPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 		if err != nil {
 			return nil, false, err
 		}
+		comments := channelCommentRecordsFromStorage(storedComments)
 		s.enrichChannelComments(ctx, comments, ownerMXID)
 		return comments, hasMore, nil
 	}
