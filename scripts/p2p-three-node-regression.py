@@ -197,11 +197,14 @@ def p2p(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = N
         try:
             return p2p_ws(node, action, params or {})
         except ApiError as exc:
-            if exc.status != 401:
+            if exc.status == 400 and isinstance(exc.body, dict) and exc.body.get("error") == "action requires http":
+                close_ws(node)
+            elif exc.status != 401:
                 raise
-            close_ws(node)
-            login(node)
-            return p2p_ws(node, action, params or {})
+            else:
+                close_ws(node)
+                login(node)
+                return p2p_ws(node, action, params or {})
     try:
         return request_json(
             "POST",
@@ -222,15 +225,10 @@ def p2p(node: Node, kind: str, action: str, params: Optional[dict[str, Any]] = N
 
 
 def action_requires_http(action: str) -> bool:
-    if action.startswith("mcp."):
-        return True
     return action in {
-        "agent.matrix_session.create",
         "portal.bootstrap",
         "portal.auth",
         "portal.status",
-        "portal.password",
-        "portal.account.delete",
         "realtime.ws_ticket.create",
     }
 

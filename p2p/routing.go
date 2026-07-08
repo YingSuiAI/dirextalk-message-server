@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/gorilla/mux"
 )
 
@@ -73,6 +74,10 @@ func handle(service *Service) http.HandlerFunc {
 			writeError(w, badRequest("action is required"))
 			return
 		}
+		if _, ok := serviceapi.ActionSpecFor(action); !ok {
+			writeError(w, badRequest("unknown action"))
+			return
+		}
 		if _, ok := service.actions[action]; !ok && action != realtimeWSTicketAction {
 			writeError(w, badRequest("unknown action"))
 			return
@@ -107,8 +112,7 @@ func handle(service *Service) http.HandlerFunc {
 }
 
 func httpProductActionAllowed(action string) bool {
-	action = strings.TrimSpace(action)
-	return action != ""
+	return serviceapi.HTTPAction(action)
 }
 
 func responseForRequest(r *http.Request, response any) any {

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	realtimeWSTicketAction = "realtime.ws_ticket.create"
+	realtimeWSTicketAction = serviceapi.RealtimeWSTicketAction
 	realtimeWSTicketTTL    = 120 * time.Second
 	realtimeWSBatchLimit   = 100
 )
@@ -561,8 +561,8 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	if action == realtimeWSTicketAction {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
-	if realtimeWSHTTPOnlyAction(action) {
-		return realtimeWSResponseError(id, action, http.StatusBadRequest, "action requires http")
+	if message := realtimeWSClientRequestBlockedMessage(action); message != "" {
+		return realtimeWSResponseError(id, action, http.StatusBadRequest, message)
 	}
 	if record.Role != "owner" {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
@@ -581,19 +581,17 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 }
 
 func realtimeWSHTTPOnlyAction(action string) bool {
-	action = strings.TrimSpace(action)
-	if serviceapi.AgentAction(action) {
-		return true
+	return serviceapi.HTTPOnlyAction(action)
+}
+
+func realtimeWSClientRequestBlockedMessage(action string) string {
+	if serviceapi.HTTPOnlyAction(action) {
+		return "action requires http"
 	}
-	if strings.HasPrefix(action, "plugins.") {
-		return true
+	if serviceapi.WSStreamOnlyAction(action) {
+		return "action requires websocket"
 	}
-	switch action {
-	case "portal.bootstrap", "portal.auth", "portal.status", "portal.password", "portal.account.delete":
-		return true
-	default:
-		return false
-	}
+	return ""
 }
 
 func updateRealtimeWSSessionFlags(state *realtime.SessionState, frame map[string]any, defaults map[string]bool) {

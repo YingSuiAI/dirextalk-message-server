@@ -704,6 +704,9 @@ func (s *Service) Authorize(token, action string) bool {
 	if token == "" {
 		return false
 	}
+	if _, ok := serviceapi.ActionSpecFor(action); !ok {
+		return false
+	}
 	if token == s.accessToken {
 		return true
 	}
