@@ -138,7 +138,7 @@ func (s *Service) projectChannelPostContent(ctx context.Context, meta eventProje
 	}
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		return store.InsertChannelPost(ctx, post)
+		return store.InsertChannelPost(ctx, channelPostStorageRecordFromPost(post))
 	}
 	return nil
 }

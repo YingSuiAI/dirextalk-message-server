@@ -755,7 +755,7 @@ func TestDatabaseStoreDeleteChannelContentReportsDeletedRows(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.InsertChannelPost(ctx, channelPostRecord{
+	if err := store.InsertChannelPost(ctx, channelPostStorageRecord{
 		PostID:         "post_1",
 		ChannelID:      "ch_1",
 		RoomID:         "!room:example.com",
@@ -818,7 +818,7 @@ func TestDatabaseStoreGetsChannelContentByIDAndEventID(t *testing.T) {
 	}
 	defer store.Close()
 
-	if err := store.InsertChannelPost(ctx, channelPostRecord{
+	if err := store.InsertChannelPost(ctx, channelPostStorageRecord{
 		PostID:         "post_lookup",
 		ChannelID:      "ch_lookup",
 		RoomID:         "!room:example.com",

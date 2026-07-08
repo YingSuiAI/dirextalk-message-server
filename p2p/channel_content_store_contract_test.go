@@ -4,23 +4,23 @@ import "context"
 
 type channelContentOnlyStore struct{}
 
-func (channelContentOnlyStore) InsertChannelPost(context.Context, channelPostRecord) error {
+func (channelContentOnlyStore) InsertChannelPost(context.Context, channelPostStorageRecord) error {
 	return nil
 }
 
-func (channelContentOnlyStore) GetChannelPostByID(context.Context, string, string) (channelPostRecord, bool, error) {
-	return channelPostRecord{}, false, nil
+func (channelContentOnlyStore) GetChannelPostByID(context.Context, string, string) (channelPostStorageRecord, bool, error) {
+	return channelPostStorageRecord{}, false, nil
 }
 
-func (channelContentOnlyStore) GetChannelPostByEventID(context.Context, string, string) (channelPostRecord, bool, error) {
-	return channelPostRecord{}, false, nil
+func (channelContentOnlyStore) GetChannelPostByEventID(context.Context, string, string) (channelPostStorageRecord, bool, error) {
+	return channelPostStorageRecord{}, false, nil
 }
 
-func (channelContentOnlyStore) ListChannelPosts(context.Context, string) ([]channelPostRecord, error) {
+func (channelContentOnlyStore) ListChannelPosts(context.Context, string) ([]channelPostStorageRecord, error) {
 	return nil, nil
 }
 
-func (channelContentOnlyStore) ListChannelPostsPage(context.Context, string, int64, int64, int64, string, int) ([]channelPostRecord, bool, error) {
+func (channelContentOnlyStore) ListChannelPostsPage(context.Context, string, int64, int64, int64, string, int) ([]channelPostStorageRecord, bool, error) {
 	return nil, false, nil
 }
 

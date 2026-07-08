@@ -66,6 +66,20 @@ type Channel struct {
 	MemberStatus     string `json:"member_status,omitempty"`
 }
 
+type ChannelPostRecord struct {
+	PostID         string `json:"post_id"`
+	ChannelID      string `json:"channel_id"`
+	RoomID         string `json:"room_id"`
+	EventID        string `json:"event_id"`
+	AuthorMXID     string `json:"author_mxid"`
+	AuthorName     string `json:"author_name"`
+	Body           string `json:"body"`
+	MessageType    string `json:"message_type"`
+	MediaJSON      string `json:"media_json"`
+	OriginServerTS int64  `json:"origin_server_ts"`
+	CommentCount   int64  `json:"comment_count"`
+}
+
 type GroupRecord struct {
 	RoomID       string `json:"room_id"`
 	Name         string `json:"name"`

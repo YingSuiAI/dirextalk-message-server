@@ -92,10 +92,11 @@ func (s *Service) mcpChannelPostPage(ctx context.Context, channelID string, page
 	ownerMXID := s.ownerMXID
 	s.mu.Unlock()
 	if store := s.channelContentStore(); store != nil {
-		posts, hasMore, err := store.ListChannelPostsPage(ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
+		storedPosts, hasMore, err := store.ListChannelPostsPage(ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 		if err != nil {
 			return nil, false, err
 		}
+		posts := channelPostRecordsFromStorage(storedPosts)
 		s.enrichChannelPosts(ctx, posts, ownerMXID)
 		return posts, hasMore, nil
 	}

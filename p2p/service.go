@@ -138,11 +138,11 @@ type Store interface {
 	ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error)
 	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
 	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
-	InsertChannelPost(ctx context.Context, post channelPostRecord) error
-	GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostRecord, bool, error)
-	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostRecord, bool, error)
-	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostRecord, error)
-	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostRecord, bool, error)
+	InsertChannelPost(ctx context.Context, post channelPostStorageRecord) error
+	GetChannelPostByID(ctx context.Context, postID, channelID string) (channelPostStorageRecord, bool, error)
+	GetChannelPostByEventID(ctx context.Context, eventID, channelID string) (channelPostStorageRecord, bool, error)
+	ListChannelPosts(ctx context.Context, channelID string) ([]channelPostStorageRecord, error)
+	ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostStorageRecord, bool, error)
 	InsertChannelComment(ctx context.Context, comment channelCommentRecord) error
 	GetChannelCommentByID(ctx context.Context, commentID, postID string) (channelCommentRecord, bool, error)
 	GetChannelCommentByEventID(ctx context.Context, eventID, channelID string) (channelCommentRecord, bool, error)
