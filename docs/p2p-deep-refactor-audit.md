@@ -23,6 +23,24 @@ The product owner must decide whether `reports.submit` is:
 
 After that decision, `AGENTS.md`, `docs/current-project-documentation.md`, `p2p/serviceapi/actions.go` action metadata, action registry tests, Postman examples, and stale test wording must be updated together. Until then, keep `reports.submit` listed as a public contract risk.
 
+## MCP Product Decision: Unified Capability Service
+
+Long-term MCP capability behavior must be implemented once in a neutral `internal/dirextalkmcp` package and reused by both first-class Native Agent Dirextalk tools and any external standard MCP HTTP transport. Do not keep separate `mcp.*` product action business logic and separate Native Agent tool business logic.
+
+Resolved first-version auth decision:
+
+- The first external MCP HTTP endpoint version reuses the existing `agent_token` as its bearer token.
+- The endpoint must require `Authorization: Bearer <agent_token>` on protected JSON-RPC requests.
+- It must not accept access tokens or agent tokens in query strings.
+- It must not pass inbound MCP bearer tokens through to downstream services.
+
+Blocking decisions still required before exposing the endpoint:
+
+- Endpoint path: choose exactly one public path, such as `/mcp` or `/_p2p/mcp`.
+- Compatibility timing: decide whether old `mcp.*` body actions are removed immediately or kept temporarily as wrappers around `internal/dirextalkmcp`.
+
+Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman collections, project-local `.codex/skills`, and focused tests together. This is an intentional contract change from the previous "no URL-shaped product endpoints" rule.
+
 ## 1. P2P Wrapper/Adapter Inventory
 
 | Area | Files and symbols | Current role | Refactor note |
@@ -43,12 +61,52 @@ After that decision, `AGENTS.md`, `docs/current-project-documentation.md`, `p2p/
 | Plugin runtime adapter | `p2p/plugin_runner.go`: `PluginRunner`, `PluginRunnerOperation`, `PluginInvokeRequest`, `PluginStreamEvent`, `dockerPluginRunner`, `validateOfficialPluginOperation`, `validateOfficialPluginVolume`, `officialPluginImage`, `pluginImageReference`, `pluginContainerName`, `writePluginEnvFile`; `p2p/service_plugins.go`: `officialPluginCatalog`, `applyPluginAction`, `pluginInvokeRequest` | Manages non-Agent official Docker plugins. | Keep non-Agent plugin facade separate from Native Agent; remove hidden Agent plugin branches after migration isolation. |
 | Native Agent adapter | `p2p/native_agent_runner.go`: `agentPluginID`, `NativeAgentRunner`, `nativeAgentInvokeAction`, `nativeAgentInvokeStreamAction`, `nativeAgentTools`, `nativeAgentSummarize`; `p2p/nativeagent/*`: `Runtime`, tool dispatch, config sanitization; `p2p/service_agent_config_native.go`: `agentConfigToNativeMap`, `agentConfigFromNativeMap`, `migrateLegacyAgentPluginConfig` | Bridges first-class `agent.*` actions and Native Agent runtime/tools. | Keep first-class action facade in `p2p`; delete Agent-as-plugin compatibility only after startup migration is isolated. |
 
+## MCP-A Architecture: Unified Dirextalk MCP Capability Service
+
+Phase MCP-A is documentation/design in this audit and defines future test gates. Do not modify production code, routes, action handlers, Postman, or runtime behavior in this phase.
+
+Target package:
+
+- Create `internal/dirextalkmcp` in Phase MCP-B.
+- The package must not import `p2p`.
+- It owns the Dirextalk MCP capability registry, tool schemas, tool invocation, pagination, room authorization, shared request/response DTOs, and MCP-facing errors.
+- It must keep ordinary messages Matrix Client-Server backed, channel posts/comments separate from ordinary channel chat, stable `from_time`/`to_time`/`cursor` pagination, and rejection of old `from_ts`/`to_ts`/`ts`/`last_ts` fields.
+
+Dependencies must enter through small interfaces, not through `p2p.Service`:
+
+- contacts reader;
+- rooms reader;
+- message history reader;
+- message writer;
+- room member reader;
+- channel post/comment reader and writer;
+- profile resolver;
+- room/blocklist authorizer.
+
+`p2p.Service` should become an adapter that supplies `Store`, `Transport`, Matrix history reader, profile resolver, owner context, and `mcp_blocked_room_ids` behavior to `internal/dirextalkmcp`. Existing `p2p/action_registry_mcp.go` and `p2p/mcp_api.go` `mcp.*` handlers should become temporary wrappers around that service, or be removed in Phase MCP-D if product decides no compatibility is needed.
+
+Native Agent Dirextalk tools should be generated from the same `internal/dirextalkmcp` registry and schemas. `p2p/native_agent_runner.go:nativeAgentTools` and `p2p/nativeagent/native_agent_tools.go` should not keep duplicated Dirextalk MCP business logic after Phase MCP-B.
+
+External standard MCP clients should use an MCP Streamable HTTP transport endpoint, not the Dirextalk `{ "action": "...", "params": ... }` body-action envelope. The endpoint contract should:
+
+- implement JSON-RPC lifecycle sufficient for `initialize`, `tools/list`, and `tools/call`;
+- support HTTP POST for client-to-server JSON-RPC messages;
+- return 405 for HTTP GET/SSE unless server-to-client streaming is actually needed;
+- require `Authorization: Bearer <agent_token>` in the first version;
+- validate `Origin` for HTTP/SSE connections;
+- reject query-string tokens;
+- avoid passing inbound bearer tokens to downstream services;
+- keep `mcp_blocked_room_ids` hide/reject behavior;
+- route message sends through `p2p.Transport` via adapter interfaces;
+- preserve the model API key rule: request-scoped keys must not be persisted, logged, returned, or injected into runtime env.
+
 ## 2. Redundant Functions and Duplicate Behavior Map
 
 | Duplicate behavior | Files and symbols | Impact | Recommended next step |
 | --- | --- | --- | --- |
 | Action transport/auth metadata is split across registry, serviceapi, HTTP route, WS route, and tests/scripts. | `p2p/action_registry.go`: `Service.actionHandlers`; `p2p/serviceapi/actions.go`: `PublicAction`, `AgentAction`; `p2p/service.go`: `Service.Authorize`, `publicAction`; `p2p/routing.go`: `httpProductActionAllowed`; `p2p/realtime_ws.go`: `realtimeWSHTTPOnlyAction`; `scripts/p2p-three-node-regression.py`: `action_requires_http`; `p2p/routing_ws_test.go`: `TestRealtimeWSRequestCoverageMatchesActionRegistry`; `p2p/action_registry_test.go`: `TestActionRegistryCoversPublicAndAgentActions` | New actions can be registered without matching public/agent/HTTP/WS metadata, or script behavior can drift from server behavior. | Phase B: introduce one enum-backed action spec containing handler, auth, transport, and generated route tests. |
 | Native Agent model profile sanitization and lookup exists in both plugin compatibility code and Native Agent code. | `p2p/service_plugins.go`: `savedAgentModelProfileByID`, `mergeAgentModelProfile`, `sanitizeAgentInvokeModelProfile`, `sanitizeAgentModelProfiles`, `resolveAgentModelProfiles`; `p2p/nativeagent/native_agent_util.go`: `savedAgentModelProfileByID`, `sanitizeConfig`, `sanitizeModelProfiles` | Increases risk of leaking or persisting request-scoped API keys if one copy changes and the other does not. | Move the current Native Agent sanitizer into one native-owned helper; delete plugin-side Agent invoke/model-profile compatibility after migration isolation. |
+| MCP capability business logic is duplicated between body-action handlers and Native Agent tools. | `p2p/action_registry_mcp.go`: `registerMCPActions`; `p2p/mcp_api.go`: `mcpRoomsSearch`, `mcpContactsList`, `mcpMessagesSend`, `mcpMessagesList`, `mcpRoomMembersList`, `mcpChannelPostsList`, `mcpChannelCommentsList`, `mcpChannelCommentCreate`; `p2p/native_agent_runner.go`: `nativeAgentTools`; `p2p/nativeagent/native_agent_tools.go`: `Tool`, `nativeToolAlias` | The same Dirextalk MCP capability can drift across external `mcp.*` body actions and internal Native Agent tools, including schemas, room blocking, pagination, and write-path guarantees. | Phase MCP-B: move registry, schemas, invocation, pagination, auth helpers, and DTOs to `internal/dirextalkmcp`; make both wrappers call that service. |
 | Agent summary/truncation logic is duplicated. | `p2p/native_agent_runner.go`: `nativeAgentSummarize`; `p2p/nativeagent/native_agent_tools.go`: `summarize` | Small behavior drift risk for generated summaries and test fixtures. | Keep one nativeagent-owned summary helper and call it from the p2p bridge if still needed. |
 | Matrix message history filtering and summary formatting is duplicated between HTTP and sync-backed readers. | `p2p/matrixhistory/reader.go`: `HTTPMessageReader.ListOrdinaryMessages`, `HTTPMessageReader.ListChannelContent`; `syncapi/agenthistory/reader.go`: `Reader.ListOrdinaryMessages`; `p2p/matrixhistory/types.go`: `MessageSummary`, `FormatTime`, `InTimeRange`, `InPage` | Filtering, pagination, timestamp formatting, sender display fields, and channel content backfill can diverge. | Move shared types/formatting/filter predicates into a neutral package, then let HTTP and sync readers provide only data-source-specific iteration. |
 | Channel/group member counts are recomputed and persisted through several service methods. | `p2p/service_channels.go`: `channelWithCurrentCounts`, `refreshStoredChannelCounts`, `refreshStoredGroupCounts`, `refreshChannelCountsLocked`, `refreshGroupCountsLocked`, `memberCounts`; `p2p/service_member_persistence.go`: `saveMember`; `p2p/service_member_invites.go`: `refreshRoomMembers`; `p2p/projector.go`: `ProjectRoomEvent` | Count updates can differ depending on whether the path is command-side, projection-side, or refresh-side. | Create one projection/count updater owned by the member/channel projection layer before changing storage writes. |
@@ -77,6 +135,7 @@ These items should be deleted in a later implementation phase only with the note
 | Matrix account/device/session creation and profile writes. | `p2p/matrix_session.go`: `DendriteMatrixSessionIssuer.EnsureMatrixSession`, `UpdateMatrixProfile`, `updateMatrixProfile`; `p2p/service_auth_api.go`: `refreshMatrixSession`, `createAgentMatrixSession`; `p2p/service_profile_sync.go`: `updateMatrixProfile` | Move implementation to userapi/clientapi-owned helpers; keep p2p decision inputs such as `revokeExistingDevices`. | Account creation, device deletion, access-token generation, and Matrix profile writes are lower-level Matrix user concerns. |
 | Product-originated Matrix event/member/redaction execution. | `p2p/dendrite/dendrite_transport.go`: `CreateRoom`; `p2p/dendrite/dendrite_transport_send.go`: `SendMessage`, `SendStateEvent`; `p2p/dendrite/dendrite_transport_membership.go`: `InviteUser`, `JoinRoom`, `LeaveRoom`, `KickUser`; `p2p/dendrite/dendrite_transport_queries.go`: `UpdateMemberProfile`, `RedactEvent`; `internal/productpolicy/productpolicy.go`: `ValidateClientEvent`, `ValidateClientMembership`, `ValidateClientRedaction` | Move Dendrite roomserver adaptation to a lower-level product Matrix adapter package after neutralizing DTO dependencies. Keep `internal/productpolicy` as write-rule owner. | p2p should orchestrate product workflows, not build and authorize roomserver events by hand. |
 | Matrix history DTOs and filtering. | `p2p/matrixhistory/types.go`: `MessageSummary`, `Page`, `MessagePageResult`, `Event`; `p2p/matrixhistory/reader.go`: `ListOrdinaryMessages`, `ListChannelContent`; `syncapi/agenthistory/reader.go`: `Reader.ListOrdinaryMessages`; `p2p/mcp_api.go`: `mcpMessagesList` | Move shared DTOs/helpers to a neutral package such as `internal/matrixhistory` or make `syncapi/agenthistory` the owner and keep p2p importing upward only through a narrow interface. | Current `syncapi` imports the repo's `p2p/matrixhistory` package, which makes future p2p-to-syncapi integration cycle-prone. |
+| Dirextalk MCP capability implementation. | `p2p/action_registry_mcp.go`: `registerMCPActions`; `p2p/mcp_api.go`: all `mcp*` action handlers and pagination helpers; `p2p/native_agent_runner.go`: `nativeAgentTools`; `p2p/nativeagent/native_agent_tools.go`: `Tool`, `nativeToolAlias` | Move tool registry, schemas, invocation, pagination, room authorization, shared DTOs, and MCP errors into `internal/dirextalkmcp`. | `internal/dirextalkmcp` must not import `p2p`; `p2p.Service` adapts store/transport/history/profile/owner/blocklist dependencies through small interfaces. |
 | Matrix profile reads for member enrichment. | `p2p/matrix_profile_resolver.go`: `HTTPMatrixProfileResolver.ResolveMatrixProfile`; `p2p/mcp_api.go`: `enrichMCPMemberSummariesWithProfiles`, `mcpResolveMatrixProfile` | Move profile resolver to a Matrix/client-facing helper or neutral profile package. | Profile reads are Matrix data access; p2p should decide when enrichment is needed, not own HTTP profile mechanics. |
 | Push suppression evaluation. | `internal/realtime/session_store.go`: `SessionStore.ShouldSuppressPush`, `HasFreshSession`; `userapi/consumers/roomserver.go`: `suppressPushForForegroundContext`; `p2p/realtime_ws.go`: `shouldSuppressPushForRoom`, `updateRealtimeWSSessionFlags`; `clientapi/routing/account_data.go`: `dirextalkPushContextAccountDataType` | Keep evaluation in `userapi` and `internal/realtime`; leave p2p responsible only for ingesting WS lifecycle/focus frames. | Push delivery is lower-level user notification behavior, not a p2p business action. |
 | Plugin runtime execution and validation for official non-Agent plugins. | `p2p/plugin_runner.go`: `dockerPluginRunner`, `validateOfficialPluginOperation`, `validateOfficialPluginVolume`, `officialPluginImage`; `p2p/service_plugins.go`: `applyPluginAction`, `pluginRuntimeEnv`, `pluginRuntimeVolumes` | Consider an internal plugin-runtime package while leaving owner action facade in p2p. | Docker runner mechanics and image/volume validation are runtime concerns, not product action dispatch. |
@@ -119,6 +178,7 @@ These items should be deleted in a later implementation phase only with the note
 | Removed Native Agent/plugin names can be reintroduced during cleanup. | `p2p/routing_test.go`: `TestAgentStatusActionRemoved`, `TestSyncBootstrapOmitsDeprecatedAgentOnline`; `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `docs/current-project-documentation.md`: `agent.status`/`agent_online` removal | Moving action/plugin registration may accidentally expose removed `agent.status`, `agents.status`, `agent_online`, or `io.dirextalk.agent` plugin surfaces. | Keep negative contract tests while removing compatibility code. |
 | `client.command` removal is a WS client contract change. | `p2p/realtime_ws.go`: frame switch for `"client.command"`; `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandAliasUsesServerResponse`; `docs/current-project-documentation.md`: compatibility alias note | Deleting the alias without docs/client coordination breaks older owner clients. | Treat as a Phase C contract change; update docs and invert tests to reject or ignore the alias as intended. |
 | MCP pagination and response field names must not regress. | `p2p/mcp_pagination.go`: `mcpPageFromParams`, `rejectLegacyMCPTimeParams`; `p2p/mcp_api.go`: `mcpMessagesList`, channel posts/comments list actions; `p2p/mcp_api_test.go`: legacy timestamp rejection cases; `docs/current-project-documentation.md`: `from_time`/`to_time`, `cursor`, no old `ts`/`last_ts` fields | Moving history readers can accidentally reintroduce `from_ts`, `to_ts`, `ts`, or `last_ts`. | Keep explicit schema tests around request rejection and response field absence. |
+| Standard MCP HTTP endpoint is a deliberate product route exception. | `AGENTS.md`: previous no-URL-shaped-product-endpoint rule; `docs/current-project-documentation.md`: currently says no public `POST /_p2p/mcp`; `p2p/action_registry_mcp.go`: current body-action `mcp.*` surface; `p2p/nativeagent/native_agent_eino_mcp.go`: existing MCP client transport use | Exposing `/mcp` or `/_p2p/mcp` changes the contract from body-action-only product capability access. | Block Phase MCP-C until endpoint path is chosen, first-version `agent_token` auth is documented, Origin/token handling tests exist, and old `mcp.*` wrapper timing is decided. |
 | Remote public lookup security must survive adapter moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; `p2p/service_channels.go`: `channelPublicGet`, `channelPublicSearch`; `p2p/service_channel_join.go`: `channelJoinRequest`, `notifyRemoteChannelJoinResult` | Public lookup must reject malformed Matrix IDs, URL-shaped server names, and private/internal hosts, while requiring request-provided `remote_node_base_url`. | Keep multi-node and validation tests before moving this code. |
 | Matrix-native product state must remain authoritative. | `p2p/service_channels.go`: `publishChannelState`, `publishMemberPolicyState`, `publishJoinRequestState`; `p2p/service_groups.go`: `publishGroupState`; `p2p/projector.go`: `ProjectRoomEvent`; `internal/productpolicy/productpolicy.go`: validation functions | Refactoring can accidentally treat projections as source-of-truth for membership or ordinary messages. | Tests must assert Matrix membership/state events remain the final joined/dissolved/policy facts. |
 
@@ -148,6 +208,8 @@ These items should be deleted in a later implementation phase only with the note
 | Restart and PostgreSQL-backed projection tests are thin for refactor-sensitive paths. | `p2p/service_member_persistence.go`: `saveMember`; `p2p/service_channels.go`: `saveChannel`, `refreshStoredChannelCounts`; `p2p/service_contacts.go`: `saveContact`; `p2p/storage_test.go`: storage tests | Add DB restart tests for member roles/mutes, channel counts, contact deletion/reactivation, report submission, and channel content backfill before moving storage boundaries. |
 | Compatibility deletion tests need to be inverted or retired deliberately. | `p2p/routing_ws_test.go`: `TestRealtimeWSClientCommandAliasUsesServerResponse`; `p2p/plugin_runner_test.go`: Agent plugin volume tests; `p2p/native_agent_contract_test.go`: legacy import tests; `scripts/p2p-dual-smoke.ps1`: `agent.status` smoke calls | Phase C should update tests to assert current-only behavior and remove stale smoke script calls. |
 | Native Agent/plugin separation needs stronger negative coverage after cleanup. | `p2p/service_plugins.go`: `requirePlugin`, `listPluginInstances`, `pluginInvokeRequest`; `p2p/native_agent_contract_test.go`: `TestNativeAgentIsNotManagedAsPlugin`; `p2p/plugin_service_test.go`: plugin manager tests | Add tests that `io.dirextalk.agent` cannot be installed, listed, invoked, logged, or configured through `plugins.*`, while Native Agent config migration still works if kept. |
+| Unified MCP service parity is not covered. | `p2p/mcp_api.go`: `mcp*` handlers; `p2p/native_agent_runner.go`: `nativeAgentTools`; `p2p/nativeagent/native_agent_tools.go`: `Tool`, `nativeToolAlias`; future `internal/dirextalkmcp` | Add tests proving old `mcp.*` wrappers and Native Agent Dirextalk tools invoke the same `internal/dirextalkmcp` service and produce equivalent responses for contacts, rooms, messages, room members, channel posts/comments, blocked rooms, and pagination. |
+| Standard MCP HTTP transport has no contract tests yet. | future endpoint path such as `/mcp` or `/_p2p/mcp`; `p2p/routing.go`: `Register`; future `internal/dirextalkmcp` transport adapter | Add JSON-RPC tests for `initialize`, `tools/list`, and `tools/call`; auth tests for first-version `agent_token`; Origin validation; 405 GET behavior when SSE is not needed; query-string token rejection; no downstream bearer-token forwarding. |
 | Remote public lookup security should be regression-tested around helper moves. | `p2p/remote_public.go`: `remoteNodeBaseURL`, `normalizeRemoteNodeBaseURL`, `remoteNodeBaseURLUsesPrivateHost`, `roomServerFromMatrixRoomID`; multi-node regression `scripts/p2p-three-node-regression.py` | Add focused unit tests for malformed room IDs, URL-shaped server names, private hosts, missing `remote_node_base_url`, and remote approval callback behavior. |
 | Import-cycle safety is not represented by a small focused check. | `syncapi/agenthistory/reader.go`: import of `p2p/matrixhistory`; `p2p/transportapi/transport.go`: import of `p2p/domain` | `go test ./...` catches cycles late; add package-boundary review checks or keep Phase D moves small and compile after each package move. |
 
@@ -193,9 +255,48 @@ Phase F must have:
 - JSON validation for Postman if touched;
 - `git diff --check`.
 
+Phase MCP-A must have:
+
+- `docs/p2p-deep-refactor-audit.md` architecture section describing `internal/dirextalkmcp` and the external MCP HTTP contract;
+- product decision block for endpoint path, first-version `agent_token` auth, and old `mcp.*` removal timing;
+- no production code changes.
+
+Phase MCP-B must have:
+
+- `internal/dirextalkmcp` created without importing `p2p`;
+- MCP DTOs, pagination helpers, tool registry, schemas, invocation, room authorization, and shared errors owned by that package;
+- `p2p.Service` adapters for contacts, rooms, Matrix history, message writes, room members, channel post/comment read/write, profile resolution, owner context, and `mcp_blocked_room_ids`;
+- existing `mcp.*` body-action wrappers and Native Agent Dirextalk tools calling the same service;
+- tests proving wrapper/tool parity and unchanged response behavior.
+
+Phase MCP-C must have:
+
+- chosen endpoint path implemented as an MCP Streamable HTTP endpoint;
+- JSON-RPC tests for `initialize`, `tools/list`, and `tools/call`;
+- first-version `Authorization: Bearer <agent_token>` tests;
+- Origin validation tests;
+- query-string token rejection tests;
+- HTTP GET/SSE behavior pinned, returning 405 when server-to-client streaming is not needed;
+- tests proving inbound MCP bearer tokens are not forwarded downstream;
+- no old Agent plugin surfaces exposed.
+
+Phase MCP-D must have:
+
+- product decision applied for old `mcp.*` body actions;
+- if compatibility is not required, `mcp.*` removed from product action registry and `serviceapi.AgentAction`;
+- if compatibility is required, wrappers have a clear deletion marker and tests proving they call `internal/dirextalkmcp`;
+- `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills` synchronized.
+
 ## 10. Recommended Order For The Next Implementation Phases
 
-1. Phase B: centralize action metadata first.
+1. Phase MCP-A: document the unified MCP capability architecture.
+   - Add only design guidance to this audit document.
+   - Record that `internal/dirextalkmcp` is the future owner of MCP tool registry, schemas, invocation, pagination, room authorization, and shared DTOs.
+   - Record that the first external MCP HTTP endpoint version reuses existing `agent_token` bearer auth.
+   - Keep endpoint path and old `mcp.*` removal timing as blocking product decisions.
+   - Do not modify production code, Postman, routes, or behavior; this audit records test gates instead of adding tests.
+
+2. Phase B: centralize action metadata first.
    - Create one enum-backed action spec that replaces duplicated logic in `p2p/action_registry.go`, `p2p/serviceapi/actions.go`, `p2p/routing.go:httpProductActionAllowed`, `p2p/realtime_ws.go:realtimeWSHTTPOnlyAction`, and `scripts/p2p-three-node-regression.py:action_requires_http`.
    - Use this metadata shape:
 
@@ -230,13 +331,33 @@ type ActionSpec struct {
    - If an action does not fit the enum, stop and report rather than adding ad hoc booleans.
    - Add generated or table-driven tests before changing behavior.
 
-2. Phase C: remove compatibility code with explicit contract updates.
+3. Phase C: remove non-MCP compatibility code with explicit contract updates.
    - Remove `p2p/realtime_ws.go` support for `client.command` after updating `docs/current-project-documentation.md` and `p2p/routing_ws_test.go`.
    - Remove stale `scripts/p2p-dual-smoke.ps1` `agent.status` calls.
    - Isolate `p2p/service_agent_config_native.go:migrateLegacyAgentPluginConfig` from `p2p/service_plugins.go:sanitizePluginConfig`, then delete hidden Agent plugin invoke/env/model-profile helpers in `p2p/service_plugins.go` and Agent plugin volume allowances in `p2p/plugin_runner.go`.
    - Decide the deletion window for `p2p/service.go:needsAgentRoomCreate`.
 
-3. Phase D: move lower-level adapters in dependency-safe order.
+4. Phase MCP-B: build the unified internal Dirextalk MCP capability service.
+   - Create `internal/dirextalkmcp` with small dependency interfaces and no `p2p` imports.
+   - Move MCP DTOs, pagination helpers, tool registry, tool schemas, invocation logic, room authorization, and shared response DTOs into it.
+   - Make current `p2p` `mcp.*` handlers temporary wrappers around `internal/dirextalkmcp`.
+   - Make Native Agent Dirextalk tools generated from and invoked through the same service.
+   - Preserve existing `mcp.*` response behavior for current tests.
+
+5. Phase MCP-C: expose the standard MCP Streamable HTTP transport.
+   - Add the chosen endpoint path, such as `/mcp` or `/_p2p/mcp`.
+   - Implement JSON-RPC `initialize`, `tools/list`, and `tools/call`.
+   - Require first-version `Authorization: Bearer <agent_token>` on protected requests.
+   - Validate `Origin`; reject query-string tokens; do not forward inbound bearer tokens downstream.
+   - Return 405 for GET unless SSE/server-to-client streaming is actually needed.
+   - Add tests that use JSON-RPC requests rather than Dirextalk action envelopes.
+
+6. Phase MCP-D: remove or deprecate old `mcp.*` body actions.
+   - If no compatibility is required, remove `mcp.*` from product action registry and `serviceapi.AgentAction`.
+   - If short-term compatibility is required, keep wrappers only with a clear deletion marker and tests proving wrappers call `internal/dirextalkmcp`.
+   - Update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills`.
+
+7. Phase D: move lower-level adapters in dependency-safe order.
    - Do not start Phase D until Phase B action metadata/auth/transport consolidation passes tests.
    - Do not start Phase D until Phase C compatibility deletion decisions are completed or explicitly deferred.
    - Do not start Phase D until Native Agent vs plugin separation has negative tests proving `io.dirextalk.agent` is not exposed through `plugins.*`.
@@ -248,12 +369,12 @@ type ActionSpec struct {
    - Move Dendrite transport implementation from `p2p/dendrite/*` only after `p2p/transportapi` DTOs no longer import `p2p/domain`.
    - Keep `internal/productpolicy` below the transport adapter and do not import p2p from it.
 
-4. Phase E: split storage boundaries after behavior is stable.
+8. Phase E: split storage boundaries after behavior is stable.
    - Split `p2p/service.go:Store` by product area, preserving `p2p/storage.DatabaseStore` migrations first.
    - Classify fields in `p2p_members`, contacts, channels, reports, plugins, calls, favorites, follows, and read markers as projection or source-of-truth before moving writes.
    - Add PostgreSQL-backed restart tests for each moved store boundary.
 
-5. Phase F: update docs, scripts, and broad verification.
+9. Phase F: update docs, scripts, and broad verification.
    - Update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/api-interface-change-record.md`, and Postman collections when public behavior changes.
    - Keep the multi-node regression focused on public channel lookup/join, remote callbacks, Matrix membership finality, and URL security.
    - Run focused Go tests for touched packages, `go build ./cmd/dirextalk-message-server`, JSON validation for Postman docs if touched, Docker compose config validation if deployment/runtime files changed, and `git diff --check`.
