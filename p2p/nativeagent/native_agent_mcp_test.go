@@ -2,11 +2,13 @@ package nativeagent
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -82,6 +84,92 @@ func TestHTTPMCPToolCanBeInstalledAndUsedByModelLoop(t *testing.T) {
 	}
 	if servers := list["servers"].([]map[string]any); len(servers) != 0 {
 		t.Fatalf("expected mcp server removed, got %#v", list)
+	}
+}
+
+func TestModelLoopCanInstallMCPServerFromDialogue(t *testing.T) {
+	mcpServer := newHTTPTestMCPServer("mcp-installed-by-dialogue")
+	defer mcpServer.Close()
+
+	var requestCount int
+	var sawInstallResult bool
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "dialogue-mcp") {
+				sawInstallResult = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			arguments, err := json.Marshal(map[string]any{
+				"id":             "dialogue-mcp",
+				"transport":      "http",
+				"url":            mcpServer.URL,
+				"discover_tools": true,
+			})
+			if err != nil {
+				t.Fatalf("marshal tool arguments: %v", err)
+			}
+			response, err := json.Marshal(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "",
+						"tool_calls": []map[string]any{{
+							"id":   "call_mcp_install",
+							"type": "function",
+							"function": map[string]any{
+								"name":      "native_agent_mcp_servers_install",
+								"arguments": string(arguments),
+							},
+						}},
+					},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal model response: %v", err)
+			}
+			_, _ = w.Write(response)
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"MCP 已安装，下一轮对话可使用。"}}]}`))
+	}))
+	defer modelServer.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "安装一个 MCP server",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": modelServer.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawInstallResult || result["text"] != "MCP 已安装，下一轮对话可使用。" {
+		t.Fatalf("expected dialogue MCP install loop, requestCount=%d sawInstallResult=%v result=%#v", requestCount, sawInstallResult, result)
+	}
+	steps, ok := result["steps"].([]map[string]any)
+	if !ok || !traceHasStep(steps, "tool_call", "native_agent_mcp_servers_install") {
+		t.Fatalf("expected MCP install trace step, got %#v", result["steps"])
+	}
+	list, err := runtime.mcpServersList(context.Background())
+	if err != nil {
+		t.Fatalf("list MCP servers: %v", err)
+	}
+	servers := list["servers"].([]map[string]any)
+	if len(servers) != 1 || servers[0]["id"] != "dialogue-mcp" || len(configList(servers[0], "tools")) != 1 {
+		t.Fatalf("expected dialogue MCP server installed with discovered tools, got %#v", list)
 	}
 }
 

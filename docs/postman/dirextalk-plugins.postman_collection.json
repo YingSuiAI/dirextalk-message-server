@@ -51,7 +51,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\"\n      ],\n      \"skills\": [],\n      \"mcp_servers\": []\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.install\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\",\n        \"agent_skills_list\",\n        \"agent_skills_install\",\n        \"agent_skills_enable\",\n        \"agent_skills_disable\",\n        \"agent_skills_uninstall\",\n        \"agent_mcp_servers_list\",\n        \"agent_mcp_servers_install\",\n        \"agent_mcp_servers_enable\",\n        \"agent_mcp_servers_disable\",\n        \"agent_mcp_servers_uninstall\"\n      ],\n      \"skills\": [],\n      \"mcp_servers\": []\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -132,7 +132,7 @@
         "url": "{{baseUrl}}/_p2p/command",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"action\": \"plugins.config.update\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\"\n      ],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"skills_registry_url\": \"https://skills.sh\",\n      \"mcp_registry_url\": \"https://registry.modelcontextprotocol.io\"\n    }\n  }\n}",
+          "raw": "{\n  \"action\": \"plugins.config.update\",\n  \"params\": {\n    \"plugin_id\": \"io.dirextalk.agent\",\n    \"config\": {\n      \"provider\": \"deepseek\",\n      \"model\": \"deepseek-chat\",\n      \"system_prompt\": \"You are the local Dirextalk assistant.\",\n      \"enabled_tools\": [\n        \"search_contacts\",\n        \"search_rooms\",\n        \"list_messages\",\n        \"send_message\",\n        \"summarize_conversation\",\n        \"agent_skills_list\",\n        \"agent_skills_install\",\n        \"agent_skills_enable\",\n        \"agent_skills_disable\",\n        \"agent_skills_uninstall\",\n        \"agent_mcp_servers_list\",\n        \"agent_mcp_servers_install\",\n        \"agent_mcp_servers_enable\",\n        \"agent_mcp_servers_disable\",\n        \"agent_mcp_servers_uninstall\"\n      ],\n      \"skills\": [],\n      \"mcp_servers\": [],\n      \"skills_registry_url\": \"https://skills.sh\",\n      \"mcp_registry_url\": \"https://registry.modelcontextprotocol.io\"\n    }\n  }\n}",
           "options": {
             "raw": {
               "language": "json"

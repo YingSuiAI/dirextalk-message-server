@@ -122,6 +122,15 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [ ] Authenticated XiaoHongShu search succeeds after `xhs` cookies or `xiaohongshu-mcp` QR login backend is configured.
 - [ ] Authenticated Twitter/X search succeeds after `twitter-cli` cookies/login are configured.
 
+## Dialogue Management Tools
+
+- [x] Native skill management tools are exposed to Eino conversations through the same `enabledTools` pipeline as Dirextalk tools.
+- [x] Native skill management tools stay available when older config/request `enabled_tools` values list only the original Dirextalk tools.
+- [x] Agent model loop can install a skill during `agent.chat`, persist it, and make it available to the next system prompt.
+- [x] Native MCP server management tools are exposed to Eino conversations through the same `enabledTools` pipeline as Dirextalk tools.
+- [x] Native MCP server management tools stay available when older config/request `enabled_tools` values list only the original Dirextalk tools.
+- [x] Agent model loop can install an HTTP MCP server during `agent.chat`, discover tools, and persist it for the next turn.
+
 ## Extended DeepSeek Multi-Scenario Smoke
 
 - [x] Multiple enabled skills were installed and listed through `plugins.invoke`: content skills plus GitHub Agent-Reach.

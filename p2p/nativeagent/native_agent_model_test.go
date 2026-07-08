@@ -146,6 +146,112 @@ func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 	}
 }
 
+func TestModelLoopCanInstallSkillFromDialogue(t *testing.T) {
+	var requestCount int
+	var sawInstallResult bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "dialogue-skill") {
+				sawInstallResult = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_skill_install","type":"function","function":{"name":"native_agent_skills_install","arguments":"{\"id\":\"dialogue-skill\",\"content\":\"# Skill\\n\\nWhen installed, say DIALOGUE_SKILL_READY.\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Skill 已安装，下一轮对话会启用。"}}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "安装一个 dialogue skill",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawInstallResult || result["text"] != "Skill 已安装，下一轮对话会启用。" {
+		t.Fatalf("expected dialogue skill install loop, requestCount=%d sawInstallResult=%v result=%#v", requestCount, sawInstallResult, result)
+	}
+	steps, ok := result["steps"].([]map[string]any)
+	if !ok || !traceHasStep(steps, "tool_call", "native_agent_skills_install") {
+		t.Fatalf("expected skill install trace step, got %#v", result["steps"])
+	}
+	list, err := runtime.skillsList(context.Background())
+	if err != nil {
+		t.Fatalf("list skills: %v", err)
+	}
+	skills := list["skills"].([]map[string]any)
+	if len(skills) != 1 || skills[0]["id"] != "dialogue-skill" {
+		t.Fatalf("expected dialogue skill installed, got %#v", list)
+	}
+	config, _, err := runtime.agentConfig(context.Background())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if prompt := runtime.enabledSkillsPrompt(context.Background(), config); !strings.Contains(prompt, "DIALOGUE_SKILL_READY") {
+		t.Fatalf("expected installed skill in next prompt, got %q", prompt)
+	}
+}
+
+func TestConfigEnabledToolsStillExposeDialogueManagementTools(t *testing.T) {
+	runtime := New(Config{
+		DataDir: filepath.Join(t.TempDir(), "agent"),
+		Store:   &testConfigStore{config: map[string]any{"enabled_tools": []any{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"}}},
+	})
+	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{
+		"enabled_tools": []any{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"},
+	}, map[string]any{})
+	if err != nil {
+		t.Fatalf("enabled Eino tools: %v", err)
+	}
+	defer cleanup()
+	names := map[string]bool{}
+	for _, tool := range tools {
+		info, err := tool.Info(context.Background())
+		if err != nil {
+			t.Fatalf("tool info: %v", err)
+		}
+		names[info.Name] = true
+	}
+	if !names["native_agent_skills_install"] || !names["native_agent_mcp_servers_install"] {
+		t.Fatalf("expected config-level enabled_tools to keep dialogue management tools, got %#v", names)
+	}
+
+	requestTools, requestCleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{
+		"enabled_tools": []any{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"},
+	}, map[string]any{"enabled_tools": []any{"search_contacts"}})
+	if err != nil {
+		t.Fatalf("request enabled Eino tools: %v", err)
+	}
+	defer requestCleanup()
+	requestNames := map[string]bool{}
+	for _, tool := range requestTools {
+		info, err := tool.Info(context.Background())
+		if err != nil {
+			t.Fatalf("request tool info: %v", err)
+		}
+		requestNames[info.Name] = true
+	}
+	if !requestNames["native_agent_skills_install"] || !requestNames["native_agent_mcp_servers_install"] {
+		t.Fatalf("request-level enabled_tools must keep dialogue management tools, got %#v", requestNames)
+	}
+}
+
 func TestOpenAIProviderUsesChatCompletionsEndpoint(t *testing.T) {
 	var gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

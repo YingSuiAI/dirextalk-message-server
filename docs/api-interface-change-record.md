@@ -2,6 +2,12 @@
 
 Last updated: 2026-07-08
 
+## 2026-07-08 Native Agent Dialogue Management Tools
+
+Native Agent `agent.chat` can now expose owner-scoped management tools to the model for explicit user requests to install, list, enable, disable, or uninstall native skills and MCP servers. The tool names are `native_agent_skills_*` and `native_agent_mcp_servers_*`; they call the same native runtime handlers as `plugins.invoke` actions such as `agent.skills.install` and `agent.mcp.servers.install`.
+
+Skills installed from dialogue are cached as static `SKILL.md` content and do not execute remote skill scripts. A newly installed skill affects the next Agent turn after the system prompt is rebuilt. MCP servers installed from dialogue may discover tools immediately, but those tools become callable on the next Agent turn after the Eino tool list is rebuilt.
+
 ## 2026-07-08 Native Agent Observable Trace
 
 Native Agent `agent.chat` responses now include `steps` and `trace` fields. `steps` is a compact list of observable execution steps such as context loading, tool calls, tool results, assistant messages, and final output previews. `trace` wraps those steps with framework metadata, context usage, tool calls, and the final answer text.

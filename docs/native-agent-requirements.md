@@ -49,6 +49,8 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 - Installed skill content is cached below the native Agent data directory.
 - Only static `SKILL.md` text is read into the prompt. Remote scripts or arbitrary skill code are not executed.
 - Skill install supports explicit `content` and URL/GitHub raw retrieval.
+- Agent conversations expose native skill management tools, so the model can install, list, enable, disable, and uninstall skills when the user explicitly asks for that operation. These management tools are base Agent capabilities and remain available even when older `enabled_tools` config/request values list only Dirextalk content tools.
+- A newly installed or re-enabled skill affects the next Agent turn after the system prompt is rebuilt.
 
 ## MCP
 
@@ -57,6 +59,8 @@ Matrix writes must continue through roomserver/`p2p.Transport`. Direct DB access
 - MCP tools discovered from enabled servers become dynamic Agent tools.
 - MCP discovery and tool invocation must go through `github.com/cloudwego/eino-ext/components/tool/mcp/officialmcp` and `github.com/modelcontextprotocol/go-sdk/mcp`, not a custom JSON-RPC client.
 - MCP server command/env configuration may be stored, but secrets must be passed through request-local values or temporary env references.
+- Agent conversations expose native MCP server management tools, so the model can install, list, enable, disable, and uninstall MCP servers when the user explicitly asks for that operation. These management tools are base Agent capabilities and remain available even when older `enabled_tools` config/request values list only Dirextalk content tools.
+- MCP tools discovered during a dialogue install become callable on the next Agent turn after the Eino tool list is rebuilt.
 
 ## Runtime CLI Tools
 

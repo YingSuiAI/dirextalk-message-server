@@ -39,6 +39,7 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 				enabled[name] = true
 			}
 		}
+		enableNativeAgentManagementTools(enabled, availableTools)
 	}
 	tools := make([]Tool, 0, len(availableTools))
 	for _, tool := range availableTools {
@@ -47,6 +48,19 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 		}
 	}
 	return tools
+}
+
+func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []Tool) {
+	for _, tool := range availableTools {
+		if nativeAgentManagementTool(tool.Name) {
+			enabled[tool.Name] = true
+		}
+	}
+}
+
+func nativeAgentManagementTool(name string) bool {
+	return strings.HasPrefix(strings.TrimSpace(name), "native_agent_skills_") ||
+		strings.HasPrefix(strings.TrimSpace(name), "native_agent_mcp_servers_")
 }
 
 func nativeToolAlias(value string) string {
@@ -79,15 +93,48 @@ func nativeToolAlias(value string) string {
 		"agent_channel_comments_list":   "dirextalk_channel_comments_list",
 		"agent_channel_comments_create": "dirextalk_channel_comments_create",
 		"agent_summarize":               "dirextalk_summarize",
+		"skills_list":                   "native_agent_skills_list",
+		"skills_install":                "native_agent_skills_install",
+		"skills_enable":                 "native_agent_skills_enable",
+		"skills_disable":                "native_agent_skills_disable",
+		"skills_uninstall":              "native_agent_skills_uninstall",
+		"install_skill":                 "native_agent_skills_install",
+		"enable_skill":                  "native_agent_skills_enable",
+		"disable_skill":                 "native_agent_skills_disable",
+		"uninstall_skill":               "native_agent_skills_uninstall",
+		"agent_skills_list":             "native_agent_skills_list",
+		"agent_skills_install":          "native_agent_skills_install",
+		"agent_skills_enable":           "native_agent_skills_enable",
+		"agent_skills_disable":          "native_agent_skills_disable",
+		"agent_skills_uninstall":        "native_agent_skills_uninstall",
+		"mcp_servers_list":              "native_agent_mcp_servers_list",
+		"mcp_servers_install":           "native_agent_mcp_servers_install",
+		"mcp_servers_enable":            "native_agent_mcp_servers_enable",
+		"mcp_servers_disable":           "native_agent_mcp_servers_disable",
+		"mcp_servers_uninstall":         "native_agent_mcp_servers_uninstall",
+		"install_mcp_server":            "native_agent_mcp_servers_install",
+		"enable_mcp_server":             "native_agent_mcp_servers_enable",
+		"disable_mcp_server":            "native_agent_mcp_servers_disable",
+		"uninstall_mcp_server":          "native_agent_mcp_servers_uninstall",
+		"agent_mcp_servers_list":        "native_agent_mcp_servers_list",
+		"agent_mcp_servers_install":     "native_agent_mcp_servers_install",
+		"agent_mcp_servers_enable":      "native_agent_mcp_servers_enable",
+		"agent_mcp_servers_disable":     "native_agent_mcp_servers_disable",
+		"agent_mcp_servers_uninstall":   "native_agent_mcp_servers_uninstall",
 	}
 	if strings.HasPrefix(value, "dirextalk_") {
+		return value
+	}
+	if strings.HasPrefix(value, "native_agent_") {
 		return value
 	}
 	return aliases[value]
 }
 
 func (r *Runtime) availableTools() []Tool {
-	return append([]Tool{}, r.tools...)
+	tools := append([]Tool{}, r.tools...)
+	tools = append(tools, r.managementTools()...)
+	return tools
 }
 
 func nativeToolWriteAction(name string) bool {
