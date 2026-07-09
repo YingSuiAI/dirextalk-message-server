@@ -73,45 +73,16 @@ type Service struct {
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
 	eventRetentionPruneOnWrite bool
-	realtimeSessions           *realtime.SessionStore
 	pluginRunner               PluginRunner
 	nativeAgentRunner          NativeAgentRunner
 	mcpCapabilities            *dirextalkmcp.Service
 
-	initialized    bool
-	password       string
-	accessToken    string
-	matrixDeviceID string
-	agentToken     string
-	ownerMXID      string
-	agentRoomID    string
-	systemRoomID   string
-	profile        ownerProfile
-	agentConfig    agentConfig
-	actions        map[string]actionHandler
+	servicePortalState
+	actions map[string]actionHandler
 
-	readMarkers   map[string]readMarker
-	channels      map[string]channel
-	posts         []channelPostRecord
-	comments      []channelCommentRecord
-	contacts      map[string]contactRecord
-	blocks        map[string]blockRecord
-	groups        map[string]groupRecord
-	calls         map[string]callRecord
-	favorites     map[int64]favoriteRecord
-	follows       map[string]followRecord
-	reactions     map[string]reactionRecord
-	members       map[string]memberRecord
-	conversations map[string]conversationRecord
-	inviteGrants  map[string]channelInviteGrant
-	plugins       map[string]pluginInstance
-	pluginJobs    map[string]pluginJob
-	pluginSecrets map[string]map[string]pluginSecret
-	events        []p2pEvent
-	nextEventSeq  int64
-	eventNotify   chan struct{}
-
-	realtimeWSTickets map[string]realtimeWSTicket
+	serviceReadModelState
+	serviceEventState
+	serviceRealtimeState
 }
 
 type PushRuleManager interface {
@@ -544,36 +515,22 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		storeMode:                  storeMode(store),
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
-		realtimeSessions:           realtimeSessions,
 		pluginRunner:               basePluginRunner,
-		initialized:                state.Initialized,
-		password:                   state.Password,
-		accessToken:                state.AccessToken,
-		matrixDeviceID:             state.MatrixDeviceID,
-		agentToken:                 state.AgentToken,
-		ownerMXID:                  state.OwnerMXID,
-		agentRoomID:                state.AgentRoomID,
-		systemRoomID:               state.SystemRoomID,
-		profile:                    state.Profile,
-		agentConfig:                state.AgentConfig,
-		readMarkers:                map[string]readMarker{},
-		channels:                   map[string]channel{},
-		contacts:                   map[string]contactRecord{},
-		blocks:                     map[string]blockRecord{},
-		groups:                     map[string]groupRecord{},
-		calls:                      map[string]callRecord{},
-		favorites:                  map[int64]favoriteRecord{},
-		follows:                    map[string]followRecord{},
-		reactions:                  map[string]reactionRecord{},
-		members:                    map[string]memberRecord{},
-		conversations:              map[string]conversationRecord{},
-		inviteGrants:               map[string]channelInviteGrant{},
-		plugins:                    map[string]pluginInstance{},
-		pluginJobs:                 map[string]pluginJob{},
-		pluginSecrets:              map[string]map[string]pluginSecret{},
-		eventNotify:                make(chan struct{}),
-
-		realtimeWSTickets: map[string]realtimeWSTicket{},
+		servicePortalState: servicePortalState{
+			initialized:    state.Initialized,
+			password:       state.Password,
+			accessToken:    state.AccessToken,
+			matrixDeviceID: state.MatrixDeviceID,
+			agentToken:     state.AgentToken,
+			ownerMXID:      state.OwnerMXID,
+			agentRoomID:    state.AgentRoomID,
+			systemRoomID:   state.SystemRoomID,
+			profile:        state.Profile,
+			agentConfig:    state.AgentConfig,
+		},
+		serviceReadModelState: newServiceReadModelState(),
+		serviceEventState:     newServiceEventState(),
+		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
 	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
 		Invoker:        p2pDirextalkMCPInvoker{service: service},
