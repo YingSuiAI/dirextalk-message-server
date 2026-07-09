@@ -49,6 +49,9 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"agent.runtime.inspect",
 				"agent.runtime.install",
 				"agent.models.list",
+				"agent.memory.list",
+				"agent.memory.save",
+				"agent.memory.delete",
 				"agent.skills.list",
 				"agent.skills.install",
 				"agent.skills.uninstall",
@@ -86,11 +89,11 @@ func officialPluginCatalog() []pluginCatalogEntry {
 				"mcp_registry_url":    "string",
 				"skills":              []map[string]any{},
 				"mcp_servers":         []map[string]any{},
-					"knowledge": map[string]any{
-						"supported": false,
-						"enabled":   false,
-						"status":    "unsupported",
-					},
+				"knowledge": map[string]any{
+					"supported": false,
+					"enabled":   false,
+					"status":    "unsupported",
+				},
 				"temperature":       "number",
 				"max_output_tokens": "number",
 				"context_window":    "number",
@@ -313,10 +316,33 @@ func (s *Service) pluginLogsTailAction(ctx context.Context, params map[string]an
 	}, nil
 }
 
+/**
+ * Function: Invokes an enabled official plugin action or routes built-in Agent actions to product-agent.
+ * Inputs:
+ * - ctx: Owner-authenticated request context.
+ * - params: Plugin id, client action name, and action params.
+ * Output:
+ * - Standard plugin invoke envelope containing plugin id, action, and result.
+ * Side effects:
+ * - May call the configured plugin runner or the product-agent memory bridge.
+ * Errors:
+ * - Returns validation errors, plugin runner failures, or product-agent bridge failures as apiError values.
+ */
 func (s *Service) pluginInvokeAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	req, clientAction, apiErr := s.pluginInvokeRequest(ctx, params, false)
 	if apiErr != nil {
 		return nil, apiErr
+	}
+	if req.PluginID == "io.dirextalk.agent" && isProductAgentMemoryPluginAction(clientAction) {
+		result, apiErr := s.invokeProductAgentMemory(ctx, clientAction, req.Params)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		return map[string]any{
+			"plugin_id": req.PluginID,
+			"action":    clientAction,
+			"result":    result,
+		}, nil
 	}
 	result, err := s.pluginRunner.InvokePlugin(ctx, req)
 	if err != nil {

@@ -26,6 +26,8 @@ type Config struct {
 	PushRules                       PushRuleManager
 	RealtimeSessions                *realtime.SessionStore
 	PluginRunner                    PluginRunner
+	ProductAgentURL                 string
+	ProductAgent                    ProductAgentClient
 }
 
 const (
@@ -72,6 +74,7 @@ type Service struct {
 	eventRetentionPruneOnWrite bool
 	realtimeSessions           *realtime.SessionStore
 	pluginRunner               PluginRunner
+	productAgent               ProductAgentClient
 
 	initialized    bool
 	password       string
@@ -81,6 +84,7 @@ type Service struct {
 	ownerMXID      string
 	agentRoomID    string
 	systemRoomID   string
+	agentRoomTurns map[string]int64
 	profile        ownerProfile
 	agentConfig    agentConfig
 	actions        map[string]actionHandler
@@ -577,6 +581,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if pluginRunner == nil {
 		pluginRunner = newEnvironmentPluginRunner()
 	}
+	productAgent := productAgentClientFromConfig(cfg)
 	service := &Service{
 		serverName:                 serverName,
 		homeserver:                 homeserver,
@@ -590,6 +595,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
 		realtimeSessions:           realtimeSessions,
 		pluginRunner:               pluginRunner,
+		productAgent:               productAgent,
 		initialized:                state.Initialized,
 		password:                   state.Password,
 		accessToken:                state.AccessToken,
@@ -598,6 +604,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		ownerMXID:                  state.OwnerMXID,
 		agentRoomID:                state.AgentRoomID,
 		systemRoomID:               state.SystemRoomID,
+		agentRoomTurns:             map[string]int64{},
 		profile:                    state.Profile,
 		agentConfig:                state.AgentConfig,
 		readMarkers:                map[string]readMarker{},

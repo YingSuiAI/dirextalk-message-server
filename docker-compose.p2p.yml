@@ -67,6 +67,7 @@ services:
       P2P_PLUGIN_DOCKER_ENABLED: "true"
       P2P_PLUGIN_DOCKER_NETWORK: dirextalk-p2p_default
       P2P_PLUGIN_BACKEND_BASE_URL: http://message-server:8008
+      DIREXIO_PRODUCT_AGENT_URL: ${DIREXIO_PRODUCT_AGENT_URL:-}
     command:
       - --config
       - /etc/dirextalk-message-server/message-server.yaml

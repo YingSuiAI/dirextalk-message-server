@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-05
+Last updated: 2026-07-08
+
+## 2026-07-08 Optional Product Agent Room Bridge
+
+Added an optional server-side bridge from the real Matrix `agent_room_id` to a configured product-agent service. When `DIREXIO_PRODUCT_AGENT_URL` is set, owner text messages in the agent room are asynchronously POSTed to product-agent `/v1/message-server/new-message` with `conversation_type="agent"`, the real room id, sender metadata, and the saved official Agent plugin config under `agent_config`. This lets the official Agent plugin `skills` config, including user-authored Prompt Skills, reach the self-hosted product-agent runtime without blocking roomserver event projection on model latency.
+
+Product-agent replies are written back as Matrix `m.room.message` events from local `@agent:<server>` and marked with `io.dirextalk.agent_gateway=true` plus `io.dirextalk.gateway_source="product-agent"` to prevent reply loops. Gateway-marked agent-room messages, media/custom messages, and non-owner messages are ignored by the bridge. The bridge does not reintroduce `agent_room.message`, `client.agent_stream`, or `server.agent_stream`; clients continue to render the Matrix timeline.
+
+The official Agent plugin allowlist now includes owner-invoked `agent.memory.list`, `agent.memory.save`, and `agent.memory.delete`. These actions are still called through the existing `plugins.invoke` envelope, but message-server handles them locally and proxies to product-agent `GET/POST/DELETE /v1/agent/memory` when `DIREXIO_PRODUCT_AGENT_URL` is configured. This gives Flutter a server-backed path for syncing saved Agent cards or explicit memories without exposing product-agent directly to the client.
 
 ## 2026-07-05 Official Ops Plugin
 

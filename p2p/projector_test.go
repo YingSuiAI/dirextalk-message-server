@@ -3,7 +3,9 @@ package p2p
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
@@ -77,13 +79,14 @@ func TestProjectAgentRoomMessageDoesNotAppendGatewayEvent(t *testing.T) {
 func TestProjectAgentRoomMessageIgnoresGatewayMarkedReply(t *testing.T) {
 	user := test.NewUser(t)
 	room := test.NewRoom(t, user)
+	productAgent := &recordingProductAgentClient{}
 	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
 		"msgtype":                    "m.text",
 		"body":                       "agent reply",
 		AgentGatewayContentKey:       true,
 		AgentGatewaySourceContentKey: "codex-cli",
 	})
-	service := NewService(Config{ServerName: "test"})
+	service := NewService(Config{ServerName: "test", ProductAgent: productAgent})
 	service.agentRoomID = room.ID
 
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
@@ -91,6 +94,153 @@ func TestProjectAgentRoomMessageIgnoresGatewayMarkedReply(t *testing.T) {
 	}
 	if len(service.events) != 0 {
 		t.Fatalf("gateway-marked replies must not loop through P2P events, got %#v", service.events)
+	}
+	if productAgent.requestCount() != 0 {
+		t.Fatalf("gateway-marked replies must not call product-agent, got %#v", productAgent.requestSnapshot())
+	}
+}
+
+func TestProjectAgentRoomMessageForwardsToProductAgentWithPluginSkillsAndSendsReply(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text",
+		"body":    "use my capsule skill",
+	})
+	productAgent := &recordingProductAgentClient{
+		response: ProductAgentMessageResponse{
+			Reply: "Skill card ready.",
+			OutboundMessage: &ProductAgentOutboundMessage{
+				ConversationID: room.ID,
+				Content:        `{"schema":"direxio.agent_action_result.v1","title":"Skill card","summary":"done"}`,
+			},
+		},
+	}
+	transport := &recordingTransport{eventID: "$agent-reply:example.com", ts: 1710000000000}
+	service := NewServiceWithTransport(Config{
+		ServerName:   "example.com",
+		ProductAgent: productAgent,
+	}, transport)
+	service.agentRoomID = room.ID
+	service.ownerMXID = string(event.SenderID())
+	mustHandle[map[string]any](t, service, "plugins.install", map[string]any{
+		"plugin_id": "io.dirextalk.agent",
+		"config": map[string]any{
+			"skills": []any{map[string]any{
+				"schema":           "direxio.prompt_skill.v1",
+				"kind":             "prompt",
+				"id":               "prompt-capsule",
+				"title":            "Capsule",
+				"description":      "Create a compact capsule card",
+				"trigger_examples": []any{"capsule"},
+				"prompt":           "Return a compact capsule.",
+				"enabled":          true,
+			}},
+		},
+	})
+
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(2*time.Second, func() bool {
+		return productAgent.requestCount() == 1 && len(transport.messages) == 1
+	}) {
+		t.Fatalf("expected product-agent request and Matrix reply, requests=%#v messages=%#v", productAgent.requestSnapshot(), transport.messages)
+	}
+	req, ok := productAgent.firstRequest()
+	if !ok {
+		t.Fatalf("expected one product-agent request, got %#v", productAgent.requestSnapshot())
+	}
+	if req.NodeID != "example.com" || req.RoomID != room.ID || req.ConversationType != "agent" || req.Content != "use my capsule skill" {
+		t.Fatalf("unexpected product-agent request: %#v", req)
+	}
+	skills, ok := req.AgentConfig["skills"].([]any)
+	if !ok || len(skills) != 1 {
+		t.Fatalf("expected official Agent plugin skills to be forwarded, got %#v", req.AgentConfig)
+	}
+	if len(transport.messages) != 1 {
+		t.Fatalf("expected one Matrix reply, got %#v", transport.messages)
+	}
+	reply := transport.messages[0]
+	if reply.SenderMXID != "@agent:example.com" || reply.RoomID != room.ID {
+		t.Fatalf("expected reply from local agent into agent room, got %#v", reply)
+	}
+	if reply.Content["body"] != "Skill card ready." {
+		t.Fatalf("expected short card summary body, got %#v", reply.Content)
+	}
+	card, ok := reply.Content[agentActionResultContentKey].(map[string]any)
+	if !ok || card["schema"] != agentActionResultSchema || card["title"] != "Skill card" {
+		t.Fatalf("expected structured action-result card content, got %#v", reply.Content)
+	}
+	if reply.Content[agentActionResultHideBodyKey] != true {
+		t.Fatalf("expected Agent clients to hide fallback body when rendering card, got %#v", reply.Content)
+	}
+	if reply.Content[AgentGatewayContentKey] != true || reply.Content[AgentGatewaySourceContentKey] != productAgentGatewaySource {
+		t.Fatalf("expected product-agent gateway markers, got %#v", reply.Content)
+	}
+}
+
+func TestProjectAgentRoomMessageDispatchesProductAgentWithoutBlockingProjection(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text",
+		"body":    "slow agent turn",
+	})
+	release := make(chan struct{})
+	defer close(release)
+	productAgent := &recordingProductAgentClient{blockUntil: release}
+	service := NewService(Config{
+		ServerName:   "example.com",
+		ProductAgent: productAgent,
+	})
+	service.agentRoomID = room.ID
+	service.ownerMXID = string(event.SenderID())
+
+	started := time.Now()
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("agent room projection must not wait for product-agent, elapsed=%s", elapsed)
+	}
+	if !eventually(2*time.Second, func() bool { return productAgent.requestCount() == 1 }) {
+		t.Fatalf("expected one async product-agent request, got %#v", productAgent.requestSnapshot())
+	}
+}
+
+func TestProjectAgentRoomMessageDedupesRepeatedProjection(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	event := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text",
+		"body":    "please answer once",
+	})
+	release := make(chan struct{})
+	productAgent := &recordingProductAgentClient{
+		response:   ProductAgentMessageResponse{Reply: "one reply"},
+		blockUntil: release,
+	}
+	transport := &recordingTransport{eventID: "$agent-reply:example.com", ts: 1710000000000}
+	service := NewServiceWithTransport(Config{
+		ServerName:   "example.com",
+		ProductAgent: productAgent,
+	}, transport)
+	service.agentRoomID = room.ID
+	service.ownerMXID = string(event.SenderID())
+
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(2*time.Second, func() bool { return productAgent.requestCount() == 1 }) {
+		t.Fatalf("expected repeated projection to start one product-agent request, got %#v", productAgent.requestSnapshot())
+	}
+	close(release)
+	if !eventually(2*time.Second, func() bool { return len(transport.messages) == 1 }) {
+		t.Fatalf("expected repeated projection to send one Matrix reply, got %#v", transport.messages)
 	}
 }
 
@@ -1342,5 +1492,61 @@ func TestProjectOutputEventIgnoresNonRoomEvents(t *testing.T) {
 	service := NewService(Config{ServerName: "test"})
 	if err := service.ProjectOutputEvent(context.Background(), roomserverAPI.OutputEvent{Type: roomserverAPI.OutputTypeOldRoomEvent}); err != nil {
 		t.Fatalf("expected ignored output event, got %v", err)
+	}
+}
+
+type recordingProductAgentClient struct {
+	mu         sync.Mutex
+	requests   []ProductAgentMessageRequest
+	response   ProductAgentMessageResponse
+	err        error
+	blockUntil <-chan struct{}
+}
+
+func (c *recordingProductAgentClient) HandleMessage(ctx context.Context, req ProductAgentMessageRequest) (ProductAgentMessageResponse, error) {
+	c.mu.Lock()
+	c.requests = append(c.requests, req)
+	c.mu.Unlock()
+	if c.blockUntil != nil {
+		select {
+		case <-ctx.Done():
+			return ProductAgentMessageResponse{}, ctx.Err()
+		case <-c.blockUntil:
+		}
+	}
+	return c.response, c.err
+}
+
+func (c *recordingProductAgentClient) requestCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.requests)
+}
+
+func (c *recordingProductAgentClient) requestSnapshot() []ProductAgentMessageRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]ProductAgentMessageRequest(nil), c.requests...)
+}
+
+func (c *recordingProductAgentClient) firstRequest() (ProductAgentMessageRequest, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.requests) == 0 {
+		return ProductAgentMessageRequest{}, false
+	}
+	return c.requests[0], true
+}
+
+func eventually(timeout time.Duration, condition func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if condition() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
