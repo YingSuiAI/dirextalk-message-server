@@ -33,7 +33,7 @@ Clients use the current call surface:
 - `agent.models.list` uses request-scoped provider/base_url/api_key to fetch real provider model lists. It must not persist API keys, maintain server-side model profiles for the current client, or invent model context/temperature/top_p/max-output/reasoning defaults.
 - DeepSeek defaults to the OpenAI-compatible endpoint `https://api.deepseek.com`.
 - API keys are request-local or temporary environment values only. They must not be persisted, logged, committed, or returned by config APIs.
-- System prompts come from native Agent config, request overrides, and enabled static skills.
+- System prompts start with the built-in Dirextalk Native Agent product rules, then append native Agent config, request overrides, and enabled static skills. User-provided system prompts must not override the built-in rules for using first-class Native Agent tools for skills, MCP, runtime, and Dirextalk product operations.
 - `agent.chat` returns a complete response.
 - Native stream emits `delta`, `error`, `trace`, and `done` events through `server.native_agent_stream.*` frames and respects client cancellation.
 - Chat responses and stream completion payloads expose observable `steps` and `trace` data for UI display of context use, tool calls, tool results, and final output. Streamed chats also emit a `trace` event before `done`.
@@ -65,6 +65,7 @@ The external `POST /mcp` transport must call the same `internal/dirextalkmcp` se
 - Only static `SKILL.md` text is read into the prompt. Remote scripts or arbitrary skill code are not executed.
 - Skill install supports explicit `content` and URL/GitHub raw retrieval.
 - Agent conversations expose native skill management tools, so the model can install, list, enable, disable, and uninstall skills when the user explicitly asks for that operation. These management tools are base Agent capabilities and remain available even when older `enabled_tools` config/request values list only Dirextalk content tools.
+- Skill install requests that look like CLI examples, such as `npx skills add https://github.com/owner/repo --skill name`, should be handled through `native_agent_skills_install` rather than shell. When given `repo_url` plus `name` or `id`, the backend tries common GitHub monorepo paths such as `skills/<name>/SKILL.md`, `<name>/SKILL.md`, and root `SKILL.md`.
 - A newly installed or re-enabled skill affects the next Agent turn after the system prompt is rebuilt.
 
 ## MCP

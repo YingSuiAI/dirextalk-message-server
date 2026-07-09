@@ -38,15 +38,30 @@ func (r *Runtime) skillInstall(ctx context.Context, params map[string]any) (map[
 	content := trimString(item["content"])
 	sourceURL := trimString(item["url"])
 	if content == "" {
-		sourceURL = fallbackString(sourceURL, githubRawSkillURL(item))
-		if sourceURL == "" {
-			return nil, fmt.Errorf("skill content or url is required")
+		if sourceURL != "" {
+			fetched, err := r.fetchText(ctx, sourceURL)
+			if err != nil {
+				return nil, err
+			}
+			content = fetched
+		} else {
+			var lastErr error
+			for _, candidateURL := range githubRawSkillURLs(item) {
+				fetched, err := r.fetchText(ctx, candidateURL)
+				if err == nil {
+					sourceURL = candidateURL
+					content = fetched
+					break
+				}
+				lastErr = err
+			}
+			if content == "" {
+				if lastErr != nil {
+					return nil, fmt.Errorf("fetch skill from repository failed: %w", lastErr)
+				}
+				return nil, fmt.Errorf("skill content, url, or repo_url is required")
+			}
 		}
-		fetched, err := r.fetchText(ctx, sourceURL)
-		if err != nil {
-			return nil, err
-		}
-		content = fetched
 	}
 	if !strings.Contains(strings.ToLower(content), "skill") {
 		return nil, fmt.Errorf("skill content must look like SKILL.md")
@@ -150,23 +165,93 @@ func (r *Runtime) enabledSkillsPrompt(ctx context.Context, config map[string]any
 }
 
 func githubRawSkillURL(item map[string]any) string {
-	repo := strings.TrimSpace(trimString(item["repo_url"]))
-	if repo == "" || !strings.Contains(repo, "github.com/") {
+	urls := githubRawSkillURLs(item)
+	if len(urls) == 0 {
 		return ""
 	}
-	repo = strings.TrimSuffix(repo, ".git")
-	parts := strings.Split(strings.Trim(strings.TrimPrefix(strings.TrimPrefix(repo, "https://github.com/"), "git@github.com:"), "/"), "/")
+	return urls[0]
+}
+
+func githubRawSkillURLs(item map[string]any) []string {
+	repo := strings.TrimSpace(trimString(item["repo_url"]))
+	parts := githubRepoParts(repo)
 	if len(parts) < 2 {
-		return ""
+		return nil
 	}
 	ref := fallbackString(trimString(item["ref"]), "main")
-	skillPath := strings.Trim(trimString(item["path"]), "/")
-	if skillPath == "" {
-		skillPath = "SKILL.md"
-	} else if !strings.HasSuffix(strings.ToLower(skillPath), ".md") {
-		skillPath = path.Join(skillPath, "SKILL.md")
+	rawURL := func(skillPath string) string {
+		skillPath = strings.Trim(skillPath, "/")
+		if skillPath == "" {
+			skillPath = "SKILL.md"
+		} else if !strings.HasSuffix(strings.ToLower(skillPath), ".md") {
+			skillPath = path.Join(skillPath, "SKILL.md")
+		}
+		return "https://raw.githubusercontent.com/" + parts[0] + "/" + parts[1] + "/" + ref + "/" + skillPath
 	}
-	return "https://raw.githubusercontent.com/" + parts[0] + "/" + parts[1] + "/" + ref + "/" + skillPath
+	if explicitPath := strings.Trim(trimString(item["path"]), "/"); explicitPath != "" {
+		return []string{rawURL(explicitPath)}
+	}
+	names := skillCandidateNames(item)
+	candidatePaths := make([]string, 0, len(names)*3+1)
+	for _, name := range names {
+		candidatePaths = append(candidatePaths,
+			path.Join("skills", name),
+			name,
+			path.Join("skill", name),
+		)
+	}
+	candidatePaths = append(candidatePaths, "SKILL.md")
+	seen := map[string]bool{}
+	urls := make([]string, 0, len(candidatePaths))
+	for _, candidate := range candidatePaths {
+		url := rawURL(candidate)
+		if !seen[url] {
+			seen[url] = true
+			urls = append(urls, url)
+		}
+	}
+	return urls
+}
+
+func githubRepoParts(repo string) []string {
+	repo = strings.TrimSpace(strings.TrimSuffix(repo, ".git"))
+	switch {
+	case strings.HasPrefix(repo, "https://github.com/"):
+		repo = strings.TrimPrefix(repo, "https://github.com/")
+	case strings.HasPrefix(repo, "http://github.com/"):
+		repo = strings.TrimPrefix(repo, "http://github.com/")
+	case strings.HasPrefix(repo, "git@github.com:"):
+		repo = strings.TrimPrefix(repo, "git@github.com:")
+	case strings.Contains(repo, "://"):
+		return nil
+	}
+	parts := strings.Split(strings.Trim(repo, "/"), "/")
+	if len(parts) < 2 {
+		return nil
+	}
+	return parts[:2]
+}
+
+func skillCandidateNames(item map[string]any) []string {
+	rawNames := []string{
+		trimString(item["name"]),
+		trimString(item["id"]),
+	}
+	names := make([]string, 0, len(rawNames)*2)
+	seen := map[string]bool{}
+	add := func(value string) {
+		value = strings.Trim(value, "/")
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		names = append(names, value)
+	}
+	for _, name := range rawNames {
+		add(name)
+		add(sanitizeNativeID(name))
+	}
+	return names
 }
 
 func (r *Runtime) fetchText(ctx context.Context, url string) (string, error) {

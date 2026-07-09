@@ -23,6 +23,8 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name: "native_agent_skills_install",
 			Description: "Install a native Agent skill from SKILL.md content, an HTTPS URL, or a GitHub repository path. " +
+				"Use this directly for requests like \"npx skills add https://github.com/owner/repo --skill name\" by passing repo_url and name; do not execute that command in shell. " +
+				"For skills monorepos, pass name or path and the server will try common SKILL.md locations such as skills/<name>/SKILL.md. " +
 				"Use only when the user explicitly asks to install or add a skill. Skill scripts are not executed; installed skill instructions affect the next Agent turn after the prompt is rebuilt.",
 			Write: true,
 			Parameters: objectSchema(map[string]any{
@@ -86,6 +88,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name: "native_agent_mcp_servers_install",
 			Description: "Install a native Agent MCP server from stdio, HTTP, SSE, or streamable HTTP configuration. " +
+				"Use this directly for MCP setup instead of shell when the user provides server command, URL, or package metadata. " +
 				"Use only when the user explicitly asks to install or add an MCP server. Discovered MCP tools become callable on the next Agent turn after tools are rebuilt.",
 			Write: true,
 			Parameters: objectSchema(map[string]any{

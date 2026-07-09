@@ -83,6 +83,8 @@ Native Agent `agent.chat` can now expose owner-scoped management tools to the mo
 
 Skills installed from dialogue are cached as static `SKILL.md` content and do not execute remote skill scripts. A newly installed skill affects the next Agent turn after the system prompt is rebuilt. MCP servers installed from dialogue may discover tools immediately, but those tools become callable on the next Agent turn after the Eino tool list is rebuilt.
 
+Native Agent chat now prepends built-in Dirextalk product rules before any configured or request-scoped system prompt. These rules tell the model to prefer first-class Native Agent management tools over shell commands, to translate `npx skills add <repo> --skill <name>` examples into `native_agent_skills_install` calls, and to keep install/deploy workflows step-efficient. `agent.skills.install` also accepts GitHub owner/repo shorthand and, when given `repo_url` plus `name` or `id` without an explicit path, tries common skills monorepo locations before root `SKILL.md`.
+
 ## 2026-07-08 Native Agent Observable Trace
 
 Native Agent `agent.chat` responses now include `steps` and `trace` fields. `steps` is a compact list of observable execution steps such as context loading, tool calls, tool results, assistant messages, and final output previews. `trace` wraps those steps with framework metadata, context usage, tool calls, and the final answer text.

@@ -70,3 +70,41 @@ func TestSkillInstallListsAndInjectsStaticSkillPrompt(t *testing.T) {
 		t.Fatalf("expected only second skill after uninstall, got %#v", list)
 	}
 }
+
+func TestGithubRawSkillURLsPreferNamedMonorepoSkill(t *testing.T) {
+	urls := githubRawSkillURLs(map[string]any{
+		"repo_url": "https://github.com/vercel-labs/skills",
+		"name":     "find-skills",
+	})
+	wantFirst := "https://raw.githubusercontent.com/vercel-labs/skills/main/skills/find-skills/SKILL.md"
+	if len(urls) == 0 || urls[0] != wantFirst {
+		t.Fatalf("first GitHub skill URL = %#v, want first %q", urls, wantFirst)
+	}
+	if !containsString(urls, "https://raw.githubusercontent.com/vercel-labs/skills/main/find-skills/SKILL.md") {
+		t.Fatalf("expected direct skill directory fallback in %#v", urls)
+	}
+	if !containsString(urls, "https://raw.githubusercontent.com/vercel-labs/skills/main/SKILL.md") {
+		t.Fatalf("expected root SKILL.md fallback in %#v", urls)
+	}
+}
+
+func TestGithubRawSkillURLsSupportOwnerRepoShorthandAndExplicitPath(t *testing.T) {
+	urls := githubRawSkillURLs(map[string]any{
+		"repo_url": "mattpocock/skills",
+		"path":     "skills/engineering/code-review",
+		"ref":      "main",
+	})
+	want := []string{"https://raw.githubusercontent.com/mattpocock/skills/main/skills/engineering/code-review/SKILL.md"}
+	if len(urls) != len(want) || urls[0] != want[0] {
+		t.Fatalf("GitHub skill URLs = %#v, want %#v", urls, want)
+	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}

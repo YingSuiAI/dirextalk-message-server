@@ -494,10 +494,14 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stream chat: %v", err)
 	}
-	if len(gotMessages) != 1 {
+	if len(gotMessages) != 2 {
 		t.Fatalf("expected compacted stream messages, got %#v", gotMessages)
 	}
-	last, _ := gotMessages[0].(map[string]any)
+	system, _ := gotMessages[0].(map[string]any)
+	if !strings.Contains(system["content"].(string), "Dirextalk Native Agent") {
+		t.Fatalf("expected native system prompt after compaction, got %#v", gotMessages)
+	}
+	last, _ := gotMessages[1].(map[string]any)
 	if last["content"] != "new" {
 		t.Fatalf("expected newest message after compaction, got %#v", gotMessages)
 	}
