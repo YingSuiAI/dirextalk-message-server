@@ -2416,12 +2416,10 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 	}
 
 	if _, apiErr := service.Handle(context.Background(), "reports.submit", map[string]any{
-		"reporterDomain": "alice.example",
-		"reportedDomain": "channel.example",
-		"targetType":     float64(2),
-		"reason":         "spam",
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed reports.submit to be unknown, got %#v", apiErr)
+		"reporter_mxid": "@alice:example.com",
+		"reason":        "spam",
+	}); apiErr == nil || apiErr.Status != http.StatusBadRequest || apiErr.Error != "room_id or channel_id is required" {
+		t.Fatalf("expected reports.submit without room/channel target to be rejected, got %#v", apiErr)
 	}
 
 	if _, apiErr := service.Handle(context.Background(), "sync.messages", map[string]any{"room_id": "!room:example.com"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
