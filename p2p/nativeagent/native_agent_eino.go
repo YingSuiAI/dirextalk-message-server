@@ -66,40 +66,54 @@ func (r *Runtime) runEinoAgent(ctx context.Context, profile nativeModelProfile, 
 	return strings.TrimSpace(message.Content), recorder.snapshot(), produced, nil
 }
 
-func (r *Runtime) streamEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool, emit func(Event) error, maxSteps int) (string, []map[string]any, []*schema.Message, error) {
+func (r *Runtime) streamEinoAgent(ctx context.Context, profile nativeModelProfile, messages []*schema.Message, session einoAgentSession, tools []einotool.BaseTool, emit func(Event) error, maxSteps int) (string, string, []map[string]any, []*schema.Message, error) {
 	agentRunner, err := r.newEinoAgent(ctx, profile, tools, session, maxSteps)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 	recorder := &einoToolCallRecorder{}
 	futureOpt, future := react.WithMessageFuture()
 	stream, err := agentRunner.Stream(ctx, messages, recorder.option(), futureOpt)
 	if err != nil {
-		return "", recorder.snapshot(), nil, err
+		return "", "", recorder.snapshot(), nil, err
 	}
 	defer stream.Close()
 	var full strings.Builder
+	var reasoning strings.Builder
 	for {
 		chunk, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", recorder.snapshot(), nil, err
+			return "", "", recorder.snapshot(), nil, err
 		}
-		if chunk == nil || chunk.Content == "" {
+		if chunk == nil {
 			continue
 		}
-		full.WriteString(chunk.Content)
-		if err := emit(Event{Event: "delta", Data: map[string]any{"text": chunk.Content}}); err != nil {
-			return "", recorder.snapshot(), nil, err
+		textDelta := chunk.Content
+		reasoningDelta := chunk.ReasoningContent
+		if textDelta == "" && reasoningDelta == "" {
+			continue
+		}
+		data := map[string]any{}
+		if reasoningDelta != "" {
+			reasoning.WriteString(reasoningDelta)
+			data["reasoning_content"] = reasoningDelta
+		}
+		if textDelta != "" {
+			full.WriteString(textDelta)
+			data["text"] = textDelta
+		}
+		if err := emit(Event{Event: "delta", Data: data}); err != nil {
+			return "", "", recorder.snapshot(), nil, err
 		}
 	}
 	produced, err := collectStreamedEinoMessages(future)
 	if err != nil {
-		return "", recorder.snapshot(), produced, err
+		return "", "", recorder.snapshot(), produced, err
 	}
-	return full.String(), recorder.snapshot(), produced, nil
+	return full.String(), reasoning.String(), recorder.snapshot(), produced, nil
 }
 
 func (r *Runtime) newEinoAgent(ctx context.Context, profile nativeModelProfile, tools []einotool.BaseTool, session einoAgentSession, maxSteps int) (*react.Agent, error) {

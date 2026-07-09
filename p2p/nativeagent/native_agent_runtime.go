@@ -151,7 +151,7 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		return err
 	}
 	defer cleanup()
-	text, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit, run.maxSteps)
+	text, reasoning, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit, run.maxSteps)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if err := emit(Event{Event: "trace", Data: trace}); err != nil {
 		return err
 	}
-	return emit(Event{Event: "done", Data: map[string]any{
+	done := map[string]any{
 		"ok":         true,
 		"native":     true,
 		"framework":  "eino",
@@ -170,7 +170,11 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		"tool_calls": toolCalls,
 		"steps":      trace["steps"],
 		"trace":      trace,
-	}})
+	}
+	if reasoning != "" {
+		done["reasoning_content"] = reasoning
+	}
+	return emit(Event{Event: "done", Data: done})
 }
 
 func (r *Runtime) ensureDataDirs() error {

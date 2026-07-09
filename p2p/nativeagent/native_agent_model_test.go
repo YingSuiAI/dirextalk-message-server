@@ -503,6 +503,45 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	}
 }
 
+func TestStreamEmitsOpenAICompatibleReasoningContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"先分析\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"，再回答\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	var events []Event
+	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-stream",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	}, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("expected reasoning delta, text delta, trace, and done events, got %#v", events)
+	}
+	if events[0].Event != "delta" || events[0].Data["reasoning_content"] != "先分析" {
+		t.Fatalf("expected reasoning delta, got %#v", events[0])
+	}
+	if events[1].Event != "delta" || events[1].Data["text"] != "，再回答" {
+		t.Fatalf("expected text delta, got %#v", events[1])
+	}
+	if events[3].Event != "done" || events[3].Data["text"] != "，再回答" || events[3].Data["reasoning_content"] != "先分析" {
+		t.Fatalf("expected done to include text and reasoning, got %#v", events[3])
+	}
+}
+
 func traceHasStep(steps []map[string]any, stepType, name string) bool {
 	for _, step := range steps {
 		if step["type"] == stepType && step["name"] == name {

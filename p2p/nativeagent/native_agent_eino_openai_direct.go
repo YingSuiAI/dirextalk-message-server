@@ -244,7 +244,9 @@ func openAICompatibleMessageFromResponse(decoded map[string]any) *schema.Message
 	}
 	choice, _ := choices[0].(map[string]any)
 	rawMessage, _ := choice["message"].(map[string]any)
-	return schema.AssistantMessage(openAICompatibleText(rawMessage["content"]), openAICompatibleToolCallsFromAny(rawMessage["tool_calls"]))
+	message := schema.AssistantMessage(openAICompatibleText(rawMessage["content"]), openAICompatibleToolCallsFromAny(rawMessage["tool_calls"]))
+	message.ReasoningContent = openAICompatibleText(rawMessage["reasoning_content"])
+	return message
 }
 
 func openAICompatibleMessageFromStreamEvent(data []byte) *schema.Message {
@@ -259,11 +261,14 @@ func openAICompatibleMessageFromStreamEvent(data []byte) *schema.Message {
 	choice, _ := choices[0].(map[string]any)
 	delta, _ := choice["delta"].(map[string]any)
 	content := openAICompatibleText(delta["content"])
+	reasoningContent := openAICompatibleText(delta["reasoning_content"])
 	calls := openAICompatibleToolCallsFromAny(delta["tool_calls"])
-	if content == "" && len(calls) == 0 {
+	if content == "" && reasoningContent == "" && len(calls) == 0 {
 		return nil
 	}
-	return schema.AssistantMessage(content, calls)
+	message := schema.AssistantMessage(content, calls)
+	message.ReasoningContent = reasoningContent
+	return message
 }
 
 func openAICompatibleText(value any) string {
