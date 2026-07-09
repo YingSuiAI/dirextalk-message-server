@@ -224,11 +224,14 @@ Public actions currently allowed without bearer:
 - `portal.status`
 - `contacts.reactivate`
 - `rooms.reactivate`
+- `reports.submit`
 - `channels.public.get`
 - `channels.public.join_request`
 - `channels.public.join_result`
 - `channels.public.search`
 - `users.public_channels`
+
+The complete action auth and transport contract is generated from `p2p/serviceapi.ActionSpecs` into `docs/product-action-contract.json`.
 
 Startup now performs default portal initialization. When no `p2p_portal` row exists, the integrated service creates owner/agent tokens, owner profile metadata, and a default password automatically, then persists that state to PostgreSQL when a store is available. `P2P_PORTAL_PASSWORD` can override the default password; otherwise a new portal starts with a random 8-digit numeric password and writes it to the credentials file. `P2P_PORTAL_CREDENTIALS_FILE` writes the current credential JSON after startup and after password/session token changes. `portal.account.delete` first publishes the direct-contact account-deleted profile state, leaves direct/member rooms, dissolves owned groups/channels, then overwrites that credentials file with a non-secret `deprovisioned` marker before clearing local databases.
 

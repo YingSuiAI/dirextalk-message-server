@@ -1,0 +1,721 @@
+{
+  "schema_version": 1,
+  "generated_from": "p2p/serviceapi.ActionSpecs",
+  "actions": [
+    {
+      "name": "portal.bootstrap",
+      "auth": "public",
+      "transport": "http_only"
+    },
+    {
+      "name": "portal.auth",
+      "auth": "public",
+      "transport": "http_only"
+    },
+    {
+      "name": "portal.status",
+      "auth": "public",
+      "transport": "http_only"
+    },
+    {
+      "name": "portal.password",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "portal.account.delete",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "realtime.ws_ticket.create",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "profile.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "profile.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "sync.bootstrap",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "sync.read_marker",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "conversations.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "conversations.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.password",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.matrix_session.create",
+      "auth": "agent",
+      "transport": "http_only"
+    },
+    {
+      "name": "agent.config.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.config.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.config.propose_patch",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.chat",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.chat.stream",
+      "auth": "owner",
+      "transport": "ws_stream_only"
+    },
+    {
+      "name": "agent.context.compress",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.models.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.runtime.inspect",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.runtime.install",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.runtime.which",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.runtime.run",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.install",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.enable",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.disable",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.uninstall",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.skills.registry.search",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.servers.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.servers.install",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.servers.enable",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.servers.disable",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.servers.uninstall",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.mcp.registry.search",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.config.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.config.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.sources.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.sources.delete",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.upload.start",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.upload.chunk",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.upload.finish",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.memory.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.search",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.knowledge.status",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.contacts.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.contacts.search",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.rooms.search",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.messages.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.messages.send",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.room_members.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.channel_posts.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.channel_comments.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.channel_comments.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.summarize",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "plugins.catalog.list",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.installed.list",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.install",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.enable",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.disable",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.uninstall",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.config.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.config.update",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.job.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.health",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.logs.tail",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.invoke",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "plugins.invoke.stream",
+      "auth": "owner",
+      "transport": "ws_stream_only"
+    },
+    {
+      "name": "contacts.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.request",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.reactivate",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "rooms.reactivate",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.requests.accept",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.requests.reject",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.requests.delete",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.delete",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "contacts.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "blocks.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "blocks.add",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "blocks.remove",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "follows.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "follows.add",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "follows.remove",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "favorites.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "favorites.add",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "favorites.delete",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "favorites.delete_batch",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "reports.submit",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.incoming",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.event",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.active",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "calls.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.invite",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.join",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.members",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.dissolve",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.leave",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.invite.reject",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.member.remove",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.member.mute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.member.unmute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.mute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.unmute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "groups.invite_policy.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.update",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.join",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.invite_grant.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.invite",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.dissolve",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.leave",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.member.remove",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.member.mute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.member.unmute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.join_request.approve",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.join_request.reject",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.mute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.unmute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.read_marker",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.members",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.public.search",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.public.get",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.public.join_request",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.public.join_result",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "users.public_channels",
+      "auth": "public",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.posts.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.posts.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.posts.recall",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.comments.recall",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.comments.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.comments.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.post_reaction.toggle",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.comment_reaction.toggle",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.my_comments",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "channels.my_reactions",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    }
+  ]
+}

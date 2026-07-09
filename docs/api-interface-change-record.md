@@ -553,7 +553,7 @@ All six required bearer auth. Owner `access_token` could call them, and `agent_t
 
 Ordinary MCP message send/list remains separate from channel post/comment product content. `mcp.messages.send` writes a plain `m.room.message` without `p2p_kind`; `mcp.messages.list` reads ordinary Matrix timeline messages through a server-side Matrix reader and filters out events carrying product `p2p_kind`. No P2P ordinary-message store was added.
 
-The live P2P body-action count is now 91.
+At that point, the P2P body-action count was 91. Current action metadata is generated into `docs/product-action-contract.json`.
 
 ## 2026-07-03 Account Deletion
 
@@ -595,7 +595,7 @@ Breaking removals and contract changes:
 - Added protected action `agent.matrix_session.create` on `POST /_p2p/command`. It initially required bearer `access_token`; current servers accept owner `access_token` or `agent_token`. It returns a Matrix Client-Server session: `access_token`, `device_id`, `user_id`, and `homeserver`.
 - `portal.bootstrap`, `portal.auth`, and `portal.password` return one setup state field: `initialized`. It is `false` while the generated initial password is still in use and becomes `true` after `portal.password` changes that password. Clients should store `access_token` and route by `initialized`; profile completion is independent.
 
-The live P2P body-action count is 91. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+The live P2P body-action contract is generated from `p2p/serviceapi.ActionSpecs` into `docs/product-action-contract.json`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `reports.submit`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
 ## Current Pass
 
@@ -681,9 +681,9 @@ The product route contract remains:
 - `GET /_p2p/events`
 - `GET /.well-known/portal/owner.json`
 
-At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for product body-action `agent.matrix_session.create` and standard `POST /mcp`. Public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+At that point, protected product actions required bearer `access_token`, while `agent_token` was accepted only for fixed `mcp.*` actions and `GET /_p2p/events`. Current servers have removed `GET /_p2p/events` and accept `agent_token` only for product body-action `agent.matrix_session.create` and standard `POST /mcp`. Current public actions are generated into `docs/product-action-contract.json` and include `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `reports.submit`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 
-The live P2P action count is now 90.
+Current action metadata is generated into `docs/product-action-contract.json`.
 
 ## ProductCore Conversation Contract
 
