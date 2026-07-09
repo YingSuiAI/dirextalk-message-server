@@ -78,8 +78,10 @@ func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []
 }
 
 func nativeAgentManagementTool(name string) bool {
-	return strings.HasPrefix(strings.TrimSpace(name), "native_agent_skills_") ||
-		strings.HasPrefix(strings.TrimSpace(name), "native_agent_mcp_servers_")
+	name = strings.TrimSpace(name)
+	return name == "native_agent_runtime_inspect" ||
+		strings.HasPrefix(name, "native_agent_skills_") ||
+		strings.HasPrefix(name, "native_agent_mcp_servers_")
 }
 
 func nativeAgentDangerousTool(tool Tool) bool {

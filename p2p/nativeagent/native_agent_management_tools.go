@@ -5,6 +5,14 @@ import "context"
 func (r *Runtime) managementTools() []Tool {
 	return []Tool{
 		{
+			Name:        "native_agent_runtime_inspect",
+			Description: "Inspect Native Agent runtime configuration, installed skills, MCP servers, and runtime tool metadata without executing commands or changing configuration.",
+			Parameters:  objectSchema(nil),
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				return r.runtimeInspect(ctx)
+			},
+		},
+		{
 			Name:        "native_agent_skills_list",
 			Description: "List installed native Agent skills. Use this before installing a skill when the user asks what skills are already available.",
 			Parameters:  objectSchema(nil),

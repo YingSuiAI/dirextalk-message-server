@@ -123,12 +123,60 @@ func normalizeModelList(provider string, rawModels []map[string]any) []map[strin
 			"name":     fallbackString(trimString(raw["name"]), id),
 			"provider": provider,
 		}
-		for _, key := range []string{"context_length", "context_window", "max_output_tokens"} {
+		for _, key := range []string{"context_length", "context_window", "max_output_tokens", "temperature", "top_p", "top_k", "reasoning_mode", "reasoning_modes"} {
 			if value, ok := raw[key]; ok {
 				model[key] = value
 			}
 		}
+		applyKnownModelDefaults(provider, id, model)
 		models = append(models, model)
 	}
 	return models
+}
+
+func applyKnownModelDefaults(provider, id string, model map[string]any) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	normalizedID := strings.ToLower(strings.TrimSpace(id))
+	if normalizedID == "" {
+		return
+	}
+	setDefault := func(key string, value any) {
+		if _, ok := model[key]; !ok {
+			model[key] = value
+		}
+	}
+	setDefault("temperature", 1.0)
+	setDefault("top_p", 1.0)
+	switch provider {
+	case "openai":
+		switch {
+		case strings.Contains(normalizedID, "gpt-4.1"):
+			setDefault("context_length", int64(1047576))
+			setDefault("max_output_tokens", int64(32768))
+		case strings.Contains(normalizedID, "gpt-4o"):
+			setDefault("context_length", int64(128000))
+			setDefault("max_output_tokens", int64(16384))
+		case strings.HasPrefix(normalizedID, "gpt-5"):
+			setDefault("context_length", int64(400000))
+			setDefault("max_output_tokens", int64(128000))
+			setDefault("reasoning_modes", []string{"low", "medium", "high", "xhigh"})
+			setDefault("reasoning_mode", "medium")
+		case strings.HasPrefix(normalizedID, "o"):
+			setDefault("context_length", int64(200000))
+			setDefault("max_output_tokens", int64(100000))
+			setDefault("reasoning_modes", []string{"low", "medium", "high", "xhigh"})
+			setDefault("reasoning_mode", "medium")
+		}
+	case "deepseek":
+		switch {
+		case strings.Contains(normalizedID, "reasoner") || strings.Contains(normalizedID, "r1"):
+			setDefault("context_length", int64(64000))
+			setDefault("max_output_tokens", int64(8192))
+			setDefault("reasoning_modes", []string{"auto"})
+			setDefault("reasoning_mode", "auto")
+		case strings.Contains(normalizedID, "v4"):
+			setDefault("context_length", int64(128000))
+			setDefault("max_output_tokens", int64(8192))
+		}
+	}
 }
