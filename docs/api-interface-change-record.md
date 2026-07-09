@@ -75,7 +75,7 @@ Native Agent `agent.chat` introduced a built-in `runtime__shell` Eino tool. This
 
 Operators may disable the chat shell tool with Agent config `runtime_shell_enabled=false`. The final Docker runtime image now installs `bash` in addition to `/bin/sh`, so bash-based deployment/runtime scripts can run in the container when those scripts are present in the Agent runtime environment.
 
-Native Agent ReAct execution now uses a higher default graph step budget and accepts `max_tool_calls` or `max_steps` in Agent config or request params. This lets deployment-style shell workflows complete multiple command/tool rounds without `[GraphRunError] exceeds max steps`; `max_steps` is capped server-side to prevent unbounded loops.
+Native Agent ReAct execution now defaults to a 48-tool-call / 100-graph-step budget and accepts `max_tool_calls` or `max_steps` in Agent config or request params. This lets deployment-style shell and multi-skill install workflows complete multiple command/tool rounds without `[GraphRunError] exceeds max steps`; explicit `max_steps` is capped at 240 server-side to prevent unbounded loops.
 
 ## 2026-07-08 Native Agent Dialogue Management Tools
 

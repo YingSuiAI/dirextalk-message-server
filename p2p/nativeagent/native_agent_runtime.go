@@ -13,7 +13,7 @@ import (
 const (
 	defaultNativeAgentDataDir = "/var/dirextalk-message-server/agent"
 	nativeAgentHTTPTimeout    = 90 * time.Second
-	nativeAgentToolCallLimit  = 12
+	nativeAgentToolCallLimit  = 48
 )
 
 type Config struct {

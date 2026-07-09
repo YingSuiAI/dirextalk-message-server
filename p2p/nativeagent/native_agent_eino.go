@@ -14,7 +14,7 @@ import (
 )
 
 const nativeAgentGraphName = "DirextalkNativeAgent"
-const nativeAgentMaxStepLimit = 100
+const nativeAgentMaxStepLimit = 240
 
 func nativeAgentMaxSteps(config map[string]any, params map[string]any) int {
 	if steps := int(int64Param(params["max_steps"])); steps > 0 {
