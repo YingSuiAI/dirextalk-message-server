@@ -15,11 +15,12 @@ type nativeModelProfile struct {
 	TopP            *float64
 	MaxOutputTokens int
 	ContextWindow   int
+	ReasoningMode   string
 }
 
 func (r *Runtime) resolveModelProfile(config map[string]any, params map[string]any) nativeModelProfile {
 	raw := map[string]any{}
-	for _, key := range []string{"provider", "model", "base_url", "temperature", "top_p", "max_output_tokens", "context_window"} {
+	for _, key := range []string{"provider", "model", "base_url", "temperature", "top_p", "max_output_tokens", "context_window", "reasoning_mode"} {
 		if value, ok := config[key]; ok {
 			raw[key] = value
 		}
@@ -51,6 +52,19 @@ func (r *Runtime) resolveModelProfile(config map[string]any, params map[string]a
 		TopP:            optionalFloat(raw["top_p"]),
 		MaxOutputTokens: int(int64Param(raw["max_output_tokens"])),
 		ContextWindow:   int(int64Param(raw["context_window"])),
+		ReasoningMode:   normalizedReasoningMode(raw["reasoning_mode"]),
+	}
+}
+
+func normalizedReasoningMode(value any) string {
+	mode := strings.ToLower(strings.TrimSpace(trimString(value)))
+	switch mode {
+	case "", "none", "off":
+		return ""
+	case "minimal", "low", "medium", "high", "xhigh", "auto", "fast", "deep":
+		return mode
+	default:
+		return mode
 	}
 }
 

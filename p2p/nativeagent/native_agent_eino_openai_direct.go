@@ -103,6 +103,9 @@ func (m *openAICompatibleDirectChatModel) requestPayload(input []*schema.Message
 	if m.profile.TopP != nil {
 		payload["top_p"] = *m.profile.TopP
 	}
+	if m.profile.ReasoningMode != "" {
+		payload["reasoning_effort"] = m.profile.ReasoningMode
+	}
 	if len(m.tools) > 0 {
 		payload["tools"] = openAICompatibleTools(m.tools)
 	}

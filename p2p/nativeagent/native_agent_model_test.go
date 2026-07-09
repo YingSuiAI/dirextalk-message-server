@@ -551,6 +551,37 @@ func TestStreamEmitsOpenAICompatibleReasoningContent(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleRequestIncludesReasoningEffort(t *testing.T) {
+	var gotReasoningEffort any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		gotReasoningEffort = payload["reasoning_effort"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	_, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider":       "openai_compatible",
+			"model":          "mock-model",
+			"base_url":       server.URL,
+			"api_key":        "test-key",
+			"reasoning_mode": "high",
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if gotReasoningEffort != "high" {
+		t.Fatalf("expected reasoning_effort high, got %#v", gotReasoningEffort)
+	}
+}
+
 func traceHasStep(steps []map[string]any, stepType, name string) bool {
 	for _, step := range steps {
 		if step["type"] == stepType && step["name"] == name {
