@@ -17,6 +17,7 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 - Fixed `mcp.*` HTTP body actions are removed from `/_p2p/query` and `/_p2p/command`; keep `mcp.*` identifiers only as internal capability action IDs inside `internal/dirextalkmcp` and p2p adapters.
 - `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
 - Public actions are generated from `p2p/serviceapi.ActionSpecs` into `docs/product-action-contract.json`; current public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `reports.submit`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
+- `rooms.reactivate` and `channels.public.join_result` are public HTTP-only node-to-node callbacks, not WS `client.request` entries.
 - MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.
 
 When adding, removing, renaming, or changing fields/auth, update focused tests plus the contract-critical docs/Postman/project-local skills in the same change. Do not rewrite long-form audit or implementation documents for every small step; consolidate those at phase boundaries unless the user explicitly asks for immediate narrative updates.

@@ -89,3 +89,24 @@ func TestActionMetadataCoversRegistryAndDerivesClassifications(t *testing.T) {
 		}
 	}
 }
+
+func TestInternalPublicCallbacksAreHTTPOnly(t *testing.T) {
+	for _, action := range []string{"rooms.reactivate", "channels.public.join_result"} {
+		spec, ok := serviceapi.ActionSpecFor(action)
+		if !ok {
+			t.Fatalf("expected action metadata for %s", action)
+		}
+		if spec.Auth != serviceapi.ActionAuthPublic {
+			t.Fatalf("expected %s to remain a public node-to-node callback, got %q", action, spec.Auth)
+		}
+		if spec.Transport != serviceapi.ActionTransportHTTPOnly {
+			t.Fatalf("expected %s to be HTTP-only, got %q", action, spec.Transport)
+		}
+		if !serviceapi.HTTPAction(action) {
+			t.Fatalf("expected %s to remain callable through HTTP body actions", action)
+		}
+		if serviceapi.RealtimeWSClientRequestAction(action) {
+			t.Fatalf("expected %s to be blocked from WS client.request", action)
+		}
+	}
+}

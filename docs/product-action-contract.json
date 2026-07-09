@@ -370,7 +370,7 @@
     {
       "name": "rooms.reactivate",
       "auth": "public",
-      "transport": "http_and_ws_request"
+      "transport": "http_only"
     },
     {
       "name": "contacts.requests.accept",
@@ -660,7 +660,7 @@
     {
       "name": "channels.public.join_result",
       "auth": "public",
-      "transport": "http_and_ws_request"
+      "transport": "http_only"
     },
     {
       "name": "users.public_channels",
