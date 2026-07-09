@@ -8,19 +8,11 @@ Server storage is now PostgreSQL-only. SQLite/file database connection strings a
 
 Postman collections are no longer maintained as contract artifacts. Current action metadata remains generated into `docs/product-action-contract.json`; contract-critical changes must update that artifact, current docs, focused tests, and project-local skills instead of Postman examples.
 
-## 2026-07-09 Native Agent Dangerous Tool Confirmation
+## 2026-07-09 Native Agent Tool Confirmation Rollback
 
-Native Agent model-callable dangerous tools are now request-confirmed instead of default-exposed. `agent.chat` and realtime `client.native_agent_stream` expose read-only tools by default. Model-callable write tools, `native_agent_skills_*` mutation tools, `native_agent_mcp_servers_*` mutation tools, external MCP server tools, installed runtime CLI tools, and the built-in `runtime__shell` tool are available to the model only when the current owner request includes:
+The request-scoped `dangerous_tools_confirm` gate is deprecated and no longer controls Native Agent tool exposure. `agent.chat` and realtime `client.native_agent_stream` may expose all configured model-callable tools, including write tools, `native_agent_skills_*` mutation tools, `native_agent_mcp_servers_*` mutation tools, external MCP server tools, installed runtime CLI tools, and the built-in `runtime__shell` tool.
 
-```json
-{
-  "dangerous_tools_confirm": "allow_native_agent_dangerous_tools"
-}
-```
-
-This is a request-level owner confirmation after client-side second confirmation, not a tool argument that the model can add for itself. Direct owner `agent.runtime.*`, `agent.skills.*`, and `agent.mcp.*` body actions remain owner-token actions; this change narrows tools exposed inside model tool-selection loops.
-
-Clients should treat current-turn install, uninstall, enable, disable, run, execute, shell, CLI, package-manager, or service-control prompts as likely dangerous intent and ask the owner before sending the model call. If the owner confirms, the request includes the confirmation field and the model can see the relevant dangerous tools for that request; if the owner declines, the request is still allowed to continue with read-only tools only.
+Clients must not send `dangerous_tools_confirm` for Native Agent chat/stream calls. The server's built-in Native Agent system prompt now treats shell, runtime CLI, skill/MCP mutation tools, external MCP tools, message sends, and channel comment writes as high-risk capabilities and instructs the Agent to warn the user and summarize the exact action/result, but this warning is not an authorization gate.
 
 OpenAI-compatible model calls now forward non-empty `params.model_profile.reasoning_mode` as `reasoning_effort`. Empty, `none`, and `off` values are omitted so provider defaults apply.
 
@@ -71,7 +63,7 @@ Native Agent runtime config uses native portal Agent config storage rather than 
 
 ## 2026-07-08 Native Agent Runtime Shell Tool
 
-Native Agent `agent.chat` introduced a built-in `runtime__shell` Eino tool. This historical default exposure is superseded by the 2026-07-09 dangerous tool confirmation contract: the tool exists, but it is model-callable only for requests that include the owner-confirmed `dangerous_tools_confirm="allow_native_agent_dangerous_tools"` field. The tool accepts `command`/`cmd` and optional `timeout_seconds`, runs inside the message-server container's Native Agent runtime directory, and returns the same observable `ok`, `stdout`, `stderr`, and `exit_code` shape as other runtime command execution.
+Native Agent `agent.chat` introduced a built-in `runtime__shell` Eino tool. The tool accepts `command`/`cmd` and optional `timeout_seconds`, runs inside the message-server container's Native Agent runtime directory, and returns the same observable `ok`, `stdout`, `stderr`, and `exit_code` shape as other runtime command execution. It may be model-callable whenever runtime shell is enabled; high-risk operation warnings are handled by the built-in Native Agent prompt rather than a request confirmation field.
 
 Operators may disable the chat shell tool with Agent config `runtime_shell_enabled=false`. The final Docker runtime image now installs `bash` in addition to `/bin/sh`, so bash-based deployment/runtime scripts can run in the container when those scripts are present in the Agent runtime environment.
 

@@ -16,9 +16,6 @@ import (
 )
 
 func (r *Runtime) enabledOfficialMCPTools(ctx context.Context, config map[string]any, params map[string]any) ([]einotool.BaseTool, func(), error) {
-	if !nativeAgentDangerousToolsConfirmed(params) {
-		return nil, func() {}, nil
-	}
 	var sessions []*mcp.ClientSession
 	cleanup := func() {
 		for _, session := range sessions {

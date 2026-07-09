@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestDangerousEinoToolsRequireRequestConfirmation(t *testing.T) {
+func TestEinoToolsExposeWriteRuntimeAndManagementToolsWithoutConfirmation(t *testing.T) {
 	runtime := New(Config{
 		DataDir: filepath.Join(t.TempDir(), "agent"),
 		Store: &testConfigStore{config: map[string]any{
@@ -30,7 +30,7 @@ func TestDangerousEinoToolsRequireRequestConfirmation(t *testing.T) {
 		},
 	}, map[string]any{"enabled_tools": []any{"all"}})
 	if err != nil {
-		t.Fatalf("enabled tools without confirmation: %v", err)
+		t.Fatalf("enabled tools: %v", err)
 	}
 	defer cleanup()
 	names := einoToolNames(t, tools)
@@ -44,33 +44,8 @@ func TestDangerousEinoToolsRequireRequestConfirmation(t *testing.T) {
 		"native_agent_skills_install",
 		"native_agent_mcp_servers_install",
 	} {
-		if names[name] {
-			t.Fatalf("dangerous tool %s must require request confirmation, got %#v", name, names)
-		}
-	}
-
-	confirmedTools, confirmedCleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{
-		"runtime_tools": []any{
-			map[string]any{"id": "deploy", "command": "deploy"},
-		},
-	}, map[string]any{
-		"enabled_tools":           []any{"all"},
-		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
-	})
-	if err != nil {
-		t.Fatalf("enabled tools with confirmation: %v", err)
-	}
-	defer confirmedCleanup()
-	confirmedNames := einoToolNames(t, confirmedTools)
-	for _, name := range []string{
-		"danger_write",
-		"runtime__shell",
-		"runtime__deploy",
-		"native_agent_skills_install",
-		"native_agent_mcp_servers_install",
-	} {
-		if !confirmedNames[name] {
-			t.Fatalf("dangerous tool %s should be available after confirmation, got %#v", name, confirmedNames)
+		if !names[name] {
+			t.Fatalf("tool %s should be available without request confirmation, got %#v", name, names)
 		}
 	}
 }

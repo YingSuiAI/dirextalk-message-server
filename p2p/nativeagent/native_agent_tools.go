@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-const dangerousToolsConfirmValue = "allow_native_agent_dangerous_tools"
-
 type Tool struct {
 	Name        string
 	Description string
@@ -26,12 +24,8 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 	for _, tool := range availableTools {
 		byName[tool.Name] = tool
 	}
-	dangerousConfirmed := nativeAgentDangerousToolsConfirmed(params)
 	enabled := map[string]bool{}
 	enable := func(tool Tool) {
-		if nativeAgentDangerousTool(tool) && !dangerousConfirmed {
-			return
-		}
 		enabled[tool.Name] = true
 	}
 	if len(selected) == 0 {
@@ -53,9 +47,7 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 			}
 		}
 	}
-	if dangerousConfirmed {
-		enableNativeAgentManagementTools(enabled, availableTools)
-	}
+	enableNativeAgentManagementTools(enabled, availableTools)
 	tools := make([]Tool, 0, len(availableTools))
 	for _, tool := range availableTools {
 		if enabled[tool.Name] {
@@ -63,10 +55,6 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 		}
 	}
 	return tools
-}
-
-func nativeAgentDangerousToolsConfirmed(params map[string]any) bool {
-	return trimString(params["dangerous_tools_confirm"]) == dangerousToolsConfirmValue
 }
 
 func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []Tool) {
@@ -82,10 +70,6 @@ func nativeAgentManagementTool(name string) bool {
 	return name == "native_agent_runtime_inspect" ||
 		strings.HasPrefix(name, "native_agent_skills_") ||
 		strings.HasPrefix(name, "native_agent_mcp_servers_")
-}
-
-func nativeAgentDangerousTool(tool Tool) bool {
-	return tool.Write
 }
 
 func nativeToolAlias(value string) string {
