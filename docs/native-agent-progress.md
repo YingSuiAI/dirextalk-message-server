@@ -25,7 +25,7 @@ Only mark an item after implementation and verification are complete. Do not pre
 
 - [x] Native Agent routes to native runtime and never to Docker runner.
 - [x] Ops and future non-Agent plugins still route to Docker runner when enabled.
-- [x] Historical temporary Agent plugin lifecycle path implemented native install/enable/disable/uninstall/config/health semantics; superseded by first-class `agent.*` actions.
+- [x] Historical temporary Agent-as-plugin lifecycle path is superseded by first-class `agent.*` actions and protected by negative plugin-surface tests.
 - [x] First-class `agent.*` actions support native Agent calls.
 - [x] `client.native_agent_stream` WebSocket path supports native Agent streaming and cancellation.
 - [x] `P2P_NATIVE_AGENT_DATA_DIR` is supported with default `/var/dirextalk-message-server/agent`.

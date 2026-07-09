@@ -30,8 +30,8 @@ func TestNewEnvironmentPluginRunnerUsesDockerWhenEnabled(t *testing.T) {
 func TestValidateOfficialPluginOperationAllowsDirextalkImageWithoutDigest(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "install",
-		PluginID: "io.dirextalk.agent",
-		Image:    "docker.io/dirextalk/agent-plugin:latest",
+		PluginID: "io.dirextalk.backup",
+		Image:    "docker.io/dirextalk/backup-plugin:latest",
 	}
 
 	if err := validateOfficialPluginOperation(op); err != nil {
@@ -42,8 +42,8 @@ func TestValidateOfficialPluginOperationAllowsDirextalkImageWithoutDigest(t *tes
 func TestValidateOfficialPluginOperationRejectsNonDirextalkImage(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "install",
-		PluginID: "io.dirextalk.agent",
-		Image:    "docker.io/example/agent-plugin:latest",
+		PluginID: "io.dirextalk.backup",
+		Image:    "docker.io/example/backup-plugin:latest",
 	}
 
 	if err := validateOfficialPluginOperation(op); err == nil {
@@ -54,8 +54,8 @@ func TestValidateOfficialPluginOperationRejectsNonDirextalkImage(t *testing.T) {
 func TestValidateOfficialPluginOperationRejectsInvalidOptionalDigest(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "install",
-		PluginID: "io.dirextalk.agent",
-		Image:    "dirextalk/agent-plugin:latest",
+		PluginID: "io.dirextalk.backup",
+		Image:    "dirextalk/backup-plugin:latest",
 		Digest:   "latest",
 	}
 
@@ -67,8 +67,8 @@ func TestValidateOfficialPluginOperationRejectsInvalidOptionalDigest(t *testing.
 func TestValidateOfficialPluginOperationRejectsPrivilegedMountForNonOpsPlugin(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "enable",
-		PluginID: "io.dirextalk.agent",
-		Image:    "docker.io/dirextalk/agent-plugin:latest",
+		PluginID: "io.dirextalk.backup",
+		Image:    "docker.io/dirextalk/backup-plugin:latest",
 		Volumes:  []string{"/var/run/docker.sock:/var/run/docker.sock"},
 	}
 
@@ -77,16 +77,16 @@ func TestValidateOfficialPluginOperationRejectsPrivilegedMountForNonOpsPlugin(t 
 	}
 }
 
-func TestValidateOfficialPluginOperationRejectsAgentDataVolume(t *testing.T) {
+func TestValidateOfficialPluginOperationRejectsNonOpsDataVolume(t *testing.T) {
 	op := PluginRunnerOperation{
 		Action:   "enable",
-		PluginID: "io.dirextalk.agent",
-		Image:    "docker.io/dirextalk/agent-plugin:latest",
-		Volumes:  []string{"dirextalk_agent_data:/var/lib/dirextalk-agent"},
+		PluginID: "io.dirextalk.backup",
+		Image:    "docker.io/dirextalk/backup-plugin:latest",
+		Volumes:  []string{"dirextalk_backup_data:/var/lib/dirextalk-backup"},
 	}
 
 	if err := validateOfficialPluginOperation(op); err == nil {
-		t.Fatalf("expected agent data volume to be rejected")
+		t.Fatalf("expected non-ops data volume to be rejected")
 	}
 }
 
@@ -107,11 +107,11 @@ func TestValidateOfficialPluginOperationAllowsOpsPrivilegedMounts(t *testing.T) 
 }
 
 func TestPluginImageReferenceUsesDigestOnlyWhenPresent(t *testing.T) {
-	if got := pluginImageReference(" docker.io/dirextalk/agent-plugin:latest ", ""); got != "docker.io/dirextalk/agent-plugin:latest" {
+	if got := pluginImageReference(" docker.io/dirextalk/backup-plugin:latest ", ""); got != "docker.io/dirextalk/backup-plugin:latest" {
 		t.Fatalf("expected tag image reference, got %q", got)
 	}
 	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if got := pluginImageReference("dirextalk/agent-plugin:latest", digest); got != "dirextalk/agent-plugin:latest@"+digest {
+	if got := pluginImageReference("dirextalk/backup-plugin:latest", digest); got != "dirextalk/backup-plugin:latest@"+digest {
 		t.Fatalf("expected digest image reference, got %q", got)
 	}
 }

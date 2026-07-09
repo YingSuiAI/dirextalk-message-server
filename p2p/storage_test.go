@@ -207,14 +207,14 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	defer store.Close()
 
 	plugin := pluginInstance{
-		ID:        "io.dirextalk.agent",
-		Name:      "Dirextalk Agent",
+		ID:        "io.dirextalk.ops",
+		Name:      "Dirextalk Ops",
 		Version:   "0.1.0",
-		Image:     "docker.io/dirextalk/agent-plugin:latest",
+		Image:     "docker.io/dirextalk/ops-plugin:latest",
 		Digest:    "",
 		Status:    "enabled",
 		Enabled:   true,
-		Config:    map[string]any{"provider": "openai", "model": "gpt-4.1"},
+		Config:    map[string]any{"backup_root": "/var/lib/dirextalk-ops/backups"},
 		LastJobID: "job-install",
 	}
 	if err := store.UpsertPlugin(ctx, plugin); err != nil {
@@ -222,7 +222,7 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	}
 	job := pluginJob{
 		JobID:    "job-install",
-		PluginID: "io.dirextalk.agent",
+		PluginID: plugin.ID,
 		Action:   "install",
 		Status:   "succeeded",
 		Message:  "installed",
@@ -232,8 +232,8 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	}
 	if err := store.UpsertPluginSecret(ctx, pluginSecret{
 		PluginID:  plugin.ID,
-		Name:      "api_key",
-		Value:     "sk-plugin-secret",
+		Name:      "ops_token",
+		Value:     "ops-plugin-secret",
 		UpdatedAt: 1710000000000,
 	}); err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins) != 1 || plugins[0].ID != plugin.ID || !plugins[0].Enabled || plugins[0].Config["model"] != "gpt-4.1" {
+	if len(plugins) != 1 || plugins[0].ID != plugin.ID || !plugins[0].Enabled || plugins[0].Config["backup_root"] != "/var/lib/dirextalk-ops/backups" {
 		t.Fatalf("expected persisted enabled plugin with config, got %#v", plugins)
 	}
 	gotJob, ok, err := reloaded.GetPluginJob(ctx, "job-install")
@@ -259,11 +259,11 @@ func TestDatabaseStorePersistsPluginsAndJobs(t *testing.T) {
 	if !ok || gotJob.PluginID != plugin.ID || gotJob.Status != "succeeded" || gotJob.Message != "installed" {
 		t.Fatalf("expected persisted plugin job, got ok=%v job=%#v", ok, gotJob)
 	}
-	gotSecret, ok, err := reloaded.GetPluginSecret(ctx, plugin.ID, "api_key")
+	gotSecret, ok, err := reloaded.GetPluginSecret(ctx, plugin.ID, "ops_token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok || gotSecret.Value != "sk-plugin-secret" || gotSecret.UpdatedAt != 1710000000000 {
+	if !ok || gotSecret.Value != "ops-plugin-secret" || gotSecret.UpdatedAt != 1710000000000 {
 		t.Fatalf("expected persisted plugin secret metadata, got ok=%v secret=%#v", ok, gotSecret)
 	}
 }
