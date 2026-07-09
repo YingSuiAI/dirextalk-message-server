@@ -1,3 +1,5 @@
+//go:build dendrite_p2p_demo
+
 package yggconn
 
 import (

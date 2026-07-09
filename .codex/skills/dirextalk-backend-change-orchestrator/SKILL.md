@@ -37,3 +37,4 @@ Map only the touched surfaces:
 - Product read models are projections unless a domain rule explicitly makes storage source-of-truth.
 - Ordinary Matrix timeline messages are not copied into a second product ordinary-message store.
 - Agent and system notification rooms are real Matrix rooms. Prefer normal room/timeline events with typed content over new special sync models.
+- Keep documentation changes scoped: contract-critical docs, Postman, and project-local skills move with API/auth/route/storage behavior changes; long-form audit and implementation notes are consolidated at phase boundaries unless the user explicitly asks for immediate narrative updates.

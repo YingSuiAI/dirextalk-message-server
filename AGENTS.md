@@ -106,12 +106,15 @@ gofmt -w <touched go files>
 go test ./p2p ./internal/productpolicy -count=1
 go test ./internal/httputil ./setup -count=1
 go build ./cmd/dirextalk-message-server
+govulncheck ./...
 python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null
 python3 -m json.tool docs/postman/dirextalk-plugins.postman_collection.json >/dev/null
 git diff --check
 docker compose -f docker-compose.p2p.yml config
 docker compose -f docker-compose.p2p-dual.yml config
 ```
+
+Inherited Dendrite demo and upgrade-test tools are outside the default Dirextalk Message Server build, test, and vulnerability-scan surface. `cmd/dendrite-demo-pinecone/*` and `cmd/dendrite-demo-yggdrasil/*` require `-tags=dendrite_p2p_demo`; `cmd/dendrite-upgrade-tests/*` requires `-tags=dendrite_upgrade_tests`. Do not remove those tags or add those packages back to default `./...` unless the dependencies are production-reviewed and `govulncheck ./...` remains clean.
 
 Run the local single-node stack:
 
@@ -196,5 +199,6 @@ Keep project skills as Dirextalk-specific guidance. Do not duplicate generic sys
 - Put audit findings and optimization notes in `docs/api-audit-and-optimization.md`.
 - Put request/response contract changes in `docs/api-interface-change-record.md`.
 - Keep Docker image notes in `docs/dirextalk-message-server.md`, push-gateway notes in `docs/dirextalk-push-gateway.md`, and importable manual examples in `docs/postman/`.
+- Keep documentation updates in two lanes: update contract-critical docs, Postman, and project-local skills in the same change as API/auth/route/storage behavior changes; consolidate long-form audit, implementation notes, and narrative cleanup at phase boundaries instead of rewriting them for every small code commit.
 - Do not recreate inherited Dendrite documentation-site pages, historical implementation trackers, or one-off plan archives unless explicitly requested.
 - Keep Postman examples importable JSON.

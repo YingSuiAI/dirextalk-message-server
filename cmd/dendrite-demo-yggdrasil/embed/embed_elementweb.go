@@ -1,5 +1,5 @@
-//go:build elementweb
-// +build elementweb
+//go:build dendrite_p2p_demo && elementweb
+// +build dendrite_p2p_demo,elementweb
 
 package embed
 

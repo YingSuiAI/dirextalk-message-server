@@ -1,3 +1,5 @@
+//go:build dendrite_upgrade_tests
+
 package main
 
 import (
