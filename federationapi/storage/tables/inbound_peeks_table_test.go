@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -28,8 +27,6 @@ func mustCreateInboundpeeksTable(t *testing.T, dbType test.DBType) (tables.Feder
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresInboundPeeksTable(db)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSQLiteInboundPeeksTable(db)
 	}
 	if err != nil {
 		t.Fatalf("failed to create table: %s", err)

@@ -7,7 +7,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -28,10 +27,6 @@ func mustCreateEventsTable(t *testing.T, dbType test.DBType) (tables.Events, fun
 		err = postgres.CreateEventsTable(db)
 		assert.NoError(t, err)
 		tab, err = postgres.PrepareEventsTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreateEventsTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PrepareEventsTable(db)
 	}
 	assert.NoError(t, err)
 
@@ -109,7 +104,7 @@ func Test_EventsTable(t *testing.T) {
 		}
 		stateEvents2, err := tab.BulkSelectStateEventByNID(ctx, nil, nids, nil)
 		assert.NoError(t, err)
-		// somehow SQLite doesn't return the values ordered as requested by the query
+		// The table contract does not require returned values to preserve input order.
 		assert.ElementsMatch(t, stateEvents, stateEvents2)
 
 		roomNIDs, err := tab.SelectRoomNIDsForEventNIDs(ctx, nil, nids)

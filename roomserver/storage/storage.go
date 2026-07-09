@@ -16,7 +16,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
@@ -24,7 +23,7 @@ import (
 func Open(ctx context.Context, conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions, cache caching.RoomServerCaches) (Database, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.Open(ctx, conMan, dbProperties, cache)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.Open(ctx, conMan, dbProperties, cache)
 	default:

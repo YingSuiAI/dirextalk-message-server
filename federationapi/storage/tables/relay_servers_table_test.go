@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -42,9 +41,6 @@ func mustCreateRelayServersTable(
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresRelayServersTable(db)
-		assert.NoError(t, err)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSQLiteRelayServersTable(db)
 		assert.NoError(t, err)
 	}
 	assert.NoError(t, err)

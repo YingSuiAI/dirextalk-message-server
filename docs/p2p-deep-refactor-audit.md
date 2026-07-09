@@ -21,7 +21,7 @@ The product owner must decide whether `reports.submit` is:
 - internal node/ProductCore-only callback with explicit auth;
 - removed/deprecated.
 
-After that decision, `AGENTS.md`, `docs/current-project-documentation.md`, `p2p/serviceapi/actions.go` action metadata, action registry tests, Postman examples, and stale test wording must be updated together. Until then, keep `reports.submit` listed as a public contract risk.
+After that decision, `AGENTS.md`, `docs/current-project-documentation.md`, `p2p/serviceapi/actions.go` action metadata, action registry tests, generated contract artifacts, and stale test wording must be updated together. Until then, keep `reports.submit` listed as a public contract risk.
 
 ## MCP Product Decision: Unified Capability Service
 
@@ -45,7 +45,7 @@ Resolved compatibility timing after MCP-D:
 - `agent_token` can call only product body-action `agent.matrix_session.create` and standard `POST /mcp`.
 - Keep remaining `mcp.*` identifiers only as internal capability action IDs in `internal/dirextalkmcp` and p2p adapter tests.
 
-Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman collections, project-local `.codex/skills`, and focused tests together. This is an intentional contract change from the previous "no URL-shaped product endpoints" rule.
+Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, project-local `.codex/skills`, generated contract artifacts, and focused tests together. This is an intentional contract change from the previous "no URL-shaped product endpoints" rule.
 
 ## 1. P2P Wrapper/Adapter Inventory
 
@@ -72,7 +72,7 @@ Before exposing the endpoint, update `AGENTS.md`, `docs/current-project-document
 
 ## MCP-A Architecture: Unified Dirextalk MCP Capability Service
 
-Phase MCP-A is documentation/design in this audit and defines future test gates. Do not modify production code, routes, action handlers, Postman, or runtime behavior in this phase.
+Phase MCP-A is documentation/design in this audit and defines future test gates. Do not modify production code, routes, action handlers, generated contract artifacts, or runtime behavior in this phase.
 
 Target package:
 
@@ -206,7 +206,7 @@ These items should be deleted in a later implementation phase only with the note
 | Agents room and system room ids are durable bootstrap/runtime state. | `p2p/service.go`: `ensureAgentRoom`, `needsAgentRoomCreate`; `p2p/service_system_report.go`: `ensureSystemRoom`; `p2p/service_helpers.go`: `writePortalCredentialsFile`, `writeAccountDeletedCredentialsFile` | Refactoring startup repair can orphan real Matrix rooms or leave stale credentials. | Keep startup repair and credentials-file tests when moving setup/runtime code. |
 | Channel content backfill depends on Matrix event id persistence. | `p2p/service_channel_backfill.go`: `backfillJoinedPostChannelContent`, `backfillJoinedChannelContent`, `channelContentBackfillWeight`; `p2p/service_channel_content.go`: `attachChannelPostOperation`, `attachChannelCommentOperation`, `channelPostByEventID`, `channelCommentByEventID`, `channelReactionTargetByEventID`; `internal/dirextalkmatrix/message_reader.go`: `ListChannelContent`; `p2p/service_channel_backfill_test.go`: `TestChannelContentBackfillProjectsReactionsAfterTargetsDespiteTimestamps`, `TestChannelContentBackfillPersistsProjectionAfterReload` | Moving or changing history readers can break post/comment/reaction projection recovery after join/restart. The current backfill projection order must stay dependency-first, not raw timestamp-first, because reaction target lookup needs posts/comments to exist first. Reopened stores must preserve backfilled counts via persisted comments/reactions. | Keep channel backfill tests and low-level `ListChannelContent` fixtures before changing reader behavior; keep PostgreSQL reopen coverage before moving projection storage boundaries. |
 | Reports storage and system-room notification are coupled. | `p2p/service_system_report.go`: `reportSubmit`, `reportNotificationContent`; `p2p/storage/storage_reports.go`: `InsertReport`, `ListReports`; `p2p/service_profile_sync.go`: `syncBootstrap` returns `system_room_id` where applicable; `p2p/service_system_report_test.go`: `TestReportSubmitPersistsReportAndSystemConversationAfterReload` | Changing auth or storage can lose durable reports or duplicate system notifications. | Keep DB-backed report submission coverage that checks Matrix notice behavior, stored report rows, and the system conversation after reload. |
-| Migrations must stay PostgreSQL and SQLite compatible if both paths remain supported. | `p2p/storage/storage_migrations.go`: `DatabaseStore.migrate`, `execMigrationStatements`; `p2p/storage/*_table.go` files; `p2p/storage_test.go`: migration/storage tests | Splitting storage files can reorder or duplicate migrations. | Avoid migration churn in early refactor phases; run storage tests with both default and PostgreSQL-backed paths where available. |
+| Migrations must stay PostgreSQL-only and reject SQLite/file DSNs. | `p2p/storage/storage_migrations.go`: `DatabaseStore.migrate`, `execMigrationStatements`; `p2p/storage/*_table.go` files; `p2p/storage_test.go`: migration/storage tests | Splitting storage files can reorder or duplicate migrations. | Avoid migration churn in early refactor phases; run PostgreSQL-backed storage tests and negative SQLite rejection tests where available. |
 
 ## 9. Test Gaps
 
@@ -268,7 +268,7 @@ Current Phase E checkpoint evidence:
 - Durable/facade record split: `p2p/service_contact_storage.go`, `p2p/service_group_storage.go`, `p2p/service_channel_post_storage.go`, and `p2p/service_channel_comment_storage.go` adapt durable records from `internal/dirextalkdomain` to response-shaped p2p facades. Contract tests in `p2p/contact_storage_record_contract_test.go`, `p2p/group_storage_record_contract_test.go`, `p2p/channel_post_storage_record_contract_test.go`, and `p2p/channel_comment_storage_record_contract_test.go` reject response-only fields in durable records.
 - DB/restart coverage: `p2p/storage_test.go`, `p2p/business_state_test.go`, `p2p/service_channel_backfill_test.go`, `p2p/service_system_report_test.go`, and `p2p/conversation_store_test.go` cover portal/profile/agent config, contacts, groups, members, channel content, reports, conversations, plugins, calls, reactions, and migration/reload behavior.
 - Migration idempotency: `p2p/storage/storage_migrations.go` still uses additive/idempotent `CREATE ... IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`, and migration-version gates. `p2p/storage_test.go:TestDatabaseStoreMigratesLegacyAgentPluginConfigToNativePortalConfig` and `p2p/storage_test.go:TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows` cover repeat migration safety.
-- Public contract impact: none in this checkpoint. The JSON response facades remain in `p2p/domain/types.go`, and no product action, MCP endpoint, auth rule, or Postman example changed.
+- Public contract impact: none in this checkpoint. The JSON response facades remain in `p2p/domain/types.go`, and no product action, MCP endpoint, auth rule, or generated contract artifact changed.
 
 Phase E field ownership classification before further storage moves:
 
@@ -291,8 +291,7 @@ Phase E field ownership classification before further storage moves:
 
 Phase F must have:
 
-- `AGENTS.md`, current docs, Postman, and `.codex` skills synchronized for any contract change;
-- JSON validation for Postman if touched;
+- `AGENTS.md`, current docs, generated contract artifacts, and `.codex` skills synchronized for any contract change;
 - `git diff --check`.
 
 Phase MCP-A must have:
@@ -323,9 +322,9 @@ Phase MCP-C must have:
 Phase MCP-D must have:
 
 - fixed `mcp.*` body actions removed from product action registry and `serviceapi.AgentAction`;
-- old Postman body-action examples removed in favor of `POST /mcp` JSON-RPC examples;
+- old body-action examples removed in favor of `POST /mcp` JSON-RPC examples;
 - tests proving removed fixed body actions are unknown while Native Agent tools and `POST /mcp` still call `internal/dirextalkmcp`;
-- `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills` synchronized.
+- `AGENTS.md`, `docs/current-project-documentation.md`, `docs/native-agent-requirements.md`, `docs/api-interface-change-record.md`, generated contract artifacts, and `.codex/skills` synchronized.
 
 ## 10. Recommended Order For The Next Implementation Phases
 
@@ -336,7 +335,7 @@ Status after Phase MCP-D verification: Phase B, Phase C, Phase MCP-B, Phase MCP-
    - Record that `internal/dirextalkmcp` is the future owner of MCP tool registry, schemas, invocation, pagination, room authorization, and shared DTOs.
    - Record that the first external MCP HTTP endpoint version reuses existing `agent_token` bearer auth.
    - Record the resolved endpoint path `/mcp` and the first-version agent-token product decision.
-   - Do not modify production code, Postman, routes, or behavior; this audit records test gates instead of adding tests.
+   - Do not modify production code, routes, generated contract artifacts, or behavior; this audit records test gates instead of adding tests.
 
 2. Phase B: centralize action metadata first.
    - Create one enum-backed action spec that replaces duplicated logic in `p2p/action_registry.go`, `p2p/serviceapi/actions.go`, `p2p/routing.go:httpProductActionAllowed`, `p2p/realtime_ws.go:realtimeWSHTTPOnlyAction`, and `scripts/p2p-three-node-regression.py:action_requires_http`.
@@ -399,7 +398,7 @@ type ActionSpec struct {
    - Fixed body actions are removed from the product action registry and `serviceapi.AgentAction`.
    - Keep `mcp.*` strings only as internal `internal/dirextalkmcp` capability action IDs.
    - Verify standard `POST /mcp` JSON-RPC and Native Agent built-in Dirextalk tools after removal.
-   - Keep `AGENTS.md`, `docs/current-project-documentation.md`, `docs/api-interface-change-record.md`, Postman, and `.codex/skills` synchronized with the removed body-action surface.
+   - Keep `AGENTS.md`, `docs/current-project-documentation.md`, `docs/api-interface-change-record.md`, generated contract artifacts, and `.codex/skills` synchronized with the removed body-action surface.
 
 7. Phase D: move lower-level adapters in dependency-safe order.
    - Do not start Phase D until Phase B action metadata/auth/transport consolidation passes tests.
@@ -443,6 +442,6 @@ type ActionSpec struct {
    - Remaining Phase E work should be small and evidence-led: choose one storage surface at a time, add or confirm PostgreSQL-backed restart coverage, then move only mechanical storage ownership if it reduces dependency surface.
 
 9. Phase F: update docs, scripts, and broad verification.
-   - Update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/api-interface-change-record.md`, and Postman collections when public behavior changes.
+   - Update `AGENTS.md`, `docs/current-project-documentation.md`, `docs/api-interface-change-record.md`, and generated contract artifacts when public behavior changes.
    - Keep the multi-node regression focused on public channel lookup/join, remote callbacks, Matrix membership finality, and URL security.
-   - Run focused Go tests for touched packages, `go build ./cmd/dirextalk-message-server`, JSON validation for Postman docs if touched, Docker compose config validation if deployment/runtime files changed, and `git diff --check`.
+   - Run focused Go tests for touched packages, `go build ./cmd/dirextalk-message-server`, Docker compose config validation if deployment/runtime files changed, and `git diff --check`.

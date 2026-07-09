@@ -7,6 +7,8 @@
 package setup
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -94,26 +96,16 @@ func (m *Monolith) AddAllPublicRoutes(
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
 	p2pTransport := p2p.NewDendriteTransport(cfg.Global.ServerName, cfg.Global.KeyID, cfg.Global.PrivateKey, m.RoomserverAPI)
 	accountDeprovisioner := newAccountDeprovisioner(processCtx, cfg, cm)
-	p2pService := p2p.NewServiceWithTransport(p2pConfig, p2pTransport)
+	p2pService, err := newPersistentP2PService(processCtx.Context(), p2pConfig, cm, p2pDatabaseOptions(cfg), p2pTransport)
+	if err != nil {
+		logrus.WithError(err).Fatal("P2P integrated AS persistent state is required")
+	}
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeprovisioner(accountDeprovisioner)
 	matrixHistoryReader := p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil)
 	p2pService.SetMatrixMessageReader(matrixHistoryReader)
 	p2pService.SetMatrixProfileResolver(matrixProfileResolver)
-	if store, err := p2p.NewDatabaseStore(processCtx.Context(), cm, p2pDatabaseOptions(cfg)); err != nil {
-		logrus.WithError(err).Warn("P2P integrated AS store unavailable; falling back to in-memory business state")
-	} else if service, err := p2p.NewServiceWithStoreAndTransport(processCtx.Context(), p2pConfig, store, p2pTransport); err != nil {
-		logrus.WithError(err).Warn("P2P integrated AS state load failed; falling back to in-memory business state")
-	} else {
-		service.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
-		service.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
-		service.SetAccountDeprovisioner(accountDeprovisioner)
-		matrixHistoryReader = p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, service.MatrixHistoryAccessToken, nil)
-		service.SetMatrixMessageReader(matrixHistoryReader)
-		service.SetMatrixProfileResolver(matrixProfileResolver)
-		p2pService = service
-	}
 	if syncDB, err := syncstorage.NewSyncServerDatasource(processCtx.Context(), cm, &cfg.SyncAPI.Database); err != nil {
 		logrus.WithError(err).Warn("P2P native Agent sync DB reader unavailable; using Matrix HTTP history reader")
 	} else {
@@ -144,6 +136,18 @@ func p2pDatabaseOptions(cfg *config.Dendrite) *config.DatabaseOptions {
 		return &cfg.Global.DatabaseOptions
 	}
 	return &cfg.RoomServer.Database
+}
+
+func newPersistentP2PService(ctx context.Context, p2pConfig p2p.Config, cm *sqlutil.Connections, dbOptions *config.DatabaseOptions, transport p2p.Transport) (*p2p.Service, error) {
+	store, err := p2p.NewDatabaseStore(ctx, cm, dbOptions)
+	if err != nil {
+		return nil, fmt.Errorf("P2P integrated AS store unavailable: %w", err)
+	}
+	service, err := p2p.NewServiceWithStoreAndTransport(ctx, p2pConfig, store, transport)
+	if err != nil {
+		return nil, fmt.Errorf("P2P integrated AS state load failed: %w", err)
+	}
+	return service, nil
 }
 
 func matrixHistoryReaderBaseURL(configured string) string {

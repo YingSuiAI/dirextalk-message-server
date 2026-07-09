@@ -1,29 +1,52 @@
 package setup
 
 import (
+	"context"
+	"strings"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
 func TestP2PDatabaseOptionsUseGlobalDatabaseWhenConfigured(t *testing.T) {
 	cfg := &config.Dendrite{}
-	cfg.Global.DatabaseOptions.ConnectionString = "file:global.db"
-	cfg.RoomServer.Database.ConnectionString = "file:roomserver.db"
+	cfg.Global.DatabaseOptions.ConnectionString = "postgres://localhost/global?sslmode=disable"
+	cfg.RoomServer.Database.ConnectionString = "postgres://localhost/roomserver?sslmode=disable"
 
 	got := p2pDatabaseOptions(cfg)
-	if got.ConnectionString != "file:global.db" {
+	if got.ConnectionString != "postgres://localhost/global?sslmode=disable" {
 		t.Fatalf("expected global database, got %q", got.ConnectionString)
 	}
 }
 
 func TestP2PDatabaseOptionsFallbackToRoomserverDatabase(t *testing.T) {
 	cfg := &config.Dendrite{}
-	cfg.RoomServer.Database.ConnectionString = "file:roomserver.db"
+	cfg.RoomServer.Database.ConnectionString = "postgres://localhost/roomserver?sslmode=disable"
 
 	got := p2pDatabaseOptions(cfg)
-	if got.ConnectionString != "file:roomserver.db" {
+	if got.ConnectionString != "postgres://localhost/roomserver?sslmode=disable" {
 		t.Fatalf("expected roomserver database fallback, got %q", got.ConnectionString)
+	}
+}
+
+func TestPersistentP2PServiceRejectsSQLiteInsteadOfFallingBackToMemory(t *testing.T) {
+	dbOpts := config.DatabaseOptions{ConnectionString: "file:p2p.db"}
+
+	service, err := newPersistentP2PService(
+		context.Background(),
+		p2p.Config{ServerName: "example.com"},
+		sqlutil.NewConnectionManager(nil, dbOpts),
+		&dbOpts,
+		nil,
+	)
+
+	if err == nil || !strings.Contains(err.Error(), "SQLite") {
+		t.Fatalf("expected SQLite-backed startup to fail explicitly, got service=%v err=%v", service, err)
+	}
+	if service != nil {
+		t.Fatalf("expected no in-memory P2P service fallback")
 	}
 }
 

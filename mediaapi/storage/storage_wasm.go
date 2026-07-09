@@ -10,18 +10,10 @@ import (
 	"fmt"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
-// Open opens a postgres database.
-func NewMediaAPIDatasource(conMan sqlutil.Connections, dbProperties *config.DatabaseOptions) (Database, error) {
-	switch {
-	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(conMan, dbProperties)
-	case dbProperties.ConnectionString.IsPostgres():
-		return nil, fmt.Errorf("can't use Postgres implementation")
-	default:
-		return nil, fmt.Errorf("unexpected database type")
-	}
+// NewMediaAPIDatasource opens a database connection.
+func NewMediaAPIDatasource(conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions) (Database, error) {
+	return nil, fmt.Errorf("database storage is not supported in wasm builds")
 }

@@ -39,8 +39,7 @@ func CreateConfig(t *testing.T, dbType test.DBType) (*config.Dendrite, *process.
 			SingleDatabase: true,
 		})
 		cfg.Global.ServerName = "test"
-		// use a distinct prefix else concurrent postgres/sqlite runs will clash since NATS will use
-		// the file system event with InMemory=true :(
+		// use a distinct prefix so parallel PostgreSQL-backed tests keep NATS state separate.
 		cfg.Global.JetStream.TopicPrefix = fmt.Sprintf("Test_%d_", dbType)
 		cfg.SyncAPI.Fulltext.InMemory = true
 
@@ -56,8 +55,6 @@ func CreateConfig(t *testing.T, dbType test.DBType) (*config.Dendrite, *process.
 			ctx.WaitForShutdown()
 			closeDb()
 		}
-	case test.DBTypeSQLite:
-		t.Fatalf("sqlite test configs are disabled; use PostgreSQL")
 	default:
 		t.Fatalf("unknown db type: %v", dbType)
 	}

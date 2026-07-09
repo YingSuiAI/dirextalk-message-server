@@ -19,7 +19,7 @@ Map only the touched surfaces:
 - Product API: `p2p/action_registry.go`, `p2p/service_*.go`, `p2p/domain`, `p2p/transport.go`, `p2p/transportapi`, `p2p/dendrite_transport.go`, `p2p/matrix_history_reader.go`, `p2p/matrix_profile_resolver.go`, `p2p/matrixhistory`, `internal/dirextalkdomain`, `internal/dirextalkplugin`, `internal/dirextalktransport`, `internal/dirextalktransport/dendrite`, `internal/dirextalkmatrix`, `internal/dirextalkstate`.
 - Policy and Matrix writes: `internal/productpolicy`, Client-Server routes, roomserver input/output.
 - Projection and sync: `internal/dirextalkprojection`, `internal/dirextalkstate`, `p2p/consumer.go`, `p2p/projector.go`, sync/federation/userapi consumers.
-- Durable state: storage interfaces, migrations, PostgreSQL/SQLite implementations, restart behavior.
+- Durable state: storage interfaces, migrations, PostgreSQL implementations, restart behavior.
 - Agent/MCP: `internal/dirextalkmcp`, `p2p/mcp`, `p2p/routing_mcp.go`, `p2p/serviceapi/actions.go`, Agent-token authorization.
 
 ## Routing
@@ -37,4 +37,4 @@ Map only the touched surfaces:
 - Product read models are projections unless a domain rule explicitly makes storage source-of-truth.
 - Ordinary Matrix timeline messages are not copied into a second product ordinary-message store.
 - Agent and system notification rooms are real Matrix rooms. Prefer normal room/timeline events with typed content over new special sync models.
-- Keep documentation changes scoped: contract-critical docs, Postman, and project-local skills move with API/auth/route/storage behavior changes; long-form audit and implementation notes are consolidated at phase boundaries unless the user explicitly asks for immediate narrative updates.
+- Keep documentation changes scoped: contract-critical docs and project-local skills move with API/auth/route/storage behavior changes; long-form audit and implementation notes are consolidated at phase boundaries unless the user explicitly asks for immediate narrative updates.

@@ -7,7 +7,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -31,14 +30,6 @@ func mustCreateMembershipTable(t *testing.T, dbType test.DBType) (tab tables.Mem
 		tab, err = postgres.PrepareMembershipTable(db)
 		assert.NoError(t, err)
 		stateKeyTab, err = postgres.PrepareEventStateKeysTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreateEventStateKeysTable(db)
-		assert.NoError(t, err)
-		err = sqlite3.CreateMembershipTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PrepareMembershipTable(db)
-		assert.NoError(t, err)
-		stateKeyTab, err = sqlite3.PrepareEventStateKeysTable(db)
 	}
 	assert.NoError(t, err)
 

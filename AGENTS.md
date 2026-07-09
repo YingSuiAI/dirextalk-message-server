@@ -41,7 +41,7 @@ Protected product actions require `Authorization: Bearer <access_token>` when is
 - `internal/dirextalkplugin` owns plugin catalog/instance/job/secret record shapes for non-Agent plugin management; p2p keeps plugin workflow orchestration and compatibility aliases.
 - `p2p/consumer.go` and `p2p/projector.go` project roomserver output into Dirextalk read models and product events.
 - Package storage implementations own durable state and migrations for their package.
-- Docker development uses PostgreSQL 18 and writes bootstrap credentials to `/var/dirextalk-message-server/p2p/bootstrap.json`.
+- Server storage is PostgreSQL-only. SQLite/file DSNs are unsupported and must fail configuration or startup instead of falling back to memory. Docker development uses PostgreSQL 18 and writes bootstrap credentials to `/var/dirextalk-message-server/p2p/bootstrap.json`.
 
 Do not reason about changes as isolated P2P, Matrix, or Dirextalk Message Server layers. Trace the complete path from entry point to authorization, policy, storage, roomserver output, consumers, federation/sync visibility, docs examples, and verification.
 
@@ -107,8 +107,6 @@ go test ./p2p ./internal/productpolicy -count=1
 go test ./internal/httputil ./setup -count=1
 go build ./cmd/dirextalk-message-server
 govulncheck ./...
-python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null
-python3 -m json.tool docs/postman/dirextalk-plugins.postman_collection.json >/dev/null
 git diff --check
 docker compose -f docker-compose.p2p.yml config
 docker compose -f docker-compose.p2p-dual.yml config
@@ -143,8 +141,6 @@ python3 scripts/p2p-three-node-regression.py
 
 Run local PostgreSQL-backed tests by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, and `POSTGRES_DB`. The default local password used by this workspace is `123789`. Tests create isolated `dendrite_test_*` databases and must drop those test databases when each test finishes.
 
-Use `docs/postman/dirextalk-message-server.postman_collection.json` for manual API checks. Import it into Postman, set `baseUrl`, then call `portal.auth` to obtain `access_token` and `agent_token`. Use `docs/postman/dirextalk-plugins.postman_collection.json` for plugin manager checks.
-
 ## Project-Local Codex Skills
 
 Project-specific skills live under `.codex/skills/`. They must be maintained as global Dirextalk server skills, not as P2P/Matrix/Dirextalk Message Server layer silos:
@@ -164,6 +160,7 @@ Keep project skills as Dirextalk-specific guidance. Do not duplicate generic sys
 - Do not add URL-shaped product endpoints unless there is a strong compatibility reason. The current explicit exception is the standard MCP Streamable HTTP endpoint `POST /mcp`; other product capabilities should still prefer stable product actions and documented `params` schemas.
 - Do not silently change API request or response fields. If an input/output contract changes, update `docs/api-interface-change-record.md`.
 - Do not add memory-only state for behavior that must survive restart. Add or extend durable storage and migrations.
+- Do not add SQLite storage, SQLite tests, or `file:` database defaults. PostgreSQL is the only supported database engine for server state.
 - Do not bypass `p2p.Transport` for product-originated Matrix room/member/state/message/redaction behavior.
 - Do not bypass `internal/productpolicy` expectations for Matrix Client-Server writes into Dirextalk product rooms.
 - Do not derive outbound remote-node URLs from Matrix room IDs. Remote public lookup must validate Matrix IDs and require request-provided `remote_node_base_url`.
@@ -172,8 +169,6 @@ Keep project skills as Dirextalk-specific guidance. Do not duplicate generic sys
 - Do not mark public channel membership as `joined` until Matrix membership has actually reached join state.
 - Do not overwrite rich channel metadata with sparse federated defaults. Missing visibility, join policy, type, or comments settings should fail closed or preserve known state.
 - Keep local delete and recall distinct: local delete hides locally; recall sends Matrix redaction and should project across nodes.
-- Keep Postman examples importable JSON, not snippets copied into Markdown.
-
 ## Multi-Node Review Checklist
 
 - Verify remote public lookup rejects malformed room IDs, URL-shaped server names, and untrusted private/internal hosts.
@@ -198,7 +193,6 @@ Keep project skills as Dirextalk-specific guidance. Do not duplicate generic sys
 - Put detailed implementation notes in `docs/p2p-integrated-as-implementation.md`.
 - Put audit findings and optimization notes in `docs/api-audit-and-optimization.md`.
 - Put request/response contract changes in `docs/api-interface-change-record.md`.
-- Keep Docker image notes in `docs/dirextalk-message-server.md`, push-gateway notes in `docs/dirextalk-push-gateway.md`, and importable manual examples in `docs/postman/`.
-- Keep documentation updates in two lanes: update contract-critical docs, Postman, and project-local skills in the same change as API/auth/route/storage behavior changes; consolidate long-form audit, implementation notes, and narrative cleanup at phase boundaries instead of rewriting them for every small code commit.
+- Keep Docker image notes in `docs/dirextalk-message-server.md` and push-gateway notes in `docs/dirextalk-push-gateway.md`.
+- Keep documentation updates in two lanes: update contract-critical docs and project-local skills in the same change as API/auth/route/storage behavior changes; consolidate long-form audit, implementation notes, and narrative cleanup at phase boundaries instead of rewriting them for every small code commit.
 - Do not recreate inherited Dendrite documentation-site pages, historical implementation trackers, or one-off plan archives unless explicitly requested.
-- Keep Postman examples importable JSON.

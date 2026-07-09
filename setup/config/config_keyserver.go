@@ -9,7 +9,7 @@ type KeyServer struct {
 func (c *KeyServer) Defaults(opts DefaultOpts) {
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:keyserver.db"
+			c.Database.ConnectionString = "postgres://localhost/keyserver?sslmode=disable"
 		}
 	}
 }
@@ -18,4 +18,5 @@ func (c *KeyServer) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "key_server.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }

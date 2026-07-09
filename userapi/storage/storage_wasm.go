@@ -13,13 +13,12 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
-	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/sqlite3"
-	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 func NewUserDatabase(
 	ctx context.Context,
-	conMan sqlutil.Connections,
+	conMan *sqlutil.Connections,
 	dbProperties *config.DatabaseOptions,
 	serverName spec.ServerName,
 	bcryptCost int,
@@ -27,25 +26,10 @@ func NewUserDatabase(
 	loginTokenLifetime time.Duration,
 	serverNoticesLocalpart string,
 ) (UserDatabase, error) {
-	switch {
-	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewUserDatabase(ctx, conMan, dbProperties, serverName, bcryptCost, openIDTokenLifetimeMS, loginTokenLifetime, serverNoticesLocalpart)
-	case dbProperties.ConnectionString.IsPostgres():
-		return nil, fmt.Errorf("can't use Postgres implementation")
-	default:
-		return nil, fmt.Errorf("unexpected database type")
-	}
+	return nil, fmt.Errorf("database storage is not supported in wasm builds")
 }
 
-// NewKeyDatabase opens a new Postgres or Sqlite database (base on dataSourceName) scheme)
-// and sets postgres connection parameters.
-func NewKeyDatabase(conMan sqlutil.Connections, dbProperties *config.DatabaseOptions) (KeyDatabase, error) {
-	switch {
-	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewKeyDatabase(conMan, dbProperties)
-	case dbProperties.ConnectionString.IsPostgres():
-		return nil, fmt.Errorf("can't use Postgres implementation")
-	default:
-		return nil, fmt.Errorf("unexpected database type")
-	}
+// NewKeyDatabase opens a database connection.
+func NewKeyDatabase(conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions) (KeyDatabase, error) {
+	return nil, fmt.Errorf("database storage is not supported in wasm builds")
 }

@@ -16,14 +16,13 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3"
 )
 
 // NewSyncServerDatasource opens a database connection.
 func NewSyncServerDatasource(ctx context.Context, conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions) (Database, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(ctx, conMan, dbProperties)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(ctx, conMan, dbProperties)
 	default:

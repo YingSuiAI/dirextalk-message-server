@@ -14,7 +14,7 @@ func (c *SyncAPI) Defaults(opts DefaultOpts) {
 	c.Fulltext.Defaults(opts)
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:syncapi.db"
+			c.Database.ConnectionString = "postgres://localhost/syncapi?sslmode=disable"
 		}
 	}
 }
@@ -24,6 +24,7 @@ func (c *SyncAPI) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "sync_api.database", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }
 
 type Fulltext struct {

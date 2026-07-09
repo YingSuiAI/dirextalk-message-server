@@ -12,7 +12,6 @@ import (
 	rstypes "github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -32,8 +31,6 @@ func newMembershipsTable(t *testing.T, dbType test.DBType) (tables.Memberships, 
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresMembershipsTable(db)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSqliteMembershipsTable(db)
 	}
 	if err != nil {
 		t.Fatalf("failed to make new table: %s", err)

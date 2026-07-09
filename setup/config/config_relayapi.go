@@ -17,7 +17,7 @@ type RelayAPI struct {
 func (c *RelayAPI) Defaults(opts DefaultOpts) {
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:relayapi.db"
+			c.Database.ConnectionString = "postgres://localhost/relayapi?sslmode=disable"
 		}
 	}
 }
@@ -26,4 +26,5 @@ func (c *RelayAPI) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "relay_api.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }

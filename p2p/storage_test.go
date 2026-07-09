@@ -15,6 +15,17 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
+func TestDatabaseStoreRejectsSQLiteConnectionString(t *testing.T) {
+	ctx := context.Background()
+	dbOpts := config.DatabaseOptions{ConnectionString: "file::memory:?cache=shared"}
+
+	_, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+
+	if err == nil || !strings.Contains(err.Error(), "SQLite") {
+		t.Fatalf("expected SQLite connection string to be rejected, got %v", err)
+	}
+}
+
 func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

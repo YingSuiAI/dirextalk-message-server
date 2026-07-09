@@ -15,7 +15,7 @@ type MSCs struct {
 func (c *MSCs) Defaults(opts DefaultOpts) {
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:mscs.db"
+			c.Database.ConnectionString = "postgres://localhost/mscs?sslmode=disable"
 		}
 	}
 }
@@ -34,4 +34,5 @@ func (c *MSCs) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "mscs.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }

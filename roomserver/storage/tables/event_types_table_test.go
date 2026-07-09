@@ -7,7 +7,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -28,10 +27,6 @@ func mustCreateEventTypesTable(t *testing.T, dbType test.DBType) (tables.EventTy
 		err = postgres.CreateEventTypesTable(db)
 		assert.NoError(t, err)
 		tab, err = postgres.PrepareEventTypesTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreateEventTypesTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PrepareEventTypesTable(db)
 	}
 	assert.NoError(t, err)
 

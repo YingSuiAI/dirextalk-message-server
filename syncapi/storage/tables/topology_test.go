@@ -9,7 +9,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -30,8 +29,6 @@ func newTopologyTable(t *testing.T, dbType test.DBType) (tables.Topology, *sql.D
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresTopologyTable(db)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSqliteTopologyTable(db)
 	}
 	if err != nil {
 		t.Fatalf("failed to make new table: %s", err)

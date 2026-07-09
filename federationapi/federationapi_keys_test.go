@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/routing"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/lib/pq"
 )
 
 type server struct {
@@ -92,12 +95,12 @@ func TestMain(m *testing.M) {
 			cfg.Global.KeyID = serverKeyID
 			cfg.Global.KeyValidityPeriod = s.validity
 			cfg.FederationAPI.KeyPerspectives = nil
-			f, err := os.CreateTemp(d, "federation_keys_test*.db")
+			connStr, closeDB, err := prepareFederationKeysTestDB(s.name)
 			if err != nil {
 				return -1
 			}
-			defer f.Close()
-			cfg.FederationAPI.Database.ConnectionString = config.DataSource("file:" + f.Name())
+			defer closeDB()
+			cfg.FederationAPI.Database.ConnectionString = config.DataSource(connStr)
 			s.config = &cfg.FederationAPI
 
 			// Create a transport which redirects federation requests to
@@ -122,6 +125,62 @@ func TestMain(m *testing.M) {
 		// rest of the tests.
 		return m.Run()
 	}())
+}
+
+func prepareFederationKeysTestDB(serverName spec.ServerName) (string, func(), error) {
+	user := os.Getenv("POSTGRES_USER")
+	if user == "" {
+		user = "postgres"
+	}
+	password := os.Getenv("POSTGRES_PASSWORD")
+	if password == "" {
+		password = "123789"
+	}
+	host := os.Getenv("POSTGRES_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	port := os.Getenv("POSTGRES_PORT")
+	if port == "" {
+		port = "5432"
+	}
+	postgresDB := os.Getenv("POSTGRES_DB")
+	if postgresDB == "" {
+		postgresDB = "postgres"
+	}
+
+	baseConnStr := fmt.Sprintf("user=%s password=%s host=%s port=%s sslmode=disable", user, password, host, port)
+	adminConnStr := baseConnStr + " dbname=" + postgresDB
+	dbName := fmt.Sprintf("dendrite_test_federation_keys_%s_%d", strings.NewReplacer(".", "_", "-", "_").Replace(string(serverName)), os.Getpid())
+
+	adminDB, err := sql.Open("postgres", adminConnStr)
+	if err != nil {
+		return "", nil, fmt.Errorf("open postgres admin connection: %w", err)
+	}
+	defer adminDB.Close()
+	if err = adminDB.Ping(); err != nil {
+		return "", nil, fmt.Errorf("ping postgres admin connection: %w", err)
+	}
+	if _, err = adminDB.Exec("CREATE DATABASE " + pq.QuoteIdentifier(dbName)); err != nil {
+		return "", nil, fmt.Errorf("create postgres test database %q: %w", dbName, err)
+	}
+	if _, err = adminDB.Exec("GRANT ALL PRIVILEGES ON DATABASE " + pq.QuoteIdentifier(dbName) + " TO " + pq.QuoteIdentifier(user)); err != nil {
+		return "", nil, fmt.Errorf("grant postgres test database %q: %w", dbName, err)
+	}
+
+	return baseConnStr + " dbname=" + dbName, func() {
+		db, err := sql.Open("postgres", adminConnStr)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		_, _ = db.Exec(`
+			SELECT pg_terminate_backend(pid)
+			FROM pg_stat_activity
+			WHERE datname = $1 AND pid <> pg_backend_pid()
+		`, dbName)
+		_, _ = db.Exec("DROP DATABASE IF EXISTS " + pq.QuoteIdentifier(dbName))
+	}, nil
 }
 
 type MockRoundTripper struct{}

@@ -27,6 +27,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/mscs/msc2836"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 )
 
@@ -565,7 +566,9 @@ func injectEvents(t *testing.T, userAPI userapi.UserInternalAPI, rsAPI roomserve
 		SingleDatabase: true,
 	})
 	cfg.Global.ServerName = "localhost"
-	cfg.MSCs.Database.ConnectionString = "file:msc2836_test.db"
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	t.Cleanup(closeDB)
+	cfg.MSCs.Database.ConnectionString = config.DataSource(connStr)
 	cfg.MSCs.MSCs = []string{"msc2836"}
 
 	processCtx := process.NewProcessContext()

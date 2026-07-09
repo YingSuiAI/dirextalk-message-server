@@ -118,6 +118,7 @@ func (c *Global) Defaults(opts DefaultOpts) {
 func (c *Global) Verify(configErrs *ConfigErrors) {
 	checkNotEmpty(configErrs, "global.server_name", string(c.ServerName))
 	checkNotEmpty(configErrs, "global.private_key", string(c.PrivateKeyPath))
+	c.DatabaseOptions.Verify(configErrs)
 
 	// Check that client well-known has a proper format
 	if c.WellKnownClientName != "" && !strings.HasPrefix(c.WellKnownClientName, "http://") && !strings.HasPrefix(c.WellKnownClientName, "https://") {
@@ -368,7 +369,7 @@ func (c *Sentry) Verify(configErrs *ConfigErrors) {
 }
 
 type DatabaseOptions struct {
-	// The connection string, file:filename.db or postgres://server....
+	// The PostgreSQL connection string.
 	ConnectionString DataSource `yaml:"connection_string"`
 	// Maximum open connections to the DB (0 = use default, negative means unlimited)
 	MaxOpenConnections int `yaml:"max_open_conns"`
@@ -384,7 +385,11 @@ func (c *DatabaseOptions) Defaults(conns int) {
 	c.ConnMaxLifetimeSeconds = -1
 }
 
-func (c *DatabaseOptions) Verify(configErrs *ConfigErrors) {}
+func (c *DatabaseOptions) Verify(configErrs *ConfigErrors) {
+	if c.ConnectionString.IsSQLite() {
+		configErrs.Add("SQLite database connection strings are not supported; configure PostgreSQL")
+	}
+}
 
 // MaxIdleConns returns maximum idle connections to the DB
 func (c DatabaseOptions) MaxIdleConns() int {

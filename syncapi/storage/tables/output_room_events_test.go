@@ -10,7 +10,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/synctypes"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -32,12 +31,6 @@ func newOutputRoomEventsTable(t *testing.T, dbType test.DBType) (tables.Events, 
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresEventsTable(db)
-	case test.DBTypeSQLite:
-		var stream sqlite3.StreamIDStatements
-		if err = stream.Prepare(db); err != nil {
-			t.Fatalf("failed to prepare stream stmts: %s", err)
-		}
-		tab, err = sqlite3.NewSqliteEventsTable(db, &stream)
 	}
 	if err != nil {
 		t.Fatalf("failed to make new table: %s", err)

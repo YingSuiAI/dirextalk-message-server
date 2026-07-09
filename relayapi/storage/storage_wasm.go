@@ -11,24 +11,16 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
-	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 // NewDatabase opens a new database
 func NewDatabase(
-	conMan sqlutil.Connections,
+	conMan *sqlutil.Connections,
 	dbProperties *config.DatabaseOptions,
 	cache caching.FederationCache,
 	isLocalServerName func(spec.ServerName) bool,
 ) (Database, error) {
-	switch {
-	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(conMan, dbProperties, cache, isLocalServerName)
-	case dbProperties.ConnectionString.IsPostgres():
-		return nil, fmt.Errorf("can't use Postgres implementation")
-	default:
-		return nil, fmt.Errorf("unexpected database type")
-	}
+	return nil, fmt.Errorf("database storage is not supported in wasm builds")
 }

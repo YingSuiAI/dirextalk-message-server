@@ -43,12 +43,7 @@ func (d *accountDeprovisioner) DeprovisionAccount(ctx context.Context) error {
 			return fmt.Errorf("open database %q: %w", options.ConnectionString, err)
 		}
 		if options.ConnectionString.IsSQLite() {
-			if err := writer.Do(nil, nil, func(*sql.Tx) error {
-				return resetSQLiteDatabase(ctx, db)
-			}); err != nil {
-				return fmt.Errorf("reset sqlite database %q: %w", options.ConnectionString, err)
-			}
-			continue
+			return fmt.Errorf("sqlite database %q is not supported", options.ConnectionString)
 		}
 		if err := writer.Do(db, nil, func(txn *sql.Tx) error {
 			return resetPostgresDatabase(ctx, txn)
@@ -120,44 +115,4 @@ WHERE schemaname = 'public'
 	}
 	_, err := txn.ExecContext(ctx, "TRUNCATE TABLE "+tables.String+" RESTART IDENTITY CASCADE")
 	return err
-}
-
-func resetSQLiteDatabase(ctx context.Context, db *sql.DB) error {
-	if db == nil {
-		return fmt.Errorf("sqlite reset requires database")
-	}
-	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
-		return err
-	}
-	defer db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON") //nolint:errcheck
-
-	rows, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return err
-		}
-		tables = append(tables, table)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, table := range tables {
-		if _, err := db.ExecContext(ctx, `DELETE FROM `+quoteSQLiteIdentifier(table)); err != nil {
-			return err
-		}
-	}
-	if _, err := db.ExecContext(ctx, "DELETE FROM sqlite_sequence"); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table") {
-		return err
-	}
-	return nil
-}
-
-func quoteSQLiteIdentifier(identifier string) string {
-	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }

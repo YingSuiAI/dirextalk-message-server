@@ -35,7 +35,7 @@ func (c *UserAPI) Defaults(opts DefaultOpts) {
 	c.WorkerCount = 8
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.AccountDatabase.ConnectionString = "file:userapi_accounts.db"
+			c.AccountDatabase.ConnectionString = "postgres://localhost/userapi_accounts?sslmode=disable"
 		}
 	}
 }
@@ -45,4 +45,5 @@ func (c *UserAPI) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "user_api.account_database.connection_string", string(c.AccountDatabase.ConnectionString))
 	}
+	c.AccountDatabase.Verify(configErrs)
 }

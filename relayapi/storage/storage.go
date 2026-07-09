@@ -15,7 +15,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -29,7 +28,7 @@ func NewDatabase(
 ) (Database, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(conMan, dbProperties, cache, isLocalServerName)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(conMan, dbProperties, cache, isLocalServerName)
 	default:

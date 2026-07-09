@@ -1,6 +1,6 @@
 ---
 name: dirextalk-backend-verification
-description: Use when selecting focused Dirextalk Message Server verification after Go, route, contract, docs, Postman, Docker, storage, Matrix state, setup, project-local skill, or script changes.
+description: Use when selecting focused Dirextalk Message Server verification after Go, route, contract, docs, Docker, storage, Matrix state, setup, project-local skill, or script changes.
 ---
 
 # Dirextalk Backend Verification
@@ -22,7 +22,6 @@ Run commands from the repository root in the current shell.
 - Startup, build tags, command wiring, or broad package contracts: `go build ./cmd/dirextalk-message-server`.
 - Inherited Dendrite demo/upgrade tools stay out of default `./...` unless explicitly requested: Pinecone/Yggdrasil demos require `-tags=dendrite_p2p_demo`; upgrade tests require `-tags=dendrite_upgrade_tests`.
 - Storage migrations or SQL helpers: owning package storage tests plus `go test ./internal/sqlutil -count=1` when helper behavior changed.
-- Postman collection: validate `docs/postman/dirextalk-message-server.postman_collection.json`.
 - Docker compose: `docker compose -f docker-compose.p2p.yml config` or `docker compose -f docker-compose.p2p-dual.yml config`.
 - Docs/skills-only changes: validate changed skills and run `git diff --check`.
 

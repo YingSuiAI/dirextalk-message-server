@@ -8,7 +8,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -30,10 +29,6 @@ func mustCreateUserRoomKeysTable(t *testing.T, dbType test.DBType) (tab tables.U
 		err = postgres.CreateUserRoomKeysTable(db)
 		assert.NoError(t, err)
 		tab, err = postgres.PrepareUserRoomKeysTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreateUserRoomKeysTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PrepareUserRoomKeysTable(db)
 	}
 	assert.NoError(t, err)
 

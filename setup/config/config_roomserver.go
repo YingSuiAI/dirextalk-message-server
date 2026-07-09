@@ -19,7 +19,7 @@ func (c *RoomServer) Defaults(opts DefaultOpts) {
 	c.DefaultRoomVersion = gomatrixserverlib.RoomVersionV10
 	if opts.Generate {
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:roomserver.db"
+			c.Database.ConnectionString = "postgres://localhost/roomserver?sslmode=disable"
 		}
 	}
 }
@@ -28,6 +28,7 @@ func (c *RoomServer) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "room_server.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 
 	if !gomatrixserverlib.KnownRoomVersion(c.DefaultRoomVersion) {
 		configErrs.Add(fmt.Sprintf("invalid value for config key 'room_server.default_room_version': unsupported room version: %q", c.DefaultRoomVersion))

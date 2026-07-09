@@ -10,7 +10,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -28,10 +27,6 @@ func mustCreatePublishedTable(t *testing.T, dbType test.DBType) (tab tables.Publ
 		err = postgres.CreatePublishedTable(db)
 		assert.NoError(t, err)
 		tab, err = postgres.PreparePublishedTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreatePublishedTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PreparePublishedTable(db)
 	}
 	assert.NoError(t, err)
 

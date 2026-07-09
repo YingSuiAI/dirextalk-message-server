@@ -14,7 +14,6 @@ import (
 	"fmt"
 
 	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/federationapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -25,7 +24,7 @@ import (
 func NewDatabase(ctx context.Context, conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions, cache caching.FederationCache, isLocalServerName func(spec.ServerName) bool) (Database, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(ctx, conMan, dbProperties, cache, isLocalServerName)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(ctx, conMan, dbProperties, cache, isLocalServerName)
 	default:

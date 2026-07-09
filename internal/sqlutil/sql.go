@@ -30,7 +30,7 @@ type Transaction interface {
 // EndTransaction ends a transaction.
 // If the transaction succeeded then it is committed, otherwise it is rolledback.
 // You MUST check the error returned from this function to be sure that the transaction
-// was applied correctly. For example, 'database is locked' errors in sqlite will happen here.
+// was applied correctly.
 func EndTransaction(txn Transaction, succeeded *bool) error {
 	if *succeeded {
 		return txn.Commit()
@@ -120,10 +120,6 @@ type QueryProvider interface {
 type ExecProvider interface {
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
-
-// SQLite3MaxVariables is the default maximum number of host parameters in a single SQL statement
-// SQLlite can handle. See https://www.sqlite.org/limits.html for more information.
-const SQLite3MaxVariables = 999
 
 // RunLimitedVariablesQuery split up a query with more variables than the used database can handle in multiple queries.
 func RunLimitedVariablesQuery(ctx context.Context, query string, qp QueryProvider, variables []interface{}, limit uint, rowHandler func(*sql.Rows) error) error {

@@ -19,11 +19,9 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/sqlite3"
 )
 
-// NewUserDatabase opens a new Postgres or Sqlite database (based on dataSourceName scheme)
-// and sets postgres connection parameters
+// NewUserDatabase opens a PostgreSQL database and sets connection parameters.
 func NewUserDatabase(
 	ctx context.Context,
 	conMan *sqlutil.Connections,
@@ -36,7 +34,7 @@ func NewUserDatabase(
 ) (UserDatabase, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewUserDatabase(ctx, conMan, dbProperties, serverName, bcryptCost, openIDTokenLifetimeMS, loginTokenLifetime, serverNoticesLocalpart)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(ctx, conMan, dbProperties, serverName, bcryptCost, openIDTokenLifetimeMS, loginTokenLifetime, serverNoticesLocalpart)
 	default:
@@ -44,12 +42,11 @@ func NewUserDatabase(
 	}
 }
 
-// NewKeyDatabase opens a new Postgres or Sqlite database (base on dataSourceName) scheme)
-// and sets postgres connection parameters.
+// NewKeyDatabase opens a PostgreSQL database and sets connection parameters.
 func NewKeyDatabase(conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions) (KeyDatabase, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewKeyDatabase(conMan, dbProperties)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewKeyDatabase(conMan, dbProperties)
 	default:

@@ -70,7 +70,7 @@ func (u *RoomUpdater) RoomExists() bool {
 
 // Implements sqlutil.Transaction
 func (u *RoomUpdater) Commit() error {
-	if u.txn == nil { // SQLite mode probably
+	if u.txn == nil {
 		return nil
 	}
 	return u.txn.Commit()
@@ -78,7 +78,7 @@ func (u *RoomUpdater) Commit() error {
 
 // Implements sqlutil.Transaction
 func (u *RoomUpdater) Rollback() error {
-	if u.txn == nil { // SQLite mode probably
+	if u.txn == nil {
 		return nil
 	}
 	return u.txn.Rollback()

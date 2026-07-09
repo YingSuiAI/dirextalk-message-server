@@ -52,10 +52,8 @@ func (d *Database) GetPendingPDUs(
 	err error,
 ) {
 	// Strictly speaking this doesn't need to be using the writer
-	// since we are only performing selects, but since we don't have
-	// a guarantee of transactional isolation, it's actually useful
-	// to know in SQLite mode that nothing else is trying to modify
-	// the database.
+	// Since we are only performing selects, this mainly keeps the read
+	// path consistent with callers that expect writer-serialized access.
 	events = make(map[*receipt.Receipt]*types.HeaderedEvent)
 	err = d.Writer.Do(d.DB, nil, func(txn *sql.Tx) error {
 		nids, err := d.FederationQueuePDUs.SelectQueuePDUs(ctx, txn, serverName, limit)

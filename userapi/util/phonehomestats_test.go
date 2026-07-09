@@ -50,10 +50,7 @@ func TestCollect(t *testing.T) {
 			if version != internal.VersionString() {
 				t.Errorf("unexpected version: %q, expected %q", version, internal.VersionString())
 			}
-			switch {
-			case dbType == test.DBTypeSQLite && dbEngine != "SQLite":
-				t.Errorf("unexpected database_engine: %s", dbEngine)
-			case dbType == test.DBTypePostgres && dbEngine != "Postgres":
+			if dbEngine != "Postgres" {
 				t.Errorf("unexpected database_engine: %s", dbEngine)
 			}
 			close(receivedRequest)

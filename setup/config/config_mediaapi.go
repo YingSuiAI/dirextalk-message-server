@@ -57,7 +57,7 @@ func (c *MediaAPI) Defaults(opts DefaultOpts) {
 			},
 		}
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:mediaapi.db"
+			c.Database.ConnectionString = "postgres://localhost/mediaapi?sslmode=disable"
 		}
 		c.BasePath = "./media_store"
 	}
@@ -76,4 +76,5 @@ func (c *MediaAPI) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "media_api.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }

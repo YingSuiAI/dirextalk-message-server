@@ -1241,7 +1241,7 @@ func TestRoomConsumerRecreation(t *testing.T) {
 	alice := test.NewUser(t)
 	room := test.NewRoom(t, alice)
 
-	// As this is DB unrelated, just use SQLite
+	// This is DB-unrelated; use the standard PostgreSQL test fixture.
 	cfg, processCtx, closeDB := testrig.CreateConfig(t, test.DBTypePostgres)
 	defer closeDB()
 	cm := sqlutil.NewConnectionManager(processCtx, cfg.Global.DatabaseOptions)

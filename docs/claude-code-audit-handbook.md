@@ -44,7 +44,6 @@ Claude Code must treat these files as the local source of truth before drawing c
 - `internal/dirextalktransport` and `internal/dirextalktransport/dendrite`: product-originated Matrix writes.
 - `internal/dirextalkmatrix`: Matrix Client-Server profile/history readers used by MCP and channel backfill.
 - `p2p/storage` and package storage migrations: durable product read models and restart recovery.
-- `docs/postman/dirextalk-message-server.postman_collection.json`: importable manual route and action examples.
 
 ## Claude Code Safety Setup
 
@@ -90,7 +89,7 @@ Prioritize:
 3. Matrix state/source-of-truth violations.
 4. Cross-node public channel and contact recovery edge cases.
 5. Storage durability, restart recovery, and migration problems.
-6. Documentation and Postman drift from code.
+6. Documentation and generated contract drift from code.
 7. Missing tests for current public contracts.
 
 For each finding, output:
@@ -121,9 +120,9 @@ Claude prompt:
 ```text
 Audit product action and route contract drift.
 
-Compare p2p/serviceapi/actions.go, p2p/action_registry.go, p2p/routing.go, p2p/realtime_ws.go, p2p/routing_mcp.go, docs/product-action-contract.json, docs/current-project-documentation.md, docs/api-interface-change-record.md, and docs/postman/dirextalk-message-server.postman_collection.json.
+Compare p2p/serviceapi/actions.go, p2p/action_registry.go, p2p/routing.go, p2p/realtime_ws.go, p2p/routing_mcp.go, docs/product-action-contract.json, docs/current-project-documentation.md, and docs/api-interface-change-record.md.
 
-Find any action whose auth, transport, handler registration, HTTP/WS availability, Postman example, or docs disagree. Pay special attention to removed fixed mcp.* body actions, agent.matrix_session.create, realtime.ws_ticket.create, portal.account.delete, rooms.reactivate, channels.public.join_result, Native Agent stream actions, plugin compatibility actions, and public channel actions.
+Find any action whose auth, transport, handler registration, HTTP/WS availability, generated contract metadata, or docs disagree. Pay special attention to removed fixed mcp.* body actions, agent.matrix_session.create, realtime.ws_ticket.create, portal.account.delete, rooms.reactivate, channels.public.join_result, Native Agent stream actions, plugin compatibility actions, and public channel actions.
 ```
 
 Review questions:
@@ -132,7 +131,6 @@ Review questions:
 - Does every handler have metadata?
 - Are `http_only`, `http_and_ws_request`, `ws_stream_only`, and `internal_only` enforced consistently in HTTP and WS?
 - Are public actions exactly the current documented set?
-- Are Postman examples importable JSON and aligned with current action names?
 - Is `docs/product-action-contract.json` stale compared with `p2p/serviceapi.ActionSpecs`?
 
 Relevant local checks:
@@ -142,7 +140,6 @@ go test ./p2p ./p2p/serviceapi -count=1
 go run ./cmd/dirextalk-action-contract | Out-File -Encoding utf8 docs/product-action-contract.generated.json
 git diff --no-index docs/product-action-contract.json docs/product-action-contract.generated.json
 Remove-Item docs/product-action-contract.generated.json
-python -m json.tool docs/postman/dirextalk-message-server.postman_collection.json > $null
 git diff --check
 ```
 
@@ -282,7 +279,7 @@ High-risk checks:
 - Plugin secrets storage must not be returned in config APIs.
 - Account deletion must clear configured local databases only after critical Matrix/product cleanup succeeds.
 - Test databases must be isolated and dropped.
-- SQLite/PostgreSQL behavior must not diverge for product state.
+- PostgreSQL is the only supported server database. SQLite/file DSNs must be rejected rather than silently falling back to memory state.
 
 ### Pass 7: Code Vulnerability And Robustness
 
@@ -318,7 +315,7 @@ Claude prompt:
 ```text
 Audit documentation freshness.
 
-Compare docs/current-project-documentation.md, docs/api-interface-change-record.md, docs/api-audit-and-optimization.md, docs/p2p-integrated-as-implementation.md, docs/native-agent-requirements.md, docs/native-agent-progress.md, docs/dirextalk-message-server.md, docs/dirextalk-push-gateway.md, docs/postman/*.json, AGENTS.md, and .codex/skills/*/SKILL.md against current code.
+Compare docs/current-project-documentation.md, docs/api-interface-change-record.md, docs/api-audit-and-optimization.md, docs/p2p-integrated-as-implementation.md, docs/native-agent-requirements.md, docs/native-agent-progress.md, docs/dirextalk-message-server.md, docs/dirextalk-push-gateway.md, AGENTS.md, and .codex/skills/*/SKILL.md against current code.
 
 Find stale references, removed endpoints/actions, wrong token rules, wrong WS fallback rules, outdated Agent/plugin/MCP descriptions, examples that cannot import or run, and missing updates required by current behavior.
 ```
@@ -393,7 +390,7 @@ The final Claude Code audit report should include:
 - Confirmed findings table sorted by severity.
 - Likely issues needing reproduction.
 - Explicit no-finding areas for high-risk boundaries that were checked.
-- Contract drift matrix covering code, generated JSON, docs, and Postman.
+- Contract drift matrix covering code, generated JSON, and docs.
 - Test gap list with suggested focused tests.
 - Docs update list.
 - Commands run and results.
@@ -416,8 +413,6 @@ gofmt -w <touched-go-files>
 go test ./p2p ./p2p/serviceapi ./internal/dirextalkmcp ./internal/productpolicy -count=1
 go test ./internal/httputil ./setup -count=1
 go build ./cmd/dirextalk-message-server
-python -m json.tool docs/postman/dirextalk-message-server.postman_collection.json > $null
-python -m json.tool docs/postman/dirextalk-plugins.postman_collection.json > $null
 git diff --check
 docker compose -f docker-compose.p2p.yml config
 docker compose -f docker-compose.p2p-dual.yml config
@@ -445,7 +440,7 @@ Use these scenarios to force concrete reasoning:
 - Request-scoped key leak: `model_profile.api_key` appears in config save/load, plugin env, runtime env, logs, traces, docs, or API responses.
 - Account delete partial failure: one dissolve/leave/deactivate step fails but the server still clears local DB or writes misleading deprovision state.
 - Native Agent command execution: owner invokes chat/tool path that runs shell commands with unbounded timeout, unexpected working directory, dangerous env, or secret access.
-- Docs resurrection: a client follows docs/Postman and calls removed `mcp.*` body actions or legacy agent stream frames.
+- Docs resurrection: a client follows docs and calls removed `mcp.*` body actions or legacy agent stream frames.
 
 ## Follow-Up Fix Policy
 
@@ -453,7 +448,7 @@ After the audit, fix only confirmed or explicitly accepted likely findings. For 
 
 - Keep the patch narrow.
 - Add or update tests at the owning boundary.
-- Update contract-critical docs and Postman in the same change when API/auth/route/storage behavior changes.
+- Update contract-critical docs in the same change when API/auth/route/storage behavior changes.
 - Regenerate `docs/product-action-contract.json` if `p2p/serviceapi.ActionSpecs` changes.
 - Run focused verification and `git diff --check`.
 - Commit the fix on a dedicated branch.

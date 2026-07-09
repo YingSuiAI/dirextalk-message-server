@@ -14,7 +14,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 )
 
@@ -22,7 +21,7 @@ import (
 func NewMediaAPIDatasource(conMan *sqlutil.Connections, dbProperties *config.DatabaseOptions) (Database, error) {
 	switch {
 	case dbProperties.ConnectionString.IsSQLite():
-		return sqlite3.NewDatabase(conMan, dbProperties)
+		return nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(conMan, dbProperties)
 	default:

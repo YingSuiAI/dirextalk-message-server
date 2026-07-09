@@ -25,15 +25,13 @@ Primary sources:
 Generated/maintained outputs:
 
 - `AGENTS.md`
-- `docs/postman/dirextalk-message-server.postman_collection.json`
 - `docs/api-interface-change-record.md`
 
 ## Summary
 
 - Current P2P product API exposes 81 actions from `p2p.Service.Handle`.
-- Current Postman collection includes the live P2P product action requests plus Matrix/Dirextalk Message Server route-index requests.
 - The P2P API is not a placeholder implementation. Requests pass through real handler validation, action dispatch, optional Bearer authorization, service logic, persistence, Matrix transport, and roomserver projection.
-- The P2P store has concrete PostgreSQL/SQLite-compatible migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, follows, and owner-directed report notifications. Ordinary messages use Matrix/syncapi storage only. Friend and official reports are handled by the signed imadmin public API; group/channel owner reports use ProductCore `reports.submit`.
+- The P2P store has concrete PostgreSQL migrations and table-level operations for portal, markers, contacts, groups, channels, posts, comments, reactions, members, calls, favorites, follows, and owner-directed report notifications. Ordinary messages use Matrix/syncapi storage only. Friend and official reports are handled by the signed imadmin public API; group/channel owner reports use ProductCore `reports.submit`.
 - Multi-node communication is implemented through Matrix federation for room/member/message/redaction/state events and a narrow unauthenticated public-action proxy for public channel discovery and join requests. Product projections cover group/channel lifecycle and channel post/comment state; ordinary message history remains Matrix-native.
 - Runtime behavior changes were made for security and consistency; see `docs/api-interface-change-record.md`.
 
@@ -50,7 +48,7 @@ Goal for this server-side pass:
 Current assumptions:
 
 - Target small deployment is one 2 CPU / 2 GB instance running the Dirextalk Message Server monolith plus PostgreSQL and embedded JetStream.
-- PostgreSQL is the intended production store; SQLite remains a development fallback.
+- PostgreSQL is the only supported server database. SQLite/file DSNs are rejected instead of acting as a development fallback.
 - Product room membership remains Matrix-backed and projected into P2P read models.
 
 ### Server-Side Optimization Checklist
@@ -130,7 +128,7 @@ These items are intentionally not implemented in this server-side pass. They req
 ### Completion Rules
 
 - Mark a checkbox complete only after code, docs, focused tests, and `git diff --check` pass for that item.
-- If an item changes a public action shape, update `docs/api-interface-change-record.md`, current docs, and Postman in the same commit.
+- If an item changes a public action shape, update `docs/api-interface-change-record.md`, current docs, generated contract artifacts, and focused tests in the same commit.
 - Commit after each verified optimization batch so the roadmap can be trusted after context compaction.
 
 ## Confirmed Implemented Feature Areas
@@ -176,7 +174,7 @@ Unknown actions return `400 unknown action`; this is real validation, not a plac
 
 `p2p.Store` defines the persistence boundary. `p2p.DatabaseStore` creates and uses `p2p_%` tables through migrations, including indexes for public channel lookup, members, reactions, contacts, calls, favorites, and follows. Ordinary message timelines, search, and unread data are stored and queried by Matrix/syncapi.
 
-The service writes through store methods for business state that must survive restart. If the store cannot open, `setup/monolith.go` intentionally falls back to in-memory state and logs a warning so the Matrix homeserver can still start.
+The service writes through store methods for business state that must survive restart. If the persistent P2P store cannot open, `setup/monolith.go` fails startup instead of silently falling back to memory state.
 
 ### Matrix Transport
 
@@ -329,11 +327,10 @@ Remaining operational guidance:
 
 ### P2: Action Catalog Is Split Across Code And Docs
 
-`p2p/action_registry.go`, `serviceapi` public/MCP allowlists, docs, smoke coverage, and Postman examples can drift. Keep generated artifacts synchronized with that source of truth.
+`p2p/action_registry.go`, `serviceapi` public/MCP allowlists, docs, smoke coverage, and generated action contract artifacts can drift. Keep generated artifacts synchronized with that source of truth.
 
 Recommended improvement:
 
-- generate Postman collection metadata from the action switch in CI;
 - add a test that verifies docs metadata count or generated artifacts are current.
 
 ### P2: Duplicate P2P Message Sync Surface - Fixed
@@ -376,13 +373,13 @@ Client-side guardrails required for every release:
 - invite/pending rooms are shown only in invitation surfaces until `membership=join`;
 - private/shared channel cards call `channels.join`, not public lookup or public join-request.
 
-### P3: Fallback To In-Memory State Can Hide Persistence Misconfiguration - Partially Fixed
+### P3: Fallback To In-Memory State Can Hide Persistence Misconfiguration - Fixed
 
-The fallback remains by design, but `portal.status.store_mode` now exposes whether P2P state is backed by `database` or `memory`.
+The fallback is no longer supported. The monolith requires the PostgreSQL-backed P2P store to open successfully and fails startup on storage initialization errors.
 
 Remaining operational guidance:
 
-- make strict-fail startup configurable for production.
+- keep deployment health checks pointed at PostgreSQL-backed readiness rather than treating an in-memory store as acceptable.
 
 ## Placeholder/Stub Assessment
 

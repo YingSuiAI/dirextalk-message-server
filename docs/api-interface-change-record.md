@@ -2,6 +2,12 @@
 
 Last updated: 2026-07-09
 
+## 2026-07-09 PostgreSQL-Only Storage And Postman Deprecation
+
+Server storage is now PostgreSQL-only. SQLite/file database connection strings are rejected during configuration or storage initialization, and the monolith no longer falls back to in-memory P2P product state when the persistent store cannot open. Product read models, Matrix component storage, portal/runtime state, and local tests must use PostgreSQL-backed stores.
+
+Postman collections are no longer maintained as contract artifacts. Current action metadata remains generated into `docs/product-action-contract.json`; contract-critical changes must update that artifact, current docs, focused tests, and project-local skills instead of Postman examples.
+
 ## 2026-07-09 Native Agent Dangerous Tool Confirmation
 
 Native Agent model-callable dangerous tools are now request-confirmed instead of default-exposed. `agent.chat` and realtime `client.native_agent_stream` expose read-only tools by default. Model-callable write tools, `native_agent_skills_*` mutation tools, `native_agent_mcp_servers_*` mutation tools, external MCP server tools, installed runtime CLI tools, and the built-in `runtime__shell` tool are available to the model only when the current owner request includes:
@@ -600,7 +606,7 @@ Response includes `status: "deprovisioned"`, operation counts such as `contacts_
 
 ## 2026-06-22 Matrix-First Cleanup
 
-This pass removes the remaining ambiguous compatibility surface from current code, examples, skills, and Postman.
+This pass removes the remaining ambiguous compatibility surface from current code, examples, and skills.
 
 Breaking removals and contract changes:
 
@@ -634,7 +640,7 @@ Breaking removals from the P2P body-action surface:
 - `contacts.download`
 - `contacts.import`
 
-The removed actions are absent from `p2p.Service.Handle`, Postman, and the dual-node smoke business flow. Calls to those names are treated as unknown P2P actions. Clients must not use them as deprecated compatibility paths.
+The removed actions are absent from `p2p.Service.Handle` and the dual-node smoke business flow. Calls to those names are treated as unknown P2P actions. Clients must not use them as deprecated compatibility paths.
 
 ## Matrix Message Contract
 
@@ -789,5 +795,5 @@ Clients should align as follows:
 - Syncapi local hide storage and Matrix read-path filtering.
 - Roomserver projector rules for ordinary messages, channel posts/comments, reactions, and redactions.
 - Dual-node smoke script using Matrix send/history/search/redaction/local_delete.
-- Postman collection with removed P2P actions deleted and `local_delete` examples added.
+- Manual example set with removed P2P actions deleted and `local_delete` examples added.
 - Feature inventory and implementation notes.

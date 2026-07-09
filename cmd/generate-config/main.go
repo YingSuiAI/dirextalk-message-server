@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,7 +17,7 @@ func main() {
 	defaultsForCI := flag.Bool("ci", false, "Populate the configuration with sane defaults for use in CI")
 	serverName := flag.String("server", "", "The domain name of the server if not 'localhost'")
 	dbURI := flag.String("db", "", "The DB URI to use for all components (PostgreSQL only)")
-	dirPath := flag.String("dir", "./", "The folder to use for paths (like SQLite databases, media storage)")
+	dirPath := flag.String("dir", "./", "The folder to use for paths (like media storage)")
 	normalise := flag.String("normalise", "", "Normalise an existing configuration file by adding new/missing options and defaults")
 	flag.Parse()
 
@@ -33,27 +34,14 @@ func main() {
 			cfg.Global.ServerName = spec.ServerName(*serverName)
 		}
 		uri := config.DataSource(*dbURI)
-		if uri.IsSQLite() || uri == "" {
-			for name, db := range map[string]*config.DatabaseOptions{
-				"federationapi": &cfg.FederationAPI.Database,
-				"keyserver":     &cfg.KeyServer.Database,
-				"mscs":          &cfg.MSCs.Database,
-				"mediaapi":      &cfg.MediaAPI.Database,
-				"roomserver":    &cfg.RoomServer.Database,
-				"syncapi":       &cfg.SyncAPI.Database,
-				"userapi":       &cfg.UserAPI.AccountDatabase,
-				"relayapi":      &cfg.RelayAPI.Database,
-			} {
-				if uri == "" {
-					path := filepath.Join(*dirPath, fmt.Sprintf("dendrite_%s.db", name))
-					db.ConnectionString = config.DataSource(fmt.Sprintf("file:%s", path))
-				} else {
-					db.ConnectionString = uri
-				}
-			}
-		} else {
-			cfg.Global.DatabaseOptions.ConnectionString = uri
+		if uri.IsSQLite() {
+			fmt.Fprintln(os.Stderr, "SQLite database connection strings are not supported; pass a PostgreSQL DSN with -db")
+			os.Exit(1)
 		}
+		if uri == "" {
+			uri = "postgres://localhost/dendrite?sslmode=disable"
+		}
+		cfg.Global.DatabaseOptions.ConnectionString = uri
 		cfg.MediaAPI.BasePath = config.Path(filepath.Join(*dirPath, "media"))
 		cfg.Global.JetStream.StoragePath = config.Path(*dirPath)
 		cfg.SyncAPI.Fulltext.IndexPath = config.Path(filepath.Join(*dirPath, "searchindex"))

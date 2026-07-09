@@ -43,11 +43,11 @@ func (c *Connections) Connection(dbProperties *config.DatabaseOptions) (*sql.DB,
 			return nil, nil, fmt.Errorf("no database connections configured")
 		}
 	}
+	if dbProperties.ConnectionString.IsSQLite() {
+		return nil, nil, fmt.Errorf("SQLite is not supported; configure PostgreSQL")
+	}
 
 	writer := NewDummyWriter()
-	if dbProperties.ConnectionString.IsSQLite() {
-		writer = NewExclusiveWriter()
-	}
 
 	existing, loaded := c.existingConnections.LoadOrStore(dbProperties.ConnectionString, &con{})
 	if loaded {

@@ -43,11 +43,7 @@ func TestCreateNewRelayInternalAPI(t *testing.T) {
 func TestCreateRelayInternalInvalidDatabasePanics(t *testing.T) {
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		cfg, processCtx, close := testrig.CreateConfig(t, dbType)
-		if dbType == test.DBTypeSQLite {
-			cfg.RelayAPI.Database.ConnectionString = "file:"
-		} else {
-			cfg.RelayAPI.Database.ConnectionString = "test"
-		}
+		cfg.RelayAPI.Database.ConnectionString = "test"
 		defer close()
 		cm := sqlutil.NewConnectionManager(processCtx, cfg.Global.DatabaseOptions)
 		assert.Panics(t, func() {

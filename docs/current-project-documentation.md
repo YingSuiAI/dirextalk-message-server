@@ -91,7 +91,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `p2p/consumer.go`：订阅 roomserver 输出并调用 projector。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。
 
-生产持久化优先使用全局 Dirextalk Message Server 数据库配置；未配置时 P2P store 会回退到 roomserver 数据库。Docker 开发栈使用 PostgreSQL 18。
+服务端所有持久化状态统一使用 PostgreSQL。SQLite/file DSN 不再支持，配置或启动阶段必须报错，不允许静默退化为内存态；P2P store 必须成功打开 PostgreSQL-backed store，不能因为迁移失败回退到 memory store。生产持久化优先使用全局 Dirextalk Message Server 数据库配置；未配置时 P2P store 会使用 roomserver 的 PostgreSQL 数据库配置。Docker 开发栈使用 PostgreSQL 18。
 
 ## 4. Matrix Native State
 
@@ -258,7 +258,7 @@ Agent/API：
 - Agent 在线状态对 owner 客户端只暴露一个 Matrix 房间状态字段：真实 `agent_room_id` 内的 `io.dirextalk.agent.status`，state key 为 `@agent:<server>`，content 只含 `online`。运行中的本地 bridge 通过 `@agent:<server>` Matrix session 发布 `online=true/false`；服务端不能从 Agent 配置、`/sync` 或 WS session 推断在线，只在启动/修复 agents room 或禁用 Agent 配置时写 `online=false` 兜底。`sync.bootstrap` 只返回 `agent_room_id` 供客户端定位房间，不再返回 `agent_online`；WS `server.event` 不发送 `agent.presence`。`agent.status`/`agents.status` 已删除，客户端不得再调用。
 - Agent 预览和最终可恢复正文都通过 Matrix 消息/编辑回写；客户端展示 Matrix timeline 的聚合编辑结果，不消费 `server.agent_stream`。
 - 服务初始化会创建真实私有 Matrix agents room，把 owner 和本地 `@agent:<server>` 加入同一房间，并把 `agent_room_id` 写入 bootstrap credentials；`portal.bootstrap`、`portal.auth`、`sync.bootstrap` 都会返回当前真实 `agent_room_id`，客户端可用它在重启后恢复 Agent 会话；部署和插件必须使用真实 room id，不使用 legacy `!agent:<domain>`。服务会给 owner 的真实 `agent_room_id` 写入默认 room-level 空 actions push rule，使 agent room 默认不走系统推送；已存在的显式同房间 push rule 会保留。
-- 新增 MCP capability 时必须先更新 `internal/dirextalkmcp` registry/schema，再同步 Agent allowlist、Postman、接口变更记录和相关测试。
+- 新增 MCP capability 时必须先更新 `internal/dirextalkmcp` registry/schema，再同步 Agent allowlist、接口变更记录和相关测试。
 
 Multi-node：
 
@@ -332,8 +332,6 @@ gofmt -w <touched go files>
 go test ./p2p ./internal/productpolicy -count=1
 go test ./internal/httputil ./setup -count=1
 go build ./cmd/dirextalk-message-server
-python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null
-python3 -m json.tool docs/postman/dirextalk-plugins.postman_collection.json >/dev/null
 git diff --check
 docker compose -f docker-compose.p2p-dual.yml config
 ```
@@ -345,11 +343,11 @@ docker compose -f docker-compose.p2p-dual.yml config
 - 不新增 URL-shaped 产品接口；当前明确例外是标准 MCP Streamable HTTP endpoint `POST /mcp`。其它新增产品能力优先使用稳定 action 和 params schema。
 - 不静默改变请求/响应字段；接口变化必须更新 `docs/api-interface-change-record.md`。
 - 必须持久化的产品状态不得放内存-only；扩展 `p2p.Store` 和 migration。
+- 服务端数据库只支持 PostgreSQL；不要新增 SQLite storage、SQLite 测试或 `file:` 默认配置。
 - Matrix 侧房间、成员、消息、redaction 不绕过 `p2p.Transport`。
 - remote public lookup 不从 room ID 推导 P2P URL，必须使用请求提供的 `remote_node_base_url`。
 - public channel membership 不得在 Matrix join 前标记为 joined。
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
-- Postman JSON 必须保持可导入。
 - 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Dirextalk 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
 - 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Dirextalk Message Server 层名拆分。当前全局技能是：`dirextalk-backend-change-orchestrator`（全链路影响图）、`dirextalk-backend-contract-state-storage`（合同、Matrix 事件状态、持久化和 migration 规则）和 `dirextalk-backend-verification`（本仓库验证命令选择）。
 
@@ -360,5 +358,5 @@ docker compose -f docker-compose.p2p-dual.yml config
 - `docs/api-interface-change-record.md` 记录接口变更审计。
 - `docs/api-audit-and-optimization.md` 记录当前审计与优化结论。
 - `docs/p2p-integrated-as-implementation.md` 记录实现细节。
-- `docs/dirextalk-message-server.md` 记录 Docker 镜像和运行说明，`docs/dirextalk-push-gateway.md` 记录 Push Gateway 合约，`docs/postman/` 只保留可导入 JSON 示例。
-- 不在活文档、Postman、技能规则或示例中保留旧接口作为当前可用能力。
+- `docs/dirextalk-message-server.md` 记录 Docker 镜像和运行说明，`docs/dirextalk-push-gateway.md` 记录 Push Gateway 合约。
+- 不在活文档、技能规则或示例中保留旧接口作为当前可用能力。

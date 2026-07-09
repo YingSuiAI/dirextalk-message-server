@@ -19,8 +19,7 @@ import (
 
 type DBType int
 
-var DBTypeSQLite DBType = 1
-var DBTypePostgres DBType = 2
+var DBTypePostgres DBType = 1
 
 var Quiet = false
 var Required = os.Getenv("DENDRITE_TEST_SKIP_NODB") == ""
@@ -64,10 +63,6 @@ func createRemoteDB(t *testing.T, dbName, user, connStr, postgresDB string) {
 // Calling this function twice will return the same database, which will have data from previous tests
 // unless close() is called.
 func PrepareDBConnectionString(t *testing.T, dbType DBType) (connStr string, close func()) {
-	if dbType == DBTypeSQLite {
-		t.Fatalf("sqlite test databases are disabled; use PostgreSQL")
-	}
-
 	// Required vars: user and db
 	// We'll try to infer from the local env if they are missing
 	user := os.Getenv("POSTGRES_USER")

@@ -20,7 +20,7 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 - `rooms.reactivate` and `channels.public.join_result` are public HTTP-only node-to-node callbacks, not WS `client.request` entries.
 - MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.
 
-When adding, removing, renaming, or changing fields/auth, update focused tests plus the contract-critical docs/Postman/project-local skills in the same change. Do not rewrite long-form audit or implementation documents for every small step; consolidate those at phase boundaries unless the user explicitly asks for immediate narrative updates.
+When adding, removing, renaming, or changing fields/auth, update focused tests plus the contract-critical docs and project-local skills in the same change. Do not rewrite long-form audit or implementation documents for every small step; consolidate those at phase boundaries unless the user explicitly asks for immediate narrative updates.
 
 ## Matrix State And Timeline
 
@@ -49,7 +49,8 @@ For report/system/agent notifications, prefer normal Matrix timeline events in t
 ## Durable State
 
 - Persist behavior that must survive restart. Do not add memory-only state for user-visible product facts.
-- Update storage interfaces, PostgreSQL/SQLite implementations, migrations, tests, and callers together.
+- Update storage interfaces, PostgreSQL implementations, migrations, tests, and callers together.
+- Do not add SQLite storage, SQLite tests, or `file:` database defaults. PostgreSQL is the only supported database engine for server state.
 - Keep migrations additive and idempotent unless explicit product intent requires destructive reset.
 - Add indexes only for introduced query patterns.
 - Add restart/reopen coverage when recovery matters.

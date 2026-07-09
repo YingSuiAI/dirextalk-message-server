@@ -633,7 +633,7 @@ func (d *Database) CreateDevice(
 ) (dev *api.Device, returnErr error) {
 	if deviceID != nil {
 		_, ok := d.Writer.(*sqlutil.ExclusiveWriter)
-		if ok { // we're using most likely using SQLite, so do things a little different
+		if ok {
 			returnErr = d.Writer.Do(d.DB, nil, func(txn *sql.Tx) error {
 				var err error
 

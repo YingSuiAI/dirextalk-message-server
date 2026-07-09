@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/userapi/storage/sqlite3"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
@@ -26,8 +25,6 @@ func mustCreateTable(t *testing.T, dbType test.DBType) (tab tables.StaleDeviceLi
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresStaleDeviceListsTable(db)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSqliteStaleDeviceListsTable(db)
 	}
 	if err != nil {
 		t.Fatalf("failed to create new table: %s", err)

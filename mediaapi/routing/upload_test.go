@@ -14,6 +14,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/storage"
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/util"
 	log "github.com/sirupsen/logrus"
 )
@@ -51,14 +52,16 @@ func Test_uploadRequest_doUpload(t *testing.T) {
 	_ = os.Mkdir(testdataPath, os.ModePerm)
 	defer fileutils.RemoveDir(types.Path(testdataPath), nil)
 	cm := sqlutil.NewConnectionManager(nil, config.DatabaseOptions{})
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
 	db, err := storage.NewMediaAPIDatasource(cm, &config.DatabaseOptions{
-		ConnectionString:       "file::memory:?cache=shared",
-		MaxOpenConnections:     100,
+		ConnectionString:       config.DataSource(connStr),
+		MaxOpenConnections:     10,
 		MaxIdleConnections:     2,
 		ConnMaxLifetimeSeconds: -1,
 	})
 	if err != nil {
-		t.Errorf("error opening mediaapi database: %v", err)
+		t.Fatalf("error opening mediaapi database: %v", err)
 	}
 
 	tests := []struct {

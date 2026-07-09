@@ -6,7 +6,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -25,10 +24,6 @@ func mustCreateRoomAliasesTable(t *testing.T, dbType test.DBType) (tab tables.Ro
 		err = postgres.CreateRoomAliasesTable(db)
 		assert.NoError(t, err)
 		tab, err = postgres.PrepareRoomAliasesTable(db)
-	case test.DBTypeSQLite:
-		err = sqlite3.CreateRoomAliasesTable(db)
-		assert.NoError(t, err)
-		tab, err = sqlite3.PrepareRoomAliasesTable(db)
 	}
 	assert.NoError(t, err)
 

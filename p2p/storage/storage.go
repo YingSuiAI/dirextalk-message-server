@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -14,6 +15,9 @@ type DatabaseStore struct {
 }
 
 func NewDatabaseStore(ctx context.Context, cm *sqlutil.Connections, dbProperties *config.DatabaseOptions) (*DatabaseStore, error) {
+	if dbProperties.ConnectionString.IsSQLite() {
+		return nil, fmt.Errorf("SQLite is not supported for P2P product state; configure PostgreSQL")
+	}
 	db, writer, err := cm.Connection(dbProperties)
 	if err != nil {
 		return nil, err

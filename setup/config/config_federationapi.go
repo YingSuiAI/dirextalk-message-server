@@ -88,7 +88,7 @@ func (c *FederationAPI) Defaults(opts DefaultOpts) {
 			},
 		}
 		if !opts.SingleDatabase {
-			c.Database.ConnectionString = "file:federationapi.db"
+			c.Database.ConnectionString = "postgres://localhost/federationapi?sslmode=disable"
 		}
 	}
 }
@@ -97,6 +97,7 @@ func (c *FederationAPI) Verify(configErrs *ConfigErrors) {
 	if c.Matrix.DatabaseOptions.ConnectionString == "" {
 		checkNotEmpty(configErrs, "federation_api.database.connection_string", string(c.Database.ConnectionString))
 	}
+	c.Database.Verify(configErrs)
 }
 
 // The config for setting a proxy to use for server->server requests

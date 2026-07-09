@@ -103,7 +103,6 @@ The external `POST /mcp` transport must call the same `internal/dirextalkmcp` se
   - `go test ./syncapi/storage ./syncapi/routing -count=1` when sync reader code is touched
   - `go build ./cmd/dirextalk-message-server`
   - `docker compose -f docker-compose.p2p.yml config`
-  - `python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null`
   - `git diff --check`
 - Real local interface testing passes with a temporary DeepSeek key:
   - Native Agent is absent from plugin catalog/list/lifecycle/invoke surfaces.

@@ -29,8 +29,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/types"
 )
 
-// Database is a temporary struct until we have made syncserver.go the same for both pq/sqlite
-// For now this contains the shared functions
+// Database contains shared sync storage functions.
 type Database struct {
 	DB                  *sql.DB
 	Writer              sqlutil.Writer
@@ -220,7 +219,7 @@ func (d *Database) UpsertAccountData(
 // handleBackwardExtremities adds this event as a backwards extremity if and only if we do not have all of
 // the events listed in the event's 'prev_events'. This function also updates the backwards extremities table
 // to account for the fact that the given event is no longer a backwards extremity, but may be marked as such.
-// This function should always be called within a sqlutil.Writer for safety in SQLite.
+// This function should always be called within a sqlutil.Writer.
 func (d *Database) handleBackwardExtremities(ctx context.Context, txn *sql.Tx, ev *rstypes.HeaderedEvent) error {
 	if err := d.BackwardExtremities.DeleteBackwardExtremity(ctx, txn, ev.RoomID().String(), ev.EventID()); err != nil {
 		return err
@@ -292,7 +291,7 @@ func (d *Database) WriteEvent(
 	return pduPosition, returnErr
 }
 
-// This function should always be called within a sqlutil.Writer for safety in SQLite.
+// This function should always be called within a sqlutil.Writer.
 func (d *Database) updateRoomState(
 	ctx context.Context, txn *sql.Tx,
 	removedEventIDs []string,

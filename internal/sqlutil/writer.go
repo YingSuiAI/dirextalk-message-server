@@ -3,8 +3,8 @@ package sqlutil
 import "database/sql"
 
 // The Writer interface is designed to solve the problem of how
-// to handle database writes for database engines that don't allow
-// concurrent writes, e.g. SQLite.
+// to handle database writes for database engines or call paths that
+// require serialized write access.
 //
 // The interface has a single Do function which takes an optional
 // database parameter, an optional transaction parameter and a

@@ -90,7 +90,6 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [x] `go test ./syncapi/storage ./syncapi/routing -count=1` if sync reader code is touched.
 - [x] `go build ./cmd/dirextalk-message-server`.
 - [x] `docker compose -f docker-compose.p2p.yml config`.
-- [x] `python3 -m json.tool docs/postman/dirextalk-message-server.postman_collection.json >/dev/null`.
 - [x] `git diff --check`.
 
 ## Real Interface Acceptance

@@ -15,7 +15,6 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/postgres"
-	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/sqlite3"
 	"github.com/YingSuiAI/dirextalk-message-server/relayapi/storage/tables"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
@@ -44,9 +43,6 @@ func mustCreateQueueTable(
 	switch dbType {
 	case test.DBTypePostgres:
 		tab, err = postgres.NewPostgresRelayQueueTable(db)
-		assert.NoError(t, err)
-	case test.DBTypeSQLite:
-		tab, err = sqlite3.NewSQLiteRelayQueueTable(db)
 		assert.NoError(t, err)
 	}
 	assert.NoError(t, err)

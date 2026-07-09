@@ -55,6 +55,17 @@ func TestGlobalDefaultsFitSmallInstanceBudget(t *testing.T) {
 	}
 }
 
+func TestDatabaseOptionsRejectSQLiteConnectionString(t *testing.T) {
+	var errs ConfigErrors
+	db := DatabaseOptions{ConnectionString: "file:server.db"}
+
+	db.Verify(&errs)
+
+	if len(errs) == 0 {
+		t.Fatalf("expected SQLite connection string to be rejected")
+	}
+}
+
 const testConfig = `
 version: 2
 global:
@@ -73,7 +84,7 @@ global:
     topic_prefix: DirextalkMessageServer
     use_naffka: true
     naffka_database:
-      connection_string: file:naffka.db
+      connection_string: postgres://localhost/naffka?sslmode=disable
       max_open_conns: 100
       max_idle_conns: 2
       conn_max_lifetime: -1
@@ -91,7 +102,7 @@ global:
     addresses: ["test"]
 app_service_api:
   database:
-    connection_string: file:appservice.db
+    connection_string: postgres://localhost/appservice?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
@@ -112,16 +123,16 @@ client_api:
     turn_password: ""
 federation_api:
   database:
-    connection_string: file:federationapi.db
+    connection_string: postgres://localhost/federationapi?sslmode=disable
 key_server:
   database:
-    connection_string: file:keyserver.db
+    connection_string: postgres://localhost/keyserver?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
 media_api:
   database:
-    connection_string: file:mediaapi.db
+    connection_string: postgres://localhost/mediaapi?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
@@ -141,13 +152,13 @@ media_api:
     method: scale
 room_server:
   database:
-    connection_string: file:roomserver.db
+    connection_string: postgres://localhost/roomserver?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
 server_key_api:
   database:
-    connection_string: file:serverkeyapi.db
+    connection_string: postgres://localhost/serverkeyapi?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
@@ -160,27 +171,27 @@ server_key_api:
       public_key: l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ
 sync_api:
   database:
-    connection_string: file:syncapi.db
+    connection_string: postgres://localhost/syncapi?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
 user_api:
   account_database:
-    connection_string: file:userapi_accounts.db
+    connection_string: postgres://localhost/userapi_accounts?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
   pusher_database:
-    connection_string: file:pushserver.db
+    connection_string: postgres://localhost/pushserver?sslmode=disable
     max_open_conns: 100
     max_idle_conns: 2
     conn_max_lifetime: -1
 relay_api:
   database:
-    connection_string: file:relayapi.db
+    connection_string: postgres://localhost/relayapi?sslmode=disable
 mscs:
   database:
-    connection_string: file:mscs.db
+    connection_string: postgres://localhost/mscs?sslmode=disable
 tracing:
   enabled: false
   jaeger:

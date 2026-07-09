@@ -1,7 +1,6 @@
 package sqlutil_test
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
@@ -24,17 +23,9 @@ func TestConnectionManager(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			switch dbType {
-			case test.DBTypeSQLite:
-				_, ok := writer.(*sqlutil.ExclusiveWriter)
-				if !ok {
-					t.Fatalf("expected exclusive writer")
-				}
-			case test.DBTypePostgres:
-				_, ok := writer.(*sqlutil.DummyWriter)
-				if !ok {
-					t.Fatalf("expected dummy writer")
-				}
+			_, ok := writer.(*sqlutil.DummyWriter)
+			if !ok {
+				t.Fatalf("expected dummy writer")
 			}
 
 			// reuse existing connection
@@ -42,27 +33,11 @@ func TestConnectionManager(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(db, db2) {
+			if db != db2 {
 				t.Fatalf("expected database connection to be reused")
 			}
-			if !reflect.DeepEqual(writer, writer2) {
+			if writer != writer2 {
 				t.Fatalf("expected database writer to be reused")
-			}
-
-			// This test does not work with Postgres, because we can't just simply append
-			// "x" or replace the database to use.
-			if dbType == test.DBTypePostgres {
-				return
-			}
-
-			// Test different connection string
-			dbProps = &config.DatabaseOptions{ConnectionString: config.DataSource(conStr + "x")}
-			db3, _, err := cm.Connection(dbProps)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if reflect.DeepEqual(db, db3) {
-				t.Fatalf("expected different database connection")
 			}
 		})
 	})
@@ -79,17 +54,9 @@ func TestConnectionManager(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			switch dbType {
-			case test.DBTypeSQLite:
-				_, ok := writer.(*sqlutil.ExclusiveWriter)
-				if !ok {
-					t.Fatalf("expected exclusive writer")
-				}
-			case test.DBTypePostgres:
-				_, ok := writer.(*sqlutil.DummyWriter)
-				if !ok {
-					t.Fatalf("expected dummy writer")
-				}
+			_, ok := writer.(*sqlutil.DummyWriter)
+			if !ok {
+				t.Fatalf("expected dummy writer")
 			}
 
 			// reuse existing connection
@@ -97,10 +64,10 @@ func TestConnectionManager(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(db, db2) {
+			if db != db2 {
 				t.Fatalf("expected database connection to be reused")
 			}
-			if !reflect.DeepEqual(writer, writer2) {
+			if writer != writer2 {
 				t.Fatalf("expected database writer to be reused")
 			}
 		})
