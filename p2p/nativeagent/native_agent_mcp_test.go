@@ -55,8 +55,9 @@ func TestHTTPMCPToolCanBeInstalledAndUsedByModelLoop(t *testing.T) {
 		t.Fatalf("expected installed mcp server in list, got %#v", list)
 	}
 	result, err := runtime.Invoke(ctx, "agent.chat", map[string]any{
-		"prompt":        "call mcp",
-		"enabled_tools": []any{"all"},
+		"prompt":                  "call mcp",
+		"enabled_tools":           []any{"all"},
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -146,7 +147,8 @@ func TestModelLoopCanInstallMCPServerFromDialogue(t *testing.T) {
 
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "安装一个 MCP server",
+		"prompt":                  "安装一个 MCP server",
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",

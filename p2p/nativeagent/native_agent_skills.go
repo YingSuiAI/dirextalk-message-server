@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -167,11 +170,18 @@ func githubRawSkillURL(item map[string]any) string {
 }
 
 func (r *Runtime) fetchText(ctx context.Context, url string) (string, error) {
+	if err := validateFetchTextURL(url); err != nil {
+		return "", err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := r.client.Do(req)
+	client := *r.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -184,4 +194,56 @@ func (r *Runtime) fetchText(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("fetch %s returned %d", url, resp.StatusCode)
 	}
 	return string(body), nil
+}
+
+func validateFetchTextURL(rawURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("skill url must use https")
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("skill url host is required")
+	}
+	if privateHostName(host) {
+		return fmt.Errorf("skill url host is not allowed")
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if privateAddress(ip) {
+			return fmt.Errorf("skill url host is not allowed")
+		}
+		return nil
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		addr, err := netip.ParseAddr(ip.String())
+		if err != nil {
+			return err
+		}
+		if privateAddress(addr) {
+			return fmt.Errorf("skill url host resolves to a private address")
+		}
+	}
+	return nil
+}
+
+func privateHostName(host string) bool {
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), ".")
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+func privateAddress(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLoopback() ||
+		addr.IsPrivate() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() ||
+		addr.IsUnspecified()
 }

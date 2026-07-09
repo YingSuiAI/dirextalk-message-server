@@ -84,8 +84,9 @@ The external `POST /mcp` transport must call the same `internal/dirextalkmcp` se
 - Execution is bounded by timeout and returns stdout/stderr/exit status.
 - Install and run commands must work in minimal Alpine runtime images that provide `sh` but not `bash`; the official runtime image also installs `bash` for bash-based deployment scripts.
 - Timed-out install and run commands must clean up their child process groups so dynamic dependency installs cannot continue indefinitely after the request is cancelled.
-- Enabled installed runtime CLI tools are exposed to the Agent as Eino tools, so the model can call them inside the same orchestration loop and summarize their results.
-- Agent conversations expose a built-in `runtime__shell` Eino tool for explicit command execution requests. Multi-step runtime workflows use configurable `max_tool_calls` or `max_steps` budgets with a server-side cap.
+- Enabled installed runtime CLI tools can be exposed to the Agent as Eino tools after the current owner request includes `dangerous_tools_confirm="allow_native_agent_dangerous_tools"`, so the model can call them inside the same orchestration loop and summarize their results only after client-side second confirmation.
+- Agent conversations can expose a built-in `runtime__shell` Eino tool for explicit command execution requests after the same request-level dangerous-tool confirmation. Multi-step runtime workflows use configurable `max_tool_calls` or `max_steps` budgets with a server-side cap.
+- Runtime CLI, shell, and stdio MCP child processes must use a reduced runtime environment rather than inheriting all message-server environment variables. Stdio MCP servers may receive only explicitly configured extra `env` values.
 
 ## Storage And Data Directory
 

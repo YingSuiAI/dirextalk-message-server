@@ -132,7 +132,8 @@ func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 		t.Fatalf("install runtime tool: %v", err)
 	}
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "调用 hello-agent 工具并总结",
+		"prompt":                  "调用 hello-agent 工具并总结",
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -175,7 +176,8 @@ func TestModelLoopCanCallBuiltInRuntimeShellTool(t *testing.T) {
 
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "执行 shell 命令并总结",
+		"prompt":                  "执行 shell 命令并总结",
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -211,7 +213,9 @@ func TestRuntimeShellToolCanBeDisabled(t *testing.T) {
 
 func TestRuntimeShellEinoToolRunsCommand(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
-	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{}, map[string]any{})
+	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{}, map[string]any{
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
+	})
 	if err != nil {
 		t.Fatalf("enabled Eino tools: %v", err)
 	}
@@ -277,7 +281,8 @@ func TestModelLoopHonorsConfiguredMaxToolCalls(t *testing.T) {
 		}},
 	})
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "连续执行多个 shell 步骤",
+		"prompt":                  "连续执行多个 shell 步骤",
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -320,7 +325,8 @@ func TestModelLoopCanInstallSkillFromDialogue(t *testing.T) {
 
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "安装一个 dialogue skill",
+		"prompt":                  "安装一个 dialogue skill",
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -362,7 +368,7 @@ func TestConfigEnabledToolsStillExposeDialogueManagementTools(t *testing.T) {
 	})
 	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{
 		"enabled_tools": []any{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"},
-	}, map[string]any{})
+	}, map[string]any{"dangerous_tools_confirm": "allow_native_agent_dangerous_tools"})
 	if err != nil {
 		t.Fatalf("enabled Eino tools: %v", err)
 	}
@@ -381,7 +387,10 @@ func TestConfigEnabledToolsStillExposeDialogueManagementTools(t *testing.T) {
 
 	requestTools, requestCleanup, err := runtime.enabledEinoTools(context.Background(), map[string]any{
 		"enabled_tools": []any{"search_contacts", "search_rooms", "list_messages", "send_message", "summarize_conversation"},
-	}, map[string]any{"enabled_tools": []any{"search_contacts"}})
+	}, map[string]any{
+		"enabled_tools":           []any{"search_contacts"},
+		"dangerous_tools_confirm": "allow_native_agent_dangerous_tools",
+	})
 	if err != nil {
 		t.Fatalf("request enabled Eino tools: %v", err)
 	}

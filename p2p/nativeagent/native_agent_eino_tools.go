@@ -30,12 +30,12 @@ func (r *Runtime) enabledNativeEinoTools(ctx context.Context, config map[string]
 		}
 		tools = append(tools, &einoNativeTool{native: nativeTool, info: info})
 	}
-	mcpTools, cleanup, err := r.enabledOfficialMCPTools(ctx, config)
+	mcpTools, cleanup, err := r.enabledOfficialMCPTools(ctx, config, params)
 	if err != nil {
 		return nil, nil, err
 	}
 	tools = append(tools, mcpTools...)
-	tools = append(tools, r.enabledRuntimeEinoTools(config)...)
+	tools = append(tools, r.enabledRuntimeEinoTools(config, params)...)
 	return tools, cleanup, nil
 }
 

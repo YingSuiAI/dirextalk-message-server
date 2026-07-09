@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const dangerousToolsConfirmValue = "allow_native_agent_dangerous_tools"
+
 type Tool struct {
 	Name        string
 	Description string
@@ -20,26 +22,38 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 		selected = stringSliceParam(config["enabled_tools"])
 	}
 	availableTools := r.availableTools()
+	byName := make(map[string]Tool, len(availableTools))
+	for _, tool := range availableTools {
+		byName[tool.Name] = tool
+	}
+	dangerousConfirmed := nativeAgentDangerousToolsConfirmed(params)
 	enabled := map[string]bool{}
+	enable := func(tool Tool) {
+		if nativeAgentDangerousTool(tool) && !dangerousConfirmed {
+			return
+		}
+		enabled[tool.Name] = true
+	}
 	if len(selected) == 0 {
 		for _, tool := range availableTools {
-			if tool.Write {
-				continue
-			}
-			enabled[tool.Name] = true
+			enable(tool)
 		}
 	} else {
 		for _, value := range selected {
 			if strings.EqualFold(value, "all") {
 				for _, tool := range availableTools {
-					enabled[tool.Name] = true
+					enable(tool)
 				}
 				break
 			}
 			if name := nativeToolAlias(value); name != "" {
-				enabled[name] = true
+				if tool, ok := byName[name]; ok {
+					enable(tool)
+				}
 			}
 		}
+	}
+	if dangerousConfirmed {
 		enableNativeAgentManagementTools(enabled, availableTools)
 	}
 	tools := make([]Tool, 0, len(availableTools))
@@ -49,6 +63,10 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 		}
 	}
 	return tools
+}
+
+func nativeAgentDangerousToolsConfirmed(params map[string]any) bool {
+	return trimString(params["dangerous_tools_confirm"]) == dangerousToolsConfirmValue
 }
 
 func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []Tool) {
@@ -62,6 +80,10 @@ func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []
 func nativeAgentManagementTool(name string) bool {
 	return strings.HasPrefix(strings.TrimSpace(name), "native_agent_skills_") ||
 		strings.HasPrefix(strings.TrimSpace(name), "native_agent_mcp_servers_")
+}
+
+func nativeAgentDangerousTool(tool Tool) bool {
+	return tool.Write
 }
 
 func nativeToolAlias(value string) string {

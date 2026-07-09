@@ -16,6 +16,7 @@ func (r *Runtime) managementTools() []Tool {
 			Name: "native_agent_skills_install",
 			Description: "Install a native Agent skill from SKILL.md content, an HTTPS URL, or a GitHub repository path. " +
 				"Use only when the user explicitly asks to install or add a skill. Skill scripts are not executed; installed skill instructions affect the next Agent turn after the prompt is rebuilt.",
+			Write: true,
 			Parameters: objectSchema(map[string]any{
 				"id":       stringSchema(),
 				"name":     stringSchema(),
@@ -33,6 +34,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_skills_enable",
 			Description: "Enable an installed native Agent skill by id or name. Enabled skill instructions affect the next Agent turn after the prompt is rebuilt.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),
@@ -44,6 +46,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_skills_disable",
 			Description: "Disable an installed native Agent skill by id or name.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),
@@ -55,6 +58,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_skills_uninstall",
 			Description: "Uninstall a native Agent skill by id or name.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),
@@ -75,6 +79,7 @@ func (r *Runtime) managementTools() []Tool {
 			Name: "native_agent_mcp_servers_install",
 			Description: "Install a native Agent MCP server from stdio, HTTP, SSE, or streamable HTTP configuration. " +
 				"Use only when the user explicitly asks to install or add an MCP server. Discovered MCP tools become callable on the next Agent turn after tools are rebuilt.",
+			Write: true,
 			Parameters: objectSchema(map[string]any{
 				"id":             stringSchema(),
 				"name":           stringSchema(),
@@ -93,6 +98,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_mcp_servers_enable",
 			Description: "Enable an installed native Agent MCP server by id or name. Its tools become callable on the next Agent turn after tools are rebuilt.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),
@@ -104,6 +110,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_mcp_servers_disable",
 			Description: "Disable an installed native Agent MCP server by id or name.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),
@@ -115,6 +122,7 @@ func (r *Runtime) managementTools() []Tool {
 		{
 			Name:        "native_agent_mcp_servers_uninstall",
 			Description: "Uninstall a native Agent MCP server by id or name.",
+			Write:       true,
 			Parameters: objectSchema(map[string]any{
 				"id":   stringSchema(),
 				"name": stringSchema(),

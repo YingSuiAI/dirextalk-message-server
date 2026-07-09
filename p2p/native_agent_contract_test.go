@@ -355,6 +355,34 @@ func TestNativeAgentRealtimeStreamFramesUseNativeRuntime(t *testing.T) {
 	}
 }
 
+func TestNativeAgentRealtimeStreamRejectsNonStreamActionsBeforeRunner(t *testing.T) {
+	nativeRunner := &recordingNativeAgentRunner{}
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: nativeRunner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
+		t.Fatalf("expected ready, got %#v", got)
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type":   "client.native_agent_stream",
+		"id":     "native-non-stream",
+		"action": "agent.runtime.run",
+		"params": map[string]any{"prompt": "hello"},
+	})
+	frame := readRealtimeFrame(t, conn)
+	if frame["type"] != "server.native_agent_stream.error" || frame["id"] != "native-non-stream" || int(frame["status"].(float64)) != http.StatusBadRequest {
+		t.Fatalf("expected non-stream action rejection, got %#v", frame)
+	}
+	if len(nativeRunner.streams) != 0 {
+		t.Fatalf("non-stream action must not reach native runner, got %#v", nativeRunner.streams)
+	}
+}
+
 type nativeAgentCall struct {
 	Action string
 	Params map[string]any

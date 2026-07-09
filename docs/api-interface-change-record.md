@@ -2,6 +2,24 @@
 
 Last updated: 2026-07-09
 
+## 2026-07-09 Native Agent Dangerous Tool Confirmation
+
+Native Agent model-callable dangerous tools are now request-confirmed instead of default-exposed. `agent.chat` and realtime `client.native_agent_stream` expose read-only tools by default. Model-callable write tools, `native_agent_skills_*` mutation tools, `native_agent_mcp_servers_*` mutation tools, external MCP server tools, installed runtime CLI tools, and the built-in `runtime__shell` tool are available to the model only when the current owner request includes:
+
+```json
+{
+  "dangerous_tools_confirm": "allow_native_agent_dangerous_tools"
+}
+```
+
+This is a request-level owner confirmation after client-side second confirmation, not a tool argument that the model can add for itself. Direct owner `agent.runtime.*`, `agent.skills.*`, and `agent.mcp.*` body actions remain owner-token actions; this change narrows tools exposed inside model tool-selection loops.
+
+Native Agent subprocesses no longer inherit the full message-server process environment. Runtime CLI/shell commands receive a reduced runtime environment with runtime `PATH` plus minimal OS execution variables. Stdio MCP servers receive the same reduced environment plus explicitly configured MCP server `env`. Model provider API keys and server credentials must not be inherited into those child processes.
+
+Native Agent skill URL installation now fetches only HTTPS public hosts, rejects localhost/private/link-local targets, and does not follow redirects. Installing a skill from inline `content` is unchanged.
+
+Realtime `client.native_agent_stream` now validates the requested stream action against `p2p/serviceapi.ActionSpecs` before entering the Native Agent runner. Non-stream or non-Agent stream actions are rejected at the WS boundary instead of relying only on the downstream runtime allowlist.
+
 ## 2026-07-09 MCP Body-Action Compatibility Removal
 
 MCP-D is complete for the fixed Dirextalk body-action wrapper surface. The old fixed `mcp.*` actions are removed from `/_p2p/query`, `/_p2p/command`, the product action registry, and `serviceapi.AgentAction`.

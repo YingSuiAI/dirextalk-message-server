@@ -2,8 +2,6 @@ package nativeagent
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,12 +52,11 @@ func TestSkillInstallListsAndInjectsStaticSkillPrompt(t *testing.T) {
 	if _, err := runtime.Invoke(ctx, "agent.skills.enable", map[string]any{"id": "answer-style"}); err != nil {
 		t.Fatalf("enable skill: %v", err)
 	}
-	skillServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("# Skill\n\nURL skill marker URL_SKILL_USED."))
-	}))
-	defer skillServer.Close()
-	if _, err := runtime.Invoke(ctx, "agent.skills.install", map[string]any{"id": "url-skill", "url": skillServer.URL}); err != nil {
-		t.Fatalf("install skill from url: %v", err)
+	if _, err := runtime.Invoke(ctx, "agent.skills.install", map[string]any{
+		"id":      "second-skill",
+		"content": "# Skill\n\nSecond skill marker SECOND_SKILL_USED.",
+	}); err != nil {
+		t.Fatalf("install second skill: %v", err)
 	}
 	if _, err := runtime.Invoke(ctx, "agent.skills.uninstall", map[string]any{"id": "answer-style"}); err != nil {
 		t.Fatalf("uninstall skill: %v", err)
@@ -69,7 +66,7 @@ func TestSkillInstallListsAndInjectsStaticSkillPrompt(t *testing.T) {
 		t.Fatalf("list skills after uninstall: %v", err)
 	}
 	skills = list["skills"].([]map[string]any)
-	if len(skills) != 1 || skills[0]["id"] != "url-skill" {
-		t.Fatalf("expected only url skill after uninstall, got %#v", list)
+	if len(skills) != 1 || skills[0]["id"] != "second-skill" {
+		t.Fatalf("expected only second skill after uninstall, got %#v", list)
 	}
 }

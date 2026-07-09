@@ -15,7 +15,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (r *Runtime) enabledOfficialMCPTools(ctx context.Context, config map[string]any) ([]einotool.BaseTool, func(), error) {
+func (r *Runtime) enabledOfficialMCPTools(ctx context.Context, config map[string]any, params map[string]any) ([]einotool.BaseTool, func(), error) {
+	if !nativeAgentDangerousToolsConfirmed(params) {
+		return nil, func() {}, nil
+	}
 	var sessions []*mcp.ClientSession
 	cleanup := func() {
 		for _, session := range sessions {
@@ -113,7 +116,7 @@ func (r *Runtime) mcpTransport(server map[string]any) (mcp.Transport, error) {
 		cmd := exec.Command(command, stringSliceParam(server["args"])...)
 		cmd.Dir = filepath.Join(r.dataDir, "mcp", sanitizeNativeID(trimString(server["id"])))
 		_ = os.MkdirAll(cmd.Dir, 0o700)
-		cmd.Env = append(os.Environ(), envMapToList(server["env"])...)
+		cmd.Env = append(runtimeEnv(r.dataDir), envMapToList(server["env"])...)
 		return &mcp.CommandTransport{Command: cmd}, nil
 	case "sse":
 		url := trimString(server["url"])

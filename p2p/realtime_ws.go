@@ -455,6 +455,11 @@ func (s *Service) startRealtimeWSNativeAgentStream(ctx context.Context, wsConn *
 	if !strings.HasSuffix(runnerAction, ".stream") {
 		runnerAction += ".stream"
 	}
+	spec, ok := serviceapi.ActionSpecFor(runnerAction)
+	if !ok || spec.Transport != serviceapi.ActionTransportWSStreamOnly || !strings.HasPrefix(runnerAction, "agent.") {
+		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadRequest, "action is not a native agent stream action"))
+		return
+	}
 	if s.nativeAgentRunner == nil {
 		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadGateway, "native agent runtime is not configured"))
 		return

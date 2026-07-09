@@ -11,7 +11,10 @@ import (
 	"github.com/eino-contrib/jsonschema"
 )
 
-func (r *Runtime) enabledRuntimeEinoTools(config map[string]any) []einotool.BaseTool {
+func (r *Runtime) enabledRuntimeEinoTools(config map[string]any, params map[string]any) []einotool.BaseTool {
+	if !nativeAgentDangerousToolsConfirmed(params) {
+		return nil
+	}
 	records := configList(config, "runtime_tools")
 	tools := make([]einotool.BaseTool, 0, len(records)+1)
 	if runtimeShellEinoToolEnabled(config) {

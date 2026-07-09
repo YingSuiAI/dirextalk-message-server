@@ -177,19 +177,29 @@ func runtimePATH(dataDir string) string {
 }
 
 func runtimeEnv(dataDir string) []string {
-	env := os.Environ()
-	pathSet := false
-	for i, value := range env {
-		if strings.HasPrefix(value, "PATH=") {
-			env[i] = "PATH=" + runtimePATH(dataDir)
-			pathSet = true
-			break
+	env := []string{"PATH=" + runtimePATH(dataDir)}
+	for _, key := range runtimeEnvPassthroughKeys() {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			env = append(env, key+"="+value)
 		}
 	}
-	if !pathSet {
-		env = append(env, "PATH="+runtimePATH(dataDir))
-	}
 	return env
+}
+
+func runtimeEnvPassthroughKeys() []string {
+	if runtime.GOOS == "windows" {
+		return []string{
+			"SystemDrive",
+			"SystemRoot",
+			"WINDIR",
+			"ComSpec",
+			"PATHEXT",
+			"TEMP",
+			"TMP",
+			"USERPROFILE",
+		}
+	}
+	return []string{"HOME", "TMPDIR", "TEMP", "TMP"}
 }
 
 func lookPathInPATH(command, pathValue string) (string, error) {
