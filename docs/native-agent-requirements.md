@@ -25,11 +25,12 @@ Clients use the current call surface:
 ## Runtime Requirements
 
 - Native Agent owner actions always route to the native runtime, never to a Docker Agent container.
-- Native Agent runtime config is stored in native portal Agent config storage. On startup, old hidden Agent plugin config/runtime state is imported once in a sanitized, idempotent way; current clients must not use plugin management as the Native Agent contract.
+- Native Agent runtime config is stored in native portal Agent config storage. Model profile lists are current-client local state and are sent request-by-request; `agent.config.update` is not the current model profile store. On startup, old hidden Agent plugin config/runtime state is imported once in a sanitized, idempotent way; current clients must not use plugin management as the Native Agent contract.
 - Native Agent uses CloudWeGo Eino as the only model orchestration path. The runtime must track the latest stable Eino release, use Eino ReAct for model/tool loops, use maintained Eino model components for OpenAI and DeepSeek, use direct-only Anthropic Messages API as an Eino `ToolCallingChatModel` adapter, and use Eino official MCP tooling backed by `modelcontextprotocol/go-sdk`.
 - Native Agent supports `openai`, `anthropic`, `deepseek`, and `openai_compatible`.
 - `anthropic` first-version support is direct Anthropic API only. Bedrock and Vertex are intentionally not supported, and AWS/Google SDK dependencies must not be introduced for this provider.
-- Requests may pass `model_profile` with `provider`, `model`, `base_url`, `api_key`, `temperature`, `top_p`, `max_output_tokens`, and `context_window`.
+- Requests may pass `model_profile` with `provider`, `model`, `base_url`, `api_key`, and optional `temperature`, `top_p`, `max_output_tokens`, and `context_window`. Omitted optional tuning fields mean provider defaults apply.
+- `agent.models.list` uses request-scoped provider/base_url/api_key to fetch real provider model lists. It must not persist API keys, maintain server-side model profiles for the current client, or invent model context/temperature/top_p/max-output/reasoning defaults.
 - DeepSeek defaults to the OpenAI-compatible endpoint `https://api.deepseek.com`.
 - API keys are request-local or temporary environment values only. They must not be persisted, logged, committed, or returned by config APIs.
 - System prompts come from native Agent config, request overrides, and enabled static skills.

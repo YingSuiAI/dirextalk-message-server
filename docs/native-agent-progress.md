@@ -45,7 +45,8 @@ Only mark an item after implementation and verification are complete. Do not pre
 - [x] Provider factory supports `anthropic`.
 - [x] Provider factory supports `deepseek`.
 - [x] Provider factory supports `openai_compatible`.
-- [x] Request-level `model_profile` supports provider/model/base_url/api_key/temperature/top_p/max_output_tokens/context_window.
+- [x] Request-level `model_profile` supports provider/model/base_url/api_key plus optional temperature/top_p/max_output_tokens/context_window when the client explicitly configures them.
+- [x] `agent.models.list` proxies real provider model lists without persisting API keys, server-side profile lists, or invented tuning defaults.
 - [x] System prompt supports config prompt, request override, and enabled skills.
 - [x] API keys are request-local only and are not persisted/logged/returned.
 

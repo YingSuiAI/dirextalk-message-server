@@ -43,8 +43,11 @@ func TestModelsListFetchesOpenAICompatibleProvider(t *testing.T) {
 	if models[0]["id"] != "provider/model-a" || models[0]["name"] != "Model A" || models[0]["context_length"] == nil {
 		t.Fatalf("unexpected first model: %#v", models[0])
 	}
-	if models[0]["temperature"] == nil || models[0]["top_p"] == nil {
-		t.Fatalf("expected model parameter defaults, got %#v", models[0])
+	if _, ok := models[0]["temperature"]; ok {
+		t.Fatalf("models.list must not invent temperature defaults: %#v", models[0])
+	}
+	if _, ok := models[0]["top_p"]; ok {
+		t.Fatalf("models.list must not invent top_p defaults: %#v", models[0])
 	}
 	data, _ := json.Marshal(result)
 	if strings.Contains(string(data), "test-key") {
@@ -52,7 +55,7 @@ func TestModelsListFetchesOpenAICompatibleProvider(t *testing.T) {
 	}
 }
 
-func TestModelsListAddsOpenAIReasoningMetadata(t *testing.T) {
+func TestModelsListDoesNotInventOpenAIMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.5"}]}`))
@@ -72,14 +75,10 @@ func TestModelsListAddsOpenAIReasoningMetadata(t *testing.T) {
 	if !ok || len(models) != 1 {
 		t.Fatalf("expected one model, got %#v", result["models"])
 	}
-	modes, ok := models[0]["reasoning_modes"].([]string)
-	if !ok || strings.Join(modes, ",") != "low,medium,high,xhigh" {
-		t.Fatalf("expected OpenAI reasoning modes, got %#v", models[0]["reasoning_modes"])
-	}
-	if models[0]["reasoning_mode"] != "medium" ||
-		models[0]["context_length"] == nil ||
-		models[0]["max_output_tokens"] == nil {
-		t.Fatalf("expected OpenAI model defaults, got %#v", models[0])
+	for _, key := range []string{"temperature", "top_p", "context_length", "max_output_tokens", "reasoning_modes", "reasoning_mode"} {
+		if _, ok := models[0][key]; ok {
+			t.Fatalf("models.list must not invent %s: %#v", key, models[0])
+		}
 	}
 }
 
