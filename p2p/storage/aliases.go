@@ -6,6 +6,7 @@ import (
 )
 
 type portalState = dirextalkdomain.PortalState
+type clientBuild = dirextalkdomain.ClientBuild
 type readMarker = dirextalkdomain.ReadMarker
 type channel = dirextalkdomain.Channel
 type channelInviteGrant = dirextalkdomain.ChannelInviteGrant

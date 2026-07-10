@@ -12,4 +12,8 @@ func (portalOnlyStore) SavePortal(context.Context, portalState) error {
 	return nil
 }
 
+func (portalOnlyStore) SaveClientBuild(context.Context, string, clientBuild) (bool, error) {
+	return true, nil
+}
+
 var _ portalStore = portalOnlyStore{}

@@ -97,6 +97,7 @@ Use the existing Product API body-action surface. Freeze these v1 names and make
 `release.v1.apply` validates owner authorization and the requested server-selected plan. It does not accept arbitrary image names, digests, shell commands, or unvalidated versions. It returns an opaque job id, job-scoped bearer token, and updater status URL.
 
 The client calls `client.version.report` after authenticated cold start/session restore and after WS `server.ready`. Reporting does not rely only on `portal.auth`, because overlay installation preserves login state.
+Each report is bound to the portal device/session captured during HTTP authorization or WS ticket creation and uses a narrow device-CAS persistence update. A stale request or already-connected old WS cannot overwrite the new portal device's report. The public status always uses message-server/current-device values for `current_version` and `client_version`; updater echo fields are not authoritative local facts.
 
 ## Independent Host Updater
 
@@ -205,6 +206,7 @@ For `running`, three consecutive failed health observations trigger repair. The 
 Use a restart budget and exponential backoff, initially three repair attempts in ten minutes followed by a fifteen-minute cooldown. Expose a degraded status after budget exhaustion instead of creating an infinite restart loop. Watchdog recovery never pulls a newer image, rotates backup, runs an upgrade migration plan, or changes the configured target version.
 
 Account deletion, explicit maintenance, deployer destroy, and planned upgrade must set the desired state before stopping services. This prevents the watchdog from undoing intentional shutdown.
+If account deletion fails after setting `deprovisioned`, the backend best-effort restores `running` with a fresh bounded context. A restoration failure is returned as a stable sanitized structured error so operators can distinguish watchdog recovery failure from the original deletion-stage failure.
 
 ## Client Behavior
 

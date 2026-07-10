@@ -1099,7 +1099,7 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 		"system_prompt":        "stored prompt",
 		"mcp_blocked_room_ids": []any{"!secret:example.com", ch.RoomID},
 	})
-	mustHandle[map[string]any](t, service, "client.version.report", map[string]any{
+	mustReportClientVersion(t, service, map[string]any{
 		"client_version": "3.4.5",
 		"build_number":   "345",
 		"platform":       "android",
@@ -1206,6 +1206,60 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 		len(reports[0].ImageURLs) != 1 ||
 		reports[0].ImageURLs[0] != "mxc://example.com/evidence" {
 		t.Fatalf("expected restored report, got %#v", reports)
+	}
+}
+
+func TestDatabaseStoreClientBuildUpdateUsesDeviceCASAndPreservesPortalFields(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := portalState{
+		Initialized:    true,
+		Password:       "password",
+		AccessToken:    "owner-token",
+		MatrixDeviceID: "DEVICE_A",
+		OwnerMXID:      "@owner:example.com",
+		Profile:        ownerProfile{UserID: "@owner:example.com", DisplayName: "Initial"},
+		AgentConfig:    agentConfig{DisplayName: "Agent", SystemPrompt: "Initial Agent"},
+	}
+	if err := store.SavePortal(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	wrongDeviceUpdated, err := store.SaveClientBuild(ctx, "DEVICE_B", clientBuild{Version: "v9.9.9"})
+	if err != nil || wrongDeviceUpdated {
+		t.Fatalf("wrong device CAS updated=%v err=%v", wrongDeviceUpdated, err)
+	}
+	build := clientBuild{Version: "v2.3.4", BuildNumber: "42", Platform: "android", ReportedAt: "2026-07-10T12:00:00Z"}
+	updated, err := store.SaveClientBuild(ctx, "DEVICE_A", build)
+	if err != nil || !updated {
+		t.Fatalf("current device CAS updated=%v err=%v", updated, err)
+	}
+	state.Profile.DisplayName = "Concurrent Profile"
+	state.AgentConfig.SystemPrompt = "Concurrent Agent"
+	if err := store.SavePortal(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err := store.LoadPortal(ctx)
+	if err != nil || !ok {
+		t.Fatalf("load portal ok=%v err=%v", ok, err)
+	}
+	if loaded.Profile.DisplayName != "Concurrent Profile" || loaded.AgentConfig.SystemPrompt != "Concurrent Agent" || loaded.ClientBuild != build {
+		t.Fatalf("same-device portal write lost narrow client build or unrelated fields: %#v", loaded)
+	}
+	state.MatrixDeviceID = "DEVICE_B"
+	state.ClientBuild = clientBuild{}
+	if err := store.SavePortal(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err = store.LoadPortal(ctx)
+	if err != nil || !ok || loaded.ClientBuild.Version != "" {
+		t.Fatalf("device switch did not atomically clear client build: ok=%v err=%v state=%#v", ok, err, loaded)
 	}
 }
 

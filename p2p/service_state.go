@@ -3,17 +3,18 @@ package p2p
 import "github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 
 type servicePortalState struct {
-	initialized    bool
-	password       string
-	accessToken    string
-	matrixDeviceID string
-	agentToken     string
-	ownerMXID      string
-	agentRoomID    string
-	systemRoomID   string
-	profile        ownerProfile
-	agentConfig    agentConfig
-	clientBuild    clientBuild
+	initialized             bool
+	password                string
+	accessToken             string
+	matrixDeviceID          string
+	agentToken              string
+	ownerMXID               string
+	agentRoomID             string
+	systemRoomID            string
+	profile                 ownerProfile
+	agentConfig             agentConfig
+	clientBuild             clientBuild
+	portalSessionGeneration uint64
 }
 
 type serviceReadModelState struct {

@@ -523,17 +523,18 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		pluginRunner:               basePluginRunner,
 		releaseController:          cfg.ReleaseController,
 		servicePortalState: servicePortalState{
-			initialized:    state.Initialized,
-			password:       state.Password,
-			accessToken:    state.AccessToken,
-			matrixDeviceID: state.MatrixDeviceID,
-			agentToken:     state.AgentToken,
-			ownerMXID:      state.OwnerMXID,
-			agentRoomID:    state.AgentRoomID,
-			systemRoomID:   state.SystemRoomID,
-			profile:        state.Profile,
-			agentConfig:    state.AgentConfig,
-			clientBuild:    state.ClientBuild,
+			initialized:             state.Initialized,
+			password:                state.Password,
+			accessToken:             state.AccessToken,
+			matrixDeviceID:          state.MatrixDeviceID,
+			agentToken:              state.AgentToken,
+			ownerMXID:               state.OwnerMXID,
+			agentRoomID:             state.AgentRoomID,
+			systemRoomID:            state.SystemRoomID,
+			profile:                 state.Profile,
+			agentConfig:             state.AgentConfig,
+			clientBuild:             state.ClientBuild,
+			portalSessionGeneration: 1,
 		},
 		serviceReadModelState: newServiceReadModelState(),
 		serviceEventState:     newServiceEventState(),
@@ -612,18 +613,23 @@ func (s *Service) Authenticate(token string) bool {
 }
 
 func (s *Service) Authorize(token, action string) bool {
+	_, authorized := s.authorizeProductAction(token, action)
+	return authorized
+}
+
+func (s *Service) authorizeProductAction(token, action string) (portalActionSession, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if token == "" {
-		return false
+		return portalActionSession{}, false
 	}
 	if _, ok := serviceapi.ActionSpecFor(action); !ok {
-		return false
+		return portalActionSession{}, false
 	}
 	if token == s.accessToken {
-		return true
+		return portalActionSession{DeviceID: cleanMatrixDeviceID(s.matrixDeviceID), Generation: s.portalSessionGeneration}, true
 	}
-	return token == s.agentToken && serviceapi.AgentAction(action)
+	return portalActionSession{}, token == s.agentToken && serviceapi.AgentAction(action)
 }
 
 func (s *Service) publishCurrentAgentStatusState(ctx context.Context) error {

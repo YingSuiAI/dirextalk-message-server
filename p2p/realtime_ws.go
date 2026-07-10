@@ -22,9 +22,11 @@ const (
 )
 
 type realtimeWSTicket struct {
-	Role      string
-	UserID    string
-	ExpiresAt time.Time
+	Role       string
+	UserID     string
+	DeviceID   string
+	Generation uint64
+	ExpiresAt  time.Time
 }
 
 type realtimeWSConnection struct {
@@ -572,6 +574,7 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	if record.Role != "owner" {
 		return realtimeWSResponseError(id, action, http.StatusForbidden, "M_FORBIDDEN")
 	}
+	ctx = withPortalActionSession(ctx, portalActionSession{DeviceID: record.DeviceID, Generation: record.Generation})
 	result, apiErr := s.Handle(ctx, action, params)
 	if apiErr != nil {
 		response := realtimeWSResponseError(id, action, apiErr.Status, apiErr.Error)
@@ -665,9 +668,11 @@ func (s *Service) createRealtimeWSTicketForToken(token string) (map[string]any, 
 		s.realtimeWSTickets = map[string]realtimeWSTicket{}
 	}
 	s.realtimeWSTickets[ticket] = realtimeWSTicket{
-		Role:      role,
-		UserID:    userID,
-		ExpiresAt: time.Now().UTC().Add(realtimeWSTicketTTL),
+		Role:       role,
+		UserID:     userID,
+		DeviceID:   cleanMatrixDeviceID(s.matrixDeviceID),
+		Generation: s.portalSessionGeneration,
+		ExpiresAt:  time.Now().UTC().Add(realtimeWSTicketTTL),
 	}
 	return map[string]any{
 		"ticket":        ticket,

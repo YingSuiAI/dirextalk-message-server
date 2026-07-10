@@ -14,11 +14,23 @@ import (
 const (
 	releaseApplyInvalidParamsCode = "release_apply_invalid_params"
 	updaterUnavailableCode        = "updater_unavailable"
+	clientSessionStaleCode        = "client_session_stale"
 )
 
 func (s *Service) reportClientVersion(ctx context.Context, params map[string]any) (any, *apiError) {
 	s.matrixSessionMu.Lock()
 	defer s.matrixSessionMu.Unlock()
+	identity, ok := portalActionSessionFromContext(ctx)
+	if !ok {
+		return nil, codedError(http.StatusUnauthorized, clientSessionStaleCode, "client session is stale")
+	}
+	s.mu.Lock()
+	currentDeviceID := cleanMatrixDeviceID(s.matrixDeviceID)
+	currentGeneration := s.portalSessionGeneration
+	s.mu.Unlock()
+	if identity.DeviceID != currentDeviceID || identity.Generation != currentGeneration {
+		return nil, codedError(http.StatusUnauthorized, clientSessionStaleCode, "client session is stale")
+	}
 	version, err := releasecontrol.NormalizeClientVersion(trimString(params["client_version"]))
 	if err != nil {
 		return nil, codedError(http.StatusBadRequest, "client_version_invalid", "client_version must be a stable semantic version")
@@ -32,20 +44,20 @@ func (s *Service) reportClientVersion(ctx context.Context, params map[string]any
 		return nil, codedError(http.StatusBadRequest, "client_platform_invalid", "platform is invalid")
 	}
 	reportedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	s.mu.Lock()
-	previous := s.clientBuild
-	s.clientBuild = clientBuild{Version: version, BuildNumber: buildNumber, Platform: platform, ReportedAt: reportedAt}
-	deviceID := cleanMatrixDeviceID(s.matrixDeviceID)
-	state := s.portalStateLocked()
-	s.mu.Unlock()
+	build := clientBuild{Version: version, BuildNumber: buildNumber, Platform: platform, ReportedAt: reportedAt}
 	if store := s.portalStore(); store != nil {
-		if err := store.SavePortal(ctx, state); err != nil {
-			s.mu.Lock()
-			s.clientBuild = previous
-			s.mu.Unlock()
+		updated, err := store.SaveClientBuild(ctx, identity.DeviceID, build)
+		if err != nil {
 			return nil, internalError(err)
 		}
+		if !updated {
+			return nil, codedError(http.StatusUnauthorized, clientSessionStaleCode, "client session is stale")
+		}
 	}
+	s.mu.Lock()
+	s.clientBuild = build
+	deviceID := cleanMatrixDeviceID(s.matrixDeviceID)
+	s.mu.Unlock()
 	return map[string]any{
 		"client_version": version,
 		"build_number":   buildNumber,
@@ -74,12 +86,8 @@ func (s *Service) releaseStatus(ctx context.Context, _ map[string]any) (any, *ap
 			status = current
 		}
 	}
-	if status.CurrentVersion == "" {
-		status.CurrentVersion = request.CurrentVersion
-	}
-	if status.ClientVersion == "" {
-		status.ClientVersion = request.ClientVersion
-	}
+	status.CurrentVersion = request.CurrentVersion
+	status.ClientVersion = request.ClientVersion
 	return releaseStatusMap(status, buildInfo.SchemaVersion, buildInfo.SchemaCompatVersion, client, deviceID), nil
 }
 

@@ -102,9 +102,16 @@ func handle(service *Service) http.HandlerFunc {
 			return
 		}
 		token := bearerToken(r.Header.Get("Authorization"))
-		if !publicAction(req.Action) && !service.Authorize(token, req.Action) {
-			writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
-			return
+		ctx := r.Context()
+		if !publicAction(req.Action) {
+			identity, authorized := service.authorizeProductAction(token, req.Action)
+			if !authorized {
+				writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
+				return
+			}
+			if identity.Generation != 0 {
+				ctx = withPortalActionSession(ctx, identity)
+			}
 		}
 		if req.Action == realtimeWSTicketAction {
 			response, err := service.createRealtimeWSTicketForToken(token)
@@ -115,7 +122,7 @@ func handle(service *Service) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, response)
 			return
 		}
-		response, err := service.Handle(r.Context(), req.Action, req.Params)
+		response, err := service.Handle(ctx, req.Action, req.Params)
 		if err != nil {
 			writeError(w, err)
 			return

@@ -63,22 +63,46 @@ func (s *DatabaseStore) SavePortal(ctx context.Context, state portalState) error
 					user_id = EXCLUDED.user_id,
 					display_name = EXCLUDED.display_name,
 					domain = EXCLUDED.domain,
-				avatar_url = EXCLUDED.avatar_url,
-				gender = EXCLUDED.gender,
-				birthday = EXCLUDED.birthday,
-				phone = EXCLUDED.phone,
+					avatar_url = EXCLUDED.avatar_url,
+					gender = EXCLUDED.gender,
+					birthday = EXCLUDED.birthday,
+					phone = EXCLUDED.phone,
 					email = EXCLUDED.email,
 					agent_config_json = EXCLUDED.agent_config_json,
-					client_version = EXCLUDED.client_version,
-					client_build_number = EXCLUDED.client_build_number,
-					client_platform = EXCLUDED.client_platform,
-					client_version_reported_at = EXCLUDED.client_version_reported_at
+					client_version = CASE WHEN p2p_portal.matrix_device_id IS DISTINCT FROM EXCLUDED.matrix_device_id THEN EXCLUDED.client_version ELSE p2p_portal.client_version END,
+					client_build_number = CASE WHEN p2p_portal.matrix_device_id IS DISTINCT FROM EXCLUDED.matrix_device_id THEN EXCLUDED.client_build_number ELSE p2p_portal.client_build_number END,
+					client_platform = CASE WHEN p2p_portal.matrix_device_id IS DISTINCT FROM EXCLUDED.matrix_device_id THEN EXCLUDED.client_platform ELSE p2p_portal.client_platform END,
+					client_version_reported_at = CASE WHEN p2p_portal.matrix_device_id IS DISTINCT FROM EXCLUDED.matrix_device_id THEN EXCLUDED.client_version_reported_at ELSE p2p_portal.client_version_reported_at END
 			`, "owner", boolInt(state.Initialized), state.Password, state.AccessToken, state.MatrixDeviceID, state.AgentToken,
 			state.OwnerMXID, state.AgentRoomID, state.SystemRoomID, state.Profile.UserID, state.Profile.DisplayName, state.Profile.Domain,
 			state.Profile.AvatarURL, state.Profile.Gender, state.Profile.Birthday, state.Profile.Phone, state.Profile.Email,
 			string(agentConfigJSON), state.ClientBuild.Version, state.ClientBuild.BuildNumber, state.ClientBuild.Platform, state.ClientBuild.ReportedAt)
 		return err
 	})
+}
+
+func (s *DatabaseStore) SaveClientBuild(ctx context.Context, expectedDeviceID string, build clientBuild) (bool, error) {
+	updated := false
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			UPDATE p2p_portal SET
+				client_version = $1,
+				client_build_number = $2,
+				client_platform = $3,
+				client_version_reported_at = $4
+			WHERE id = $5 AND matrix_device_id = $6
+		`, build.Version, build.BuildNumber, build.Platform, build.ReportedAt, "owner", expectedDeviceID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		updated = rows == 1
+		return nil
+	})
+	return updated, err
 }
 
 func (s *DatabaseStore) SaveReadMarker(ctx context.Context, marker readMarker) error {

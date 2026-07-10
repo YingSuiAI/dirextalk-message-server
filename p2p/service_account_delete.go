@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 )
@@ -36,7 +37,18 @@ func (s *Service) deleteAccount(ctx context.Context, params map[string]any) (any
 	if apiErr := s.setAccountDesiredStateDeprovisioned(ctx); apiErr != nil {
 		return nil, apiErr
 	}
+	result, apiErr := s.deleteAccountAfterDesiredState(ctx)
+	if apiErr != nil {
+		if restoreErr := s.restoreAccountDesiredStateRunning(); restoreErr != nil {
+			return nil, restoreErr
+		}
+		return nil, apiErr
+	}
+	success = true
+	return result, nil
+}
 
+func (s *Service) deleteAccountAfterDesiredState(ctx context.Context) (any, *apiError) {
 	summary := accountDeleteSummary{}
 	if apiErr := s.leaveAccountContacts(ctx, &summary); apiErr != nil {
 		return nil, apiErr
@@ -62,7 +74,6 @@ func (s *Service) deleteAccount(ctx context.Context, params map[string]any) (any
 	}
 
 	s.clearAccountStateInMemory()
-	success = true
 	return map[string]any{
 		"status":               "deprovisioned",
 		"contacts_left":        summary.ContactsLeft,
@@ -76,14 +87,27 @@ func (s *Service) deleteAccount(ctx context.Context, params map[string]any) (any
 }
 
 func (s *Service) setAccountDesiredStateDeprovisioned(ctx context.Context) *apiError {
+	return s.setAccountDesiredState(ctx, releasecontrol.DesiredStateDeprovisioned)
+}
+
+func (s *Service) setAccountDesiredState(ctx context.Context, state releasecontrol.DesiredState) *apiError {
 	s.mu.Lock()
 	controller := s.releaseController
 	s.mu.Unlock()
 	if controller == nil {
 		return codedError(http.StatusServiceUnavailable, updaterUnavailableCode, "updater is unavailable")
 	}
-	if err := controller.SetDesiredState(ctx, releasecontrol.DesiredStateDeprovisioned); err != nil {
+	if err := controller.SetDesiredState(ctx, state); err != nil {
 		return releaseControllerAPIError(err)
+	}
+	return nil
+}
+
+func (s *Service) restoreAccountDesiredStateRunning() *apiError {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if apiErr := s.setAccountDesiredState(ctx, releasecontrol.DesiredStateRunning); apiErr != nil {
+		return codedError(http.StatusServiceUnavailable, "account_delete_watchdog_restore_failed", "account deletion failed and watchdog could not be restored")
 	}
 	return nil
 }
@@ -241,6 +265,7 @@ func (s *Service) clearAccountStateInMemory() {
 	s.password = ""
 	s.accessToken = ""
 	s.matrixDeviceID = ""
+	s.portalSessionGeneration++
 	s.agentToken = ""
 	s.profile = ownerProfile{UserID: s.ownerMXID, Domain: s.serverName}
 	s.agentConfig = agentConfig{}

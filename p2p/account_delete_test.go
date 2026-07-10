@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
@@ -22,6 +23,21 @@ func (d *recordingAccountDeactivator) DeactivateAccount(ctx context.Context, loc
 type recordingAccountDeprovisioner struct {
 	calls int
 	err   error
+}
+
+type nthLeaveFailureTransport struct {
+	recordingTransport
+	failAt int
+	calls  int
+}
+
+func (t *nthLeaveFailureTransport) LeaveRoom(ctx context.Context, req LeaveRoomRequest) error {
+	t.calls++
+	t.leaves = append(t.leaves, req.UserMXID+" from "+req.RoomID)
+	if t.calls == t.failAt {
+		return errors.New("leave failed")
+	}
+	return nil
 }
 
 func (d *recordingAccountDeprovisioner) DeprovisionAccount(ctx context.Context) error {
@@ -110,9 +126,64 @@ func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {
 	if deprovisioner.calls != 0 {
 		t.Fatalf("deprovision must not run after critical leave failure")
 	}
-	if len(releaseController.desiredStates) != 1 || releaseController.desiredStates[0] != releasecontrol.DesiredStateDeprovisioned {
-		t.Fatalf("expected desired state before destructive leave, got %#v", releaseController.desiredStates)
+	assertDesiredStates(t, releaseController, releasecontrol.DesiredStateDeprovisioned, releasecontrol.DesiredStateRunning)
+}
+
+func TestAccountDeleteRestoresRunningAfterEveryFailedStage(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport Transport
+		configure func(*testing.T, *Service)
+	}{
+		{name: "contact leave", transport: &nthLeaveFailureTransport{failAt: 1}},
+		{name: "room leave", transport: &nthLeaveFailureTransport{failAt: 2}},
+		{name: "account deactivate", transport: &recordingTransport{}, configure: func(t *testing.T, service *Service) {
+			service.SetAccountDeactivator(&recordingAccountDeactivator{err: errors.New("deactivate failed")})
+		}},
+		{name: "credentials tombstone", transport: &recordingTransport{}, configure: func(t *testing.T, service *Service) {
+			t.Setenv("P2P_PORTAL_CREDENTIALS_FILE", t.TempDir())
+		}},
+		{name: "database reset", transport: &recordingTransport{}, configure: func(t *testing.T, service *Service) {
+			service.SetAccountDeprovisioner(&recordingAccountDeprovisioner{err: errors.New("reset failed")})
+		}},
 	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			controller := &recordingReleaseController{}
+			service := NewServiceWithTransport(Config{ServerName: "example.com", ReleaseController: controller}, testCase.transport)
+			service.SetAccountDeactivator(&recordingAccountDeactivator{})
+			service.SetAccountDeprovisioner(&recordingAccountDeprovisioner{})
+			bootstrapService(t, service)
+			mustSeedAccountDeleteState(t, service)
+			if testCase.configure != nil {
+				testCase.configure(t, service)
+			}
+
+			if _, apiErr := service.Handle(context.Background(), "portal.account.delete", map[string]any{"confirm": "delete_account"}); apiErr == nil {
+				t.Fatal("expected account deletion failure")
+			}
+			assertDesiredStates(t, controller, releasecontrol.DesiredStateDeprovisioned, releasecontrol.DesiredStateRunning)
+		})
+	}
+}
+
+func TestAccountDeleteReturnsSafeStructuredErrorWhenRunningRestoreFails(t *testing.T) {
+	controller := &recordingReleaseController{desiredErrors: map[releasecontrol.DesiredState]error{
+		releasecontrol.DesiredStateRunning: errors.New("restore failed with secret-token"),
+	}}
+	service := NewServiceWithTransport(Config{ServerName: "example.com", ReleaseController: controller}, &nthLeaveFailureTransport{failAt: 1})
+	service.SetAccountDeprovisioner(&recordingAccountDeprovisioner{})
+	bootstrapService(t, service)
+	mustSeedAccountDeleteState(t, service)
+
+	_, apiErr := service.Handle(context.Background(), "portal.account.delete", map[string]any{"confirm": "delete_account"})
+	if apiErr == nil || apiErr.Status != http.StatusServiceUnavailable || apiErr.Code != "account_delete_watchdog_restore_failed" {
+		t.Fatalf("expected structured watchdog restoration failure, got %#v", apiErr)
+	}
+	if strings.Contains(apiErr.Error, "secret-token") || strings.Contains(apiErr.Error, "leave failed") {
+		t.Fatalf("account deletion restoration error leaked details: %#v", apiErr)
+	}
+	assertDesiredStates(t, controller, releasecontrol.DesiredStateDeprovisioned, releasecontrol.DesiredStateRunning)
 }
 
 func TestAccountDeleteStopsBeforeDestructiveWorkWhenDesiredStateFails(t *testing.T) {
@@ -279,4 +350,16 @@ func hasString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertDesiredStates(t *testing.T, controller *recordingReleaseController, want ...releasecontrol.DesiredState) {
+	t.Helper()
+	if len(controller.desiredStates) != len(want) {
+		t.Fatalf("desired state calls got %#v want %#v", controller.desiredStates, want)
+	}
+	for i := range want {
+		if controller.desiredStates[i] != want[i] {
+			t.Fatalf("desired state calls got %#v want %#v", controller.desiredStates, want)
+		}
+	}
 }

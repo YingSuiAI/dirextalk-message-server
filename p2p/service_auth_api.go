@@ -54,6 +54,7 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 	}
 	s.password = newPassword
 	s.accessToken = randomToken("p2p_access")
+	s.portalSessionGeneration++
 	s.initialized = true
 	session := s.sessionLocked()
 	state := s.portalStateLocked()
@@ -140,6 +141,7 @@ func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]a
 		s.clientBuild = clientBuild{}
 	}
 	s.matrixDeviceID = requestedDeviceID
+	s.portalSessionGeneration++
 	state := s.portalStateLocked()
 	session = s.sessionLocked()
 	s.mu.Unlock()

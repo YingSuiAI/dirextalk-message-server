@@ -5,6 +5,7 @@ import "context"
 type portalStore interface {
 	LoadPortal(ctx context.Context) (portalState, bool, error)
 	SavePortal(ctx context.Context, state portalState) error
+	SaveClientBuild(ctx context.Context, expectedDeviceID string, build clientBuild) (bool, error)
 }
 
 func portalStoreFrom(store Store) portalStore {
