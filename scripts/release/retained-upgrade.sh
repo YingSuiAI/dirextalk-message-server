@@ -39,6 +39,7 @@ digest_pattern='sha256:[0-9a-f]{64}'
 [[ "$source_mode" == registry || "$source_mode" == offline_import ]] || die 'source mode is invalid'
 if [[ "$source_mode" == registry ]]; then
   [[ "$from_image" =~ ^dirextalk/message-server:$from_version@$digest_pattern$ ]] || die 'registry source must bind its version tag and digest'
+  [[ "${from_image##*@}" == "$source_identity" ]] || die 'registry source ref does not match the attested manifest digest'
 else
   [[ "$from_image" == "dirextalk/message-server:$from_version" ]] || die 'offline source must use the locally imported version tag'
 fi
@@ -136,9 +137,13 @@ YAML
 
 if [[ "$source_mode" == registry ]]; then
   docker pull "$from_image" >/dev/null
+  repo_digests="$(docker image inspect "$from_image" --format '{{range .RepoDigests}}{{println .}}{{end}}')"
+  grep -Fx "dirextalk/message-server@$source_identity" <<<"$repo_digests" >/dev/null || die 'pulled registry source does not expose the attested RepoDigest'
+  actual_source_identity="$source_identity"
+else
+  actual_source_identity="$(docker image inspect "$from_image" --format '{{.Id}}')"
+  [[ "$actual_source_identity" == "$source_identity" ]] || die "local source image ID $actual_source_identity does not match attested identity $source_identity"
 fi
-actual_source_identity="$(docker image inspect "$from_image" --format '{{.Id}}')"
-[[ "$actual_source_identity" == "$source_identity" ]] || die "local source image ID $actual_source_identity does not match attested identity $source_identity"
 actual_target_identity="$(docker image inspect "$target_image" --format '{{.Id}}')"
 [[ "$actual_target_identity" == "$target_image_id" ]] || die 'verified target image changed before retained-data test'
 export RELEASE_HARNESS_IMAGE="$from_image"

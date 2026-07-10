@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 prepare="$repo_root/scripts/release/prepare.sh"
 verify="$repo_root/scripts/release/verify.sh"
 publish="$repo_root/scripts/release/publish.sh"
+retained_upgrade="$repo_root/scripts/release/retained-upgrade.sh"
 
 fail() {
   printf 'release contract test failed: %s\n' "$*" >&2
@@ -14,6 +15,10 @@ fail() {
 for script in "$prepare" "$verify" "$publish"; do
   [[ -x "$script" ]] || fail "missing executable ${script#$repo_root/}"
 done
+
+grep -F '[[ "${from_image##*@}" == "$source_identity" ]]' "$retained_upgrade" >/dev/null || fail 'registry retained-upgrade does not bind the pulled ref to the attested manifest digest'
+grep -F 'dirextalk/message-server@$source_identity' "$retained_upgrade" >/dev/null || fail 'registry retained-upgrade does not verify the pulled RepoDigest'
+grep -F 'actual_source_identity="$(docker image inspect "$from_image" --format '\''{{.Id}}'\'')"' "$retained_upgrade" >/dev/null || fail 'offline retained-upgrade does not verify the imported image config digest'
 
 grep -F 'dirextalk-message-server-release' "$repo_root/AGENTS.md" >/dev/null || fail 'AGENTS does not route stable releases to the release Skill'
 grep -Eq '^[[:space:]]+tags:' "$repo_root/.github/workflows/ci.yml" || fail 'CI does not validate pushed version tags'
@@ -126,6 +131,9 @@ elif [[ "$*" == *'imagetools create'*'message-server:latest'* ]]; then
     : >"$RELEASE_TEST_DOCKER_STATE.mismatch-used"
   fi
   printf '%s\n' "$digest" >"$RELEASE_TEST_DOCKER_STATE.latest"
+  if [[ "${FAKE_LATEST_CREATE_FAIL_AFTER_APPLY:-0}" == 1 && "$*" != *'message-server:latest@sha256:'* ]]; then
+    exit 1
+  fi
 elif [[ "$*" == *'imagetools inspect'*'message-server:v'* && "$*" != *'message-server:latest'* ]]; then
   [[ -f "$RELEASE_TEST_DOCKER_STATE.fixed" ]] || exit 1
   printf '%s\n' '{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
@@ -135,11 +143,15 @@ elif [[ "$*" == *'imagetools inspect'*'message-server:latest'* ]]; then
   elif [[ -n "${FAKE_EXISTING_LATEST_DIGEST:-}" ]]; then
     digest="$FAKE_EXISTING_LATEST_DIGEST"
   else
-    exit 1
+    digest='sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
   fi
   printf '{"digest":"%s"}\n' "$digest"
 elif [[ "$*" == *'image inspect'*'{{.Id}}'* ]]; then
-  printf '%s\n' "${FAKE_LOCAL_IMAGE_ID:-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"
+  if [[ "$*" == *'@sha256:'* ]]; then
+    printf '%s\n' "${FAKE_REMOTE_IMAGE_ID:-${FAKE_LOCAL_IMAGE_ID:-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}}"
+  else
+    printf '%s\n' "${FAKE_LOCAL_IMAGE_ID:-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"
+  fi
 elif [[ "$*" == *'image inspect'* ]]; then
   revision="${FAKE_IMAGE_REVISION:-1111111111111111111111111111111111111111}"
   if [[ -f "$RELEASE_TEST_DOCKER_STATE.fresh" ]]; then
@@ -162,6 +174,10 @@ if [[ "${1:-} ${2:-}" == 'release view' ]]; then
   [[ -f "$RELEASE_TEST_GH_STATE.release" ]] || exit 1
   if [[ "$*" == *'--json'* ]]; then
     printf '%s\t%s\t%s\n' "${FAKE_GH_TAG:-${3:-}}" "${FAKE_GH_DRAFT:-false}" "${FAKE_GH_PRERELEASE:-false}"
+  fi
+elif [[ "${1:-} ${2:-}" == 'release list' ]]; then
+  if [[ "$RELEASE_VERSION" != v1.0.0 ]]; then
+    printf '%s\n' "${FAKE_GH_LATEST_RELEASE:-v1.0.0}"
   fi
 elif [[ "${1:-} ${2:-}" == 'release create' ]]; then
   : >"$RELEASE_TEST_GH_STATE.release"
@@ -295,6 +311,13 @@ if run_script_version "$fixture" publish.sh v1.1.0 env; then
   fail 'publish accepted a previous release index checksum mismatch'
 fi
 
+fixture="$(make_next_fixture skipped-formal-release v1.0.0)"
+run_script_version "$fixture" prepare.sh v1.1.0 env
+run_script_version "$fixture" verify.sh v1.1.0 env
+if run_script_version "$fixture" publish.sh v1.1.0 env FAKE_GH_LATEST_RELEASE=v1.0.1; then
+  fail 'publish accepted a previous_version older than the latest formal GitHub Release'
+fi
+
 fixture="$(make_fixture notes)"
 printf '%s\n' '# no matching release section' >"$fixture/repo/release/RELEASE_NOTES.md"
 if run_script "$fixture" prepare.sh env; then
@@ -343,6 +366,15 @@ run_script "$fixture" verify.sh env
 printf ' ' >>"$(find "$fixture/attestations" -type f -name 'release-attestation-*.json' | head -1)"
 if run_script "$fixture" publish.sh env; then
   fail 'publish accepted a retained-upgrade attestation changed after verification'
+fi
+
+fixture="$(make_fixture stale-attestation)"
+mkdir -p "$fixture/attestations"
+printf '%s' '{}' >"$fixture/attestations/release-attestation-stale.json"
+printf '%s' 'stale  release-attestation-stale.json\n' >"$fixture/attestations/release-attestation-stale.json.sha256"
+run_script "$fixture" prepare.sh env
+if run_script "$fixture" verify.sh env; then
+  fail 'verify accepted attestation files not declared by the release config'
 fi
 
 fixture="$(make_fixture every-digest)"
@@ -401,6 +433,13 @@ fixture="$(make_fixture immutable-fixed)"
 run_script "$fixture" prepare.sh env
 run_script "$fixture" verify.sh env
 : >"$fixture/docker-state.fixed"
+if run_script "$fixture" publish.sh env FAKE_REMOTE_IMAGE_ID=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc; then
+  fail 'publish accepted an existing fixed tag whose image was not verified locally'
+fi
+if grep -E 'docker .*latest' "$fixture/commands.log" >/dev/null; then
+  fail 'latest moved after fixed image verification mismatch'
+fi
+: >"$fixture/commands.log"
 if run_script "$fixture" publish.sh env FAKE_IMAGE_REVISION=2222222222222222222222222222222222222222; then
   fail 'publish accepted an existing fixed image from another commit'
 fi
@@ -474,6 +513,15 @@ if run_script "$fixture" publish.sh env FAKE_EXISTING_LATEST_DIGEST="$old_latest
   fail 'publish succeeded after latest resolved to the wrong digest'
 fi
 [[ "$(cat "$fixture/docker-state.latest")" == "$old_latest" ]] || fail 'publish did not restore the previous latest digest'
+
+fixture="$(make_fixture latest-command-failure)"
+run_script "$fixture" prepare.sh env
+run_script "$fixture" verify.sh env
+old_latest='sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+if run_script "$fixture" publish.sh env FAKE_EXISTING_LATEST_DIGEST="$old_latest" FAKE_LATEST_CREATE_FAIL_AFTER_APPLY=1; then
+  fail 'publish accepted a latest movement command failure'
+fi
+[[ "$(cat "$fixture/docker-state.latest")" == "$old_latest" ]] || fail 'publish did not restore latest after the movement command failed post-apply'
 [[ "$(grep -c 'docker buildx imagetools create --prefer-index=false --tag dirextalk/message-server:latest' "$fixture/commands.log")" == 2 ]] || fail 'latest mismatch did not perform one move and one restoration'
 
 fixture="$(make_fixture order)"

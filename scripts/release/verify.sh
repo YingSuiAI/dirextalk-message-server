@@ -78,6 +78,20 @@ for edge in config['upgrade_edges']:
         print(f"{edge['from_version']}\t{digest}\t{config['source_test_modes'][digest]}")
 PY
 )
+python3 - "$RELEASE_CONFIG" "$RELEASE_ATTESTATION_DIR" <<'PY'
+import json, pathlib, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+root = pathlib.Path(sys.argv[2])
+expected = set()
+for edge in config["upgrade_edges"]:
+    version = edge["from_version"].removeprefix("v")
+    for digest in edge["from_image_digests"]:
+        name = f"release-attestation-{version}-{digest.removeprefix('sha256:')}.json"
+        expected.update((name, name + ".sha256"))
+actual = {path.name for path in root.iterdir() if path.is_file()}
+if actual != expected:
+    raise SystemExit(f"attestation directory does not exactly match release config: expected={sorted(expected)} actual={sorted(actual)}")
+PY
 docker compose -f docker-compose.p2p.yml config >/dev/null
 release_write_verified "$local_image_id" "$(release_attestation_set_digest)"
 printf 'release verify passed for %s\n' "$RELEASE_VERSION"

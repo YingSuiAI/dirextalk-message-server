@@ -8,11 +8,14 @@ release_require_context "$RELEASE_VERSION"
 release_require_tools go docker gh python3
 release_require_verified
 cd "$RELEASE_REPO_ROOT"
+verified_local_image_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["local_image_id"])' "$RELEASE_VERIFIED")"
 
 verify_published_image() {
-  local digest="$1" ref identity probe
+  local digest="$1" expected_image_id="$2" ref actual_image_id identity probe
   ref="$RELEASE_IMAGE@$digest"
   docker pull "$ref" >/dev/null
+  actual_image_id="$(docker image inspect "$ref" --format '{{.Id}}')"
+  [[ "$actual_image_id" == "$expected_image_id" ]] || release_die 'fixed image was not the image that passed local verification'
   identity="$(docker image inspect "$ref" --format '{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.created"}}')"
   [[ "$identity" == "$RELEASE_VERSION|$RELEASE_COMMIT|$RELEASE_BUILD_TIME" ]] || release_die 'fixed image belongs to different release metadata'
   probe="$(docker run --rm --entrypoint /usr/bin/dirextalk-message-server "$ref" version)"
@@ -43,11 +46,13 @@ else
   image_digest="$(release_remote_digest "$RELEASE_IMAGE")"
 fi
 [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || release_die 'fixed image did not resolve to one immutable sha256 digest'
-verify_published_image "$image_digest"
+verify_published_image "$image_digest" "$verified_local_image_id"
 
 previous_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["previous_version"])' "$RELEASE_CONFIG")"
 previous_index=''
 if [[ -n "$previous_version" ]]; then
+  latest_formal_version="$(gh release list --repo YingSuiAI/dirextalk-message-server --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+  [[ "$latest_formal_version" == "$previous_version" ]] || release_die 'previous_version is not the latest formal GitHub Release'
   history_dir="$RELEASE_OUTPUT_DIR/history"
   rm -rf "$history_dir"
   mkdir -p "$history_dir"
@@ -197,15 +202,15 @@ done
 
 fixed_ref="dirextalk/message-server:$RELEASE_VERSION@$image_digest"
 old_latest_digest="$(release_remote_digest dirextalk/message-server:latest 2>/dev/null || true)"
-[[ -z "$old_latest_digest" || "$old_latest_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || release_die 'existing latest digest is invalid'
-docker buildx imagetools create --prefer-index=false --tag dirextalk/message-server:latest "$fixed_ref"
-latest_digest="$(release_remote_digest dirextalk/message-server:latest)"
-if [[ "$latest_digest" != "$image_digest" ]]; then
-  if [[ -n "$old_latest_digest" ]]; then
-    docker buildx imagetools create --prefer-index=false --tag dirextalk/message-server:latest "dirextalk/message-server:latest@$old_latest_digest"
-    restored_digest="$(release_remote_digest dirextalk/message-server:latest)"
-    [[ "$restored_digest" == "$old_latest_digest" ]] || release_die 'latest digest mismatch and previous latest restoration failed'
-  fi
+[[ "$old_latest_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || release_die 'an existing valid latest digest is required for recoverable publication'
+move_status=0
+docker buildx imagetools create --prefer-index=false --tag dirextalk/message-server:latest "$fixed_ref" || move_status=$?
+latest_digest="$(release_remote_digest dirextalk/message-server:latest 2>/dev/null || true)"
+if (( move_status != 0 )) || [[ "$latest_digest" != "$image_digest" ]]; then
+  restore_status=0
+  docker buildx imagetools create --prefer-index=false --tag dirextalk/message-server:latest "dirextalk/message-server:latest@$old_latest_digest" || restore_status=$?
+  restored_digest="$(release_remote_digest dirextalk/message-server:latest 2>/dev/null || true)"
+  (( restore_status == 0 )) && [[ "$restored_digest" == "$old_latest_digest" ]] || release_die 'latest movement failed and previous latest restoration failed'
   release_die 'latest digest does not equal the fixed release digest'
 fi
 printf 'release publish passed for %s at %s\n' "$RELEASE_VERSION" "$image_digest"
