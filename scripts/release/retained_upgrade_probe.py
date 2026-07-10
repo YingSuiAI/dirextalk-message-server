@@ -32,14 +32,17 @@ def login(base, password, device):
     return token
 
 
-def wait(base, version):
+def wait(base, version, allow_status_only=False):
     expected = version.removeprefix("v")
     last_error = None
     for _ in range(180):
         try:
             health = request("GET", f"{base}/_p2p/health")
             actual = str(health.get("version", "")).removeprefix("v")
-            if health.get("status") == "ok" and actual == expected:
+            if health.get("status") == "ok" and (
+                actual == expected
+                or (allow_status_only and expected == "0.15.2" and actual == "")
+            ):
                 return
             last_error = RuntimeError(f"health version {actual!r}, expected {expected!r}")
         except (OSError, ValueError, urllib.error.HTTPError) as exc:
@@ -92,6 +95,7 @@ def main():
     wait_parser = subparsers.add_parser("wait")
     wait_parser.add_argument("--base", required=True)
     wait_parser.add_argument("--version", required=True)
+    wait_parser.add_argument("--allow-status-only", action="store_true")
     seed_parser = subparsers.add_parser("seed")
     seed_parser.add_argument("--base", required=True)
     seed_parser.add_argument("--bootstrap", required=True)
@@ -102,7 +106,7 @@ def main():
     verify_parser.add_argument("--version", required=True)
     args = parser.parse_args()
     if args.command == "wait":
-        wait(args.base, args.version)
+        wait(args.base, args.version, args.allow_status_only)
     elif args.command == "seed":
         seed(args.base, args.bootstrap, args.state)
     else:

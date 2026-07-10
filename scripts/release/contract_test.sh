@@ -23,6 +23,7 @@ grep -Eq '^[[:space:]]+publish:$' "$repo_root/.github/workflows/release.yml" || 
 grep -F 'needs: verify' "$repo_root/.github/workflows/release.yml" >/dev/null || fail 'release publication does not depend on isolated verification'
 grep -F 'offline_attestations_json:' "$repo_root/.github/workflows/release.yml" >/dev/null || fail 'hosted release workflow cannot receive offline exact-image attestations'
 grep -F 'stage_offline_attestations.py' "$repo_root/.github/workflows/release.yml" >/dev/null || fail 'hosted release workflow does not stage offline attestations before verification'
+python3 "$repo_root/scripts/release/retained_upgrade_probe_test.py"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

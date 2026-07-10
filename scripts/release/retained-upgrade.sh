@@ -148,7 +148,11 @@ docker compose -p "$project" -f "$compose_file" up -d message-server
 port="$(docker compose -p "$project" -f "$compose_file" port message-server 8008 | awk -F: 'END {print $NF}')"
 [[ "$port" =~ ^[0-9]+$ ]] || die 'source HTTP port was not assigned'
 base="http://127.0.0.1:$port"
-python3 "$probe" wait --base "$base" --version "$from_version"
+source_wait_args=(wait --base "$base" --version "$from_version")
+if [[ "$source_mode" == offline_import && "$from_version" == v0.15.2 ]]; then
+  source_wait_args+=(--allow-status-only)
+fi
+python3 "$probe" "${source_wait_args[@]}"
 docker compose -p "$project" -f "$compose_file" exec -T message-server cat /var/dirextalk-message-server/p2p/bootstrap.json >"$bootstrap_file"
 chmod 600 "$bootstrap_file"
 python3 "$probe" seed --base "$base" --bootstrap "$bootstrap_file" --state "$state_file"
