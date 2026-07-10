@@ -574,7 +574,11 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	}
 	result, apiErr := s.Handle(ctx, action, params)
 	if apiErr != nil {
-		return realtimeWSResponseError(id, action, apiErr.Status, apiErr.Error)
+		response := realtimeWSResponseError(id, action, apiErr.Status, apiErr.Error)
+		if apiErr.Code != "" {
+			response["code"] = apiErr.Code
+		}
+		return response
 	}
 	return map[string]any{
 		"type":   "server.response",

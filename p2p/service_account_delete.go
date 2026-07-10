@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 )
 
 const accountDeleteConfirmValue = "delete_account"
@@ -31,6 +33,9 @@ func (s *Service) deleteAccount(ctx context.Context, params map[string]any) (any
 			s.finishAccountDeletion()
 		}
 	}()
+	if apiErr := s.setAccountDesiredStateDeprovisioned(ctx); apiErr != nil {
+		return nil, apiErr
+	}
 
 	summary := accountDeleteSummary{}
 	if apiErr := s.leaveAccountContacts(ctx, &summary); apiErr != nil {
@@ -68,6 +73,19 @@ func (s *Service) deleteAccount(ctx context.Context, params map[string]any) (any
 		"accounts_deactivated": summary.AccountsDeleted,
 		"database_reset":       true,
 	}, nil
+}
+
+func (s *Service) setAccountDesiredStateDeprovisioned(ctx context.Context) *apiError {
+	s.mu.Lock()
+	controller := s.releaseController
+	s.mu.Unlock()
+	if controller == nil {
+		return codedError(http.StatusServiceUnavailable, updaterUnavailableCode, "updater is unavailable")
+	}
+	if err := controller.SetDesiredState(ctx, releasecontrol.DesiredStateDeprovisioned); err != nil {
+		return releaseControllerAPIError(err)
+	}
+	return nil
 }
 
 func (s *Service) beginAccountDeletion() bool {
@@ -226,6 +244,7 @@ func (s *Service) clearAccountStateInMemory() {
 	s.agentToken = ""
 	s.profile = ownerProfile{UserID: s.ownerMXID, Domain: s.serverName}
 	s.agentConfig = agentConfig{}
+	s.clientBuild = clientBuild{}
 	s.readMarkers = map[string]readMarker{}
 	s.channels = map[string]channel{}
 	s.posts = nil

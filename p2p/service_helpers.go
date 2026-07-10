@@ -38,6 +38,7 @@ func (s *Service) portalStateLocked() portalState {
 		SystemRoomID:   s.systemRoomID,
 		Profile:        s.profile,
 		AgentConfig:    s.agentConfig,
+		ClientBuild:    s.clientBuild,
 	}
 }
 

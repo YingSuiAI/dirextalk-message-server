@@ -795,3 +795,13 @@ Clients should align as follows:
 - Dual-node smoke script using Matrix send/history/search/redaction/local_delete.
 - Manual example set with removed P2P actions deleted and `local_delete` examples added.
 - Feature inventory and implementation notes.
+
+## 2026-07-10 — Server release control v1
+
+Added three protected owner Product actions:
+
+- `client.version.report` over HTTP or owner WS, with required stable `client_version` and optional short `build_number`/`platform`. The server normalizes an omitted `v` prefix and stores the report only on the current portal device row.
+- `release.v1.status` over HTTP or owner WS. It returns additive running build/schema and reported client fields plus updater-authoritative `available`, `release_available`, `update_available`, `discovery_status`, `compatibility`, stable `reasons`, `operations`, and release metadata. Updater connection failure is a successful parseable unavailable response.
+- `release.v1.apply` over HTTP only. It accepts exactly `plan_token`, UUID `idempotency_key`, and `confirm="apply_release_change"`; all unknown and infrastructure-shaped fields are rejected with structured code `release_apply_invalid_params`.
+
+Owner access tokens are used only at the Product API boundary. The Unix updater client reads its fixed mounted control token file, and neither owner/control/plan/job tokens are written to release storage or errors. Account deletion now sets updater desired state `deprovisioned` before destructive work and aborts if that step fails.

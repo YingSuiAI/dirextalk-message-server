@@ -20,6 +20,7 @@ import (
 	federationAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/transactions"
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi"
@@ -91,6 +92,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
 		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
 		PushRules:                       m.UserAPI,
+		ReleaseController:               releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)

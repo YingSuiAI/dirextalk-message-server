@@ -16,6 +16,9 @@ description: Use when backend work affects Dirextalk public contracts, body acti
 - `POST /mcp` requires `Authorization: Bearer <agent_token>`, rejects owner access tokens and query-string tokens, validates `Origin`, returns 405 for GET/SSE while streaming is unused, and must not forward inbound bearer tokens downstream.
 - Fixed `mcp.*` HTTP body actions are removed from `/_p2p/query` and `/_p2p/command`; keep `mcp.*` identifiers only as internal capability action IDs inside `internal/dirextalkmcp` and p2p adapters.
 - `GET /_p2p/ws` authenticates only a short-lived single-use owner WS ticket.
+- `client.version.report` and `release.v1.status` are owner HTTP-or-WS actions. `release.v1.apply` is owner HTTP-only and accepts only an updater-issued `plan_token`, UUID `idempotency_key`, and `confirm=apply_release_change`.
+- Release compatibility, reasons, and operations come from the host updater. When its Unix control socket is unavailable, status remains parseable with `available=false`; do not derive upgrade permission from local SemVer logic.
+- Persist a client build only on the current portal device record. Never persist or log owner access tokens, updater control tokens, plan tokens, or returned job tokens as release state.
 - Public actions are generated from `p2p/serviceapi.ActionSpecs` into `docs/product-action-contract.json`; current public actions are `portal.bootstrap`, `portal.auth`, `portal.status`, `contacts.reactivate`, `rooms.reactivate`, `reports.submit`, `channels.public.search`, `channels.public.get`, `channels.public.join_request`, `channels.public.join_result`, and `users.public_channels`.
 - `rooms.reactivate` and `channels.public.join_result` are public HTTP-only node-to-node callbacks, not WS `client.request` entries.
 - MCP read actions use readable RFC3339/RFC3339Nano `from_time`/`to_time`, opaque stable snapshot `cursor`, and response fields such as `created_at`, `last_message_at`, and string `joined_at`; do not document or reintroduce old MCP `from_ts`/`to_ts`, `ts`, or `last_ts` fields.
@@ -52,6 +55,7 @@ For report/system/agent notifications, prefer normal Matrix timeline events in t
 - Update storage interfaces, PostgreSQL implementations, migrations, tests, and callers together.
 - Do not add SQLite storage, SQLite tests, or `file:` database defaults. PostgreSQL is the only supported database engine for server state.
 - Keep migrations additive and idempotent unless explicit product intent requires destructive reset.
+- Before account deletion/reset performs destructive work, persist updater desired state `deprovisioned`; abort the destructive flow if that control call fails.
 - Add indexes only for introduced query patterns.
 - Add restart/reopen coverage when recovery matters.
 - Validate Docker/setup config when database selection or runtime storage changes.

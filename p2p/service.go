@@ -8,10 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -29,6 +31,7 @@ type Config struct {
 	PluginRunner                    PluginRunner
 	NativeAgentRunner               NativeAgentRunner
 	NativeAgentDataDir              string
+	ReleaseController               releasecontrol.Controller
 }
 
 const (
@@ -76,6 +79,7 @@ type Service struct {
 	pluginRunner               PluginRunner
 	nativeAgentRunner          NativeAgentRunner
 	mcpCapabilities            *dirextalkmcp.Service
+	releaseController          releasecontrol.Controller
 
 	servicePortalState
 	actions map[string]actionHandler
@@ -142,6 +146,7 @@ type pluginInstance = domain.PluginInstance
 type pluginJob = domain.PluginJob
 type pluginSecret = domain.PluginSecret
 type reportRecord = domain.ReportRecord
+type clientBuild = dirextalkdomain.ClientBuild
 
 func NewService(cfg Config) *Service {
 	return newService(cfg, nil, nil, portalState{}, false)
@@ -516,6 +521,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
 		pluginRunner:               basePluginRunner,
+		releaseController:          cfg.ReleaseController,
 		servicePortalState: servicePortalState{
 			initialized:    state.Initialized,
 			password:       state.Password,
@@ -527,6 +533,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			systemRoomID:   state.SystemRoomID,
 			profile:        state.Profile,
 			agentConfig:    state.AgentConfig,
+			clientBuild:    state.ClientBuild,
 		},
 		serviceReadModelState: newServiceReadModelState(),
 		serviceEventState:     newServiceEventState(),

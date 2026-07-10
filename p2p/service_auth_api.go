@@ -136,6 +136,9 @@ func (s *Service) refreshMatrixSession(ctx context.Context, session map[string]a
 	}
 	s.mu.Lock()
 	s.accessToken = token
+	if s.matrixDeviceID != requestedDeviceID {
+		s.clientBuild = clientBuild{}
+	}
 	s.matrixDeviceID = requestedDeviceID
 	state := s.portalStateLocked()
 	session = s.sessionLocked()

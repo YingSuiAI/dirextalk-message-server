@@ -7,6 +7,7 @@ type actionHandler func(context.Context, map[string]any) (any, *apiError)
 func (s *Service) actionHandlers() map[string]actionHandler {
 	actions := map[string]actionHandler{}
 	s.registerPortalActions(actions)
+	s.registerReleaseActions(actions)
 	s.registerProfileAndSyncActions(actions)
 	s.registerAgentActions(actions)
 	s.registerPluginActions(actions)

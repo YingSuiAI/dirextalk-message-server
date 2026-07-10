@@ -1099,6 +1099,11 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 		"system_prompt":        "stored prompt",
 		"mcp_blocked_room_ids": []any{"!secret:example.com", ch.RoomID},
 	})
+	mustHandle[map[string]any](t, service, "client.version.report", map[string]any{
+		"client_version": "3.4.5",
+		"build_number":   "345",
+		"platform":       "android",
+	})
 	service.systemRoomID = "!system:example.com"
 	if err := store.SavePortal(ctx, service.portalStateLocked()); err != nil {
 		t.Fatal(err)
@@ -1139,6 +1144,9 @@ func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	}
 	if reloadedSession["system_room_id"] != "!system:example.com" {
 		t.Fatalf("expected system room id to survive reload, got %#v", reloadedSession)
+	}
+	if reloaded.clientBuild.Version != "v3.4.5" || reloaded.clientBuild.BuildNumber != "345" || reloaded.clientBuild.Platform != "android" || reloaded.clientBuild.ReportedAt == "" {
+		t.Fatalf("expected portal client build to survive reload, got %#v", reloaded.clientBuild)
 	}
 	profile := mustHandle[ownerProfile](t, reloaded, "profile.get", nil)
 	if profile.DisplayName != "Owner Name" || profile.Email != "owner@example.com" {

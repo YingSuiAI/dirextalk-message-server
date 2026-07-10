@@ -24,8 +24,9 @@ type envelope struct {
 }
 
 type apiError struct {
-	Status int
-	Error  string
+	Status int    `json:"-"`
+	Error  string `json:"error"`
+	Code   string `json:"code,omitempty"`
 }
 
 func Register(router *mux.Router, service *Service) {
@@ -204,8 +205,16 @@ func statusError(status int, message string) *apiError {
 	return &apiError{Status: status, Error: message}
 }
 
+func codedError(status int, code, message string) *apiError {
+	return &apiError{Status: status, Error: message, Code: code}
+}
+
 func writeError(w http.ResponseWriter, err *apiError) {
-	writeJSON(w, err.Status, map[string]string{"error": err.Error})
+	value := map[string]string{"error": err.Error}
+	if err.Code != "" {
+		value["code"] = err.Code
+	}
+	writeJSON(w, err.Status, value)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

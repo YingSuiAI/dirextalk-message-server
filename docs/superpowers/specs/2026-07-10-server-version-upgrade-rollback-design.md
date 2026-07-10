@@ -3,6 +3,21 @@
 Date: 2026-07-10
 Status: Pending written-spec review
 
+## V1 platform baseline
+
+The first production release supports Ubuntu 24.04 LTS on `linux/amd64` only.
+The deployer must fail closed before installation on any other operating system,
+Ubuntu release, or CPU architecture. V1 publishes one updater binary
+(`linux-amd64`) and one amd64 message-server image; multi-architecture release
+selection is intentionally out of scope.
+
+The updater is maintained in the independent Go repository
+`YingSuiAI/dirextalk-updater`. It has its own semantic version and GitHub
+Release lifecycle. Deployer pins an exact updater tag and SHA256, downloads the
+single Ubuntu 24.04 amd64 artifact, and installs it as a host systemd service.
+The message-server container never owns this binary and never receives the
+Docker socket.
+
 ## Objective
 
 Give Dirextalk owners a stable client-visible server version, release discovery, compatibility-aware upgrade, progress tracking during message-server downtime, one-step rollback, and automatic recovery of failed Compose services.

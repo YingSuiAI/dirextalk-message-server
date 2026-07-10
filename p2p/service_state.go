@@ -13,6 +13,7 @@ type servicePortalState struct {
 	systemRoomID   string
 	profile        ownerProfile
 	agentConfig    agentConfig
+	clientBuild    clientBuild
 }
 
 type serviceReadModelState struct {

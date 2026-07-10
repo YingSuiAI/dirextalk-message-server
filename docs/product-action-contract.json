@@ -33,6 +33,21 @@
       "transport": "http_only"
     },
     {
+      "name": "client.version.report",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "release.v1.status",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "release.v1.apply",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "profile.get",
       "auth": "owner",
       "transport": "http_and_ws_request"

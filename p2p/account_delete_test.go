@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 )
 
 type recordingAccountDeactivator struct {
@@ -41,6 +43,8 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	deactivator := &recordingAccountDeactivator{}
 	deprovisioner := &recordingAccountDeprovisioner{}
+	releaseController := &recordingReleaseController{}
+	service.releaseController = releaseController
 	service.SetAccountDeactivator(deactivator)
 	service.SetAccountDeprovisioner(deprovisioner)
 	bootstrapService(t, service)
@@ -82,6 +86,9 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	if deprovisioner.calls != 1 {
 		t.Fatalf("expected one deprovision call, got %d", deprovisioner.calls)
 	}
+	if len(releaseController.desiredStates) != 1 || releaseController.desiredStates[0] != releasecontrol.DesiredStateDeprovisioned {
+		t.Fatalf("expected desired state deprovisioned before destructive delete, got %#v", releaseController.desiredStates)
+	}
 }
 
 func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {
@@ -89,6 +96,8 @@ func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {
 	transport := &failingLeaveTransport{err: errors.New("leave failed")}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	deprovisioner := &recordingAccountDeprovisioner{}
+	releaseController := &recordingReleaseController{}
+	service.releaseController = releaseController
 	service.SetAccountDeprovisioner(deprovisioner)
 	bootstrapService(t, service)
 	mustSeedAccountDeleteState(t, service)
@@ -100,6 +109,29 @@ func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {
 	}
 	if deprovisioner.calls != 0 {
 		t.Fatalf("deprovision must not run after critical leave failure")
+	}
+	if len(releaseController.desiredStates) != 1 || releaseController.desiredStates[0] != releasecontrol.DesiredStateDeprovisioned {
+		t.Fatalf("expected desired state before destructive leave, got %#v", releaseController.desiredStates)
+	}
+}
+
+func TestAccountDeleteStopsBeforeDestructiveWorkWhenDesiredStateFails(t *testing.T) {
+	transport := &recordingTransport{}
+	controller := &recordingReleaseController{desiredErr: errors.New("updater unavailable with secret-token")}
+	service := NewServiceWithTransport(Config{ServerName: "example.com", ReleaseController: controller}, transport)
+	deactivator := &recordingAccountDeactivator{}
+	deprovisioner := &recordingAccountDeprovisioner{}
+	service.SetAccountDeactivator(deactivator)
+	service.SetAccountDeprovisioner(deprovisioner)
+	bootstrapService(t, service)
+	mustSeedAccountDeleteState(t, service)
+
+	_, apiErr := service.Handle(context.Background(), "portal.account.delete", map[string]any{"confirm": "delete_account"})
+	if apiErr == nil || apiErr.Status != http.StatusServiceUnavailable || apiErr.Code != updaterUnavailableCode {
+		t.Fatalf("expected updater failure before destructive account work, got %#v", apiErr)
+	}
+	if len(transport.leaves) != 0 || len(deactivator.users) != 0 || deprovisioner.calls != 0 {
+		t.Fatalf("destructive work ran after desired-state failure: leaves=%#v users=%#v deprovision=%d", transport.leaves, deactivator.users, deprovisioner.calls)
 	}
 }
 

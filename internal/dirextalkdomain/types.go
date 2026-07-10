@@ -13,6 +13,7 @@ type PortalState struct {
 	SystemRoomID   string
 	Profile        OwnerProfile
 	AgentConfig    AgentConfig
+	ClientBuild    ClientBuild
 }
 
 type OwnerProfile struct {
