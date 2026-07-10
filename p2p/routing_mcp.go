@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 )
 
@@ -133,6 +134,7 @@ func validateMCPOrigin(r *http.Request) *apiError {
 }
 
 func mcpInitializeResult() map[string]any {
+	buildInfo := internal.CurrentBuildInfo()
 	return map[string]any{
 		"protocolVersion": mcpProtocolVersion,
 		"capabilities": map[string]any{
@@ -140,7 +142,7 @@ func mcpInitializeResult() map[string]any {
 		},
 		"serverInfo": map[string]any{
 			"name":    "dirextalk-message-server",
-			"version": "0.1.0",
+			"version": buildInfo.Version,
 		},
 	}
 }

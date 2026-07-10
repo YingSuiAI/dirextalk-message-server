@@ -27,7 +27,7 @@ func ParseFlags(monolith bool) *config.Dendrite {
 	flag.Parse()
 
 	if *version {
-		fmt.Println(internal.VersionString())
+		fmt.Println(internal.CurrentBuildInfo().Version)
 		os.Exit(0)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/gorilla/mux"
 )
@@ -37,7 +38,15 @@ func Register(router *mux.Router, service *Service) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		buildInfo := internal.CurrentBuildInfo()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":                "ok",
+			"version":               buildInfo.Version,
+			"commit":                buildInfo.Commit,
+			"build_time":            buildInfo.BuildTime,
+			"schema_version":        buildInfo.SchemaVersion,
+			"schema_compat_version": buildInfo.SchemaCompatVersion,
+		})
 	}).Methods(http.MethodGet, http.MethodOptions)
 }
 

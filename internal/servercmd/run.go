@@ -83,7 +83,14 @@ func Run() {
 
 	basepkg.PlatformSanityChecks()
 
-	logrus.Infof("Dirextalk Message Server version %s", internalpkg.VersionString())
+	buildInfo := internalpkg.CurrentBuildInfo()
+	logrus.WithFields(logrus.Fields{
+		"version":               buildInfo.Version,
+		"commit":                buildInfo.Commit,
+		"build_time":            buildInfo.BuildTime,
+		"schema_version":        buildInfo.SchemaVersion,
+		"schema_compat_version": buildInfo.SchemaCompatVersion,
+	}).Info("Starting Dirextalk Message Server")
 	if !cfg.ClientAPI.RegistrationDisabled && cfg.ClientAPI.OpenRegistrationWithoutVerificationEnabled {
 		logrus.Warn("Open registration is enabled")
 	}
@@ -119,7 +126,7 @@ func Run() {
 			Environment:      cfg.Global.Sentry.Environment,
 			Debug:            true,
 			ServerName:       string(cfg.Global.ServerName),
-			Release:          "dirextalk-message-server@" + internalpkg.VersionString(),
+			Release:          "dirextalk-message-server@" + buildInfo.Version,
 			AttachStacktrace: true,
 		})
 		if err != nil {
@@ -187,7 +194,7 @@ func Run() {
 		Namespace: "dirextalk_message_server",
 		Name:      "up",
 		ConstLabels: map[string]string{
-			"version": internalpkg.VersionString(),
+			"version": buildInfo.Version,
 		},
 	})
 	upCounter.Add(1)

@@ -469,3 +469,32 @@ func newP2PTestRouter(service *Service) *mux.Router {
 	RegisterMCP(router, service)
 	return router
 }
+
+func TestHealthReportsAdditiveBuildInfo(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/_p2p/health", nil)
+
+	newP2PTestRouter(nil).ServeHTTP(rec, req)
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusOK || got["status"] != "ok" {
+		t.Fatalf("health contract changed: status=%d body=%#v", rec.Code, got)
+	}
+	if got["version"] != "v1.0.0" || got["schema_version"] != float64(1) || got["schema_compat_version"] != float64(1) {
+		t.Fatalf("health build info missing: %#v", got)
+	}
+}
+
+func TestMCPInitializeReportsCanonicalBuildVersion(t *testing.T) {
+	result := mcpInitializeResult()
+	serverInfo, ok := result["serverInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("serverInfo = %#v", result["serverInfo"])
+	}
+	if serverInfo["version"] != "v1.0.0" {
+		t.Fatalf("serverInfo.version = %#v, want v1.0.0", serverInfo["version"])
+	}
+}

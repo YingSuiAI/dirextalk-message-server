@@ -1,69 +1,62 @@
 package internal
 
 import (
-	"fmt"
 	"runtime/debug"
 	"strings"
 )
 
-// the final version string
-var version string
-
-// -ldflags "-X github.com/YingSuiAI/dirextalk-message-server/internal.branch=master"
-var branch string
-
-// -ldflags "-X github.com/YingSuiAI/dirextalk-message-server/internal.build=alpha"
-var build string
-
 const (
-	VersionMajor = 0
-	VersionMinor = 15
-	VersionPatch = 2
-	VersionTag   = "" // example: "rc1"
+	VersionMajor = 1
+	VersionMinor = 0
+	VersionPatch = 0
+	VersionTag   = ""
 
-	gitRevLen = 7 // 7 matches the displayed characters on github.com
+	SchemaVersion       = 1
+	SchemaCompatVersion = 1
 )
 
-func VersionString() string {
-	return version
+// These values are overridden for release builds with -ldflags -X.
+var (
+	version   = "v1.0.0"
+	commit    string
+	buildTime string
+)
+
+type BuildInfo struct {
+	Version             string `json:"version"`
+	Commit              string `json:"commit,omitempty"`
+	BuildTime           string `json:"build_time,omitempty"`
+	SchemaVersion       int    `json:"schema_version"`
+	SchemaCompatVersion int    `json:"schema_compat_version"`
 }
 
-func init() {
-	version = fmt.Sprintf("%d.%d.%d", VersionMajor, VersionMinor, VersionPatch)
-	if VersionTag != "" {
-		version += "-" + VersionTag
+func CurrentBuildInfo() BuildInfo {
+	resolvedCommit := strings.TrimSpace(commit)
+	if resolvedCommit == "" {
+		resolvedCommit = vcsRevision()
 	}
-	parts := []string{}
-	if build != "" {
-		parts = append(parts, build)
+	return BuildInfo{
+		Version:             strings.TrimSpace(version),
+		Commit:              resolvedCommit,
+		BuildTime:           strings.TrimSpace(buildTime),
+		SchemaVersion:       SchemaVersion,
+		SchemaCompatVersion: SchemaCompatVersion,
 	}
-	if branch != "" {
-		parts = append(parts, branch)
-	}
+}
 
-	defer func() {
-		if len(parts) > 0 {
-			version += "+" + strings.Join(parts, ".")
-		}
-	}()
+func VersionString() string {
+	return CurrentBuildInfo().Version
+}
 
-	// Try to get the revision Dendrite was build from.
-	// If we can't, e.g. Dendrite wasn't built (go run) or no VCS version is present,
-	// we just use the provided version above.
+func vcsRevision() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return
+		return ""
 	}
-
 	for _, setting := range info.Settings {
 		if setting.Key == "vcs.revision" {
-			revLen := len(setting.Value)
-			if revLen >= gitRevLen {
-				parts = append(parts, setting.Value[:gitRevLen])
-			} else {
-				parts = append(parts, setting.Value[:revLen])
-			}
-			break
+			return strings.TrimSpace(setting.Value)
 		}
 	}
+	return ""
 }

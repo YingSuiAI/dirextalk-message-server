@@ -15,6 +15,9 @@ FROM --platform=${BUILDPLATFORM} base AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=v1.0.0
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -22,7 +25,9 @@ RUN --mount=target=. \
     GOARCH="$TARGETARCH" \
     GOOS="linux" \
     CGO_ENABLED=$([ "$TARGETARCH" = "$USERARCH" ] && echo "1" || echo "0") \
-    go build -v -trimpath -ldflags="-s -w" -o /out/ \
+    go build -v -trimpath \
+    -ldflags="-s -w -X github.com/YingSuiAI/dirextalk-message-server/internal.version=${VERSION} -X github.com/YingSuiAI/dirextalk-message-server/internal.commit=${COMMIT} -X github.com/YingSuiAI/dirextalk-message-server/internal.buildTime=${BUILD_TIME}" \
+    -o /out/ \
       ./cmd/dirextalk-message-server \
       ./cmd/generate-config \
       ./cmd/generate-keys
@@ -33,13 +38,20 @@ RUN --mount=target=. \
 # per-instance initialization tools.
 #
 FROM alpine:latest
-RUN apk --update --no-cache add bash ca-certificates docker-cli
+ARG VERSION=v1.0.0
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
+RUN apk --update --no-cache add bash ca-certificates
 LABEL org.opencontainers.image.title="Dirextalk Message Server"
 LABEL org.opencontainers.image.description="Dirextalk Matrix homeserver and P2P product API server"
 LABEL org.opencontainers.image.source="https://github.com/YingSuiAI/dirextalk-message-server"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial"
 LABEL org.opencontainers.image.documentation="https://github.com/YingSuiAI/dirextalk-message-server"
 LABEL org.opencontainers.image.vendor="YingSuiAI"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${COMMIT}"
+LABEL org.opencontainers.image.created="${BUILD_TIME}"
 
 COPY --from=build /out/generate-config /usr/bin/generate-config
 COPY --from=build /out/generate-keys /usr/bin/generate-keys
