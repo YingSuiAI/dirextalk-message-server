@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dirextalk Server Release"
+  short_description: "Fail-closed stable server release workflow"
+  default_prompt: "Use $dirextalk-message-server-release to prepare, verify, and publish a stable Dirextalk message-server release."

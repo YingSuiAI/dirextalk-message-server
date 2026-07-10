@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "adam/**"
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  release-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Unit and release contract tests
+        run: |
+          go test ./internal/releasecontrol ./internal/httputil ./setup ./p2p ./internal/productpolicy -count=1
+          go test -tags=dendrite_upgrade_tests ./cmd/dendrite-upgrade-tests -count=1
+          bash scripts/release/contract_test.sh
+      - name: Production build
+        run: go build ./cmd/dirextalk-message-server
+      - name: Compose contract
+        run: docker compose -f docker-compose.p2p.yml config >/dev/null
+      - name: Diff check
+        run: git diff --check

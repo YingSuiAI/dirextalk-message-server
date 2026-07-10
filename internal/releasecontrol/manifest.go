@@ -118,6 +118,33 @@ func (manifest Manifest) validate() error {
 	return nil
 }
 
+// ValidateUpgradeFrom verifies one explicit source-to-target release edge.
+// Release indexes call this for every edge instead of inferring compatibility
+// from version ordering alone.
+func (manifest Manifest) ValidateUpgradeFrom(currentVersion string) error {
+	current, err := parseCanonicalVersion("current_version", currentVersion)
+	if err != nil {
+		return err
+	}
+	target, err := parseCanonicalVersion("version", manifest.Version)
+	if err != nil {
+		return err
+	}
+	if !current.LessThan(target) {
+		return fmt.Errorf("current_version %s must be lower than upgrade target %s", currentVersion, manifest.Version)
+	}
+	for _, value := range manifest.UpgradeFrom {
+		constraint, constraintErr := semver.NewConstraint(strings.TrimSpace(value))
+		if constraintErr != nil {
+			return fmt.Errorf("upgrade_from is invalid: %w", constraintErr)
+		}
+		if constraint.Check(current) {
+			return nil
+		}
+	}
+	return fmt.Errorf("current_version %s is not an allowed upgrade source", currentVersion)
+}
+
 func parseCanonicalVersion(field, value string) (*semver.Version, error) {
 	value = strings.TrimSpace(value)
 	if !canonicalVersionPattern.MatchString(value) {

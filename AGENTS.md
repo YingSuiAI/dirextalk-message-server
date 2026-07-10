@@ -153,6 +153,7 @@ Project-specific skills live under `.codex/skills/`. They must be maintained as 
 - `dirextalk-backend-change-orchestrator`: whole-server impact maps and project-skill routing.
 - `dirextalk-backend-contract-state-storage`: route/action/schema/auth synchronization, Matrix event/state/policy/projection rules, durable storage, migrations, indexes, DB selection, and restart recovery rules.
 - `dirextalk-backend-verification`: repo-specific formatting, tests, build, JSON, compose, skill, and lint check selection.
+- `dirextalk-message-server-release`: fail-closed stable release preparation, exact-digest retained-data upgrade gates, immutable Docker/GitHub assets, trusted release indexes, tags, and `latest` movement.
 
 Keep project skills as Dirextalk-specific guidance. Do not duplicate generic system skills; update `AGENTS.md`, `docs/current-project-documentation.md` when applicable, and the relevant `.codex/skills/*/SKILL.md` files together when project rules, contracts, event/state behavior, validation expectations, or workflow conventions change.
 

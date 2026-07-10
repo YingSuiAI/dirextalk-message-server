@@ -5,3 +5,5 @@
 .local-certs/
 __pycache__/
 /dirextalk-message-server
+/.release/
+/.release-attestations/

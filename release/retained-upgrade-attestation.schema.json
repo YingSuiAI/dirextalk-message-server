@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/YingSuiAI/dirextalk-message-server/raw/main/release/retained-upgrade-attestation.schema.json",
+  "title": "Dirextalk retained-data upgrade attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestation_version",
+    "checks",
+    "from_version",
+    "release_config_sha256",
+    "release_version",
+    "result",
+    "runner_sha256",
+    "source_image_identity",
+    "source_mode",
+    "target_commit",
+    "target_image",
+    "target_image_id",
+    "test_method",
+    "tested_at"
+  ],
+  "properties": {
+    "attestation_version": { "const": 1 },
+    "checks": {
+      "const": [
+        "portal_login",
+        "profile_persistence",
+        "matrix_room_message_persistence",
+        "target_health_version"
+      ]
+    },
+    "from_version": { "type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$" },
+    "release_config_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "release_version": { "type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$" },
+    "result": { "const": "passed" },
+    "runner_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "source_image_identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "source_mode": { "enum": ["registry", "offline_import"] },
+    "target_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "target_image": { "type": "string", "pattern": "^dirextalk/message-server:v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "target_image_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "test_method": { "const": "ubuntu24_compose_portal_profile_matrix_retained_data" },
+    "tested_at": { "type": "string", "format": "date-time" }
+  }
+}
