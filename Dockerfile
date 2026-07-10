@@ -15,9 +15,9 @@ FROM --platform=${BUILDPLATFORM} base AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=v1.0.0
-ARG COMMIT=unknown
-ARG BUILD_TIME=unknown
+ARG VERSION=v0.0.0-dev+local
+ARG COMMIT=uncommitted
+ARG BUILD_TIME=
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -38,9 +38,9 @@ RUN --mount=target=. \
 # per-instance initialization tools.
 #
 FROM alpine:latest
-ARG VERSION=v1.0.0
-ARG COMMIT=unknown
-ARG BUILD_TIME=unknown
+ARG VERSION=v0.0.0-dev+local
+ARG COMMIT=uncommitted
+ARG BUILD_TIME=
 
 RUN apk --update --no-cache add bash ca-certificates
 LABEL org.opencontainers.image.title="Dirextalk Message Server"

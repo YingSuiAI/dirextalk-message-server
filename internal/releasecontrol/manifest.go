@@ -103,6 +103,9 @@ func (manifest Manifest) validate() error {
 	if !minimumClient.LessThan(maximumClient) {
 		return fmt.Errorf("minimum_client_version must be lower than maximum_client_version_exclusive")
 	}
+	if !manifest.BackupRequired {
+		return fmt.Errorf("backup_required must be true")
+	}
 	if manifest.RollbackSupported && manifest.RollbackMode != "restore_backup" {
 		return fmt.Errorf("rollback_mode must be restore_backup when rollback is supported")
 	}

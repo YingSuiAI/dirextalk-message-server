@@ -59,6 +59,36 @@ func TestValidateManifestRejectsMalformedUpgradeRange(t *testing.T) {
 	}
 }
 
+func TestValidateManifestRequiresBackup(t *testing.T) {
+	valid := string(testManifestJSON(
+		"v1.1.0",
+		"dirextalk/message-server:v1.1.0",
+		validDigest,
+		`[">=1.0.0 <1.1.0"]`,
+	))
+
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{
+			name: "false",
+			data: strings.Replace(valid, `"backup_required": true`, `"backup_required": false`, 1),
+		},
+		{
+			name: "missing",
+			data: strings.Replace(valid, `"backup_required": true,`, "", 1),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ValidateManifest([]byte(tc.data))
+			if err == nil || !strings.Contains(err.Error(), "backup_required") {
+				t.Fatalf("ValidateManifest() error = %v, want backup_required error", err)
+			}
+		})
+	}
+}
+
 func TestManifestRejectsUndeclaredUpgradePath(t *testing.T) {
 	manifest, err := ValidateManifest(testManifestJSON(
 		"v1.1.0",
@@ -104,7 +134,9 @@ func TestManifestChecksClientCompatibilityWindow(t *testing.T) {
 		want   bool
 	}{
 		{client: "v1.2.0", want: true},
+		{client: "1.2.0", want: true},
 		{client: "v1.0.9", want: false},
+		{client: "1.0.9", want: false},
 		{client: "v2.0.0", want: false},
 	} {
 		got, err := manifest.SupportsClient(tc.client)

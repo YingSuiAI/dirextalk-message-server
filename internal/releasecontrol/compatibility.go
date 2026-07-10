@@ -32,7 +32,7 @@ func (manifest Manifest) AllowsUpgradeFrom(currentVersion string) (bool, error) 
 }
 
 func (manifest Manifest) SupportsClient(clientVersion string) (bool, error) {
-	client, err := parseCanonicalVersion("client_version", clientVersion)
+	client, err := parseClientVersion(clientVersion)
 	if err != nil {
 		return false, err
 	}
@@ -45,4 +45,12 @@ func (manifest Manifest) SupportsClient(clientVersion string) (bool, error) {
 		return false, err
 	}
 	return !client.LessThan(minimum) && client.LessThan(maximum), nil
+}
+
+func parseClientVersion(value string) (*semver.Version, error) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "v") {
+		value = "v" + value
+	}
+	return parseCanonicalVersion("client_version", value)
 }
