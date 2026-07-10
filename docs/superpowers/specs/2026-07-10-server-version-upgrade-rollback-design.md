@@ -98,6 +98,7 @@ Use the existing Product API body-action surface. Freeze these v1 names and make
 
 The client calls `client.version.report` after authenticated cold start/session restore and after WS `server.ready`. Reporting does not rely only on `portal.auth`, because overlay installation preserves login state.
 Each report is bound to the portal device/session captured during HTTP authorization or WS ticket creation and uses a narrow device-CAS persistence update. A stale request or already-connected old WS cannot overwrite the new portal device's report. The public status always uses message-server/current-device values for `current_version` and `client_version`; updater echo fields are not authoritative local facts.
+Same-device `portal.password` token/generation rotation and its portal persistence are serialized with report validation/CAS using the existing Matrix-session mutex. The mutex is released before refreshing the Matrix session, so no stale report can overtake the rotation and the password flow does not recursively acquire the same lock.
 
 ## Independent Host Updater
 

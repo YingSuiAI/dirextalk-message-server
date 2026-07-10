@@ -47,6 +47,16 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 	if newPassword == "" {
 		return nil, badRequest("new_password is required")
 	}
+	s.matrixSessionMu.Lock()
+	session, apiErr := s.persistPortalPasswordChange(ctx, oldPassword, newPassword)
+	s.matrixSessionMu.Unlock()
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	return s.refreshMatrixSession(ctx, session, params, true)
+}
+
+func (s *Service) persistPortalPasswordChange(ctx context.Context, oldPassword, newPassword string) (map[string]any, *apiError) {
 	s.mu.Lock()
 	if oldPassword == "" || oldPassword != s.password {
 		s.mu.Unlock()
@@ -67,7 +77,7 @@ func (s *Service) changePortalPassword(ctx context.Context, params map[string]an
 	if err := s.writePortalCredentialsFile(); err != nil {
 		return nil, internalError(err)
 	}
-	return s.refreshMatrixSession(ctx, session, params, true)
+	return session, nil
 }
 
 func (s *Service) agentPassword() any {

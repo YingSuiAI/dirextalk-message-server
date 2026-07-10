@@ -33,6 +33,7 @@ type blockingClientBuildStore struct {
 	narrowEntered  chan struct{}
 	releaseNarrow  chan struct{}
 	fullReportSave chan struct{}
+	portalSaved    chan portalState
 }
 
 func (s *blockingClientBuildStore) SavePortal(_ context.Context, state portalState) error {
@@ -48,6 +49,9 @@ func (s *blockingClientBuildStore) SavePortal(_ context.Context, state portalSta
 	}
 	s.state = state
 	s.mu.Unlock()
+	if s.portalSaved != nil {
+		s.portalSaved <- state
+	}
 	return nil
 }
 
@@ -324,6 +328,88 @@ func TestClientVersionReportUsesNarrowDeviceCASWithoutLosingConcurrentPortalFiel
 	}
 	if durable.ClientBuild.Version != "v2.3.4" || durable.ClientBuild.BuildNumber != "42" {
 		t.Fatalf("narrow report did not persist client build: %#v", durable.ClientBuild)
+	}
+}
+
+func TestClientVersionReportSerializesSameDevicePasswordRotation(t *testing.T) {
+	for _, transport := range []string{"http", "ws"} {
+		t.Run(transport, func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			service.mu.Lock()
+			initial := service.portalStateLocked()
+			service.mu.Unlock()
+			store := &blockingClientBuildStore{
+				state:          initial,
+				narrowEntered:  make(chan struct{}),
+				releaseNarrow:  make(chan struct{}),
+				fullReportSave: make(chan struct{}, 1),
+				portalSaved:    make(chan portalState, 1),
+			}
+			service.store = store
+			identity, authorized := service.authorizeProductAction(service.AccessToken(), "client.version.report")
+			if !authorized {
+				t.Fatal("expected current owner session")
+			}
+			record := realtimeWSTicket{Role: "owner", UserID: service.OwnerMXID(), DeviceID: identity.DeviceID, Generation: identity.Generation}
+			reportDone := make(chan *apiError, 1)
+			go func() {
+				if transport == "ws" {
+					frame := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
+						"id": "same-device-race", "action": "client.version.report", "params": map[string]any{"client_version": "v2.3.4"},
+					})
+					if frame["ok"] != true {
+						status, _ := frame["status"].(int)
+						reportDone <- codedError(status, trimString(frame["code"]), trimString(frame["error"]))
+						return
+					}
+					reportDone <- nil
+					return
+				}
+				_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{"client_version": "v2.3.4"})
+				reportDone <- apiErr
+			}()
+			<-store.narrowEntered
+
+			passwordDone := make(chan *apiError, 1)
+			go func() {
+				_, apiErr := service.Handle(context.Background(), "portal.password", map[string]any{
+					"old_password": service.password,
+					"new_password": "rotated-password",
+					"device_id":    identity.DeviceID,
+				})
+				passwordDone <- apiErr
+			}()
+			passwordPersistedBeforeReport := false
+			select {
+			case <-store.portalSaved:
+				passwordPersistedBeforeReport = true
+			case <-time.After(300 * time.Millisecond):
+			}
+			close(store.releaseNarrow)
+			if apiErr := <-reportDone; apiErr != nil {
+				t.Fatalf("report client version: %#v", apiErr)
+			}
+			if apiErr := <-passwordDone; apiErr != nil {
+				t.Fatalf("rotate portal password: %#v", apiErr)
+			}
+			if passwordPersistedBeforeReport {
+				t.Fatal("same-device password token/generation mutation overtook an already-validated client report")
+			}
+
+			if transport == "ws" {
+				frame := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
+					"id": "stale-after-password", "action": "client.version.report", "params": map[string]any{"client_version": "v9.9.9"},
+				})
+				if frame["code"] != clientSessionStaleCode {
+					t.Fatalf("old WS remained valid after same-device password rotation: %#v", frame)
+				}
+				return
+			}
+			_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{"client_version": "v9.9.9"})
+			if apiErr == nil || apiErr.Code != clientSessionStaleCode {
+				t.Fatalf("old HTTP session remained valid after same-device password rotation: %#v", apiErr)
+			}
+		})
 	}
 }
 
