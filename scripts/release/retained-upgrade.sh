@@ -159,6 +159,9 @@ python3 "$probe" seed --base "$base" --bootstrap "$bootstrap_file" --state "$sta
 
 export RELEASE_HARNESS_IMAGE="$target_image"
 docker compose -p "$project" -f "$compose_file" up -d --no-deps --force-recreate message-server
+port="$(docker compose -p "$project" -f "$compose_file" port message-server 8008 | awk -F: 'END {print $NF}')"
+[[ "$port" =~ ^[0-9]+$ ]] || die 'target HTTP port was not assigned'
+base="http://127.0.0.1:$port"
 python3 "$probe" wait --base "$base" --version "$target_version"
 python3 "$probe" verify --base "$base" --state "$state_file" --version "$target_version"
 python3 "$attestation_tool" create \
