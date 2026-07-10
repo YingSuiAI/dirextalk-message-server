@@ -12,6 +12,9 @@ This repository is a Dirextalk fork of Element Dendrite. It is one Go monolith t
 - `POST /mcp`
 - `GET /_p2p/ws`
 - `GET /.well-known/portal/owner.json`
+
+The backend-owned [current Agent/MCP contract](docs/agent-mcp-current-contract.md) is the source of truth for the external MCP endpoint, removed fixed MCP body actions, Agent status state, Native Agent ownership, and connect/deployer consumption boundaries.
+
 - Product action requests use this envelope:
 
 ```json
