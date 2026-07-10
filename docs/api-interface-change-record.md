@@ -1,6 +1,6 @@
 # API Interface Change Record
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 
 ## 2026-07-09 PostgreSQL-Only Storage And Postman Deprecation
 
@@ -809,3 +809,5 @@ Owner access tokens are used only at the Product API boundary. The Unix updater 
 Hardening follow-up: client reports now carry the authenticated portal device/session from HTTP authorization or WS ticket creation and reject stale sessions with `client_session_stale`. Persistence uses a narrow device-CAS update, while same-device full portal saves preserve client build fields and device switches clear them atomically. Status always overwrites updater `current_version`/`client_version` echoes with local facts. If account deletion fails after setting `deprovisioned`, the backend best-effort restores `running`; a failed restoration returns `account_delete_watchdog_restore_failed` without upstream details.
 
 Same-device password-rotation follow-up: `portal.password` serializes its access-token/session-generation mutation and portal persistence with `client.version.report` validation/CAS. The lock is released before Matrix-session refresh, preventing both stale-report persistence and recursive mutex acquisition without changing the public action envelope.
+
+Watchdog follow-up: `release.v1.status` now includes an additive `watchdog` object with `status`, derived `degraded`, optional RFC3339 `cooldown_until` / `last_observed_at`, and stable `error_code`. The backend allowlists these fields from the Unix updater response, normalizes timestamps, derives `degraded` from the allowlisted status, and never forwards repair attempt history, service/image input, control data, or updater-only fields. Older or unavailable updater responses map to `watchdog.status="unknown"` with no repair operation inferred by the client.

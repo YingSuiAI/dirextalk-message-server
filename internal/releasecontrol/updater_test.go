@@ -41,7 +41,7 @@ func TestUnixControllerStatusApplyAndDesiredState(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case ControlStatusPath:
-			_, _ = w.Write([]byte(`{"available":true,"release_available":true,"update_available":true,"discovery_status":"fresh","checked_at":"2026-07-10T12:00:00Z","current_version":"v1.0.0","latest_version":"v1.1.0","client_version":"v1.2.0","compatibility":"compatible","reasons":[],"release_notes_url":"https://github.com/YingSuiAI/dirextalk-message-server/releases/tag/v1.1.0","operations":[{"kind":"upgrade","plan_token":"opaque-plan","target_version":"v1.1.0","expires_at":"2026-07-10T12:15:00Z","confirm":"apply_release_change","future":"ignored"}],"image":"must-not-forward","digest":"must-not-forward","future":"ignored"}`))
+			_, _ = w.Write([]byte(`{"available":true,"release_available":true,"update_available":true,"discovery_status":"fresh","checked_at":"2026-07-10T12:00:00Z","current_version":"v1.0.0","latest_version":"v1.1.0","client_version":"v1.2.0","compatibility":"compatible","reasons":[],"release_notes_url":"https://github.com/YingSuiAI/dirextalk-message-server/releases/tag/v1.1.0","operations":[{"kind":"upgrade","plan_token":"opaque-plan","target_version":"v1.1.0","expires_at":"2026-07-10T12:15:00Z","confirm":"apply_release_change","future":"ignored"}],"watchdog":{"status":"degraded","degraded":true,"cooldown_until":"2026-07-10T12:15:00Z","last_observed_at":"2026-07-10T12:00:00Z","error_code":"repair_failed","attempts":["must-not-forward"]},"image":"must-not-forward","digest":"must-not-forward","future":"ignored"}`))
 		case ControlJobsPath:
 			_, _ = w.Write([]byte(`{"job_id":"job_test","job_token":"job-secret","status_url":"/_dirextalk/updater/v1/jobs/job_test","future":"ignored"}`))
 		case ControlDesiredStatePath:
@@ -66,8 +66,11 @@ func TestUnixControllerStatusApplyAndDesiredState(t *testing.T) {
 	if !status.Available || !status.ReleaseAvailable || status.Compatibility != "compatible" || len(status.Operations) != 1 || status.Operations[0].Kind != "upgrade" || status.Operations[0].PlanToken != "opaque-plan" || status.Operations[0].Confirm != ApplyConfirmation {
 		t.Fatalf("unexpected status: %#v", status)
 	}
+	if status.Watchdog.Status != "degraded" || !status.Watchdog.Degraded || status.Watchdog.ErrorCode != "repair_failed" {
+		t.Fatalf("unexpected watchdog status: %#v", status.Watchdog)
+	}
 	statusRaw, _ := json.Marshal(status)
-	if strings.Contains(string(statusRaw), "must-not-forward") || strings.Contains(string(statusRaw), `"image"`) || strings.Contains(string(statusRaw), `"digest"`) {
+	if strings.Contains(string(statusRaw), "must-not-forward") || strings.Contains(string(statusRaw), `"image"`) || strings.Contains(string(statusRaw), `"digest"`) || strings.Contains(string(statusRaw), `"attempts"`) {
 		t.Fatalf("unsafe updater fields entered backend status: %s", statusRaw)
 	}
 	ticket, err := controller.Apply(context.Background(), ApplyRequest{PlanToken: "opaque-plan", IdempotencyKey: "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", Confirm: ApplyConfirmation})

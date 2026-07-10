@@ -168,7 +168,42 @@ func releaseStatusMap(status releasecontrol.UpdaterStatus, schemaVersion, schema
 		"reasons":                       reasons,
 		"release_notes_url":             status.ReleaseNotesURL,
 		"operations":                    operations,
+		"watchdog":                      releaseWatchdogMap(status.Watchdog),
 	}
+}
+
+func releaseWatchdogMap(status releasecontrol.WatchdogStatus) map[string]any {
+	watchdogStatus := status.Status
+	switch watchdogStatus {
+	case "healthy", "observing", "repairing", "degraded", "suppressed":
+	default:
+		watchdogStatus = "unknown"
+	}
+	errorCode := status.ErrorCode
+	switch errorCode {
+	case "", "observation_failed", "repair_failed":
+	default:
+		errorCode = ""
+	}
+	return map[string]any{
+		"status":           watchdogStatus,
+		"degraded":         watchdogStatus == "degraded",
+		"cooldown_until":   normalizedReleaseTime(status.CooldownUntil),
+		"last_observed_at": normalizedReleaseTime(status.LastObservedAt),
+		"error_code":       errorCode,
+	}
+}
+
+func normalizedReleaseTime(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return ""
+	}
+	return parsed.UTC().Format(time.RFC3339)
 }
 
 func optionalReleaseText(value any, limit int) (string, bool) {

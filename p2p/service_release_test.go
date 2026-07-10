@@ -97,6 +97,13 @@ func TestReleaseActionsOwnerAuthTransportAndPersistence(t *testing.T) {
 			ClientVersion:    "v2.3.4",
 			Compatibility:    "compatible",
 			Operations:       []releasecontrol.Operation{{Kind: "upgrade", PlanToken: "opaque-plan", TargetVersion: "v1.1.0"}},
+			Watchdog: releasecontrol.WatchdogStatus{
+				Status:         "degraded",
+				Degraded:       true,
+				CooldownUntil:  "2026-07-10T12:15:00Z",
+				LastObservedAt: "2026-07-10T12:00:00Z",
+				ErrorCode:      "repair_failed",
+			},
 		},
 		ticket: releasecontrol.JobTicket{JobID: "job_test", JobToken: "job-secret", StatusURL: "/_dirextalk/updater/v1/jobs/job_test"},
 	}
@@ -121,6 +128,10 @@ func TestReleaseActionsOwnerAuthTransportAndPersistence(t *testing.T) {
 	status := releaseRoute(t, router, service.AccessToken(), "release.v1.status", nil)
 	if status["available"] != true || status["release_available"] != true || status["compatibility"] != "compatible" {
 		t.Fatalf("unexpected release status: %#v", status)
+	}
+	watchdog, ok := status["watchdog"].(map[string]any)
+	if !ok || watchdog["status"] != "degraded" || watchdog["degraded"] != true || watchdog["error_code"] != "repair_failed" {
+		t.Fatalf("unexpected public watchdog status: %#v", status["watchdog"])
 	}
 	if controller.statusRequest.CurrentVersion != "v1.0.0" || controller.statusRequest.CurrentSchemaVersion != 1 || controller.statusRequest.CurrentSchemaCompatVersion != 1 || controller.statusRequest.ClientVersion != "v2.3.4" {
 		t.Fatalf("unexpected controller status request: %#v", controller.statusRequest)
