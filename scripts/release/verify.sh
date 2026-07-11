@@ -57,7 +57,7 @@ while IFS=$'\t' read -r from_version source_digest source_mode; do
       --target-image-id "$local_image_id" \
       --target-commit "$RELEASE_COMMIT" \
       --release-config "$RELEASE_CONFIG" \
-      --attestation "$attestation"
+      --attestation "$attestation" </dev/null
   fi
   python3 "$attestation_tool" verify \
     --attestation "$attestation" \

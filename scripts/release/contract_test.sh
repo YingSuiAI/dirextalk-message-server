@@ -80,6 +80,7 @@ EOF
   cat >"$fixture/bin/retained-upgrade" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+cat >/dev/null
 printf 'retained-upgrade %s\n' "$*" >>"$RELEASE_TEST_LOG"
 [[ "${FAKE_RETAINED_FAIL_PATTERN:-}" == '' || "$*" != *"$FAKE_RETAINED_FAIL_PATTERN"* ]]
 declare -A values=()
