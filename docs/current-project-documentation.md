@@ -349,7 +349,7 @@ docker compose -f docker-compose.p2p-dual.yml config
 - public channel membership 不得在 Matrix join 前标记为 joined。
 - local delete 与 recall 保持语义独立：local delete 是本地隐藏；recall 是 Matrix redaction。
 - 项目本地技能 `.codex/skills/*/SKILL.md` 与 AGENTS.md 必须随业务规则同步更新，并只承载 Dirextalk 项目专属事实、路径、检查矩阵和业务约束，不重复系统通用技能。
-- 项目 skills 必须按全局工作面维护，不再按 P2P/Matrix/Dirextalk Message Server 层名拆分。当前全局技能是：`dirextalk-backend-change-orchestrator`（全链路影响图）、`dirextalk-backend-contract-state-storage`（合同、Matrix 事件状态、持久化和 migration 规则）和 `dirextalk-backend-verification`（本仓库验证命令选择）。
+- 项目只保留两个高风险专项 skill：`dirextalk-backend-contract-state-storage`（合同、Matrix 事件状态、持久化和 migration 规则）与 `dirextalk-message-server-release`（稳定发布）。普通改动、影响面选择和验证命令由 `AGENTS.md`、代码、测试及父工作区 `COMMANDS.md` 负责。
 
 ## 10. 文档规则
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Backend Verification"
-  short_description: "Select focused backend checks."
-  default_prompt: "Use $dirextalk-backend-verification to verify this backend change."
