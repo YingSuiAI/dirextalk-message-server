@@ -483,7 +483,7 @@ func TestHealthReportsAdditiveBuildInfo(t *testing.T) {
 	if rec.Code != http.StatusOK || got["status"] != "ok" {
 		t.Fatalf("health contract changed: status=%d body=%#v", rec.Code, got)
 	}
-	if got["version"] != "v1.0.1" || got["schema_version"] != float64(1) || got["schema_compat_version"] != float64(1) {
+	if got["version"] != "v1.0.2" || got["schema_version"] != float64(1) || got["schema_compat_version"] != float64(1) {
 		t.Fatalf("health build info missing: %#v", got)
 	}
 }
@@ -494,7 +494,7 @@ func TestMCPInitializeReportsCanonicalBuildVersion(t *testing.T) {
 	if !ok {
 		t.Fatalf("serverInfo = %#v", result["serverInfo"])
 	}
-	if serverInfo["version"] != "v1.0.1" {
-		t.Fatalf("serverInfo.version = %#v, want v1.0.1", serverInfo["version"])
+	if serverInfo["version"] != "v1.0.2" {
+		t.Fatalf("serverInfo.version = %#v, want v1.0.2", serverInfo["version"])
 	}
 }

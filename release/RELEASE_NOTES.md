@@ -1,5 +1,15 @@
 # Dirextalk Message Server release notes
 
+## v1.0.2
+
+This release adds a tested migration path for the legacy image originally
+deployed on `d1.dirextalk.ai`. The edge is bound to that image's exact digest;
+other untested legacy builds remain unsupported.
+
+The release also keeps the exact `v1.0.1` formal image as the normal stable
+upgrade source. Server schema, updater API, Product actions, and client
+compatibility remain unchanged.
+
 ## v1.0.1
 
 This security patch updates `golang.org/x/crypto` to `v0.52.0`. It does not
