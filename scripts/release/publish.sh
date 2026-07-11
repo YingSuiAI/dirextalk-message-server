@@ -18,7 +18,7 @@ verify_published_image() {
   [[ "$actual_image_id" == "$expected_image_id" ]] || release_die 'fixed image was not the image that passed local verification'
   identity="$(docker image inspect "$ref" --format '{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.created"}}')"
   [[ "$identity" == "$RELEASE_VERSION|$RELEASE_COMMIT|$RELEASE_BUILD_TIME" ]] || release_die 'fixed image belongs to different release metadata'
-  probe="$(docker run --rm --entrypoint /usr/bin/dirextalk-message-server "$ref" version)"
+  probe="$(docker run --rm --entrypoint /usr/bin/dirextalk-message-server "$ref" --version)"
   [[ "$probe" == "$RELEASE_VERSION" ]] || release_die 'fixed image reports a different version'
 }
 

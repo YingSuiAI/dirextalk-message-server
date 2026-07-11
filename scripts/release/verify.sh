@@ -21,7 +21,7 @@ docker build \
   --label "org.opencontainers.image.created=$RELEASE_BUILD_TIME" \
   --tag "$RELEASE_IMAGE" .
 
-probe="$(docker run --rm --entrypoint /usr/bin/dirextalk-message-server "$RELEASE_IMAGE" version)"
+probe="$(docker run --rm --entrypoint /usr/bin/dirextalk-message-server "$RELEASE_IMAGE" --version)"
 [[ "$probe" == "$RELEASE_VERSION" ]] || release_die "image version probe returned $probe"
 local_image_id="$(docker image inspect "$RELEASE_IMAGE" --format '{{.Id}}')"
 [[ "$local_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || release_die 'local release image ID is invalid'

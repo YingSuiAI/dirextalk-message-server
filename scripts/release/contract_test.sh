@@ -158,7 +158,7 @@ elif [[ "$*" == *'image inspect'* ]]; then
     revision="${FAKE_FRESH_IMAGE_REVISION:-$revision}"
   fi
   printf '%s\n' "$RELEASE_VERSION|$revision|2026-07-10T00:00:00Z"
-elif [[ "$*" == *'--entrypoint /usr/bin/dirextalk-message-server'* && "$*" == *' version' ]]; then
+elif [[ "$*" == *'--entrypoint /usr/bin/dirextalk-message-server'* && "$*" == *' --version' ]]; then
   printf '%s\n' "$RELEASE_VERSION"
 fi
 EOF
