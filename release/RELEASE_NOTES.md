@@ -1,5 +1,14 @@
 # Dirextalk Message Server release notes
 
+## v1.0.1
+
+This security patch updates `golang.org/x/crypto` to `v0.52.0`. It does not
+change the server schema, updater API, Product action contract, or supported
+client-version range.
+
+The trusted release index permits only the exact tested `v1.0.0` image digest
+to upgrade to `v1.0.1`. Other source images continue to fail closed.
+
 ## v1.0.0
 
 This is the first formal, immutable server release. The release version is

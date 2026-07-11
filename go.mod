@@ -48,7 +48,7 @@ require (
 	github.com/yggdrasil-network/yggdrasil-go v0.5.12
 	github.com/yggdrasil-network/yggquic v0.0.0-20241212194307-0d495106021f
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
 	golang.org/x/image v0.43.0
 	golang.org/x/sync v0.21.0
