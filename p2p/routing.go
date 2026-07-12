@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/gorilla/mux"
 )
@@ -199,15 +200,19 @@ func bearerToken(header string) string {
 }
 
 func badRequest(message string) *apiError {
-	return statusError(http.StatusBadRequest, message)
+	return actionbase.BadRequest(message)
+}
+
+func internalError(err error) *apiError {
+	return actionbase.InternalError(err)
 }
 
 func statusError(status int, message string) *apiError {
-	return &apiError{Status: status, Error: message}
+	return actionbase.StatusError(status, message)
 }
 
 func codedError(status int, code, message string) *apiError {
-	return &apiError{Status: status, Error: message, Code: code}
+	return actionbase.CodedError(status, code, message)
 }
 
 func writeError(w http.ResponseWriter, err *apiError) {

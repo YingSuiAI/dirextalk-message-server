@@ -259,3 +259,26 @@ func TestEventAndInviteGrantJSONContracts(t *testing.T) {
 		t.Fatalf("expected event bounds JSON contract, got %#v", got["bounds"])
 	}
 }
+
+func TestProductMemberVisibilityAndRoleNormalization(t *testing.T) {
+	hidden := []string{"leave", "LEFT", " remove ", "rejected", "ban", "banned"}
+	for _, membership := range hidden {
+		if !MemberHidden(membership) {
+			t.Fatalf("MemberHidden(%q) = false, want true", membership)
+		}
+	}
+	for _, membership := range []string{"", "invite", "pending", "join", "joined"} {
+		if MemberHidden(membership) {
+			t.Fatalf("MemberHidden(%q) = true, want false", membership)
+		}
+	}
+	if !ProductOwnerRole(" OWNER ") || ProductOwnerRole("member") {
+		t.Fatal("ProductOwnerRole did not preserve owner-only semantics")
+	}
+	if got := NormalizeProductMemberRole("OWNER"); got != "owner" {
+		t.Fatalf("NormalizeProductMemberRole(owner) = %q", got)
+	}
+	if got := NormalizeProductMemberRole("administrator"); got != "member" {
+		t.Fatalf("NormalizeProductMemberRole(non-owner) = %q", got)
+	}
+}

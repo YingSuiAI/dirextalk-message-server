@@ -267,7 +267,6 @@ func (s *Service) publishGroupState(ctx context.Context, group groupRecord, diss
 func (s *Service) deleteGroup(ctx context.Context, roomID string) error {
 	s.mu.Lock()
 	delete(s.groups, roomID)
-	deleteConversationKindByRoomLocked(s.conversations, roomID, conversationKindGroup)
 	s.mu.Unlock()
 	if store := s.groupStore(); store != nil {
 		if err := store.DeleteGroup(ctx, roomID); err != nil {

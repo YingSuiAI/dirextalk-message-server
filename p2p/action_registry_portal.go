@@ -13,6 +13,4 @@ func (s *Service) registerProfileAndSyncActions(actions map[string]actionHandler
 	actions["profile.update"] = s.updateProfile
 	actions["sync.bootstrap"] = s.syncBootstrapAction
 	actions["sync.read_marker"] = s.updateReadMarker
-	actions["conversations.list"] = s.conversationListAction
-	actions["conversations.get"] = s.conversationGet
 }

@@ -1,6 +1,9 @@
 package dirextalkdomain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type PortalState struct {
 	Initialized    bool
@@ -309,4 +312,27 @@ func (m MemberRecord) MarshalJSON() ([]byte, error) {
 		UserMXID:    m.UserID,
 		Status:      m.Membership,
 	})
+}
+
+// MemberHidden reports whether a product member record is omitted from current-member views.
+func MemberHidden(membership string) bool {
+	switch strings.ToLower(strings.TrimSpace(membership)) {
+	case "leave", "left", "remove", "removed", "reject", "rejected", "ban", "banned":
+		return true
+	default:
+		return false
+	}
+}
+
+// ProductOwnerRole recognizes the only elevated product role.
+func ProductOwnerRole(role string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), "owner")
+}
+
+// NormalizeProductMemberRole maps all non-owner roles to the stable member role.
+func NormalizeProductMemberRole(role string) string {
+	if ProductOwnerRole(role) {
+		return "owner"
+	}
+	return "member"
 }

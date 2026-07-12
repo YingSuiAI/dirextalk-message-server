@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -176,5 +177,20 @@ func TestErrorPreservesProductErrorJSON(t *testing.T) {
 	}
 	if got, want := string(raw), `{"error":"conflict","code":"M_CONFLICT"}`; got != want {
 		t.Fatalf("Marshal(Error) = %s, want %s", got, want)
+	}
+}
+
+func TestErrorConstructorsPreserveStatusCodeAndMessages(t *testing.T) {
+	if got := BadRequest("invalid"); got.Status != 400 || got.Error != "invalid" || got.Code != "" {
+		t.Fatalf("BadRequest() = %#v", got)
+	}
+	if got := StatusError(409, "conflict"); got.Status != 409 || got.Error != "conflict" || got.Code != "" {
+		t.Fatalf("StatusError() = %#v", got)
+	}
+	if got := CodedError(503, "M_UNAVAILABLE", "unavailable"); got.Status != 503 || got.Error != "unavailable" || got.Code != "M_UNAVAILABLE" {
+		t.Fatalf("CodedError() = %#v", got)
+	}
+	if got := InternalError(fmt.Errorf("store failed")); got.Status != 500 || got.Error != "internal error: store failed" || got.Code != "" {
+		t.Fatalf("InternalError() = %#v", got)
 	}
 }

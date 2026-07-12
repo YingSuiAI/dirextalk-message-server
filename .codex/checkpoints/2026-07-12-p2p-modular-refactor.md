@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `b323b24de5f1c2a72bf172dc31605f8bc0edf38c`
+- Current published HEAD: `c1089cc2ab141d2d47546f25acd8c1fee636f23b`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified MemoryStore constructor/event single-path wiring, then extract the `conversation` workflow into a cohesive `p2p/internal/conversation` module while retaining root compatibility wrappers.
+- Commit and push the verified `conversation` module extraction, then migrate owner-local favorites/follows into `p2p/internal/social` before handling the higher-risk calls lifecycle separately.
 
 ## Completed Verification
 
@@ -48,9 +48,11 @@
 - MemoryStore passed repeated package tests, race, gopls, unused/ineffassign/staticcheck/dupl/gocyclo lint, and an independent semantic audit. The audit's dynamic-value aliasing and raw-member compatibility findings were fixed before commit with typed-container/struct deep-copy tests.
 - Constructor wiring characterization now locks canceled-context legacy writes and retention-pruned dedupe-key reuse. Additional required wiring gates are initial PortalState seeding, `store_mode=memory`, event Store-only dedupe/prune, and volatile account reset behavior.
 - Published `c36daf4`, `b20ca91`, and `b323b24` to organize business-state tests, move pure DatabaseStore coverage into `p2p/storage`, and add atomic volatile account-state reset semantics.
-- The uncommitted constructor/event wiring now routes every legacy no-database Service through an independent MemoryStore, seeds normalized PortalState, preserves `store_mode=memory`, uses Store-only event sequencing/dedupe/prune, and removes direct test writes to legacy event/channel-content maps.
+- Published `c1089cc`: every legacy no-database Service now uses an independent MemoryStore, seeds normalized PortalState, preserves `store_mode=memory`, uses Store-only event sequencing/dedupe/prune, and removes direct test writes to legacy event/channel-content maps.
 - Account deprovision now drains guarded ProductCore, MCP, Native Agent config, and projector work before PostgreSQL reset; terminal requests are rejected and queued roomserver projections are acknowledged without repopulating Store state. Controlled red/green race regressions cover the former map-reset-Store-write interleaving and Native Agent config writeback.
 - Verified current wiring: `go test ./p2p/... -count=1` (latest root 100.071s), `go test -race ./p2p -count=1` (104.237s), focused account/MCP/Native Agent race tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, Action contract artifact test, and `git diff --check`. Final independent review reported no blocker.
+- The uncommitted conversation slice moves Store CRUD, `conversations.list/get`, hydration, capabilities, and operation construction into two cohesive `p2p/internal/conversation` production files (153 and 208 lines). The root adapter is 183 lines, the root map and 41-line type fragment are gone, and shared member-role/visibility plus Action error helpers now live in their owning foundations.
+- Pure PostgreSQL conversation tests moved to `p2p/storage`; duplicate root hydration/capability tests were removed, reducing the remaining cross-domain operation integration file from 879 to 500 lines. Latest final-tree `go test ./p2p/... -count=1` passed (root 95.175s, storage 45.508s), along with module and focused root race tests, focused MCP/projector/operation tests, storage conversation tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, Action contract verification, `git diff --check`, and an independent engineering/contract review with no P0-P2 findings.
 
 ## Related Finding Outside This Structural Slice
 

@@ -296,7 +296,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.follows = map[string]followRecord{}
 	s.reactions = map[string]reactionRecord{}
 	s.members = map[string]memberRecord{}
-	s.conversations = map[string]conversationRecord{}
 	s.inviteGrants = map[string]channelInviteGrant{}
 	s.nextEventSeq = 0
 	s.realtimeWSTickets = map[string]realtimeWSTicket{}

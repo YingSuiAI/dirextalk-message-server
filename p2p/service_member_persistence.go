@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 )
 
 type memberStore interface {
@@ -82,14 +84,11 @@ func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
 }
 
 func productOwnerRole(role string) bool {
-	return strings.EqualFold(strings.TrimSpace(role), "owner")
+	return dirextalkdomain.ProductOwnerRole(role)
 }
 
 func normalizeProductMemberRole(role string) string {
-	if productOwnerRole(role) {
-		return "owner"
-	}
-	return "member"
+	return dirextalkdomain.NormalizeProductMemberRole(role)
 }
 
 func (s *Service) repairLocalChannelOwnerRoles(ctx context.Context) error {

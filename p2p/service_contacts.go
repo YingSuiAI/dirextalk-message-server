@@ -838,7 +838,6 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 				delete(s.contacts, roomID)
 				if roomID != "" {
 					replacedDirectRoomIDs = append(replacedDirectRoomIDs, roomID)
-					deleteConversationKindByRoomLocked(s.conversations, roomID, conversationKindDirect)
 				}
 			}
 		}
@@ -846,7 +845,6 @@ func (s *Service) saveContact(ctx context.Context, contact contactRecord) error 
 	s.contacts[contact.RoomID] = contact
 	if contact.RoomID != "" {
 		delete(s.groups, contact.RoomID)
-		deleteConversationKindByRoomLocked(s.conversations, contact.RoomID, conversationKindGroup)
 	}
 	s.mu.Unlock()
 	if store := s.contactStore(); store != nil {

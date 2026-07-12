@@ -21,6 +21,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("portal", s.registerPortalActions),
 		s.collectActionHandlerModule("release", s.registerReleaseActions),
 		s.collectActionHandlerModule("profile-and-sync", s.registerProfileAndSyncActions),
+		{name: "conversations", handlers: s.conversationModule.Handlers()},
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
 		s.collectActionHandlerModule("contacts", s.registerContactActions),
@@ -73,10 +74,6 @@ func (s *Service) getProfileAction(context.Context, map[string]any) (any, *apiEr
 
 func (s *Service) syncBootstrapAction(ctx context.Context, _ map[string]any) (any, *apiError) {
 	return s.syncBootstrap(ctx)
-}
-
-func (s *Service) conversationListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.conversationList(ctx)
 }
 
 func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *apiError) {

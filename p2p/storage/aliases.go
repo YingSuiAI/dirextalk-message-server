@@ -34,11 +34,17 @@ const (
 	conversationKindGroup        = dirextalkdomain.ConversationKindGroup
 	conversationKindChannel      = dirextalkdomain.ConversationKindChannel
 	conversationKindSystem       = dirextalkdomain.ConversationKindSystem
+	conversationLifecycleActive  = dirextalkdomain.ConversationLifecycleActive
 	conversationLifecycleDeleted = dirextalkdomain.ConversationLifecycleDeleted
+	conversationProjectionReady  = dirextalkdomain.ConversationProjectionReady
 )
 
 func normalizeConversationRecord(record conversationRecord) conversationRecord {
 	return dirextalkdomain.NormalizeConversationRecord(record)
+}
+
+func conversationIDForRoomID(roomID string) string {
+	return dirextalkdomain.ConversationIDForRoomID(roomID)
 }
 
 func conversationFromContact(contact contactRecord) conversationRecord {

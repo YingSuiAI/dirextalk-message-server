@@ -37,6 +37,26 @@ func (s *Service) projectRoomProfileState(ctx context.Context, event *types.Head
 	}
 }
 
+func (s *Service) projectConversationProfile(ctx context.Context, event *types.HeaderedEvent, kind conversationKind, content map[string]any) error {
+	now := eventTime(event).UnixMilli()
+	title := fallbackString(trimString(content["name"]), trimString(content["display_name"]))
+	lifecycle := conversationLifecycleActive
+	if boolParam(content["dissolved"]) {
+		lifecycle = conversationLifecycleDissolved
+	}
+	return s.saveConversation(ctx, conversationRecord{
+		MatrixRoomID:    event.RoomID().String(),
+		Kind:            kind,
+		Lifecycle:       lifecycle,
+		CreatedByMXID:   string(event.SenderID()),
+		Title:           title,
+		AvatarURL:       trimString(content["avatar_url"]),
+		ProjectionState: conversationProjectionReady,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+}
+
 func conversationKindFromStateKind(kind dirextalkstate.RoomKind) conversationKind {
 	switch kind {
 	case dirextalkstate.RoomKindDirect:

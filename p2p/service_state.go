@@ -30,7 +30,6 @@ type serviceReadModelState struct {
 	follows       map[string]followRecord
 	reactions     map[string]reactionRecord
 	members       map[string]memberRecord
-	conversations map[string]conversationRecord
 	inviteGrants  map[string]channelInviteGrant
 	plugins       map[string]pluginInstance
 	pluginJobs    map[string]pluginJob
@@ -59,7 +58,6 @@ func newServiceReadModelState() serviceReadModelState {
 		follows:       map[string]followRecord{},
 		reactions:     map[string]reactionRecord{},
 		members:       map[string]memberRecord{},
-		conversations: map[string]conversationRecord{},
 		inviteGrants:  map[string]channelInviteGrant{},
 		plugins:       map[string]pluginInstance{},
 		pluginJobs:    map[string]pluginJob{},

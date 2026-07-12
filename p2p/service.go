@@ -15,6 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -85,7 +86,8 @@ type Service struct {
 	releaseController          releasecontrol.Controller
 
 	servicePortalState
-	actions map[string]actionHandler
+	actions            map[string]actionHandler
+	conversationModule *conversationmodule.Module
 
 	serviceReadModelState
 	serviceEventState
@@ -546,6 +548,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceEventState:     newServiceEventState(),
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
+	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
 		Invoker:        p2pDirextalkMCPInvoker{service: service},
 		RoomAuthorizer: p2pDirextalkMCPRoomAuthorizer{service: service},

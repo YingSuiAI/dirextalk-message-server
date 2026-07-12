@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
@@ -222,12 +223,7 @@ func memberIDsFromParams(params map[string]any) []string {
 }
 
 func memberHidden(membership string) bool {
-	switch strings.ToLower(strings.TrimSpace(membership)) {
-	case "leave", "left", "remove", "removed", "reject", "rejected", "ban", "banned":
-		return true
-	default:
-		return false
-	}
+	return dirextalkdomain.MemberHidden(membership)
 }
 
 func memberRemoved(membership string) bool {
