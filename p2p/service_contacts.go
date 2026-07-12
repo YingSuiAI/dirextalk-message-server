@@ -38,6 +38,15 @@ func (s *Service) contactRequest(ctx context.Context, params map[string]any) (an
 	if mxid == ownerMXID {
 		return nil, badRequest("mxid must be a remote peer")
 	}
+	var result any
+	var apiErr *apiError
+	s.contactsModule.SerializePeer(mxid, func() {
+		result, apiErr = s.contactRequestForPeer(ctx, mxid, params)
+	})
+	return result, apiErr
+}
+
+func (s *Service) contactRequestForPeer(ctx context.Context, mxid string, params map[string]any) (any, *apiError) {
 	if apiErr := s.rejectIfBlocked(ctx, "contact", mxid); apiErr != nil {
 		return nil, apiErr
 	}
@@ -507,6 +516,10 @@ func (s *Service) requestPeerContactReactivation(ctx context.Context, contact co
 	return peerContactReactivation{RoomID: trimString(result["room_id"])}, nil
 }
 
+// contactReactivate is the synchronous peer-side half of contacts.request. It
+// deliberately does not acquire the local peer workflow lock: two nodes may
+// call each other while their outbound requests hold that lock, and taking it
+// here would create a distributed lock cycle.
 func (s *Service) contactReactivate(ctx context.Context, params map[string]any) (any, *apiError) {
 	roomID := trimString(params["room_id"])
 	requesterMXID := trimString(params["requester_mxid"])
@@ -629,8 +642,32 @@ func isAlreadyJoinedRoomError(err error) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "already joined")
 }
 
-//nolint:gocyclo // Contact mutations share transport and persistence guards in one compatibility endpoint.
 func (s *Service) contactMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
+	peer := trimString(params["peer_mxid"])
+	if peer == "" {
+		peer = trimString(params["mxid"])
+	}
+	roomID := trimString(params["room_id"])
+	if roomID != "" {
+		contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if ok && contact.PeerMXID != "" {
+			peer = contact.PeerMXID
+		}
+	}
+	mutationKey := fallbackString(peer, roomID)
+	var result any
+	var apiErr *apiError
+	s.contactsModule.SerializePeer(mutationKey, func() {
+		result, apiErr = s.contactMutationForPeer(ctx, action, params)
+	})
+	return result, apiErr
+}
+
+//nolint:gocyclo // Contact mutations share transport and persistence guards in one compatibility endpoint.
+func (s *Service) contactMutationForPeer(ctx context.Context, action string, params map[string]any) (any, *apiError) {
 	peer := trimString(params["peer_mxid"])
 	if peer == "" {
 		peer = trimString(params["mxid"])
@@ -784,6 +821,29 @@ func (s *Service) contactMutation(ctx context.Context, action string, params map
 }
 
 func (s *Service) contactUpdate(ctx context.Context, params map[string]any) (any, *apiError) {
+	roomID := trimString(params["room_id"])
+	if roomID == "" {
+		return nil, badRequest("room_id is required")
+	}
+	if trimString(params["display_name"]) == "" {
+		return nil, badRequest("display_name is required")
+	}
+	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !ok {
+		return nil, statusError(http.StatusNotFound, "contact not found")
+	}
+	var result any
+	var apiErr *apiError
+	s.contactsModule.SerializePeer(contact.PeerMXID, func() {
+		result, apiErr = s.contactUpdateForPeer(ctx, params)
+	})
+	return result, apiErr
+}
+
+func (s *Service) contactUpdateForPeer(ctx context.Context, params map[string]any) (any, *apiError) {
 	roomID := trimString(params["room_id"])
 	if roomID == "" {
 		return nil, badRequest("room_id is required")

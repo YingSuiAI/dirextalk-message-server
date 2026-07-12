@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `4a6e899c0fd0b52f2680c9c8b690154f835b46ab`
+- Current published HEAD: `ace9bdf842fd1e33a0cc11b5982b9d70e234c2c4`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified contacts Reader/Save layer, then move the contact action workflows behind narrow Matrix, remote-node, policy, event, and conversation ports.
+- Commit and push the verified process-local contact workflow boundary, then close the `contact.requested` retry gap and PostgreSQL avatar-clear mismatch before moving the remaining handlers behind narrow Matrix, remote-node, policy, event, and conversation ports.
 
 ## Completed Verification
 
@@ -64,11 +64,15 @@
 - The verified contacts persistence slice moves raw/visible reads, peer/room lookup, dedupe/ranking, and contact/conversation save reconciliation into `p2p/internal/contacts`; the root contact shadow map and database-or-map branches are gone. PostgreSQL restart coverage proves that replacing a peer room removes the old direct conversation.
 - Independent review found and the slice fixed a retry-loss window: if contact upsert committed before old direct-conversation deletion failed, a new Module can now rediscover the ghost from durable conversation records and remove it on retry. Focused tests lock pre-write read failures, stable cleanup ordering, partial commits, new-Module recovery, empty-field compatibility, and Save serialization; Matrix room creation remains explicitly outside that lock.
 - Latest contacts persistence gates passed: module tests repeated and under race, focused contact/projector/account/MCP/conversation/storage tests, `go test ./p2p/... -count=1` (root 122.717s, storage 61.191s), related policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and module dupl/gocyclo lint, production build, byte-identical Action contract generation, and `git diff --check`.
+- Published `ace9bdf`: raw/visible contact reads, lookup, dedupe/ranking, and recoverable contact/conversation save reconciliation now live in `p2p/internal/contacts`; the root contact shadow map is gone.
+- The verified contact workflow boundary adds bounded keyed locks per trimmed peer within one contacts Module. `contacts.request`, owner mutations/update, inbound invite projection, direct-member projection, and direct-profile deletion share the boundary; entries are reference-counted and removed after active/waiting callbacks drain, including panic cleanup. The synchronous peer-side `contacts.reactivate` intentionally does not take the lock, preventing symmetric cross-node calls from forming a distributed lock cycle.
+- Controlled interleaving regressions prove concurrent first requests create exactly one Matrix direct room and return the same contact, while a queued projector cannot overwrite a completed room replacement from a stale snapshot. The boundary is explicitly process-local/single-Module and does not claim cross-process CAS semantics.
+- Latest contact workflow gates passed: contacts tests repeated and under race, contact/direct root tests and race, `go test ./p2p/... -count=1` (root 102.405s, storage 47.889s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, and `git diff --check`.
 
 ## Related Finding Outside This Structural Slice
 
 - Production account deprovision truncates all PostgreSQL tables and delays process shutdown by two seconds. Non-P2P Matrix consumers are outside the Service operation barrier and may have a pre-existing post-truncate replay window; audit this as a separate account-deprovision hardening change rather than changing Matrix shutdown behavior inside the P2P structure refactor.
 - Call persistence and `call.changed` event insertion are not one transaction. If event insertion fails after a terminal call write, retry may return the terminal row without restoring the missing event; address with a durable outbox/transactional boundary in a separate behavior change.
 - PostgreSQL active-call filtering matches only exact lowercase terminal states, while MemoryStore normalizes whitespace and case. Current writers emit lowercase states, but cross-store normalization and empty-list ordering/JSON parity remain separate compatibility decisions.
-- Contacts persistence now reconciles restart-time peer-room replacement and retry after old-conversation cleanup failure. Three pre-existing workflow/storage paths remain: concurrent first requests can create two Matrix rooms; `contact.requested` can be permanently lost after Store success/event failure; PostgreSQL cannot persist an explicitly cleared avatar. Each needs a focused concurrency/partial-commit/restart regression before its behavior is changed.
+- Contacts persistence now reconciles restart-time peer-room replacement and retry after old-conversation cleanup failure. One Service now serializes same-peer action/projector workflows so concurrent first requests create one Matrix room; cross-Service/process coordination still requires durable CAS if deployment topology changes. Two pre-existing workflow/storage paths remain: `contact.requested` can be permanently lost after Store success/event failure, and PostgreSQL cannot persist an explicitly cleared avatar. Each needs a focused partial-commit/restart regression before its behavior is changed.
 - Block `CreatedAt` and display-name ordering differ between MemoryStore and PostgreSQL on repeated/case-only writes. The blocks structure slice preserves both backends; choosing canonical cross-store semantics remains a separate compatibility decision.

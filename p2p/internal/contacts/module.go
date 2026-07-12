@@ -3,6 +3,7 @@ package contacts
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
@@ -25,11 +26,19 @@ type Config struct {
 	DeleteGroup func(ctx context.Context, roomID string) error
 }
 
+type peerMutationEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type Module struct {
 	store        Store
 	conversation ConversationPort
 	deleteGroup  func(context.Context, string) error
 	mutationMu   sync.Mutex
+
+	peerMutationsMu sync.Mutex
+	peerMutations   map[string]*peerMutationEntry
 }
 
 func New(store Store, conversation ConversationPort, cfg Config) *Module {
@@ -37,6 +46,50 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		store:        store,
 		conversation: conversation,
 		deleteGroup:  cfg.DeleteGroup,
+	}
+}
+
+// SerializePeer runs fn under a process-local lock scoped to the trimmed peer
+// Matrix ID. It coordinates callers sharing this Module only; it is not a
+// cross-Module, cross-process, or durable compare-and-swap boundary.
+func (m *Module) SerializePeer(peerMXID string, fn func()) {
+	if fn == nil {
+		return
+	}
+
+	key := strings.TrimSpace(peerMXID)
+	mutation := m.acquirePeerMutation(key)
+	mutation.mu.Lock()
+	defer m.releasePeerMutation(key, mutation)
+
+	fn()
+}
+
+func (m *Module) acquirePeerMutation(key string) *peerMutationEntry {
+	m.peerMutationsMu.Lock()
+	defer m.peerMutationsMu.Unlock()
+
+	if m.peerMutations == nil {
+		m.peerMutations = make(map[string]*peerMutationEntry)
+	}
+	mutation := m.peerMutations[key]
+	if mutation == nil {
+		mutation = &peerMutationEntry{}
+		m.peerMutations[key] = mutation
+	}
+	mutation.refs++
+	return mutation
+}
+
+func (m *Module) releasePeerMutation(key string, mutation *peerMutationEntry) {
+	mutation.mu.Unlock()
+
+	m.peerMutationsMu.Lock()
+	defer m.peerMutationsMu.Unlock()
+
+	mutation.refs--
+	if mutation.refs == 0 && m.peerMutations[key] == mutation {
+		delete(m.peerMutations, key)
 	}
 }
 

@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
@@ -102,6 +103,22 @@ func (s *Service) projectDirectProfileContent(ctx context.Context, event *types.
 }
 
 func (s *Service) markDirectContactDeleted(ctx context.Context, roomID, peerMXID string) error {
+	mutationKey := strings.TrimSpace(peerMXID)
+	if mutationKey == "" {
+		contact, ok, err := s.lookupContactByRoom(ctx, roomID)
+		if err != nil || !ok {
+			return err
+		}
+		mutationKey = contact.PeerMXID
+	}
+	var mutationErr error
+	s.contactsModule.SerializePeer(mutationKey, func() {
+		mutationErr = s.markDirectContactDeletedForPeer(ctx, roomID, peerMXID)
+	})
+	return mutationErr
+}
+
+func (s *Service) markDirectContactDeletedForPeer(ctx context.Context, roomID, peerMXID string) error {
 	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
 	if err != nil || !ok {
 		return err

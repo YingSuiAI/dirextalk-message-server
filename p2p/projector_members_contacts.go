@@ -192,6 +192,14 @@ func (s *Service) projectMember(ctx context.Context, event *types.HeaderedEvent)
 }
 
 func (s *Service) projectDirectContactMember(ctx context.Context, member memberRecord, content map[string]any) error {
+	var projectionErr error
+	s.contactsModule.SerializePeer(member.UserID, func() {
+		projectionErr = s.projectDirectContactMemberForPeer(ctx, member, content)
+	})
+	return projectionErr
+}
+
+func (s *Service) projectDirectContactMemberForPeer(ctx context.Context, member memberRecord, content map[string]any) error {
 	contact, ok, err := s.lookupContactByRoom(ctx, member.RoomID)
 	if err != nil || !ok {
 		return err
@@ -398,6 +406,14 @@ func (s *Service) contactRequestFromContent(roomID, sender string, content map[s
 }
 
 func (s *Service) savePendingInboundContact(ctx context.Context, contact contactRecord) error {
+	var saveErr error
+	s.contactsModule.SerializePeer(contact.PeerMXID, func() {
+		saveErr = s.savePendingInboundContactForPeer(ctx, contact)
+	})
+	return saveErr
+}
+
+func (s *Service) savePendingInboundContactForPeer(ctx context.Context, contact contactRecord) error {
 	blocked, err := s.blockExists(ctx, "contact", contact.PeerMXID)
 	if err != nil {
 		return err
