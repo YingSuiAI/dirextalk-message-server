@@ -130,7 +130,7 @@ func boolMapParam(value any) map[string]bool {
 }
 
 func domainFromMXID(mxid string) string {
-	return domainFromMatrixID(mxid, "@")
+	return dirextalkdomain.DomainFromMXID(mxid)
 }
 
 func localpartFromMXID(mxid string) string {

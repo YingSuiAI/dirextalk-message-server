@@ -28,10 +28,23 @@ type ConversationPort interface {
 // The returned room ID is authoritative even when empty.
 type DirectRoomAcceptor func(ctx context.Context, contact dirextalkdomain.ContactRecord, serverNames []string) (roomID string, actionErr *actionbase.Error)
 
+// LocalProfileSnapshot is the atomic local identity used by a peer-side room
+// reactivation request.
+type LocalProfileSnapshot struct {
+	MXID        string
+	DisplayName string
+	AvatarURL   string
+}
+
+// DirectRoomReactivator invites a retained accepted peer back to its room.
+type DirectRoomReactivator func(ctx context.Context, profile LocalProfileSnapshot, roomID, requesterMXID string) *actionbase.Error
+
 type Config struct {
-	DeleteGroup      func(ctx context.Context, roomID string) error
-	LeaveRoom        func(ctx context.Context, roomID string) *actionbase.Error
-	AcceptDirectRoom DirectRoomAcceptor
+	DeleteGroup          func(ctx context.Context, roomID string) error
+	LeaveRoom            func(ctx context.Context, roomID string) *actionbase.Error
+	AcceptDirectRoom     DirectRoomAcceptor
+	LocalProfile         func() LocalProfileSnapshot
+	ReactivateDirectRoom DirectRoomReactivator
 }
 
 type peerMutationEntry struct {
@@ -40,12 +53,14 @@ type peerMutationEntry struct {
 }
 
 type Module struct {
-	store        Store
-	conversation ConversationPort
-	deleteGroup  func(context.Context, string) error
-	leaveRoom    func(context.Context, string) *actionbase.Error
-	acceptRoom   DirectRoomAcceptor
-	mutationMu   sync.Mutex
+	store          Store
+	conversation   ConversationPort
+	deleteGroup    func(context.Context, string) error
+	leaveRoom      func(context.Context, string) *actionbase.Error
+	acceptRoom     DirectRoomAcceptor
+	localProfile   func() LocalProfileSnapshot
+	reactivateRoom DirectRoomReactivator
+	mutationMu     sync.Mutex
 
 	peerMutationsMu sync.Mutex
 	peerMutations   map[string]*peerMutationEntry
@@ -53,11 +68,13 @@ type Module struct {
 
 func New(store Store, conversation ConversationPort, cfg Config) *Module {
 	return &Module{
-		store:        store,
-		conversation: conversation,
-		deleteGroup:  cfg.DeleteGroup,
-		leaveRoom:    cfg.LeaveRoom,
-		acceptRoom:   cfg.AcceptDirectRoom,
+		store:          store,
+		conversation:   conversation,
+		deleteGroup:    cfg.DeleteGroup,
+		leaveRoom:      cfg.LeaveRoom,
+		acceptRoom:     cfg.AcceptDirectRoom,
+		localProfile:   cfg.LocalProfile,
+		reactivateRoom: cfg.ReactivateDirectRoom,
 	}
 }
 

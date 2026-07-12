@@ -10,6 +10,7 @@ import (
 const (
 	actionDelete        = "contacts.delete"
 	actionList          = "contacts.list"
+	actionReactivate    = "contacts.reactivate"
 	actionUpdate        = "contacts.update"
 	actionRequestAccept = "contacts.requests.accept"
 	actionRequestDelete = "contacts.requests.delete"
@@ -77,6 +78,7 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
 		actionDelete:        m.Delete,
 		actionList:          m.handleList,
+		actionReactivate:    m.handleReactivate,
 		actionUpdate:        m.handleUpdate,
 		actionRequestAccept: m.handleRequestAccept,
 		actionRequestDelete: m.handleRequestDelete,

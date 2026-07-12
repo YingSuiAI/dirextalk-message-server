@@ -174,6 +174,21 @@ func DisplayNameFromMXID(mxid string) string {
 	return FallbackString(localpart, mxid)
 }
 
+// DomainFromMXID returns the server-name suffix using the legacy permissive
+// parser. Callers that require a valid Matrix ID must validate separately.
+func DomainFromMXID(mxid string) string {
+	trimmed := strings.TrimPrefix(mxid, "@")
+	index := strings.Index(trimmed, ":")
+	if index < 0 {
+		return ""
+	}
+	index += len(mxid) - len(trimmed)
+	if index+1 >= len(mxid) {
+		return ""
+	}
+	return mxid[index+1:]
+}
+
 type CallRecord struct {
 	CallID        string `json:"call_id"`
 	RoomID        string `json:"room_id"`

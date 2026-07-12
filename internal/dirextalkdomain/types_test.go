@@ -239,6 +239,21 @@ func TestBlockIdentityHelpersPreserveCompatibility(t *testing.T) {
 	if got := DisplayNameFromMXID(""); got != "" {
 		t.Fatalf("DisplayNameFromMXID(empty) = %q", got)
 	}
+	for _, tt := range []struct {
+		mxid string
+		want string
+	}{
+		{mxid: "@alice:example.com", want: "example.com"},
+		{mxid: "@owner:dendrite-b:8448", want: "dendrite-b:8448"},
+		{mxid: "alice:example.com", want: "example.com"},
+		{mxid: "@alice:", want: ""},
+		{mxid: "alice", want: ""},
+		{mxid: " @alice:example.com ", want: "example.com "},
+	} {
+		if got := DomainFromMXID(tt.mxid); got != tt.want {
+			t.Fatalf("DomainFromMXID(%q) = %q, want %q", tt.mxid, got, tt.want)
+		}
+	}
 }
 
 func TestEventAndInviteGrantJSONContracts(t *testing.T) {

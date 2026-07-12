@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `66bb304531f81ffd4ad74f83673f41cc9c6efbd7`
+- Current published HEAD: `33f5f5eb378ba8046fea854fa2bc2d06422e5906`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified `contacts.requests.accept` module slice, then inventory and migrate the remaining cohesive contact request/reactivation workflows behind narrow Matrix and remote-node ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified peer-side `contacts.reactivate` module slice, then extract typed DirectRoom and peer-reactivation adapters before moving the remaining `contacts.request` leaf transitions. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -94,6 +94,11 @@
 - Accept tests lock accepted no-op behavior, empty/missing/legacy statuses, spoof-compatible peer selection, display/avatar/domain/remark/override reconstruction, normalized server names, authoritative empty final room, adapter→Save→Operation ordering, locked pending→accepted transitions, read/adapter/Save/Operation errors, and pre/post-commit boundaries. Root tests lock dynamic profile, Join retry/reactivation, raw/empty Join result room semantics, replacement room/profile/initial state, Join/Create failures, and concrete response integration.
 - The accept Matrix boundary tests moved from the 831-line `transport_contacts_test.go` into a 281-line cohesive file, reducing the former to 597 lines without changing test behavior.
 - Latest contacts-accept gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 87.769s, storage 38.919s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
+- Published `33f5f5e`: `contacts.requests.accept` now belongs to the contacts module behind `DirectRoomAcceptor`; the obsolete root mutation dispatcher is gone and accept Matrix tests are organized by workflow.
+- The verified peer-reactivation slice moves the public `contacts.reactivate` validation, retained-contact lookup, pending-inbound transition, Save, and response operation into the contacts module. It intentionally bypasses peer serialization to prevent reciprocal cross-node requests from forming a distributed lock cycle. A single atomic `LocalProfileSnapshot` and narrow `DirectRoomReactivator` keep Matrix Invite construction, already-joined handling, and transport errors in a root adapter.
+- `dirextalkdomain.DomainFromMXID` now owns the legacy permissive domain fallback and the root helper delegates to it. Module tests cover validation order, missing/mismatched/deleted rooms, untrusted caller profile fields, pending transitions, nil inviter, accepted Invite, held-peer-lock completion, Save/Operation partial commits, and coded adapter errors. Root tests lock full owner-profile/direct-state Invite requests, already-joined success, PolicyError failure, self/deleted/mismatch behavior, and the unchanged contact-request caller flows.
+- Peer handler transport tests moved from the 635-line mixed reactivation file into a 198-line cohesive file, reducing the original to 484 lines.
+- Latest contacts-reactivate gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 100.015s, storage 42.170s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 
