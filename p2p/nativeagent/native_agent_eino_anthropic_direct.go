@@ -1,12 +1,9 @@
 package nativeagent
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -43,43 +40,7 @@ func (m *anthropicDirectChatModel) Stream(ctx context.Context, input []*schema.M
 	if err != nil {
 		return nil, err
 	}
-	req, err := m.newRequest(ctx, payload)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := m.r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		return nil, fmt.Errorf("model provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	reader, writer := schema.Pipe[*schema.Message](8)
-	go func() {
-		defer writer.Close()
-		defer resp.Body.Close()
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 1024), 4<<20)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if data == "" || data == "[DONE]" {
-				continue
-			}
-			if msg := anthropicDirectMessageFromStreamEvent([]byte(data)); msg != nil {
-				writer.Send(msg, nil)
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			writer.Send(nil, err)
-		}
-	}()
-	return reader, nil
+	return streamDirectModel(ctx, m.r.client, m.newRequest, payload, anthropicDirectMessageFromStreamEvent)
 }
 
 func (m *anthropicDirectChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -114,27 +75,7 @@ func (m *anthropicDirectChatModel) requestPayload(input []*schema.Message, strea
 }
 
 func (m *anthropicDirectChatModel) post(ctx context.Context, payload map[string]any) (map[string]any, error) {
-	req, err := m.newRequest(ctx, payload)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := m.r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("model provider returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, err
-	}
-	return decoded, nil
+	return postDirectModel(ctx, m.r.client, m.newRequest, payload)
 }
 
 func (m *anthropicDirectChatModel) newRequest(ctx context.Context, payload map[string]any) (*http.Request, error) {
