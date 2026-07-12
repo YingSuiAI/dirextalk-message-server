@@ -29,37 +29,32 @@ func mcpFormatTime(ts int64) string {
 }
 
 func mcpPagePostRecords(records []channelPostRecord, page mcpMessagePage) ([]channelPostRecord, bool) {
-	filtered := make([]channelPostRecord, 0, len(records))
-	for _, record := range records {
-		if mcpPageIncludes(record.OriginServerTS, record.PostID, page) {
-			filtered = append(filtered, record)
-		}
-	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		if filtered[i].OriginServerTS == filtered[j].OriginServerTS {
-			return filtered[i].PostID > filtered[j].PostID
-		}
-		return filtered[i].OriginServerTS > filtered[j].OriginServerTS
+	return mcpPageRecords(records, page, func(record channelPostRecord) (int64, string) {
+		return record.OriginServerTS, record.PostID
 	})
-	hasMore := len(filtered) > page.Limit
-	if hasMore {
-		filtered = filtered[:page.Limit]
-	}
-	return filtered, hasMore
 }
 
 func mcpPageCommentRecords(records []channelCommentRecord, page mcpMessagePage) ([]channelCommentRecord, bool) {
-	filtered := make([]channelCommentRecord, 0, len(records))
+	return mcpPageRecords(records, page, func(record channelCommentRecord) (int64, string) {
+		return record.OriginServerTS, record.CommentID
+	})
+}
+
+func mcpPageRecords[T any](records []T, page mcpMessagePage, key func(T) (int64, string)) ([]T, bool) {
+	filtered := make([]T, 0, len(records))
 	for _, record := range records {
-		if mcpPageIncludes(record.OriginServerTS, record.CommentID, page) {
+		ts, id := key(record)
+		if mcpPageIncludes(ts, id, page) {
 			filtered = append(filtered, record)
 		}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
-		if filtered[i].OriginServerTS == filtered[j].OriginServerTS {
-			return filtered[i].CommentID > filtered[j].CommentID
+		iTS, iID := key(filtered[i])
+		jTS, jID := key(filtered[j])
+		if iTS == jTS {
+			return iID > jID
 		}
-		return filtered[i].OriginServerTS > filtered[j].OriginServerTS
+		return iTS > jTS
 	})
 	hasMore := len(filtered) > page.Limit
 	if hasMore {
