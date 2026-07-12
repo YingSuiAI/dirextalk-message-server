@@ -24,17 +24,36 @@ type ConversationPort interface {
 	Operation(ctx context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error)
 }
 
-// DirectRoomAcceptor resolves the final Matrix room for an accepted contact.
-// The returned room ID is authoritative even when empty.
-type DirectRoomAcceptor func(ctx context.Context, contact dirextalkdomain.ContactRecord, serverNames []string) (roomID string, actionErr *actionbase.Error)
-
-// LocalProfileSnapshot is the atomic local identity used by a peer-side room
-// reactivation request.
+// LocalProfileSnapshot is one atomic local identity snapshot used for direct
+// room Matrix writes.
 type LocalProfileSnapshot struct {
 	MXID        string
 	DisplayName string
 	AvatarURL   string
 }
+
+// DirectRoomAcceptor resolves the final Matrix room for an accepted contact.
+// The returned room ID is authoritative even when empty.
+type DirectRoomAcceptor func(ctx context.Context, contact dirextalkdomain.ContactRecord, serverNames []string) (roomID string, actionErr *actionbase.Error)
+
+// DirectRoomCreateRequest describes one private direct invite room. The
+// fallback room is returned when no Matrix transport is configured.
+type DirectRoomCreateRequest struct {
+	PeerMXID       string
+	DisplayName    string
+	Remark         string
+	FallbackRoomID string
+}
+
+type DirectRoomCreator func(ctx context.Context, request DirectRoomCreateRequest) (roomID string, actionErr *actionbase.Error)
+
+// DirectRoomInviteRequest describes a repeated invite to an existing direct
+// contact room.
+type DirectRoomInviteRequest struct {
+	Contact dirextalkdomain.ContactRecord
+}
+
+type DirectRoomInviter func(ctx context.Context, request DirectRoomInviteRequest) *actionbase.Error
 
 // DirectRoomReactivator invites a retained accepted peer back to its room.
 type DirectRoomReactivator func(ctx context.Context, profile LocalProfileSnapshot, roomID, requesterMXID string) *actionbase.Error

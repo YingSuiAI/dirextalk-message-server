@@ -142,30 +142,14 @@ func (s *Service) restoreRetainedPeerContact(ctx context.Context, mxid string, p
 func (s *Service) createDirectContactRequest(ctx context.Context, mxid string, params map[string]any, domain string) (contactRecord, *apiError) {
 	roomID := "!dm-" + randomToken("room") + ":" + s.serverName
 	remark := contactRequestRemark(params)
-	if s.transport != nil {
-		s.mu.Lock()
-		ownerMXID := s.ownerMXID
-		ownerDisplayName := s.profile.DisplayName
-		ownerAvatarURL := s.profile.AvatarURL
-		s.mu.Unlock()
-		directName := fallbackString(trimString(params["display_name"]), mxid)
-		res, err := s.transport.CreateRoom(ctx, CreateRoomRequest{
-			CreatorMXID:        ownerMXID,
-			CreatorDisplayName: ownerDisplayName,
-			CreatorAvatarURL:   ownerAvatarURL,
-			Name:               directName,
-			Visibility:         "private",
-			RoomType:           DirextalkRoomTypeDirect,
-			IsDirect:           true,
-			InviteMXIDs:        []string{mxid},
-			InitialState: []RoomStateEvent{
-				roomProfileForDirect(directName, ownerMXID, mxid, ownerDisplayName, ownerAvatarURL, remark, false),
-			},
-		})
-		if err != nil {
-			return contactRecord{}, transportWriteError(err)
-		}
-		roomID = res.RoomID
+	roomID, apiErr := s.createContactDirectRoom(ctx, contactsmodule.DirectRoomCreateRequest{
+		PeerMXID:       mxid,
+		DisplayName:    trimString(params["display_name"]),
+		Remark:         remark,
+		FallbackRoomID: roomID,
+	})
+	if apiErr != nil {
+		return contactRecord{}, apiErr
 	}
 	contact := contactRecord{
 		PeerMXID:    mxid,
@@ -217,26 +201,10 @@ func (s *Service) resendPendingOutboundContactRequest(ctx context.Context, conta
 	} else if contact.Domain == "" {
 		contact.Domain = fallbackDomain
 	}
-	if contact.RoomID != "" && s.transport != nil {
-		s.mu.Lock()
-		ownerMXID := s.ownerMXID
-		ownerDisplayName := s.profile.DisplayName
-		ownerAvatarURL := s.profile.AvatarURL
-		s.mu.Unlock()
-		directName := fallbackString(contact.DisplayName, contact.PeerMXID)
-		if err := s.transport.InviteUser(ctx, InviteUserRequest{
-			RoomID:      contact.RoomID,
-			InviterMXID: ownerMXID,
-			InviteeMXID: contact.PeerMXID,
-			IsDirect:    true,
-			InviteRoomState: []RoomStateEvent{
-				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
-			},
-		}); err != nil {
-			if !isSenderNotJoinedDirextalkRoom(err) {
-				return contactRecord{}, transportWriteError(err)
-			}
-		}
+	if apiErr := s.inviteContactDirectRoom(ctx, contactsmodule.DirectRoomInviteRequest{
+		Contact: contactStorageRecordFromContact(contact),
+	}); apiErr != nil {
+		return contactRecord{}, apiErr
 	}
 	if err := s.saveContact(ctx, contact); err != nil {
 		return contactRecord{}, internalError(err)
@@ -277,27 +245,16 @@ func (s *Service) acceptDirectContactRoom(ctx context.Context, contact contactSt
 }
 
 func (s *Service) createAcceptedReplacementDirectRoom(ctx context.Context, contact contactStorageRecord, ownerMXID, ownerDisplayName, ownerAvatarURL string) (string, *apiError) {
-	if s.transport == nil {
-		return contact.RoomID, nil
+	profile := contactsmodule.LocalProfileSnapshot{
+		MXID:        ownerMXID,
+		DisplayName: ownerDisplayName,
+		AvatarURL:   ownerAvatarURL,
 	}
-	directName := fallbackString(contact.DisplayName, contact.PeerMXID)
-	res, err := s.transport.CreateRoom(ctx, CreateRoomRequest{
-		CreatorMXID:        ownerMXID,
-		CreatorDisplayName: ownerDisplayName,
-		CreatorAvatarURL:   ownerAvatarURL,
-		Name:               directName,
-		Visibility:         "private",
-		RoomType:           DirextalkRoomTypeDirect,
-		IsDirect:           true,
-		InviteMXIDs:        []string{contact.PeerMXID},
-		InitialState: []RoomStateEvent{
-			roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, "", false),
-		},
-	})
-	if err != nil {
-		return "", transportWriteError(err)
-	}
-	return res.RoomID, nil
+	return s.createContactDirectRoomWithProfile(ctx, contactsmodule.DirectRoomCreateRequest{
+		PeerMXID:       contact.PeerMXID,
+		DisplayName:    contact.DisplayName,
+		FallbackRoomID: contact.RoomID,
+	}, profile)
 }
 
 func (s *Service) acceptPendingInboundContact(ctx context.Context, contact contactRecord, params map[string]any) (any, *apiError) {
@@ -419,25 +376,11 @@ func (s *Service) requestPeerApprovalInExistingDirectRoom(ctx context.Context, c
 		contact.Domain = fallbackDomain
 	}
 	contact.Status = "pending_outbound"
-	if sendMatrixInvite && s.transport != nil {
-		s.mu.Lock()
-		ownerMXID := s.ownerMXID
-		ownerDisplayName := s.profile.DisplayName
-		ownerAvatarURL := s.profile.AvatarURL
-		s.mu.Unlock()
-		directName := fallbackString(contact.DisplayName, contact.PeerMXID)
-		if err := s.transport.InviteUser(ctx, InviteUserRequest{
-			RoomID:      contact.RoomID,
-			InviterMXID: ownerMXID,
-			InviteeMXID: contact.PeerMXID,
-			IsDirect:    true,
-			InviteRoomState: []RoomStateEvent{
-				roomProfileForDirect(directName, ownerMXID, contact.PeerMXID, ownerDisplayName, ownerAvatarURL, contact.Remark, false),
-			},
-		}); err != nil {
-			if !isSenderNotJoinedDirextalkRoom(err) {
-				return contactRecord{}, transportWriteError(err)
-			}
+	if sendMatrixInvite {
+		if apiErr := s.inviteContactDirectRoom(ctx, contactsmodule.DirectRoomInviteRequest{
+			Contact: contactStorageRecordFromContact(contact),
+		}); apiErr != nil {
+			return contactRecord{}, apiErr
 		}
 	}
 	if err := s.saveContact(ctx, contact); err != nil {

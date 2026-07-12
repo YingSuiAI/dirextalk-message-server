@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `f5d0a26` (`refactor: colocate channel invite grant helpers`)
+- Current published HEAD before this verified slice: `5fe5ead` (`refactor: isolate peer contact reactivation client`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified typed peer-reactivation HTTP adapter, then extract the typed DirectRoom adapter before moving the remaining `contacts.request` leaf transitions. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified typed DirectRoom Create/Invite adapter, then move the pending-outbound resend leaf and simple fresh/replacement flows into the contacts module. Keep Join outcome classification and durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -105,6 +105,10 @@
 - The verified outbound peer-reactivation slice isolates the `contacts.reactivate` HTTP protocol translation behind typed contacts-module request/result records while leaving all four `contacts.request` branches, their peer-lock scope, Matrix operations, and persistence order in place. The adapter preserves the legacy default URL, explicit URL validation, exact six-field public envelope, routing-parameter removal, canonical 404, prefixed 4xx/5xx errors, 502 network/JSON failures, and permissive unknown-200 handling.
 - Adapter tests distinguish current-action remark from the stored contact remark, avoid cross-goroutine test failures, require the exact forwarded field set, and cover malformed/private URLs, network failure, legacy fallback, missing/local peers, pending/unknown success, 404, 4xx/5xx, and invalid JSON. The DTO and port declarations live with the existing contacts module ports rather than in a new tiny file.
 - Latest peer-adapter gates passed: focused and race contact/adapter tests, `go test ./p2p/... -count=1` after the final file layout (root 83.382s, storage 35.428s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
+- Published `5fe5ead`: outbound peer `contacts.reactivate` HTTP translation now sits behind typed contacts-module request/result records; all caller state-machine branches remain unchanged.
+- The verified DirectRoom writer slice unifies two duplicate private/direct CreateRoom paths and two duplicate existing-room InviteUser paths behind typed contacts-module Create/Invite ports. The former 41-line reactivation adapter is folded into the cohesive 96-line direct-room Matrix adapter, and `service_contacts.go` falls from 557 to 500 lines without moving the Join/retry state machine.
+- Tests lock current versus captured owner snapshots, exact direct profile state, nil-transport fallbacks, raw/empty/blank room IDs, precise sender-left tolerance, PolicyError and ordinary error mapping, and Matrix-before-persistence integration behavior. The module DTO does not accept a caller-supplied local identity; captured-profile reuse remains a root-private helper.
+- Latest DirectRoom writer gates passed: focused contact tests and adapter race tests, `go test ./p2p/... -count=1` (root 87.299s, storage 37.184s), related transport/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 
