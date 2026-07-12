@@ -15,10 +15,7 @@ func (s *DatabaseStore) UpsertContact(ctx context.Context, contact contactRecord
 				peer_mxid = EXCLUDED.peer_mxid,
 				display_name = EXCLUDED.display_name,
 				display_name_override = EXCLUDED.display_name_override,
-				avatar_url = CASE
-					WHEN EXCLUDED.avatar_url <> '' THEN EXCLUDED.avatar_url
-					ELSE p2p_contacts.avatar_url
-				END,
+				avatar_url = EXCLUDED.avatar_url,
 				remark = EXCLUDED.remark,
 				domain = EXCLUDED.domain,
 				status = EXCLUDED.status

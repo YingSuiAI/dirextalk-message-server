@@ -59,6 +59,65 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreUpsertContactPersistsExplicitAvatarClearAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeClosed := false
+	defer func() {
+		if !storeClosed {
+			_ = store.Close()
+		}
+	}()
+
+	contact := contactRecord{
+		RoomID:      "!direct:example.com",
+		PeerMXID:    "@alice:remote.example",
+		DisplayName: "Alice",
+		AvatarURL:   "mxc://remote.example/alice",
+		Domain:      "remote.example",
+		Status:      "accepted",
+	}
+	if err := store.UpsertContact(ctx, contact); err != nil {
+		t.Fatal(err)
+	}
+	contact.AvatarURL = ""
+	if err := store.UpsertContact(ctx, contact); err != nil {
+		t.Fatal(err)
+	}
+
+	contacts, err := store.ListContacts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contacts) != 1 || contacts[0].AvatarURL != "" {
+		t.Fatalf("explicit avatar clear was not persisted: %#v", contacts)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	storeClosed = true
+
+	reloaded, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloaded.Close()
+	contacts, err = reloaded.ListContacts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contacts) != 1 || contacts[0].AvatarURL != "" {
+		t.Fatalf("explicit avatar clear did not survive reopen: %#v", contacts)
+	}
+}
+
 func TestDatabaseStorePersistsBlocks(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

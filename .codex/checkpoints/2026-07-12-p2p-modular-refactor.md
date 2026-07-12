@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `ace9bdf842fd1e33a0cc11b5982b9d70e234c2c4`
+- Current published HEAD: `3c6f9b045cb5f52d5ff231736d228c4fe6b99858`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified process-local contact workflow boundary, then close the `contact.requested` retry gap and PostgreSQL avatar-clear mismatch before moving the remaining handlers behind narrow Matrix, remote-node, policy, event, and conversation ports.
+- Commit and push the verified PostgreSQL avatar-clear parity fix, then move the remaining contact handlers behind narrow Matrix, remote-node, policy, event, and conversation ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design rather than changing existing pending-request notification semantics inside the structure refactor.
 
 ## Completed Verification
 
@@ -68,11 +68,15 @@
 - The verified contact workflow boundary adds bounded keyed locks per trimmed peer within one contacts Module. `contacts.request`, owner mutations/update, inbound invite projection, direct-member projection, and direct-profile deletion share the boundary; entries are reference-counted and removed after active/waiting callbacks drain, including panic cleanup. The synchronous peer-side `contacts.reactivate` intentionally does not take the lock, preventing symmetric cross-node calls from forming a distributed lock cycle.
 - Controlled interleaving regressions prove concurrent first requests create exactly one Matrix direct room and return the same contact, while a queued projector cannot overwrite a completed room replacement from a stale snapshot. The boundary is explicitly process-local/single-Module and does not claim cross-process CAS semantics.
 - Latest contact workflow gates passed: contacts tests repeated and under race, contact/direct root tests and race, `go test ./p2p/... -count=1` (root 102.405s, storage 47.889s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, and `git diff --check`.
+- Published `3c6f9b0`: same-peer owner contact actions and contact projectors now share a bounded process-local workflow lock; concurrent first requests create one Matrix room and stale projector snapshots cannot overwrite completed replacements.
+- The PostgreSQL avatar-clear parity fix changes contact upsert to persist the complete `avatar_url` snapshot, matching MemoryStore and projector semantics. A real PostgreSQL regression covers non-empty avatar, explicit empty update, List, and Store reopen without changing schema or migrations.
+- Latest avatar parity gates passed: focused PostgreSQL test repeated with an actual close/reopen, full storage tests, `go test ./p2p/... -count=1` (root 97.962s, storage 43.079s), focused race, gopls/vet/staticcheck, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and independent review with no production finding.
 
 ## Related Finding Outside This Structural Slice
 
 - Production account deprovision truncates all PostgreSQL tables and delays process shutdown by two seconds. Non-P2P Matrix consumers are outside the Service operation barrier and may have a pre-existing post-truncate replay window; audit this as a separate account-deprovision hardening change rather than changing Matrix shutdown behavior inside the P2P structure refactor.
 - Call persistence and `call.changed` event insertion are not one transaction. If event insertion fails after a terminal call write, retry may return the terminal row without restoring the missing event; address with a durable outbox/transactional boundary in a separate behavior change.
 - PostgreSQL active-call filtering matches only exact lowercase terminal states, while MemoryStore normalizes whitespace and case. Current writers emit lowercase states, but cross-store normalization and empty-list ordering/JSON parity remain separate compatibility decisions.
-- Contacts persistence now reconciles restart-time peer-room replacement and retry after old-conversation cleanup failure. One Service now serializes same-peer action/projector workflows so concurrent first requests create one Matrix room; cross-Service/process coordination still requires durable CAS if deployment topology changes. Two pre-existing workflow/storage paths remain: `contact.requested` can be permanently lost after Store success/event failure, and PostgreSQL cannot persist an explicitly cleared avatar. Each needs a focused partial-commit/restart regression before its behavior is changed.
+- Contacts persistence now reconciles restart-time peer-room replacement and retry after old-conversation cleanup failure. One Service serializes same-peer action/projector workflows so concurrent first requests create one Matrix room; cross-Service/process coordination still requires durable CAS if deployment topology changes. PostgreSQL now persists explicitly cleared avatars across reopen.
+- `contact.requested` can still be permanently lost after contact Store success/event failure. A controlled red test reproduced it, but the event-ID-only compensation experiment was rejected in review because a different Matrix event for an existing pending contact would violate the documented no-duplicate notification contract. Correct recovery needs a durable request generation plus transactional outbox (and must also handle Insert-success/prune-failure notification), so it remains a separate behavior/storage design rather than an uncommitted structural shortcut.
 - Block `CreatedAt` and display-name ordering differ between MemoryStore and PostgreSQL on repeated/case-only writes. The blocks structure slice preserves both backends; choosing canonical cross-store semantics remains a separate compatibility decision.
