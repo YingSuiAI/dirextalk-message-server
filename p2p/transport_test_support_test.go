@@ -168,6 +168,27 @@ func (t *failOnceJoinTransport) JoinRoom(ctx context.Context, req JoinRoomReques
 	return JoinRoomResult{RoomID: req.RoomIDOrAlias}, nil
 }
 
+type failingAcceptReplacementTransport struct {
+	failOnceJoinTransport
+	createErr error
+}
+
+func (t *failingAcceptReplacementTransport) CreateRoom(_ context.Context, req CreateRoomRequest) (CreateRoomResult, error) {
+	t.createRooms = append(t.createRooms, req)
+	return CreateRoomResult{}, t.createErr
+}
+
+type contactAcceptJoinResultTransport struct {
+	recordingTransport
+	resultRoomID string
+}
+
+func (t *contactAcceptJoinResultTransport) JoinRoom(_ context.Context, req JoinRoomRequest) (JoinRoomResult, error) {
+	t.joins = append(t.joins, req.UserMXID+" in "+req.RoomIDOrAlias)
+	t.joinRequests = append(t.joinRequests, req)
+	return JoinRoomResult{RoomID: t.resultRoomID}, nil
+}
+
 type directReactivationJoinTransport struct {
 	recordingTransport
 }

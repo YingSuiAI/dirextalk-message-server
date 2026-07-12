@@ -11,6 +11,7 @@ const (
 	actionDelete        = "contacts.delete"
 	actionList          = "contacts.list"
 	actionUpdate        = "contacts.update"
+	actionRequestAccept = "contacts.requests.accept"
 	actionRequestDelete = "contacts.requests.delete"
 	actionRequestReject = "contacts.requests.reject"
 )
@@ -77,6 +78,7 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionDelete:        m.Delete,
 		actionList:          m.handleList,
 		actionUpdate:        m.handleUpdate,
+		actionRequestAccept: m.handleRequestAccept,
 		actionRequestDelete: m.handleRequestDelete,
 		actionRequestReject: m.handleRequestReject,
 	}

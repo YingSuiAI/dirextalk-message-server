@@ -564,6 +564,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
+		AcceptDirectRoom: service.acceptDirectContactRoom,
 		DeleteGroup: func(ctx context.Context, roomID string) error {
 			return service.store.DeleteGroup(ctx, roomID)
 		},

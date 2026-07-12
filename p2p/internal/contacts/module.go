@@ -24,9 +24,14 @@ type ConversationPort interface {
 	Operation(ctx context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error)
 }
 
+// DirectRoomAcceptor resolves the final Matrix room for an accepted contact.
+// The returned room ID is authoritative even when empty.
+type DirectRoomAcceptor func(ctx context.Context, contact dirextalkdomain.ContactRecord, serverNames []string) (roomID string, actionErr *actionbase.Error)
+
 type Config struct {
-	DeleteGroup func(ctx context.Context, roomID string) error
-	LeaveRoom   func(ctx context.Context, roomID string) *actionbase.Error
+	DeleteGroup      func(ctx context.Context, roomID string) error
+	LeaveRoom        func(ctx context.Context, roomID string) *actionbase.Error
+	AcceptDirectRoom DirectRoomAcceptor
 }
 
 type peerMutationEntry struct {
@@ -39,6 +44,7 @@ type Module struct {
 	conversation ConversationPort
 	deleteGroup  func(context.Context, string) error
 	leaveRoom    func(context.Context, string) *actionbase.Error
+	acceptRoom   DirectRoomAcceptor
 	mutationMu   sync.Mutex
 
 	peerMutationsMu sync.Mutex
@@ -51,6 +57,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		conversation: conversation,
 		deleteGroup:  cfg.DeleteGroup,
 		leaveRoom:    cfg.LeaveRoom,
+		acceptRoom:   cfg.AcceptDirectRoom,
 	}
 }
 

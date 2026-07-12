@@ -90,12 +90,6 @@ func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string
 	return s.updateAgentConfig(ctx, params)
 }
 
-func (s *Service) contactMutationAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.contactMutation(ctx, action, params)
-	}
-}
-
 func (s *Service) inviteMembersAction(roomKind string) actionHandler {
 	return func(ctx context.Context, params map[string]any) (any, *apiError) {
 		return s.inviteMembers(ctx, roomKind, params)

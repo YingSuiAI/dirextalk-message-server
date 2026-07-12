@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `c0b0da5d2547752240cb4207c38a4378c12d5b3c`
+- Current published HEAD: `66bb304531f81ffd4ad74f83673f41cc9c6efbd7`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified `contacts.delete` module slice, then migrate the more complex `contacts.requests.accept` join/replacement workflow behind narrow Matrix ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified `contacts.requests.accept` module slice, then inventory and migrate the remaining cohesive contact request/reactivation workflows behind narrow Matrix and remote-node ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -89,6 +89,11 @@
 - The verified `contacts.delete` slice moves lookup, locked reread, Matrix-leave decision, deleted snapshot merge, durable Save, and operation response into one contacts workflow. A narrow root leave-room adapter dynamically snapshots the owner, preserves nil transport, exact already-left recognition, and `transportWriteError` policy/ordinary error mapping. Account deletion now calls the same exported module workflow instead of the removed root branch.
 - Delete tests lock missing/empty inputs, peer/profile/remark compatibility, idempotent canonicalization, nil leave port, Leave-before-Save ordering, PolicyError mapping, pre/post-upsert and operation partial commits, and deterministic status reread under the peer lock. Root tests retain already-left, dynamic owner, failed-leave non-persistence, account-deletion abort, durable reopen, conversation response, and registry boundaries.
 - Latest contacts-delete gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 88.173s, storage 40.541s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering/contract review with no P0-P3 finding.
+- Published `66bb304`: `contacts.delete` now belongs to the contacts module behind a narrow leave-room adapter; account deletion calls the same workflow and the 48-line root mutation branch is gone.
+- The verified request-accept slice moves parameter/status handling, peer-locked reread, final-room consumption, compatible snapshot reconstruction, Save, and View construction into `p2p/internal/contacts`. A named `DirectRoomAcceptor` port leaves dynamic owner/profile snapshots, six-attempt federated Join retry, Dendrite error classification, and replacement direct-room creation in the root Matrix adapter. The obsolete generic contact mutation dispatcher and registry wrapper were removed.
+- Accept tests lock accepted no-op behavior, empty/missing/legacy statuses, spoof-compatible peer selection, display/avatar/domain/remark/override reconstruction, normalized server names, authoritative empty final room, adapter→Save→Operation ordering, locked pending→accepted transitions, read/adapter/Save/Operation errors, and pre/post-commit boundaries. Root tests lock dynamic profile, Join retry/reactivation, raw/empty Join result room semantics, replacement room/profile/initial state, Join/Create failures, and concrete response integration.
+- The accept Matrix boundary tests moved from the 831-line `transport_contacts_test.go` into a 281-line cohesive file, reducing the former to 597 lines without changing test behavior.
+- Latest contacts-accept gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 87.769s, storage 38.919s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 
