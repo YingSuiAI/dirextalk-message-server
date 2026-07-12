@@ -369,9 +369,7 @@ func TestRecallChannelContentRequiresAuthorOrChannelOwner(t *testing.T) {
 		MentionsJSON:   "[]",
 		OriginServerTS: time.Now().UTC().UnixMilli(),
 	}
-	service.mu.Lock()
-	service.comments = append(service.comments, foreignComment)
-	service.mu.Unlock()
+	mustInsertChannelComment(t, service, foreignComment)
 	if _, apiErr := service.Handle(ctx, "channels.comments.recall", map[string]any{"comment_id": foreignComment.CommentID, "post_id": post.PostID}); apiErr == nil || apiErr.Status != http.StatusForbidden {
 		t.Fatalf("expected member recall of another member comment to be forbidden, got %#v", apiErr)
 	}

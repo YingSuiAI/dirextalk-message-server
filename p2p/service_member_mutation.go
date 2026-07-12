@@ -198,7 +198,13 @@ func (s *Service) memberList(ctx context.Context, params map[string]any) any {
 	if store := s.memberStore(); store != nil {
 		members, err := store.ListMembers(ctx, roomID, channelID)
 		if err == nil {
-			return map[string]any{"members": filterMembers(members, status, role)}
+			visible := make([]memberRecord, 0, len(members))
+			for _, member := range members {
+				if !memberHidden(member.Membership) {
+					visible = append(visible, member)
+				}
+			}
+			return map[string]any{"members": filterMembers(visible, status, role)}
 		}
 	}
 	s.mu.Lock()

@@ -16,6 +16,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
+	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -56,8 +57,9 @@ func transportWriteError(err error) *apiError {
 }
 
 type Service struct {
-	mu              sync.Mutex
-	matrixSessionMu sync.Mutex
+	mu                 sync.Mutex
+	matrixSessionMu    sync.Mutex
+	accountOperationMu sync.RWMutex
 
 	serverName                 string
 	homeserver                 string
@@ -72,6 +74,7 @@ type Service struct {
 	accountDeactivator         AccountDeactivator
 	accountDeprovisioner       AccountDeprovisioner
 	accountDeletionInProgress  bool
+	accountDeprovisioned       bool
 	storeMode                  string
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
@@ -149,11 +152,11 @@ type reportRecord = domain.ReportRecord
 type clientBuild = dirextalkdomain.ClientBuild
 
 func NewService(cfg Config) *Service {
-	return newService(cfg, nil, nil, portalState{}, false)
+	return newService(cfg, p2pstorage.NewMemoryStore(), nil, portalState{}, false)
 }
 
 func NewServiceWithTransport(cfg Config, transport Transport) *Service {
-	return newService(cfg, nil, transport, portalState{}, false)
+	return newService(cfg, p2pstorage.NewMemoryStore(), transport, portalState{}, false)
 }
 
 func NewServiceWithStore(ctx context.Context, cfg Config, store Store) (*Service, error) {
@@ -390,6 +393,9 @@ func storeMode(store Store) string {
 	if store == nil {
 		return "memory"
 	}
+	if _, ok := store.(*p2pstorage.MemoryStore); ok {
+		return "memory"
+	}
 	return "database"
 }
 
@@ -551,6 +557,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	service.pluginRunner = basePluginRunner
 	service.nativeAgentRunner = nativeAgentRunner
 	service.actions = service.actionHandlers()
+	if memoryStore, ok := store.(*p2pstorage.MemoryStore); ok {
+		service.mu.Lock()
+		state := service.portalStateLocked()
+		service.mu.Unlock()
+		if err := memoryStore.SavePortal(context.Background(), state); err != nil {
+			panic("seed P2P memory store portal: " + err.Error())
+		}
+	}
 	return service
 }
 
@@ -602,6 +616,14 @@ func (s *Service) Handle(ctx context.Context, action string, params map[string]a
 	handler, ok := s.actions[action]
 	if !ok {
 		return nil, badRequest("unknown action")
+	}
+	if action == "portal.account.delete" {
+		return handler(ctx, params)
+	}
+	ctx, finishOperation := s.beginAccountOperation(ctx)
+	defer finishOperation()
+	if s.accountIsDeprovisioned() {
+		return nil, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
 	}
 	return handler(ctx, params)
 }

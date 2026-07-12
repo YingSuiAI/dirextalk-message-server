@@ -511,9 +511,12 @@ func TestChannelPostRecallWithTransportDoesNotRequireLocalOwnerProjection(t *tes
 		"channel_id": "ch_stale_owner",
 		"name":       "Stale Owner Projection",
 	})
-	service.mu.Lock()
-	delete(service.members, ch.RoomID+"|"+service.ownerMXID)
-	service.posts = append(service.posts, channelPostRecord{
+	if err := service.memberStore().UpsertMember(context.Background(), memberRecord{
+		RoomID: ch.RoomID, ChannelID: ch.ChannelID, UserID: service.ownerMXID, Membership: "leave", Role: "owner",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mustInsertChannelPost(t, service, channelPostRecord{
 		PostID:     "post_remote",
 		ChannelID:  ch.ChannelID,
 		RoomID:     ch.RoomID,
@@ -521,7 +524,6 @@ func TestChannelPostRecallWithTransportDoesNotRequireLocalOwnerProjection(t *tes
 		AuthorMXID: "@remote:example.com",
 		Body:       "remote post",
 	})
-	service.mu.Unlock()
 
 	_, apiErr := service.Handle(context.Background(), "channels.posts.recall", map[string]any{
 		"channel_id": ch.ChannelID,

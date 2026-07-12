@@ -19,6 +19,11 @@ func (i p2pDirextalkMCPInvoker) InvokeCapability(ctx context.Context, action str
 	if i.service == nil {
 		return nil, dirextalkmcp.StatusError(http.StatusInternalServerError, "Dirextalk MCP capability service is unavailable")
 	}
+	ctx, finishOperation := i.service.beginAccountOperation(ctx)
+	defer finishOperation()
+	if i.service.accountIsDeprovisioned() {
+		return nil, dirextalkmcp.StatusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
+	}
 	var (
 		value  any
 		apiErr *apiError

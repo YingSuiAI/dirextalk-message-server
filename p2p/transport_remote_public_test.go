@@ -571,9 +571,7 @@ func TestChannelPublicJoinResultRejectedUpdatesRequesterNode(t *testing.T) {
 	if member.Membership != "reject" {
 		t.Fatalf("expected local projection to become rejected, got %#v", member)
 	}
-	service.mu.Lock()
-	events := append([]p2pEvent(nil), service.events...)
-	service.mu.Unlock()
+	events := mustListP2PEvents(t, service)
 	if len(events) != 1 || events[0].Type != "channel.join_request.changed" {
 		t.Fatalf("expected P2P event for rejected join request, got %#v", events)
 	}

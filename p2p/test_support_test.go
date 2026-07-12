@@ -32,6 +32,59 @@ func bootstrapService(t *testing.T, service *Service) map[string]any {
 	return mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
 }
 
+func mustListP2PEvents(t *testing.T, service *Service) []p2pEvent {
+	t.Helper()
+	events, err := service.listP2PEvents(context.Background(), 0, 500)
+	if err != nil {
+		t.Fatalf("list P2P events: %v", err)
+	}
+	return events
+}
+
+func mustInsertChannelPost(t *testing.T, service *Service, post channelPostRecord) {
+	t.Helper()
+	store := service.channelContentStore()
+	if store == nil {
+		t.Fatal("channel content store is unavailable")
+	}
+	if err := store.InsertChannelPost(context.Background(), channelPostStorageRecordFromPost(post)); err != nil {
+		t.Fatalf("insert channel post %q: %v", post.PostID, err)
+	}
+}
+
+func mustInsertChannelComment(t *testing.T, service *Service, comment channelCommentRecord) {
+	t.Helper()
+	store := service.channelContentStore()
+	if store == nil {
+		t.Fatal("channel content store is unavailable")
+	}
+	if err := store.InsertChannelComment(context.Background(), channelCommentStorageRecordFromComment(comment)); err != nil {
+		t.Fatalf("insert channel comment %q: %v", comment.CommentID, err)
+	}
+}
+
+func mustUpsertReaction(t *testing.T, service *Service, reaction reactionRecord) {
+	t.Helper()
+	store := service.reactionStore()
+	if store == nil {
+		t.Fatal("reaction store is unavailable")
+	}
+	if err := store.UpsertReaction(context.Background(), reaction); err != nil {
+		t.Fatalf("upsert reaction for %q: %v", reaction.TargetID, err)
+	}
+}
+
+func mustUpsertFavorite(t *testing.T, service *Service, favorite favoriteRecord) {
+	t.Helper()
+	store := service.socialStore()
+	if store == nil {
+		t.Fatal("social store is unavailable")
+	}
+	if err := store.UpsertFavorite(context.Background(), favorite); err != nil {
+		t.Fatalf("upsert favorite %d: %v", favorite.ID, err)
+	}
+}
+
 func jsonRequest(t *testing.T, path string, body map[string]any) *http.Request {
 	t.Helper()
 	raw, err := json.Marshal(body)

@@ -5,6 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
+- Current published HEAD: `b323b24de5f1c2a72bf172dc31605f8bc0edf38c`
 
 ## Outcome And Boundaries
 
@@ -30,7 +31,7 @@
 
 ## Current Next Action
 
-- Finish and independently audit the Action foundation and MemoryStore implementation, then wire the legacy no-database constructors through MemoryStore without changing their observable semantics.
+- Commit and push the verified MemoryStore constructor/event single-path wiring, then extract the `conversation` workflow into a cohesive `p2p/internal/conversation` module while retaining root compatibility wrappers.
 
 ## Completed Verification
 
@@ -42,3 +43,15 @@
 - Native Agent skill/MCP config-record consolidation passed package and race tests while preserving exact errors and response shapes.
 - Native Agent OpenAI-compatible/Anthropic direct HTTP and SSE consolidation passed focused provider behavior tests, full package race tests, unused/ineffassign/staticcheck/dupl/gocyclo lint, and `git diff --check`.
 - Storage parity audit found pre-existing observable differences between the legacy in-memory maps and PostgreSQL (ordering, filtering, case handling, duplicate writes). The current structural slice will preserve the no-database behavior; cross-store tests cover only shared invariants, and parity changes remain a separate product decision.
+- Published `c86f83b` (internal Action foundation), `3c94861` and `a402cd7` (shared in-memory and PostgreSQL channel keyset pagination), and `4ae4e41` (transport tests organized by business domain).
+- Published `eac1993` with a thread-safe MemoryStore implementing all 71 root Store methods. It remains unavailable to production startup and is not yet wired into the no-database constructors.
+- MemoryStore passed repeated package tests, race, gopls, unused/ineffassign/staticcheck/dupl/gocyclo lint, and an independent semantic audit. The audit's dynamic-value aliasing and raw-member compatibility findings were fixed before commit with typed-container/struct deep-copy tests.
+- Constructor wiring characterization now locks canceled-context legacy writes and retention-pruned dedupe-key reuse. Additional required wiring gates are initial PortalState seeding, `store_mode=memory`, event Store-only dedupe/prune, and volatile account reset behavior.
+- Published `c36daf4`, `b20ca91`, and `b323b24` to organize business-state tests, move pure DatabaseStore coverage into `p2p/storage`, and add atomic volatile account-state reset semantics.
+- The uncommitted constructor/event wiring now routes every legacy no-database Service through an independent MemoryStore, seeds normalized PortalState, preserves `store_mode=memory`, uses Store-only event sequencing/dedupe/prune, and removes direct test writes to legacy event/channel-content maps.
+- Account deprovision now drains guarded ProductCore, MCP, Native Agent config, and projector work before PostgreSQL reset; terminal requests are rejected and queued roomserver projections are acknowledged without repopulating Store state. Controlled red/green race regressions cover the former map-reset-Store-write interleaving and Native Agent config writeback.
+- Verified current wiring: `go test ./p2p/... -count=1` (latest root 100.071s), `go test -race ./p2p -count=1` (104.237s), focused account/MCP/Native Agent race tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, Action contract artifact test, and `git diff --check`. Final independent review reported no blocker.
+
+## Related Finding Outside This Structural Slice
+
+- Production account deprovision truncates all PostgreSQL tables and delays process shutdown by two seconds. Non-P2P Matrix consumers are outside the Service operation barrier and may have a pre-existing post-truncate replay window; audit this as a separate account-deprovision hardening change rather than changing Matrix shutdown behavior inside the P2P structure refactor.

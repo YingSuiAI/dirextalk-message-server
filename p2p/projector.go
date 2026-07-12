@@ -8,19 +8,37 @@ import (
 )
 
 func (s *Service) ProjectOutputEvent(ctx context.Context, output roomserverAPI.OutputEvent) error {
+	ctx, finishOperation := s.beginAccountOperation(ctx)
+	defer finishOperation()
+	if s.accountIsDeprovisioned() {
+		return nil
+	}
+	return s.projectOutputEvent(ctx, output)
+}
+
+func (s *Service) projectOutputEvent(ctx context.Context, output roomserverAPI.OutputEvent) error {
 	if output.Type == roomserverAPI.OutputTypeRedactedEvent && output.RedactedEvent != nil {
 		return s.removeProjectedEvent(ctx, output.RedactedEvent.RedactedEventID)
 	}
 	if output.Type == roomserverAPI.OutputTypeNewInviteEvent && output.NewInviteEvent != nil {
-		return s.ProjectRoomEvent(ctx, output.NewInviteEvent.Event)
+		return s.projectRoomEvent(ctx, output.NewInviteEvent.Event)
 	}
 	if output.Type != roomserverAPI.OutputTypeNewRoomEvent || output.NewRoomEvent == nil {
 		return nil
 	}
-	return s.ProjectRoomEvent(ctx, output.NewRoomEvent.Event)
+	return s.projectRoomEvent(ctx, output.NewRoomEvent.Event)
 }
 
 func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEvent) error {
+	ctx, finishOperation := s.beginAccountOperation(ctx)
+	defer finishOperation()
+	if s.accountIsDeprovisioned() {
+		return nil
+	}
+	return s.projectRoomEvent(ctx, event)
+}
+
+func (s *Service) projectRoomEvent(ctx context.Context, event *types.HeaderedEvent) error {
 	if event == nil {
 		return nil
 	}

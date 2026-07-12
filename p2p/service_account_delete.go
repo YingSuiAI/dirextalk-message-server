@@ -56,6 +56,14 @@ func (s *Service) deleteAccountAfterDesiredState(ctx context.Context) (any, *api
 	if apiErr := s.leaveOrDissolveAccountRooms(ctx, &summary); apiErr != nil {
 		return nil, apiErr
 	}
+
+	// Matrix leave/dissolve writes must complete before taking the reset barrier,
+	// because their roomserver output is projected asynchronously. From this
+	// point through database reset and the terminal state flip, no ProductCore,
+	// MCP, or projector operation may remain in flight.
+	s.accountOperationMu.Lock()
+	defer s.accountOperationMu.Unlock()
+
 	if apiErr := s.deactivateAccountUsers(ctx, &summary); apiErr != nil {
 		return nil, apiErr
 	}
@@ -73,7 +81,7 @@ func (s *Service) deleteAccountAfterDesiredState(ctx context.Context) (any, *api
 		return nil, internalError(err)
 	}
 
-	s.clearAccountStateInMemory()
+	s.clearAccountStateAfterDeprovision()
 	return map[string]any{
 		"status":               "deprovisioned",
 		"contacts_left":        summary.ContactsLeft,
@@ -259,8 +267,14 @@ func (s *Service) deactivateAccountUsers(ctx context.Context, summary *accountDe
 }
 
 func (s *Service) clearAccountStateInMemory() {
+	s.accountOperationMu.Lock()
+	defer s.accountOperationMu.Unlock()
+	s.clearAccountStateAfterDeprovision()
+}
+
+func (s *Service) clearAccountStateAfterDeprovision() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.accountDeprovisioned = true
 	s.initialized = false
 	s.password = ""
 	s.accessToken = ""
@@ -284,7 +298,11 @@ func (s *Service) clearAccountStateInMemory() {
 	s.members = map[string]memberRecord{}
 	s.conversations = map[string]conversationRecord{}
 	s.inviteGrants = map[string]channelInviteGrant{}
-	s.events = nil
 	s.nextEventSeq = 0
 	s.realtimeWSTickets = map[string]realtimeWSTicket{}
+	resetter, _ := s.store.(interface{ ResetAccountState() })
+	s.mu.Unlock()
+	if resetter != nil {
+		resetter.ResetAccountState()
+	}
 }

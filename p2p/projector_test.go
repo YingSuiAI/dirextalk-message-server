@@ -31,8 +31,9 @@ func TestProjectRoomMessageDoesNotCreateP2PMessageRecord(t *testing.T) {
 	if _, apiErr := service.Handle(context.Background(), "search", map[string]any{"q": "remote"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
 		t.Fatalf("expected removed P2P search to be unknown, got %#v", apiErr)
 	}
-	if len(service.events) != 0 {
-		t.Fatalf("ordinary Matrix message must not produce P2P events, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 0 {
+		t.Fatalf("ordinary Matrix message must not produce P2P events, got %#v", p2pEvents)
 	}
 }
 
@@ -51,8 +52,9 @@ func TestProjectRoomMessageIgnoresUnknownNonProductRoom(t *testing.T) {
 	if _, apiErr := service.Handle(context.Background(), "search", map[string]any{"q": "regular"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
 		t.Fatalf("expected removed P2P search to be unknown, got %#v", apiErr)
 	}
-	if len(service.events) != 0 {
-		t.Fatalf("non-product Matrix room message must not produce P2P events, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 0 {
+		t.Fatalf("non-product Matrix room message must not produce P2P events, got %#v", p2pEvents)
 	}
 }
 
@@ -69,8 +71,9 @@ func TestProjectAgentRoomMessageDoesNotAppendGatewayEvent(t *testing.T) {
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(service.events) != 0 {
-		t.Fatalf("agent room Matrix messages must not produce P2P events, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 0 {
+		t.Fatalf("agent room Matrix messages must not produce P2P events, got %#v", p2pEvents)
 	}
 }
 
@@ -89,8 +92,9 @@ func TestProjectAgentRoomMessageIgnoresGatewayMarkedReply(t *testing.T) {
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(service.events) != 0 {
-		t.Fatalf("gateway-marked replies must not loop through P2P events, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 0 {
+		t.Fatalf("gateway-marked replies must not loop through P2P events, got %#v", p2pEvents)
 	}
 }
 
@@ -400,8 +404,9 @@ func TestProjectNativeDirectProfileStateDoesNotCreateGroup(t *testing.T) {
 	if len(groups) != 0 {
 		t.Fatalf("direct room profile must not be projected as group, got %#v", groups)
 	}
-	if len(service.events) != 1 || service.events[0].Type != "profile.changed" || service.events[0].Payload["room_type"] != DirextalkRoomTypeDirect {
-		t.Fatalf("expected direct profile change event, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 1 || p2pEvents[0].Type != "profile.changed" || p2pEvents[0].Payload["room_type"] != DirextalkRoomTypeDirect {
+		t.Fatalf("expected direct profile change event, got %#v", p2pEvents)
 	}
 }
 
@@ -558,11 +563,12 @@ func TestProjectDirectInviteCreatesPendingInboundContact(t *testing.T) {
 	if friendRequests[0]["remark"] != "我是 Remote，请通过好友申请" {
 		t.Fatalf("expected pending friend request notice to include remark, got %#v", friendRequests)
 	}
-	if len(service.events) != 1 || service.events[0].Type != "contact.requested" || service.events[0].RoomID != room.ID {
-		t.Fatalf("expected contact request event for direct invite, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 1 || p2pEvents[0].Type != "contact.requested" || p2pEvents[0].RoomID != room.ID {
+		t.Fatalf("expected contact request event for direct invite, got %#v", p2pEvents)
 	}
-	if service.events[0].Payload["peer_mxid"] != remote.ID || service.events[0].Payload["status"] != "pending_inbound" || service.events[0].Payload["remark"] != "我是 Remote，请通过好友申请" {
-		t.Fatalf("unexpected contact request event payload: %#v", service.events[0].Payload)
+	if p2pEvents[0].Payload["peer_mxid"] != remote.ID || p2pEvents[0].Payload["status"] != "pending_inbound" || p2pEvents[0].Payload["remark"] != "我是 Remote，请通过好友申请" {
+		t.Fatalf("unexpected contact request event payload: %#v", p2pEvents[0].Payload)
 	}
 }
 
@@ -872,8 +878,9 @@ func TestProjectDirectInviteReinvitesAcceptedPeerToRetainedRoom(t *testing.T) {
 	if inviteReq := transport.inviteRequests[0]; inviteReq.RoomID != "!old-direct:test" || inviteReq.InviterMXID != owner.ID || inviteReq.InviteeMXID != remote.ID {
 		t.Fatalf("expected retained-room invite to actual sender, got %#v", inviteReq)
 	}
-	if len(service.events) != 0 {
-		t.Fatalf("accepted peer reactivation must not create a new pending request event, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 0 {
+		t.Fatalf("accepted peer reactivation must not create a new pending request event, got %#v", p2pEvents)
 	}
 }
 
@@ -921,8 +928,9 @@ func TestProjectDuplicateDirectInvitesKeepFirstPendingInboundContact(t *testing.
 	if len(friendRequests) != 1 || friendRequests[0]["id"] != firstRoom.ID {
 		t.Fatalf("expected duplicate direct invite to keep first pending friend request notice, got %#v", pending)
 	}
-	if len(service.events) != 1 || service.events[0].Type != "contact.requested" || service.events[0].RoomID != firstRoom.ID {
-		t.Fatalf("expected duplicate direct invite to keep first contact request event only, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 1 || p2pEvents[0].Type != "contact.requested" || p2pEvents[0].RoomID != firstRoom.ID {
+		t.Fatalf("expected duplicate direct invite to keep first contact request event only, got %#v", p2pEvents)
 	}
 }
 
@@ -966,11 +974,12 @@ func TestProjectDirectInviteReopensRejectedContact(t *testing.T) {
 	if len(friendRequests) != 1 || friendRequests[0]["id"] != room.ID || friendRequests[0]["title"] != "Remote Again" {
 		t.Fatalf("expected reopened rejected contact to produce pending friend request, got %#v", pending)
 	}
-	if len(service.events) != 1 || service.events[0].Type != "contact.requested" || service.events[0].RoomID != room.ID {
-		t.Fatalf("expected reopened rejected contact to emit contact request event, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) != 1 || p2pEvents[0].Type != "contact.requested" || p2pEvents[0].RoomID != room.ID {
+		t.Fatalf("expected reopened rejected contact to emit contact request event, got %#v", p2pEvents)
 	}
-	if service.events[0].Payload["display_name"] != "Remote Again" || service.events[0].Payload["peer_mxid"] != remote.ID {
-		t.Fatalf("unexpected reopened contact event payload: %#v", service.events[0].Payload)
+	if p2pEvents[0].Payload["display_name"] != "Remote Again" || p2pEvents[0].Payload["peer_mxid"] != remote.ID {
+		t.Fatalf("unexpected reopened contact event payload: %#v", p2pEvents[0].Payload)
 	}
 }
 

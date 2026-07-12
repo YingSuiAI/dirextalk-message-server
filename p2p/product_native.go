@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
 
@@ -163,9 +162,6 @@ type eventStore interface {
 }
 
 func (s *Service) eventStore() eventStore {
-	if s.store == nil {
-		return nil
-	}
 	return s.store
 }
 
@@ -176,14 +172,6 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 	}
 	event.DedupeKey = strings.TrimSpace(event.DedupeKey)
 	s.mu.Lock()
-	if event.DedupeKey != "" {
-		for _, existing := range s.events {
-			if existing.DedupeKey == event.DedupeKey {
-				s.mu.Unlock()
-				return nil
-			}
-		}
-	}
 	if event.Seq <= 0 || event.Seq <= s.nextEventSeq {
 		event.Seq = now.UnixNano()
 		if event.Seq <= s.nextEventSeq {
@@ -192,25 +180,15 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 	}
 	s.nextEventSeq = event.Seq
 	s.mu.Unlock()
-	if store := s.eventStore(); store != nil {
-		inserted, err := store.InsertEvent(ctx, event)
-		if err != nil {
-			return err
-		}
-		if !inserted {
-			return nil
-		}
-		s.mu.Lock()
-		s.events = append(s.events, event)
-		s.mu.Unlock()
-		if err := s.pruneP2PEventsAfterAppend(ctx); err != nil {
-			return err
-		}
-	} else {
-		s.mu.Lock()
-		s.events = append(s.events, event)
-		s.mu.Unlock()
-		s.pruneMemoryP2PEventsAfterAppend()
+	inserted, err := s.eventStore().InsertEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return nil
+	}
+	if err := s.pruneP2PEventsAfterAppend(ctx); err != nil {
+		return err
 	}
 	s.notifyP2PEventWaiters()
 	return nil
@@ -222,50 +200,18 @@ func (s *Service) pruneP2PEventsAfterAppend(ctx context.Context) error {
 	maxRows := s.eventRetentionMaxRows
 	s.mu.Unlock()
 	store := s.eventStore()
-	if !enabled || maxRows <= 0 || store == nil {
+	if !enabled || maxRows <= 0 {
 		return nil
 	}
 	_, err := store.PruneEventsToMaxRows(ctx, maxRows)
 	return err
 }
 
-func (s *Service) pruneMemoryP2PEventsAfterAppend() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.eventRetentionPruneOnWrite || s.eventRetentionMaxRows <= 0 {
-		return
-	}
-	maxRows := int(s.eventRetentionMaxRows)
-	if len(s.events) <= maxRows {
-		return
-	}
-	events := append([]p2pEvent(nil), s.events...)
-	sort.SliceStable(events, func(i, j int) bool {
-		return events[i].Seq < events[j].Seq
-	})
-	s.events = append([]p2pEvent(nil), events[len(events)-maxRows:]...)
-}
-
 func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	if store := s.eventStore(); store != nil {
-		return store.ListEvents(ctx, since, limit)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	events := make([]p2pEvent, 0, limit)
-	for _, event := range s.events {
-		if event.Seq <= since {
-			continue
-		}
-		events = append(events, event)
-		if len(events) >= limit {
-			break
-		}
-	}
-	return events, nil
+	return s.eventStore().ListEvents(ctx, since, limit)
 }
 
 type p2pEventCursorStatus struct {
@@ -279,28 +225,12 @@ func (s *Service) p2pEventCursorStatus(ctx context.Context, since int64) (p2pEve
 	if since <= 0 {
 		return status, nil
 	}
-	if store := s.eventStore(); store != nil {
-		bounds, err := store.EventBounds(ctx)
-		if err != nil {
-			return p2pEventCursorStatus{}, err
-		}
-		status.Bounds = bounds
-		status.Expired = bounds.Count > 0 && bounds.MinSeq > 0 && since < bounds.MinSeq
-		return status, nil
+	bounds, err := s.eventStore().EventBounds(ctx)
+	if err != nil {
+		return p2pEventCursorStatus{}, err
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, event := range s.events {
-		if i == 0 || event.Seq < status.Bounds.MinSeq {
-			status.Bounds.MinSeq = event.Seq
-		}
-		if event.Seq > status.Bounds.MaxSeq {
-			status.Bounds.MaxSeq = event.Seq
-		}
-		status.Bounds.Count++
-	}
-	status.Expired = status.Bounds.Count > 0 && status.Bounds.MinSeq > 0 && since < status.Bounds.MinSeq
+	status.Bounds = bounds
+	status.Expired = bounds.Count > 0 && bounds.MinSeq > 0 && since < bounds.MinSeq
 	return status, nil
 }
 

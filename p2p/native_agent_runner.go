@@ -93,6 +93,11 @@ func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any)
 	if s.service == nil {
 		return fmt.Errorf("native agent config store is unavailable")
 	}
+	ctx, finishOperation := s.service.beginAccountOperation(ctx)
+	defer finishOperation()
+	if s.service.accountIsDeprovisioned() {
+		return fmt.Errorf("account is deprovisioned")
+	}
 	s.service.mu.Lock()
 	s.service.agentConfig = agentConfigFromNativeMap(s.service.agentConfig, config)
 	state := s.service.portalStateLocked()

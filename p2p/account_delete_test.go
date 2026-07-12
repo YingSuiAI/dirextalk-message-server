@@ -105,6 +105,18 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	if len(releaseController.desiredStates) != 1 || releaseController.desiredStates[0] != releasecontrol.DesiredStateDeprovisioned {
 		t.Fatalf("expected desired state deprovisioned before destructive delete, got %#v", releaseController.desiredStates)
 	}
+	if contacts, err := service.listContacts(context.Background()); err != nil || len(contacts) != 0 {
+		t.Fatalf("volatile contacts survived account reset: contacts=%#v err=%v", contacts, err)
+	}
+	if groups, err := service.listGroups(context.Background()); err != nil || len(groups) != 0 {
+		t.Fatalf("volatile groups survived account reset: groups=%#v err=%v", groups, err)
+	}
+	if channels, err := service.listChannels(context.Background()); err != nil || len(channels) != 0 {
+		t.Fatalf("volatile channels survived account reset: channels=%#v err=%v", channels, err)
+	}
+	if _, found, err := service.portalStore().LoadPortal(context.Background()); err != nil || found {
+		t.Fatalf("volatile portal survived account reset: found=%v err=%v", found, err)
+	}
 }
 
 func TestAccountDeleteDoesNotDeprovisionWhenCriticalLeaveFails(t *testing.T) {

@@ -161,11 +161,12 @@ func TestCallGetAndEventsDoNotCreateMissingCalls(t *testing.T) {
 	if rejected.State != "rejected" || rejected.EndedAt == "" || rejected.EndedByMXID != "@bob:example.com" || rejected.EndReason != "user_reject" || rejected.DurationMS != 3000 {
 		t.Fatalf("expected rejected event to persist lifecycle details, got %#v", rejected)
 	}
-	if len(service.events) < 3 || service.events[len(service.events)-1].Type != "call.changed" {
-		t.Fatalf("expected call state changes to emit call.changed events, got %#v", service.events)
+	p2pEvents := mustListP2PEvents(t, service)
+	if len(p2pEvents) < 3 || p2pEvents[len(p2pEvents)-1].Type != "call.changed" {
+		t.Fatalf("expected call state changes to emit call.changed events, got %#v", p2pEvents)
 	}
-	if payloadCall, ok := service.events[len(service.events)-1].Payload["call"].(callRecord); !ok || payloadCall.State != "rejected" {
-		t.Fatalf("expected call.changed payload to include rejected call, got %#v", service.events[len(service.events)-1].Payload)
+	if payloadCall, ok := p2pEvents[len(p2pEvents)-1].Payload["call"].(callRecord); !ok || payloadCall.State != "rejected" {
+		t.Fatalf("expected call.changed payload to include rejected call, got %#v", p2pEvents[len(p2pEvents)-1].Payload)
 	}
 	reopened := mustHandle[callRecord](t, service, "calls.incoming", map[string]any{
 		"call_id":    created.CallID,

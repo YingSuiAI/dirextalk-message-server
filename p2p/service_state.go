@@ -38,7 +38,6 @@ type serviceReadModelState struct {
 }
 
 type serviceEventState struct {
-	events       []p2pEvent
 	nextEventSeq int64
 	eventNotify  chan struct{}
 }

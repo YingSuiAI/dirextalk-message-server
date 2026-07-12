@@ -825,7 +825,7 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 	})
 	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
 	for i := 0; i < 12; i++ {
-		service.posts = append(service.posts, channelPostRecord{
+		mustInsertChannelPost(t, service, channelPostRecord{
 			PostID:         "post_" + string(rune('a'+i)),
 			ChannelID:      ch.ChannelID,
 			RoomID:         ch.RoomID,
@@ -836,26 +836,26 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 			OriginServerTS: base.Add(time.Duration(i) * time.Minute).UnixMilli(),
 		})
 	}
-	service.comments = append(service.comments, channelCommentRecord{
+	mustInsertChannelComment(t, service, channelCommentRecord{
 		CommentID:      "comment_1",
 		PostID:         "post_l",
 		ChannelID:      ch.ChannelID,
 		OriginServerTS: base.Add(13 * time.Minute).UnixMilli(),
 	})
-	service.reactions[reactionKey("post", "post_l", "like", "@owner:example.com")] = reactionRecord{
+	mustUpsertReaction(t, service, reactionRecord{
 		TargetType: "post",
 		TargetID:   "post_l",
 		Reaction:   "like",
 		UserID:     "@owner:example.com",
 		Active:     true,
-	}
-	service.favorites[1] = favoriteRecord{
+	})
+	mustUpsertFavorite(t, service, favoriteRecord{
 		ID:             1,
 		EventID:        "$post_l",
 		RoomID:         ch.RoomID,
 		MessageType:    "channel_post",
 		OriginServerTS: base.Add(11 * time.Minute).UnixMilli(),
-	}
+	})
 
 	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
@@ -878,7 +878,7 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 	}
 
 	for i := 0; i < 10; i++ {
-		service.posts = append(service.posts, channelPostRecord{
+		mustInsertChannelPost(t, service, channelPostRecord{
 			PostID:         "new_post_" + string(rune('a'+i)),
 			ChannelID:      ch.ChannelID,
 			RoomID:         ch.RoomID,
@@ -915,7 +915,7 @@ func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
 		"name":             "Product Channel",
 		"comments_enabled": true,
 	})
-	service.posts = append(service.posts, channelPostRecord{
+	mustInsertChannelPost(t, service, channelPostRecord{
 		PostID:         "post",
 		ChannelID:      ch.ChannelID,
 		RoomID:         ch.RoomID,
@@ -924,7 +924,7 @@ func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
 	})
 	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
 	for i := 0; i < 12; i++ {
-		service.comments = append(service.comments, channelCommentRecord{
+		mustInsertChannelComment(t, service, channelCommentRecord{
 			CommentID:      "comment_" + string(rune('a'+i)),
 			PostID:         "post",
 			ChannelID:      ch.ChannelID,
@@ -952,7 +952,7 @@ func TestMCPChannelCommentsPaginationUsesStableSnapshot(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		service.comments = append(service.comments, channelCommentRecord{
+		mustInsertChannelComment(t, service, channelCommentRecord{
 			CommentID:      "new_comment_" + string(rune('a'+i)),
 			PostID:         "post",
 			ChannelID:      ch.ChannelID,
