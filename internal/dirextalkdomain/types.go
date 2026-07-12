@@ -165,6 +165,16 @@ type CallRecord struct {
 	DurationMS    int64  `json:"duration_ms,omitempty"`
 }
 
+// TerminalCallState reports whether a normalized call state is final.
+func TerminalCallState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "ended", "rejected", "missed", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
 type FavoriteRecord struct {
 	ID             int64  `json:"id"`
 	EventID        string `json:"event_id"`

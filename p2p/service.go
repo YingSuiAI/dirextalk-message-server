@@ -15,6 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
@@ -88,6 +89,7 @@ type Service struct {
 
 	servicePortalState
 	actions            map[string]actionHandler
+	callsModule        *callsmodule.Module
 	conversationModule *conversationmodule.Module
 	socialModule       *socialmodule.Module
 
@@ -128,6 +130,7 @@ type Store interface {
 }
 
 type socialStore = socialmodule.Store
+type callStore = callsmodule.Store
 
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
@@ -552,6 +555,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceEventState:     newServiceEventState(),
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
+	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
+		ServerName:   service.serverName,
+		OwnerMXID:    service.ownerMXID,
+		NewCallID:    func() string { return "call_" + randomToken("p2p") },
+		PublishEvent: service.appendP2PEvent,
+	})
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
 	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"strings"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 )
 
 func (s *MemoryStore) UpsertContact(ctx context.Context, contact contactRecord) error {
@@ -141,20 +143,11 @@ func (s *MemoryStore) ListCalls(ctx context.Context, roomID string, activeOnly b
 		if roomID != "" && call.RoomID != roomID {
 			continue
 		}
-		if activeOnly && memoryTerminalCallState(call.State) {
+		if activeOnly && dirextalkdomain.TerminalCallState(call.State) {
 			continue
 		}
 		calls = append(calls, call)
 	}
 	s.mu.RUnlock()
 	return calls, nil
-}
-
-func memoryTerminalCallState(state string) bool {
-	switch strings.ToLower(strings.TrimSpace(state)) {
-	case "ended", "rejected", "missed", "failed":
-		return true
-	default:
-		return false
-	}
 }

@@ -66,6 +66,10 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	bootstrapService(t, service)
 
 	mustSeedAccountDeleteState(t, service)
+	mustHandle[callRecord](t, service, "calls.create", map[string]any{
+		"call_id": "account-delete-call",
+		"room_id": "!dm:remote.example",
+	})
 
 	result := mustHandle[map[string]any](t, service, "portal.account.delete", map[string]any{
 		"confirm": "delete_account",
@@ -113,6 +117,9 @@ func TestAccountDeleteLeavesContactsDissolvesOwnedRoomsAndDeprovisions(t *testin
 	}
 	if channels, err := service.listChannels(context.Background()); err != nil || len(channels) != 0 {
 		t.Fatalf("volatile channels survived account reset: channels=%#v err=%v", channels, err)
+	}
+	if calls, err := service.store.ListCalls(context.Background(), "", false); err != nil || len(calls) != 0 {
+		t.Fatalf("volatile calls survived account reset: calls=%#v err=%v", calls, err)
 	}
 	if _, found, err := service.portalStore().LoadPortal(context.Background()); err != nil || found {
 		t.Fatalf("volatile portal survived account reset: found=%v err=%v", found, err)

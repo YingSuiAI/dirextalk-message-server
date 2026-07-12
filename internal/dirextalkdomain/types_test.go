@@ -206,6 +206,19 @@ func TestSocialCallReportRecordJSONContracts(t *testing.T) {
 	}
 }
 
+func TestTerminalCallStateNormalizesKnownTerminalValues(t *testing.T) {
+	for _, state := range []string{"ended", " REJECTED ", "Missed", "failed"} {
+		if !TerminalCallState(state) {
+			t.Fatalf("TerminalCallState(%q) = false", state)
+		}
+	}
+	for _, state := range []string{"", "ringing", "connected", "cancelled"} {
+		if TerminalCallState(state) {
+			t.Fatalf("TerminalCallState(%q) = true", state)
+		}
+	}
+}
+
 func TestEventAndInviteGrantJSONContracts(t *testing.T) {
 	raw, err := json.Marshal(struct {
 		Grant  ChannelInviteGrant `json:"grant"`

@@ -69,27 +69,6 @@ func int64Param(value any) int64 {
 	return actionbase.Int64(value)
 }
 
-func callTimeParam(values ...any) string {
-	for _, value := range values {
-		switch v := value.(type) {
-		case string:
-			trimmed := strings.TrimSpace(v)
-			if trimmed == "" {
-				continue
-			}
-			if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
-				return parsed.UTC().Format(time.RFC3339Nano)
-			}
-		default:
-			millis := int64Param(v)
-			if millis > 0 {
-				return time.UnixMilli(millis).UTC().Format(time.RFC3339Nano)
-			}
-		}
-	}
-	return ""
-}
-
 func channelJoinServerNames(value any, roomID string) []string {
 	names := stringSliceParam(value)
 	result := make([]string, 0, len(names))

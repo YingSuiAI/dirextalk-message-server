@@ -122,78 +122,28 @@ func TestRemovedP2PMessageActionsAreUnknown(t *testing.T) {
 	}
 }
 
-func TestCallGetAndEventsDoNotCreateMissingCalls(t *testing.T) {
+func TestCallActionsPersistChangedEvents(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
-	if _, apiErr := service.Handle(context.Background(), "calls.get", map[string]any{"call_id": "missing"}); apiErr == nil || apiErr.Status != 404 {
-		t.Fatalf("expected missing calls.get to return 404, got %#v", apiErr)
-	}
-	if _, apiErr := service.Handle(context.Background(), "calls.event", map[string]any{"call_id": "missing", "event": "ended"}); apiErr == nil || apiErr.Status != 404 {
-		t.Fatalf("expected missing calls.event to return 404, got %#v", apiErr)
-	}
-	calls := mustHandle[map[string]any](t, service, "calls.list", nil)
-	if got := calls["calls"].([]callRecord); len(got) != 0 {
-		t.Fatalf("expected missing call queries not to create rows, got %#v", calls)
-	}
-
 	created := mustHandle[callRecord](t, service, "calls.create", map[string]any{
 		"call_id":    "call_1",
 		"room_id":    "!room:example.com",
 		"media_type": "video",
 	})
-	loaded := mustHandle[callRecord](t, service, "calls.get", map[string]any{"call_id": created.CallID})
-	if loaded.CallID != "call_1" || loaded.State != "ringing" || loaded.MediaType != "video" {
-		t.Fatalf("expected calls.get to load existing session, got %#v", loaded)
-	}
-	connected := mustHandle[callRecord](t, service, "calls.event", map[string]any{"call_id": created.CallID, "event": "connected"})
-	if connected.State != "connected" || connected.MediaType != "video" || connected.AnsweredAt == "" {
-		t.Fatalf("expected connected event to update existing call, got %#v", connected)
-	}
-	if _, apiErr := service.Handle(context.Background(), "calls.event", map[string]any{"call_id": created.CallID, "event": "ringing"}); apiErr == nil || apiErr.Status != 400 {
-		t.Fatalf("expected invalid call event to return 400, got %#v", apiErr)
-	}
-	rejected := mustHandle[callRecord](t, service, "calls.event", map[string]any{
-		"call_id":       created.CallID,
-		"event":         "rejected",
-		"reason":        "user_reject",
-		"duration_ms":   3000,
-		"ended_by_mxid": "@bob:example.com",
+	ended := mustHandle[callRecord](t, service, "calls.event", map[string]any{
+		"call_id": created.CallID,
+		"event":   "ended",
+		"reason":  "completed",
 	})
-	if rejected.State != "rejected" || rejected.EndedAt == "" || rejected.EndedByMXID != "@bob:example.com" || rejected.EndReason != "user_reject" || rejected.DurationMS != 3000 {
-		t.Fatalf("expected rejected event to persist lifecycle details, got %#v", rejected)
+	loaded := mustHandle[callRecord](t, service, "calls.get", map[string]any{"call_id": created.CallID})
+	if loaded != ended {
+		t.Fatalf("calls.get returned %#v, want %#v", loaded, ended)
 	}
 	p2pEvents := mustListP2PEvents(t, service)
-	if len(p2pEvents) < 3 || p2pEvents[len(p2pEvents)-1].Type != "call.changed" {
-		t.Fatalf("expected call state changes to emit call.changed events, got %#v", p2pEvents)
+	if len(p2pEvents) != 2 || p2pEvents[1].Type != "call.changed" || p2pEvents[1].RoomID != ended.RoomID {
+		t.Fatalf("call actions emitted unexpected product events: %#v", p2pEvents)
 	}
-	if payloadCall, ok := p2pEvents[len(p2pEvents)-1].Payload["call"].(callRecord); !ok || payloadCall.State != "rejected" {
-		t.Fatalf("expected call.changed payload to include rejected call, got %#v", p2pEvents[len(p2pEvents)-1].Payload)
-	}
-	reopened := mustHandle[callRecord](t, service, "calls.incoming", map[string]any{
-		"call_id":    created.CallID,
-		"room_id":    created.RoomID,
-		"media_type": "voice",
-	})
-	if reopened.State != "rejected" || reopened.MediaType != "video" {
-		t.Fatalf("expected terminal call not to reopen through calls.incoming, got %#v", reopened)
-	}
-	reconnected := mustHandle[callRecord](t, service, "calls.event", map[string]any{
-		"call_id": created.CallID,
-		"event":   "connected",
-	})
-	if reconnected.State != "rejected" {
-		t.Fatalf("expected terminal call not to reconnect, got %#v", reconnected)
-	}
-
-	mustHandle[callRecord](t, service, "calls.create", map[string]any{"call_id": "missed", "room_id": "!room:example.com"})
-	mustHandle[callRecord](t, service, "calls.event", map[string]any{"call_id": "missed", "event": "missed"})
-	mustHandle[callRecord](t, service, "calls.create", map[string]any{"call_id": "failed", "room_id": "!room:example.com"})
-	mustHandle[callRecord](t, service, "calls.event", map[string]any{"call_id": "failed", "event": "failed"})
-	active := mustHandle[map[string]any](t, service, "calls.active", nil)
-	activeCalls := active["calls"].([]callRecord)
-	for _, call := range activeCalls {
-		if call.State == "missed" || call.State == "failed" || call.State == "ended" || call.State == "rejected" {
-			t.Fatalf("expected terminal calls hidden from calls.active, got %#v", activeCalls)
-		}
+	if payloadCall, ok := p2pEvents[1].Payload["call"].(callRecord); !ok || payloadCall != ended {
+		t.Fatalf("call.changed payload = %#v, want %#v", p2pEvents[1].Payload, ended)
 	}
 }
 

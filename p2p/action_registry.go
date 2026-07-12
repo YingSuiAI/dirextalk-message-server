@@ -27,7 +27,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("contacts", s.registerContactActions),
 		s.collectActionHandlerModule("blocks", s.registerBlockActions),
 		{name: "social", handlers: s.socialModule.Handlers()},
-		s.collectActionHandlerModule("calls", s.registerCallActions),
+		{name: "calls", handlers: s.callsModule.Handlers()},
 		s.collectActionHandlerModule("groups", s.registerGroupActions),
 		s.collectActionHandlerModule("channels", s.registerChannelActions),
 		s.collectActionHandlerModule("reports", s.registerReportActions),
@@ -43,15 +43,6 @@ func (s *Service) collectActionHandlerModule(name string, register func(map[stri
 	handlers := make(map[string]actionHandler)
 	register(handlers)
 	return actionHandlerModule{name: name, handlers: handlers}
-}
-
-func (s *Service) registerCallActions(actions map[string]actionHandler) {
-	actions["calls.create"] = s.callSession
-	actions["calls.incoming"] = s.callSession
-	actions["calls.get"] = s.callGet
-	actions["calls.event"] = s.callEvent
-	actions["calls.active"] = s.callListAction(true)
-	actions["calls.list"] = s.callListAction(false)
 }
 
 func (s *Service) registerReportActions(actions map[string]actionHandler) {
@@ -105,12 +96,6 @@ func (s *Service) contactListAction(ctx context.Context, _ map[string]any) (any,
 func (s *Service) contactMutationAction(action string) actionHandler {
 	return func(ctx context.Context, params map[string]any) (any, *apiError) {
 		return s.contactMutation(ctx, action, params)
-	}
-}
-
-func (s *Service) callListAction(activeOnly bool) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.callList(ctx, params, activeOnly), nil
 	}
 }
 

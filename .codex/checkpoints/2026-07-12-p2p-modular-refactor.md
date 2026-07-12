@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `eac510208e7777068745e42230f66908fbe2d0a6`
+- Current published HEAD: `a96db443ffdffa29acab6bcb2a7f1f87ee53868a`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified owner-local favorites/follows module, then extract the higher-risk calls lifecycle as its own module.
+- Commit and push the verified calls lifecycle module, then migrate contacts/blocks while keeping shared room/member lifecycle separate.
 
 ## Completed Verification
 
@@ -54,7 +54,12 @@
 - Published `eac5102`: conversation Store CRUD, `conversations.list/get`, hydration, capabilities, and operation construction now live in two cohesive `p2p/internal/conversation` production files; the root adapter is 183 lines, the root map is gone, and pure PostgreSQL conversation tests moved to `p2p/storage`.
 - The verified social slice moves all seven owner-local favorites/follows actions into `p2p/internal/social`, removes both root shadow maps, routes MCP favorite summaries through the module, replaces the source-scanning MCP test with a behavior test, and keeps calls separate in `service_calls.go`. A controlled red/green regression fixed restart/clock-rollback favorite ID collisions before PostgreSQL upsert could overwrite an existing row.
 - Latest social gates passed: `go test ./p2p/... -count=1` (root 94.896s, storage 45.330s), module and focused root race tests, related `internal/productpolicy`/`internal/httputil`/`setup` tests, gopls/vet, unused/ineffassign/staticcheck and module dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering/contract review with no remaining P0-P2 findings.
+- Published `a96db44`: all seven favorites/follows actions now live in `p2p/internal/social`; root shadow maps and Store-error fallback paths are gone, and the restart/clock-rollback ID collision regression is covered.
+- The verified calls slice moves all six call actions and lifecycle/time parsing into two cohesive `p2p/internal/calls` production files, removes the 219-line root implementation and calls shadow map, and centralizes terminal-state normalization in `internal/dirextalkdomain` for the module and MemoryStore. A mutation lock now serializes single-process read/transition/upsert/publish so a concurrent connected event cannot reopen a terminal call; deterministic regression and race tests cover the former lost-update window.
+- Latest calls gates passed: module repeated/race tests, focused root call/account-delete/registry/WS tests and race, domain/MemoryStore tests, `go test ./p2p/... -count=1`, gopls/vet, unused/ineffassign/staticcheck and module dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and an independent engineering/contract review with no P0-P2 findings.
 
 ## Related Finding Outside This Structural Slice
 
 - Production account deprovision truncates all PostgreSQL tables and delays process shutdown by two seconds. Non-P2P Matrix consumers are outside the Service operation barrier and may have a pre-existing post-truncate replay window; audit this as a separate account-deprovision hardening change rather than changing Matrix shutdown behavior inside the P2P structure refactor.
+- Call persistence and `call.changed` event insertion are not one transaction. If event insertion fails after a terminal call write, retry may return the terminal row without restoring the missing event; address with a durable outbox/transactional boundary in a separate behavior change.
+- PostgreSQL active-call filtering matches only exact lowercase terminal states, while MemoryStore normalizes whitespace and case. Current writers emit lowercase states, but cross-store normalization and empty-list ordering/JSON parity remain separate compatibility decisions.
