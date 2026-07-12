@@ -11,6 +11,7 @@ const (
 	actionList          = "contacts.list"
 	actionUpdate        = "contacts.update"
 	actionRequestDelete = "contacts.requests.delete"
+	actionRequestReject = "contacts.requests.reject"
 )
 
 // View is the public ProductCore contact response.
@@ -75,7 +76,19 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionList:          m.handleList,
 		actionUpdate:        m.handleUpdate,
 		actionRequestDelete: m.handleRequestDelete,
+		actionRequestReject: m.handleRequestReject,
 	}
+}
+
+func (m *Module) viewWithOperation(ctx context.Context, action string, contact dirextalkdomain.ContactRecord) (View, *actionbase.Error) {
+	operation, conversation, err := m.conversation.Operation(ctx, action, contact.Status, contact.RoomID)
+	if err != nil {
+		return View{}, actionbase.InternalError(err)
+	}
+	view := ViewFromRecord(contact)
+	view.Operation = operation
+	view.Conversation = conversation
+	return view, nil
 }
 
 func (m *Module) handleList(ctx context.Context, _ map[string]any) (any, *actionbase.Error) {

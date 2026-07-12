@@ -2,6 +2,7 @@ package contacts
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
@@ -9,6 +10,12 @@ import (
 
 func (m *Module) handleRequestDelete(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
 	params := actionbase.Params(raw)
+	return m.serializeRoomPeerMutation(ctx, params, func() (any, *actionbase.Error) {
+		return m.requestDeleteForPeer(ctx, params)
+	})
+}
+
+func (m *Module) serializeRoomPeerMutation(ctx context.Context, params actionbase.Params, mutate func() (any, *actionbase.Error)) (any, *actionbase.Error) {
 	peerMXID := params.FirstString("peer_mxid", "mxid")
 	roomID := params.String("room_id")
 	if roomID != "" {
@@ -25,7 +32,7 @@ func (m *Module) handleRequestDelete(ctx context.Context, raw map[string]any) (a
 	var result any
 	var actionErr *actionbase.Error
 	m.SerializePeer(mutationKey, func() {
-		result, actionErr = m.requestDeleteForPeer(ctx, params)
+		result, actionErr = mutate()
 	})
 	return result, actionErr
 }
@@ -64,6 +71,66 @@ func (m *Module) requestDeleteForPeer(ctx context.Context, params actionbase.Par
 		return nil, actionbase.InternalError(err)
 	}
 	return m.statusOperationResult(ctx, actionRequestDelete, contact.Status, contact.RoomID)
+}
+
+func (m *Module) handleRequestReject(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	return m.serializeRoomPeerMutation(ctx, params, func() (any, *actionbase.Error) {
+		return m.requestRejectForPeer(ctx, params)
+	})
+}
+
+func (m *Module) requestRejectForPeer(ctx context.Context, params actionbase.Params) (any, *actionbase.Error) {
+	roomID := params.String("room_id")
+	var existing dirextalkdomain.ContactRecord
+	if roomID != "" {
+		contact, ok, err := m.LookupByRoom(ctx, roomID)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		if !ok {
+			return nil, actionbase.StatusError(http.StatusNotFound, "contact request not found")
+		}
+		existing = contact
+	}
+	if acceptedStatus(existing.Status) {
+		view, actionErr := m.viewWithOperation(ctx, actionRequestReject, existing)
+		if actionErr != nil {
+			return nil, actionErr
+		}
+		return view, nil
+	}
+
+	displayName := params.String("display_name")
+	if existing.DisplayName != "" {
+		displayName = existing.DisplayName
+	}
+	contact := dirextalkdomain.ContactRecord{
+		PeerMXID:    params.FirstString("peer_mxid", "mxid"),
+		DisplayName: displayName,
+		AvatarURL:   params.String("avatar_url"),
+		Domain:      params.String("domain"),
+		RoomID:      roomID,
+		Status:      "rejected",
+		Remark:      existing.Remark,
+	}
+	if contact.PeerMXID == "" {
+		contact.PeerMXID = existing.PeerMXID
+	}
+	if contact.AvatarURL == "" {
+		contact.AvatarURL = existing.AvatarURL
+	}
+	if contact.Domain == "" {
+		contact.Domain = existing.Domain
+	}
+	if err := m.Save(ctx, contact); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	view, actionErr := m.viewWithOperation(ctx, actionRequestReject, contact)
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	return view, nil
 }
 
 func (m *Module) statusOperationResult(ctx context.Context, action, status, roomID string) (any, *actionbase.Error) {

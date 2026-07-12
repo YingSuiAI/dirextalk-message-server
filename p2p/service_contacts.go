@@ -722,9 +722,6 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 		return result, nil
 	}
 	status := "accepted"
-	if action == "contacts.requests.reject" {
-		status = "rejected"
-	}
 	var existing contactRecord
 	if roomID != "" {
 		found, ok, err := s.lookupContactByRoom(ctx, roomID)
@@ -738,12 +735,6 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 		if peer == "" {
 			peer = existing.PeerMXID
 		}
-	}
-	if action == "contacts.requests.reject" && contactAccepted(existing.Status) {
-		if err := s.attachContactConversationOperation(ctx, &existing, action, existing.Status); err != nil {
-			return nil, internalError(err)
-		}
-		return existing, nil
 	}
 	if action == "contacts.requests.accept" && contactAccepted(existing.Status) {
 		if err := s.attachContactConversationOperation(ctx, &existing, action, existing.Status); err != nil {
@@ -780,7 +771,7 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 		}
 	}
 	displayName := trimString(params["display_name"])
-	if existing.DisplayName != "" && (action == "contacts.requests.accept" || action == "contacts.requests.reject") {
+	if existing.DisplayName != "" && action == "contacts.requests.accept" {
 		displayName = existing.DisplayName
 	}
 	contact := contactRecord{

@@ -57,12 +57,9 @@ func (m *Module) updateForPeer(ctx context.Context, roomID, displayName, domain,
 	if err := m.Save(ctx, contact); err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	operation, conversation, err := m.conversation.Operation(ctx, actionUpdate, contact.Status, contact.RoomID)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
+	view, actionErr := m.viewWithOperation(ctx, actionUpdate, contact)
+	if actionErr != nil {
+		return nil, actionErr
 	}
-	view := ViewFromRecord(contact)
-	view.Operation = operation
-	view.Conversation = conversation
 	return view, nil
 }
