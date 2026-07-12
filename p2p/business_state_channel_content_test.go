@@ -1,0 +1,502 @@
+package p2p
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
+	"github.com/YingSuiAI/dirextalk-message-server/test"
+)
+
+func TestReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch",
+		"room_id":      "!channel:example.com",
+		"name":         "Public Posts",
+		"avatar_url":   "mxc://example.com/channel-avatar",
+		"channel_type": "post",
+	})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"body":         "image caption",
+		"message_type": "m.image",
+		"media_json":   `{"url":"mxc://example.com/post-image"}`,
+	})
+
+	first := mustHandle[map[string]any](t, service, "channels.post_reaction.toggle", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"reaction":   "like",
+	})
+	if first["active"] != true || int64Param(first["reaction_count"]) != 1 {
+		t.Fatalf("expected first toggle to activate reaction, got %#v", first)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reactions := mustHandle[map[string]any](t, reloaded, "channels.my_reactions", nil)
+	got := reactionHistoryPayloads(t, reactions)
+	if len(got) != 1 {
+		t.Fatalf("expected active reaction after reload, got %#v", reactions)
+	}
+	reaction := mapValue(t, got[0], "reaction")
+	channelSnapshot := mapValue(t, got[0], "channel")
+	postSnapshot := mapValue(t, got[0], "post")
+	if reaction["post_id"] != post.PostID || reaction["active"] != true {
+		t.Fatalf("expected active reaction record after reload, got %#v", got[0])
+	}
+	if channelSnapshot["name"] != "Public Posts" || channelSnapshot["avatar_url"] != "mxc://example.com/channel-avatar" || channelSnapshot["channel_type"] != "post" {
+		t.Fatalf("expected channel snapshot in reaction history, got %#v", got[0])
+	}
+	if postSnapshot["post_id"] != post.PostID || postSnapshot["message_type"] != "m.image" || postSnapshot["body"] != "image caption" || postSnapshot["reaction_count"] != float64(1) || postSnapshot["reacted_by_me"] != true {
+		t.Fatalf("expected post snapshot in reaction history, got %#v", got[0])
+	}
+
+	second := mustHandle[map[string]any](t, reloaded, "channels.post_reaction.toggle", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"reaction":   "like",
+	})
+	if second["active"] != false || int64Param(second["reaction_count"]) != 0 {
+		t.Fatalf("expected second toggle to deactivate reaction, got %#v", second)
+	}
+}
+
+func TestCommentReactionTogglePersistsAndListsActiveReaction(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":   "ch",
+		"room_id":      "!channel:example.com",
+		"name":         "Public Posts",
+		"avatar_url":   "mxc://example.com/channel-avatar",
+		"channel_type": "post",
+	})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": ch.ChannelID,
+		"body":       "post body",
+	})
+	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"body":       "comment",
+	})
+
+	first := mustHandle[map[string]any](t, service, "channels.comment_reaction.toggle", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"comment_id": comment.CommentID,
+		"reaction":   "like",
+	})
+	if first["active"] != true || int64Param(first["reaction_count"]) != 1 || first["comment_id"] != comment.CommentID {
+		t.Fatalf("expected first comment toggle to activate reaction, got %#v", first)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reactions := mustHandle[map[string]any](t, reloaded, "channels.my_reactions", nil)
+	got := reactionHistoryPayloads(t, reactions)
+	if len(got) != 1 {
+		t.Fatalf("expected active comment reaction after reload, got %#v", reactions)
+	}
+	reaction := mapValue(t, got[0], "reaction")
+	channelSnapshot := mapValue(t, got[0], "channel")
+	postSnapshot := mapValue(t, got[0], "post")
+	commentSnapshot := mapValue(t, got[0], "comment")
+	if reaction["target_type"] != "comment" || reaction["comment_id"] != comment.CommentID || reaction["active"] != true {
+		t.Fatalf("expected active comment reaction after reload, got %#v", got[0])
+	}
+	if channelSnapshot["name"] != "Public Posts" || channelSnapshot["avatar_url"] != "mxc://example.com/channel-avatar" {
+		t.Fatalf("expected channel snapshot in comment reaction history, got %#v", got[0])
+	}
+	if postSnapshot["post_id"] != post.PostID || postSnapshot["body"] != "post body" {
+		t.Fatalf("expected parent post snapshot in comment reaction history, got %#v", got[0])
+	}
+	if commentSnapshot["comment_id"] != comment.CommentID || commentSnapshot["body"] != "comment" || commentSnapshot["reaction_count"] != float64(1) || commentSnapshot["reacted_by_me"] != true {
+		t.Fatalf("expected comment snapshot in reaction history, got %#v", got[0])
+	}
+
+	second := mustHandle[map[string]any](t, reloaded, "channels.comment_reaction.toggle", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"comment_id": comment.CommentID,
+		"reaction":   "like",
+	})
+	if second["active"] != false || int64Param(second["reaction_count"]) != 0 {
+		t.Fatalf("expected second comment toggle to deactivate reaction, got %#v", second)
+	}
+}
+
+func TestChannelPostAndCommentListsExposeCountsMediaAndReactionState(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id":   "ch",
+		"body":         "post",
+		"message_type": "m.image",
+		"media_json":   `{"url":"mxc://example.com/post"}`,
+	})
+	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id":   "ch",
+		"post_id":      post.PostID,
+		"body":         "comment",
+		"message_type": "m.image",
+		"media_json":   `{"url":"mxc://example.com/comment"}`,
+	})
+	mustHandle[map[string]any](t, service, "channels.post_reaction.toggle", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+	})
+	mustHandle[map[string]any](t, service, "channels.comment_reaction.toggle", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+		"comment_id": comment.CommentID,
+		"reaction":   "like",
+	})
+
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch"})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].CommentCount != 1 || posts[0].ReactionCount != 1 || !posts[0].ReactedByMe || !strings.Contains(posts[0].MediaJSON, "mxc://example.com/post") {
+		t.Fatalf("expected post list counts, reaction state, and media, got %#v", posts)
+	}
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{"post_id": post.PostID})["comments"].([]channelCommentRecord)
+	if len(comments) != 1 || comments[0].ReactionCount != 1 || !comments[0].ReactedByMe || !strings.Contains(comments[0].MediaJSON, "mxc://example.com/comment") {
+		t.Fatalf("expected comment list reaction state and media, got %#v", comments)
+	}
+}
+
+func TestPublicChannelReadsRefreshMemberCountFromMembership(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "ch_public",
+		"room_id":    "!public:example.com",
+		"name":       "Public",
+		"visibility": "public",
+	})
+	ch.MemberCount = 0
+	service.mu.Lock()
+	service.channels[ch.ChannelID] = ch
+	service.mu.Unlock()
+
+	detail := mustHandle[channel](t, service, "channels.public.get", map[string]any{
+		"channel_id": ch.ChannelID,
+	})
+	if detail.MemberCount != 1 {
+		t.Fatalf("expected public detail member_count to refresh from joined members, got %#v", detail)
+	}
+
+	list := mustHandle[map[string]any](t, service, "users.public_channels", map[string]any{
+		"user_id": "@owner:example.com",
+	})
+	channels := list["channels"].([]channel)
+	if len(channels) != 1 || channels[0].MemberCount != 1 {
+		t.Fatalf("expected users.public_channels member_count to match public detail, got %#v", list)
+	}
+}
+
+func TestChannelCommentCreateRequiresExistingPost(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+
+	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"body":       "orphan",
+	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
+		t.Fatalf("expected missing post_id to return 400, got %#v", apiErr)
+	}
+	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"post_id":    "post_missing",
+		"body":       "orphan",
+	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
+		t.Fatalf("expected unknown post to return 404, got %#v", apiErr)
+	}
+
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": "ch",
+		"body":       "post",
+	})
+	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
+		"channel_id": "other",
+		"post_id":    post.PostID,
+		"body":       "wrong channel",
+	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
+		t.Fatalf("expected wrong channel post lookup to return 404, got %#v", apiErr)
+	}
+	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+		"body":       "valid",
+	})
+	if comment.PostID != post.PostID || comment.Body != "valid" {
+		t.Fatalf("expected valid comment on existing post, got %#v", comment)
+	}
+}
+
+func TestRecallChannelPostAndCommentHideFromLists(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": "ch",
+		"body":       "recall post",
+	})
+	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+		"body":       "recall comment",
+	})
+
+	mustHandle[map[string]any](t, service, "channels.posts.recall", map[string]any{"post_id": post.PostID})
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch"})
+	if got, ok := posts["posts"].([]channelPostRecord); !ok || len(got) != 0 {
+		t.Fatalf("expected recalled post hidden, got %#v", posts)
+	}
+
+	mustHandle[map[string]any](t, service, "channels.comments.recall", map[string]any{"comment_id": comment.CommentID, "post_id": post.PostID})
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{"post_id": post.PostID})
+	if got, ok := comments["comments"].([]channelCommentRecord); !ok || len(got) != 0 {
+		t.Fatalf("expected recalled comment hidden, got %#v", comments)
+	}
+}
+
+func TestRecallChannelContentRequiresAuthorOrChannelOwner(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id": "ch_auth",
+		"room_id":    "!ch-auth:example.com",
+		"name":       "Auth Channel",
+	})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": ch.ChannelID,
+		"room_id":    ch.RoomID,
+		"body":       "owner post",
+	})
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      ch.RoomID,
+		ChannelID:   ch.ChannelID,
+		UserID:      "@bob:example.com",
+		DisplayName: "Bob",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      ch.RoomID,
+		ChannelID:   ch.ChannelID,
+		UserID:      "@alice:example.com",
+		DisplayName: "Alice",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	setServiceOwnerForTest(service, "@bob:example.com", "Bob")
+	if _, apiErr := service.Handle(ctx, "channels.posts.recall", map[string]any{"post_id": post.PostID}); apiErr == nil || apiErr.Status != http.StatusForbidden {
+		t.Fatalf("expected member recall of owner post to be forbidden, got %#v", apiErr)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": ch.ChannelID})
+	if got := posts["posts"].([]channelPostRecord); len(got) != 1 || got[0].PostID != post.PostID {
+		t.Fatalf("expected forbidden post recall to keep post, got %#v", got)
+	}
+
+	ownComment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": ch.ChannelID,
+		"post_id":    post.PostID,
+		"room_id":    ch.RoomID,
+		"body":       "bob comment",
+	})
+	if _, apiErr := service.Handle(ctx, "channels.comments.recall", map[string]any{"comment_id": ownComment.CommentID, "post_id": post.PostID}); apiErr != nil {
+		t.Fatalf("expected author to recall own comment, got %#v", apiErr)
+	}
+
+	foreignComment := channelCommentRecord{
+		CommentID:      "comment_alice",
+		PostID:         post.PostID,
+		ChannelID:      ch.ChannelID,
+		EventID:        "$comment_alice:example.com",
+		AuthorMXID:     "@alice:example.com",
+		AuthorName:     "Alice",
+		Body:           "alice comment",
+		MessageType:    "text",
+		MentionsJSON:   "[]",
+		OriginServerTS: time.Now().UTC().UnixMilli(),
+	}
+	service.mu.Lock()
+	service.comments = append(service.comments, foreignComment)
+	service.mu.Unlock()
+	if _, apiErr := service.Handle(ctx, "channels.comments.recall", map[string]any{"comment_id": foreignComment.CommentID, "post_id": post.PostID}); apiErr == nil || apiErr.Status != http.StatusForbidden {
+		t.Fatalf("expected member recall of another member comment to be forbidden, got %#v", apiErr)
+	}
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{"post_id": post.PostID})
+	if got := comments["comments"].([]channelCommentRecord); len(got) != 1 || got[0].CommentID != foreignComment.CommentID {
+		t.Fatalf("expected forbidden comment recall to keep comment, got %#v", got)
+	}
+
+	setServiceOwnerForTest(service, "@owner:example.com", "")
+	if _, apiErr := service.Handle(ctx, "channels.comments.recall", map[string]any{"comment_id": foreignComment.CommentID, "post_id": post.PostID}); apiErr != nil {
+		t.Fatalf("expected channel owner to recall member comment, got %#v", apiErr)
+	}
+}
+
+func TestChannelCommentPersistsReplyAndMentions(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": "ch",
+		"body":       "post",
+	})
+	parent := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+		"body":       "parent",
+	})
+
+	reply := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id":           "ch",
+		"post_id":              post.PostID,
+		"body":                 "reply @alice",
+		"reply_to_comment_id":  parent.CommentID,
+		"reply_to_author_mxid": parent.AuthorMXID,
+		"mentions": []any{
+			map[string]any{"user_id": "@alice:remote.example", "display_name": "Alice"},
+		},
+	})
+	if reply.ReplyToCommentID != parent.CommentID || !strings.Contains(reply.MentionsJSON, "@alice:remote.example") {
+		t.Fatalf("expected reply metadata on created comment, got %#v", reply)
+	}
+	comments := mustHandle[map[string]any](t, service, "channels.comments.list", map[string]any{"post_id": post.PostID})
+	got := comments["comments"].([]channelCommentRecord)
+	if len(got) != 2 || got[1].ReplyToCommentID != parent.CommentID || !strings.Contains(got[1].MentionsJSON, "@alice:remote.example") {
+		t.Fatalf("expected reply metadata in comments list, got %#v", got)
+	}
+}
+
+func TestStoredChannelCountsSurviveReload(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapService(t, service)
+	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+		"channel_id":  "stored-counts",
+		"room_id":     "!stored-counts:example.com",
+		"name":        "Stored Counts",
+		"visibility":  "public",
+		"join_policy": "approval",
+	})
+	if err := service.saveMember(ctx, memberRecord{
+		RoomID:      ch.RoomID,
+		ChannelID:   ch.ChannelID,
+		UserID:      "@bob:remote.example",
+		DisplayName: "Bob",
+		Domain:      "remote.example",
+		Membership:  "join",
+		Role:        "member",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
+		"channel_id":   ch.ChannelID,
+		"room_id":      ch.RoomID,
+		"user_mxid":    "@alice:remote.example",
+		"display_name": "Alice",
+	})
+	if request["status"] != "pending" {
+		t.Fatalf("expected pending join request, got %#v", request)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels := mustHandle[map[string]any](t, reloaded, "channels.list", nil)["channels"].([]channel)
+	restored := findChannel(channels, ch.ChannelID)
+	if restored.ChannelID == "" || restored.MemberCount != 2 || restored.PendingJoinCount != 1 {
+		t.Fatalf("expected stored channel counts to survive reload, got %#v", channels)
+	}
+	detail := mustHandle[channel](t, reloaded, "channels.public.get", map[string]any{"channel_id": ch.ChannelID})
+	if detail.MemberCount != 2 || detail.PendingJoinCount != 1 {
+		t.Fatalf("expected public channel detail counts to survive reload, got %#v", detail)
+	}
+}
+
+func TestMyChannelCommentsListsOwnerHistory(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+		"channel_id": "ch",
+		"body":       "post",
+	})
+	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
+		"channel_id": "ch",
+		"post_id":    post.PostID,
+		"body":       "my comment",
+	})
+
+	history := mustHandle[map[string]any](t, service, "channels.my_comments", nil)
+	comments := jsonList(t, history["comments"])
+	if len(comments) != 1 || comments[0]["comment_id"] != comment.CommentID || comments[0]["body"] != "my comment" {
+		t.Fatalf("expected my channel comment history, got %#v", history)
+	}
+}
