@@ -197,5 +197,4 @@ func objectSchema(properties map[string]any) map[string]any {
 }
 
 func stringSchema() map[string]any { return map[string]any{"type": "string"} }
-func numberSchema() map[string]any { return map[string]any{"type": "number"} }
 func boolSchema() map[string]any   { return map[string]any{"type": "boolean"} }

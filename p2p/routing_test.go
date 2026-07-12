@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -419,22 +418,6 @@ func TestSyncBootstrapOmitsDeprecatedAgentOnline(t *testing.T) {
 	}
 }
 
-func mustRoute(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) map[string]any {
-	t.Helper()
-	req := jsonRequest(t, path, body)
-	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("%s expected 200, got %d body=%s", path, rec.Code, rec.Body.String())
-	}
-	var got map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	return got
-}
-
 func mustRouteError(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) apiError {
 	t.Helper()
 	req := jsonRequest(t, path, body)
@@ -450,24 +433,6 @@ func mustRouteError(t *testing.T, router http.Handler, service *Service, path st
 	}
 	got.Status = rec.Code
 	return got
-}
-
-func jsonRequest(t *testing.T, path string, body map[string]any) *http.Request {
-	t.Helper()
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	return req
-}
-
-func newP2PTestRouter(service *Service) *mux.Router {
-	router := mux.NewRouter()
-	Register(router.PathPrefix(PathPrefix).Subrouter(), service)
-	RegisterMCP(router, service)
-	return router
 }
 
 func TestHealthReportsAdditiveBuildInfo(t *testing.T) {

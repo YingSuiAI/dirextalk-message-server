@@ -1,6 +1,9 @@
 package serviceapi
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const RealtimeWSTicketAction = "realtime.ws_ticket.create"
 
@@ -183,6 +186,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "channels.my_reactions", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 }
 
+var actionSpecIndex = mustBuildActionSpecIndex(actionSpecs)
+
 func ActionSpecs() []ActionSpec {
 	specs := make([]ActionSpec, len(actionSpecs))
 	copy(specs, actionSpecs)
@@ -191,12 +196,27 @@ func ActionSpecs() []ActionSpec {
 
 func ActionSpecFor(action string) (ActionSpec, bool) {
 	action = strings.TrimSpace(action)
-	for _, spec := range actionSpecs {
-		if spec.Name == action {
-			return spec, true
+	spec, ok := actionSpecIndex[action]
+	return spec, ok
+}
+
+func buildActionSpecIndex(specs []ActionSpec) (map[string]ActionSpec, error) {
+	index := make(map[string]ActionSpec, len(specs))
+	for _, spec := range specs {
+		if _, exists := index[spec.Name]; exists {
+			return nil, fmt.Errorf("duplicate action spec name %q", spec.Name)
 		}
+		index[spec.Name] = spec
 	}
-	return ActionSpec{}, false
+	return index, nil
+}
+
+func mustBuildActionSpecIndex(specs []ActionSpec) map[string]ActionSpec {
+	index, err := buildActionSpecIndex(specs)
+	if err != nil {
+		panic(err)
+	}
+	return index
 }
 
 func PublicActions() []string {

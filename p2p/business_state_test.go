@@ -400,6 +400,11 @@ func TestRemovedP2PMessageActionsAreUnknown(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
 	for _, action := range []string{
+		"portal.setup",
+		"agent.status",
+		"contacts.export",
+		"contacts.download",
+		"contacts.import",
 		"rooms.send",
 		"rooms.send_media",
 		"rooms.messages.delete",
@@ -2422,26 +2427,6 @@ func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
 		t.Fatalf("expected reports.submit without room/channel target to be rejected, got %#v", apiErr)
 	}
 
-	if _, apiErr := service.Handle(context.Background(), "sync.messages", map[string]any{"room_id": "!room:example.com"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed sync.messages to be unknown, got %#v", apiErr)
-	}
-}
-
-func TestRemovedSyncMessagesIsUnknown(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-
-	ctx := context.Background()
-	for _, params := range []map[string]any{
-		nil,
-		{"page": float64(1)},
-		{"page_size": float64(50)},
-		{"limit": float64(50)},
-		{"cursor": "not-a-cursor"},
-	} {
-		if result, apiErr := service.Handle(ctx, "sync.messages", params); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-			t.Fatalf("expected removed sync.messages to be unknown, result=%#v err=%#v", result, apiErr)
-		}
-	}
 }
 
 func TestGroupInviteAcceptsInviteArrayAlias(t *testing.T) {
@@ -2460,15 +2445,6 @@ func TestGroupInviteAcceptsInviteArrayAlias(t *testing.T) {
 	members := invite["members"].([]memberRecord)
 	if len(members) != 1 || members[0].UserID != "@owner:dm1.dirextalk.ai" || members[0].Membership != "invite" {
 		t.Fatalf("expected invite array alias to create invited member, got %#v", invite)
-	}
-}
-
-func TestContactBackupActionsRemoved(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	for _, action := range []string{"contacts.export", "contacts.download", "contacts.import"} {
-		if result, apiErr := service.Handle(context.Background(), action, map[string]any{}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-			t.Fatalf("expected removed %s action to be unknown, result=%#v err=%#v", action, result, apiErr)
-		}
 	}
 }
 

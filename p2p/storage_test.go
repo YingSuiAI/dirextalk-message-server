@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1004,45 +1003,6 @@ func markP2PMigrationsBeforeContactPeerUnique(ctx context.Context, db *sql.DB) e
 	return nil
 }
 
-func TestDatabaseStoreRoomSendActionRemainsDeprecated(t *testing.T) {
-	ctx := context.Background()
-	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
-	defer closeDB()
-
-	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
-	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	transport := &recordingTransport{roomID: "!channel:example.com"}
-	service, err := NewServiceWithStoreAndTransport(ctx, Config{ServerName: "example.com"}, store, transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bootstrapService(t, service)
-	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id": "db-channel",
-		"name":       "DB Channel",
-	})
-
-	mustHandle[map[string]any](t, service, "channels.mute", map[string]any{
-		"channel_id": ch.ChannelID,
-	})
-	mustHandle[map[string]any](t, service, "channels.unmute", map[string]any{
-		"channel_id": ch.ChannelID,
-	})
-	_, apiErr := service.Handle(ctx, "rooms.send", map[string]any{
-		"room_id":      ch.RoomID,
-		"content":      "after db unmute",
-		"message_type": "text",
-	})
-
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed room send to be unknown after db-backed channel unmute, got %#v", apiErr)
-	}
-}
-
 func TestDatabaseStoreRestoresPortalAndBusinessState(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
@@ -1540,22 +1500,6 @@ func TestDatabaseStoreRecallChannelPostRemovesPostAfterReload(t *testing.T) {
 	if got := posts["posts"].([]channelPostRecord); len(got) != 0 {
 		t.Fatalf("expected recalled post to stay deleted after reload, got %#v", got)
 	}
-}
-
-func mustHandle[T any](t *testing.T, service *Service, action string, params map[string]any) T {
-	t.Helper()
-	if params == nil {
-		params = map[string]any{}
-	}
-	result, apiErr := service.Handle(context.Background(), action, params)
-	if apiErr != nil {
-		t.Fatalf("%s failed: %#v", action, apiErr)
-	}
-	typed, ok := result.(T)
-	if !ok {
-		t.Fatalf("%s returned %T: %#v", action, result, result)
-	}
-	return typed
 }
 
 func readCredentialsFile(t *testing.T, path string) portalCredentialsFile {

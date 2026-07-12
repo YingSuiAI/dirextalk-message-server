@@ -102,7 +102,6 @@ func (r *Runtime) runtimeRun(ctx context.Context, params map[string]any) (map[st
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
-		exitCode = 1
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
@@ -139,7 +138,6 @@ func (r *Runtime) runShell(ctx context.Context, command string, timeout time.Dur
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
-		exitCode = 1
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()

@@ -62,11 +62,6 @@ func (i *concurrentGuardMatrixSessionIssuer) UpdateMatrixProfile(ctx context.Con
 	return nil
 }
 
-func bootstrapService(t *testing.T, service *Service) map[string]any {
-	t.Helper()
-	return mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
-}
-
 func requireEightDigitPassword(t *testing.T, password string) {
 	t.Helper()
 	if len(password) != 8 {

@@ -20,10 +20,6 @@ type NativeAgentRunner interface {
 	Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error
 }
 
-func isNativeAgentPlugin(pluginID string) bool {
-	return strings.TrimSpace(pluginID) == agentPluginID
-}
-
 func dockerPluginRunnerEnabled(r PluginRunner) bool {
 	return pluginRunnerEnabled(r)
 }
@@ -171,4 +167,3 @@ func nativeAgentObjectSchema(properties map[string]any) map[string]any {
 
 func nativeAgentStringSchema() map[string]any { return map[string]any{"type": "string"} }
 func nativeAgentNumberSchema() map[string]any { return map[string]any{"type": "number"} }
-func nativeAgentBoolSchema() map[string]any   { return map[string]any{"type": "boolean"} }

@@ -13,9 +13,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
-const defaultMCPLimit = dirextalkmcp.DefaultLimit
-const maxMCPLimit = dirextalkmcp.MaxLimit
-
 type mcpRoomSummary = dirextalkmcp.RoomSummary
 type mcpContactSummary = dirextalkmcp.ContactSummary
 type mcpMessageSummary = dirextalkmcp.MessageSummary

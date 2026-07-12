@@ -10,29 +10,10 @@ import (
 
 type mcpMessagePage = dirextalkmcp.Page
 type mcpMessagePageResult = dirextalkmcp.MessagePageResult
-type mcpCursorPayload = dirextalkmcp.CursorPayload
 
 func mcpPageFromParams(params map[string]any, action, targetID string) (mcpMessagePage, *apiError) {
 	page, apiErr := dirextalkmcp.PageFromParams(params, action, targetID)
 	return page, dirextalkMCPErrorToAPI(apiErr)
-}
-
-func rejectLegacyMCPTimeParams(params map[string]any) *apiError {
-	return dirextalkMCPErrorToAPI(dirextalkmcp.RejectLegacyTimeParams(params))
-}
-
-func mcpTimeParam(params map[string]any, key string) (int64, bool, *apiError) {
-	ts, ok, apiErr := dirextalkmcp.TimeParam(params, key)
-	return ts, ok, dirextalkMCPErrorToAPI(apiErr)
-}
-
-func decodeMCPCursor(cursor string) (mcpCursorPayload, *apiError) {
-	payload, apiErr := dirextalkmcp.DecodeCursor(cursor)
-	return payload, dirextalkMCPErrorToAPI(apiErr)
-}
-
-func encodeMCPCursor(action, targetID string, page mcpMessagePage, lastTS int64, lastID string) (string, error) {
-	return dirextalkmcp.EncodeCursor(action, targetID, page, lastTS, lastID)
 }
 
 func mcpAttachPagination(payload map[string]any, action, targetID string, page mcpMessagePage, hasMore bool, lastTS int64, lastID string) *apiError {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
@@ -218,26 +217,6 @@ func trustedStateEvent(t *testing.T, roomID, sender, eventType, stateKey string,
 		t.Fatal(err)
 	}
 	return &types.HeaderedEvent{PDU: pdu}
-}
-
-func TestRoomSendUsesProductPolicyForDisabledChannelComments(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":       "no-comments",
-		"room_id":          "!no-comments:example.com",
-		"name":             "No Comments",
-		"channel_type":     "post",
-		"comments_enabled": false,
-	})
-
-	_, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":      ch.RoomID,
-		"content":      "blocked comment",
-		"message_type": "channel_comment",
-	})
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to be unknown, got %#v", apiErr)
-	}
 }
 
 func assertInitialProfile(t *testing.T, req CreateRoomRequest, roomType string, expected map[string]any) {

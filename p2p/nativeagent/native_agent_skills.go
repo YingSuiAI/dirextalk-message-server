@@ -164,14 +164,6 @@ func (r *Runtime) enabledSkillsPrompt(ctx context.Context, config map[string]any
 	return strings.Join(parts, "\n\n")
 }
 
-func githubRawSkillURL(item map[string]any) string {
-	urls := githubRawSkillURLs(item)
-	if len(urls) == 0 {
-		return ""
-	}
-	return urls[0]
-}
-
 func githubRawSkillURLs(item map[string]any) []string {
 	repo := strings.TrimSpace(trimString(item["repo_url"]))
 	parts := githubRepoParts(repo)

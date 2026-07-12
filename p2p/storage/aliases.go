@@ -23,7 +23,6 @@ type p2pEvent = dirextalkdomain.Event
 type eventBounds = dirextalkdomain.EventBounds
 type blockRecord = dirextalkdomain.BlockRecord
 type reportRecord = dirextalkdomain.ReportRecord
-type pluginCatalogEntry = dirextalkplugin.CatalogEntry
 type pluginInstance = dirextalkplugin.Instance
 type pluginJob = dirextalkplugin.Job
 type pluginSecret = dirextalkplugin.Secret

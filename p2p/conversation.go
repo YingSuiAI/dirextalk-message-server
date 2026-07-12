@@ -12,8 +12,6 @@ const (
 	conversationKindSystem  = domain.ConversationKindSystem
 )
 
-type conversationLifecycle = domain.ConversationLifecycle
-
 const (
 	conversationLifecycleActive    = domain.ConversationLifecycleActive
 	conversationLifecyclePending   = domain.ConversationLifecyclePending
@@ -22,8 +20,6 @@ const (
 	conversationLifecycleDeleted   = domain.ConversationLifecycleDeleted
 	conversationLifecycleBlocked   = domain.ConversationLifecycleBlocked
 )
-
-type conversationProjectionState = domain.ConversationProjectionState
 
 const (
 	conversationProjectionReady    = domain.ConversationProjectionReady

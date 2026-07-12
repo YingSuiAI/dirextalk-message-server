@@ -111,13 +111,26 @@ func TestServiceUsesTransportForRoomsAndRemovesP2PMessageActions(t *testing.T) {
 		t.Fatalf("expected group room creation through transport, got %#v", transport.createRooms)
 	}
 
-	for _, action := range []string{"rooms.send", "rooms.send_media", "search", "sync.messages", "sync.unread", "rooms.messages.recall"} {
+	for _, action := range []string{
+		"rooms.send",
+		"rooms.send_media",
+		"rooms.messages.delete",
+		"rooms.messages.delete_batch",
+		"rooms.messages.delete_range",
+		"rooms.messages.recall",
+		"search",
+		"sync.messages",
+		"sync.unread",
+	} {
 		if _, apiErr := service.Handle(context.Background(), action, map[string]any{"room_id": group.RoomID, "content": "hello", "event_id": transport.eventID}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
 			t.Fatalf("expected removed %s to be unknown, got %#v", action, apiErr)
 		}
 	}
 	if len(transport.messages) != 0 {
 		t.Fatalf("removed P2P message actions must not send through transport, got %#v", transport.messages)
+	}
+	if len(transport.redactions) != 0 {
+		t.Fatalf("removed P2P message actions must not redact through transport, got %#v", transport.redactions)
 	}
 }
 
@@ -440,57 +453,6 @@ func TestAgentConfigEnableDoesNotPublishOnlineState(t *testing.T) {
 	}
 	if len(transport.stateEvents) != 0 {
 		t.Fatalf("enabling config alone must not publish online status, got %#v", transport.stateEvents)
-	}
-}
-
-func TestRoomSendPreservesChannelSharePayload(t *testing.T) {
-	transport := &recordingTransport{}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":      "!room:example.com",
-		"content":      "频道分享\n产品频道",
-		"message_type": "channel_share",
-		"channel_share": map[string]any{
-			"channel_id":  "product",
-			"room_id":     "!product:example.com",
-			"name":        "产品频道",
-			"join_policy": "open",
-		},
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to return unknown action, got %#v", apiErr)
-	}
-	if len(transport.messages) != 0 {
-		t.Fatalf("removed rooms.send must not write Matrix message, got %#v", transport.messages)
-	}
-}
-
-func TestRoomSendPreservesGroupInvitePayload(t *testing.T) {
-	transport := &recordingTransport{}
-	service := NewServiceWithTransport(Config{
-		ServerName:                     "example.com",
-		RemoteNodeAllowPrivateBaseURLs: true,
-	}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":      "!dm:example.com",
-		"content":      "邀请加入群聊\n产品群",
-		"message_type": "group_invite",
-		"group_invite": map[string]any{
-			"msgtype":              "p2p.group.invite.v1",
-			"group_room_id":        "!group:example.com",
-			"group_name":           "产品群",
-			"inviter_mxid":         "@owner:example.com",
-			"inviter_display_name": "Owner",
-			"direct_room_id":       "!dm:example.com",
-		},
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to return unknown action, got %#v", apiErr)
-	}
-	if len(transport.messages) != 0 {
-		t.Fatalf("removed rooms.send must not write Matrix message, got %#v", transport.messages)
 	}
 }
 
@@ -2276,69 +2238,6 @@ func TestUnifiedChatChannelJoinBackfillsHistoricalContent(t *testing.T) {
 	}
 }
 
-func TestRoomSendMapsProductPolicyTransportErrorToForbidden(t *testing.T) {
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, &failingSendTransport{
-		err: productpolicy.Forbidden("sender is muted in the dirextalk room"),
-	})
-	bootstrapService(t, service)
-
-	_, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id": "!room:example.com",
-		"content": "blocked",
-	})
-
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed P2P rooms.send to be unknown before transport, got %#v", apiErr)
-	}
-}
-
-func TestRoomSendChannelCommentIncludesP2PKindForTransport(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":              "!channel:example.com",
-		"content":              "comment through compatibility facade",
-		"message_type":         "channel_comment",
-		"channel_id":           "ch",
-		"post_id":              "post",
-		"comment_id":           "comment",
-		"reply_to_comment_id":  "parent",
-		"reply_to_author_mxid": "@parent:example.com",
-		"mentions":             []any{"@alice:example.com"},
-		"mentions_json":        `["@alice:example.com"]`,
-		"media_json":           `{"url":"mxc://example.com/comment"}`,
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to return unknown action, got %#v", apiErr)
-	}
-	if len(transport.messages) != 0 {
-		t.Fatalf("removed rooms.send must not write Matrix message, got %#v", transport.messages)
-	}
-}
-
-func TestRoomSendMediaChannelCommentKeepsProductKindAndMatrixMsgtype(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.send_media", map[string]any{
-		"room_id":      "!channel:example.com",
-		"content":      "image comment",
-		"message_type": "channel_comment",
-		"msgtype":      "m.image",
-		"channel_id":   "ch",
-		"post_id":      "post",
-		"comment_id":   "comment",
-		"media_json":   `{"url":"mxc://example.com/image"}`,
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send_media to return unknown action, got %#v", apiErr)
-	}
-	if len(transport.messages) != 0 {
-		t.Fatalf("removed rooms.send_media must not write Matrix message, got %#v", transport.messages)
-	}
-}
-
 func TestChannelPostRecallDoesNotDeleteProjectionWhenMatrixRedactionFails(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
@@ -3778,55 +3677,6 @@ func TestChannelMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	}
 }
 
-func TestRoomSendAfterChannelUnmuteUsesMatrixPolicyInsteadOfStaleProjection(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id": "ch",
-		"name":       "Channel",
-	})
-
-	mustHandle[map[string]any](t, service, "channels.mute", map[string]any{
-		"channel_id": ch.ChannelID,
-	})
-	mustHandle[map[string]any](t, service, "channels.unmute", map[string]any{
-		"channel_id": ch.ChannelID,
-	})
-	_, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":      ch.RoomID,
-		"content":      "after unmute",
-		"message_type": "text",
-	})
-
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to return unknown action, got %#v", apiErr)
-	}
-}
-
-func TestRoomSendWithTransportDoesNotUseChannelProjectionMuteAsControlSource(t *testing.T) {
-	transport := &recordingTransport{roomID: "!channel:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id": "ch",
-		"name":       "Channel",
-	})
-
-	mustHandle[map[string]any](t, service, "channels.mute", map[string]any{
-		"channel_id": ch.ChannelID,
-	})
-	_, apiErr := service.Handle(context.Background(), "rooms.send", map[string]any{
-		"room_id":      ch.RoomID,
-		"content":      "owner can still send",
-		"message_type": "text",
-	})
-
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.send to return unknown action, got %#v", apiErr)
-	}
-}
-
 func TestGroupMutePublishesMemberPolicyStateForAffectedMembers(t *testing.T) {
 	transport := &recordingTransport{roomID: "!group:example.com"}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
@@ -3950,55 +3800,6 @@ func TestFillMissingRoomVersionPrefersLookupBeforeDefault(t *testing.T) {
 	if queryRes.RoomVersion != gomatrixserverlib.RoomVersionV10 {
 		t.Fatalf("expected default room version fallback, got %q", queryRes.RoomVersion)
 	}
-}
-
-func TestServiceUsesTransportForRedactions(t *testing.T) {
-	transport := &recordingTransport{eventID: "$event:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.messages.recall", map[string]any{"room_id": "!room:example.com", "event_id": "$event:example.com", "reason": "mistake"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.messages.recall to return unknown action, got %#v", apiErr)
-	}
-
-	if len(transport.redactions) != 0 {
-		t.Fatalf("removed recall action must not redact through P2P transport, got %#v", transport.redactions)
-	}
-}
-
-func TestLocalMessageDeleteDoesNotUseMatrixRedaction(t *testing.T) {
-	transport := &recordingTransport{eventID: "$event:example.com"}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "rooms.messages.delete", map[string]any{"room_id": "!room:example.com", "event_id": "$event:example.com"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed rooms.messages.delete to return unknown action, got %#v", apiErr)
-	}
-
-	if len(transport.redactions) != 0 {
-		t.Fatalf("local message delete must not redact Matrix event, got %#v", transport.redactions)
-	}
-}
-
-type recordingTransport struct {
-	roomID           string
-	eventID          string
-	ts               int64
-	createRooms      []CreateRoomRequest
-	messages         []SendMessageRequest
-	invites          []string
-	joins            []string
-	leaves           []string
-	kicks            []string
-	roomChannel      channel
-	roomChannelError error
-	roomMembers      []memberRecord
-	profiles         []string
-	profileErrors    map[string]error
-	redactions       []string
-	inviteRequests   []InviteUserRequest
-	joinRequests     []JoinRoomRequest
-	stateEvents      []SendStateEventRequest
 }
 
 type recordingPushRuleManager struct {
@@ -4129,95 +3930,6 @@ func (t *ownerJoinRequiresInviteTransport) InviteUser(ctx context.Context, req I
 		t.ownerInvited = true
 	}
 	return t.recordingTransport.InviteUser(ctx, req)
-}
-
-func (t *recordingTransport) CreateRoom(ctx context.Context, req CreateRoomRequest) (CreateRoomResult, error) {
-	t.createRooms = append(t.createRooms, req)
-	if t.roomID == "" {
-		t.roomID = "!recorded:example.com"
-	}
-	return CreateRoomResult{RoomID: t.roomID}, nil
-}
-
-func (t *recordingTransport) SendMessage(ctx context.Context, req SendMessageRequest) (SendMessageResult, error) {
-	t.messages = append(t.messages, req)
-	if t.eventID == "" {
-		t.eventID = "$recorded:example.com"
-	}
-	if t.ts == 0 {
-		t.ts = 1770000000000
-	}
-	return SendMessageResult{EventID: t.eventID, OriginServerTS: t.ts}, nil
-}
-
-func (t *recordingTransport) SendStateEvent(ctx context.Context, req SendStateEventRequest) error {
-	t.stateEvents = append(t.stateEvents, req)
-	return nil
-}
-
-func (t *recordingTransport) InviteUser(ctx context.Context, req InviteUserRequest) error {
-	t.invites = append(t.invites, req.InviterMXID+" -> "+req.InviteeMXID+" in "+req.RoomID)
-	t.inviteRequests = append(t.inviteRequests, req)
-	return nil
-}
-
-func (t *recordingTransport) JoinRoom(ctx context.Context, req JoinRoomRequest) (JoinRoomResult, error) {
-	t.joins = append(t.joins, req.UserMXID+" in "+req.RoomIDOrAlias)
-	t.joinRequests = append(t.joinRequests, req)
-	return JoinRoomResult{RoomID: req.RoomIDOrAlias}, nil
-}
-
-func (t *recordingTransport) LeaveRoom(ctx context.Context, req LeaveRoomRequest) error {
-	t.leaves = append(t.leaves, req.UserMXID+" from "+req.RoomID)
-	return nil
-}
-
-func (t *recordingTransport) KickUser(ctx context.Context, req KickUserRequest) error {
-	t.kicks = append(t.kicks, req.SenderMXID+" kicks "+req.TargetMXID+" from "+req.RoomID)
-	return nil
-}
-
-func (t *recordingTransport) GetRoomChannel(ctx context.Context, roomID string) (channel, bool, error) {
-	if t.roomChannelError != nil {
-		return channel{}, false, t.roomChannelError
-	}
-	if t.roomChannel.ChannelID == "" {
-		return channel{}, false, nil
-	}
-	ch := t.roomChannel
-	if ch.RoomID == "" {
-		ch.RoomID = roomID
-	}
-	if ch.RoomID != roomID {
-		return channel{}, false, nil
-	}
-	return ch, true, nil
-}
-
-func (t *recordingTransport) ListRoomMembers(ctx context.Context, roomID string) ([]memberRecord, error) {
-	members := make([]memberRecord, 0, len(t.roomMembers))
-	for _, member := range t.roomMembers {
-		if member.RoomID == "" {
-			member.RoomID = roomID
-		}
-		if member.RoomID == roomID {
-			members = append(members, member)
-		}
-	}
-	return members, nil
-}
-
-func (t *recordingTransport) UpdateMemberProfile(ctx context.Context, req UpdateMemberProfileRequest) error {
-	t.profiles = append(t.profiles, req.UserMXID+" in "+req.RoomID+" as "+req.DisplayName+" "+req.AvatarURL)
-	if t.profileErrors != nil {
-		return t.profileErrors[req.RoomID]
-	}
-	return nil
-}
-
-func (t *recordingTransport) RedactEvent(ctx context.Context, req RedactEventRequest) (RedactEventResult, error) {
-	t.redactions = append(t.redactions, req.SenderMXID+" redacts "+req.EventID+" in "+req.RoomID)
-	return RedactEventResult{EventID: "$redaction:example.com"}, nil
 }
 
 func recordedStatesOfType(states []SendStateEventRequest, eventType string) []SendStateEventRequest {

@@ -1,0 +1,62 @@
+package serviceapi
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
+	first := ActionSpecs()
+	second := ActionSpecs()
+
+	if len(first) != 146 {
+		t.Fatalf("ActionSpecs() returned %d actions, want 146", len(first))
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatal("ActionSpecs() did not preserve action order")
+	}
+
+	first[0] = ActionSpec{Name: "mutated"}
+	if reflect.DeepEqual(first, ActionSpecs()) {
+		t.Fatal("ActionSpecs() returned storage shared with its caller")
+	}
+	if got := ActionSpecs()[0].Name; got != "portal.bootstrap" {
+		t.Fatalf("mutating returned specs changed registry: first action = %q", got)
+	}
+}
+
+func TestActionSpecForFindsEveryRegisteredAction(t *testing.T) {
+	for _, want := range ActionSpecs() {
+		got, ok := ActionSpecFor(" \t" + want.Name + "\n")
+		if !ok {
+			t.Errorf("ActionSpecFor(%q) did not find registered action", want.Name)
+			continue
+		}
+		if got != want {
+			t.Errorf("ActionSpecFor(%q) = %#v, want %#v", want.Name, got, want)
+		}
+	}
+}
+
+func TestActionSpecForRejectsUnknownAction(t *testing.T) {
+	for _, action := range []string{"", "   ", "portal.missing", "PORTAL.BOOTSTRAP"} {
+		if got, ok := ActionSpecFor(action); ok {
+			t.Errorf("ActionSpecFor(%q) = %#v, true; want zero, false", action, got)
+		}
+	}
+}
+
+func TestBuildActionSpecIndexRejectsDuplicateNames(t *testing.T) {
+	specs := []ActionSpec{
+		{Name: "duplicate", Auth: ActionAuthPublic, Transport: ActionTransportHTTPOnly},
+		{Name: "duplicate", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	}
+
+	index, err := buildActionSpecIndex(specs)
+	if err == nil {
+		t.Fatal("buildActionSpecIndex() accepted duplicate action names")
+	}
+	if index != nil {
+		t.Fatalf("buildActionSpecIndex() returned partial index %#v on error", index)
+	}
+}

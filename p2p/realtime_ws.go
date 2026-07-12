@@ -592,10 +592,6 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 	}
 }
 
-func realtimeWSHTTPOnlyAction(action string) bool {
-	return serviceapi.HTTPOnlyAction(action)
-}
-
 func realtimeWSClientRequestBlockedMessage(action string) string {
 	if serviceapi.HTTPOnlyAction(action) {
 		return "action requires http"

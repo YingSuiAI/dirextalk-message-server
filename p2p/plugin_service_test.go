@@ -422,15 +422,6 @@ func TestPluginInstallRejectsUnknownPluginBeforeRunner(t *testing.T) {
 	}
 }
 
-func mustJSON(t *testing.T, value any) string {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal json: %v", err)
-	}
-	return string(data)
-}
-
 func decodeJSONMap(t *testing.T, body string) map[string]any {
 	t.Helper()
 	var decoded map[string]any
