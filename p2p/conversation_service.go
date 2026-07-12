@@ -50,20 +50,7 @@ func (h serviceConversationHydrator) ContactByRoom(ctx context.Context, roomID s
 	if err != nil || !ok {
 		return dirextalkdomain.ContactRecord{}, ok, err
 	}
-	return durableContactRecord(contact), true, nil
-}
-
-func durableContactRecord(contact contactRecord) dirextalkdomain.ContactRecord {
-	return dirextalkdomain.ContactRecord{
-		PeerMXID:            contact.PeerMXID,
-		DisplayName:         contact.DisplayName,
-		DisplayNameOverride: contact.DisplayNameOverride,
-		AvatarURL:           contact.AvatarURL,
-		Domain:              contact.Domain,
-		RoomID:              contact.RoomID,
-		Status:              contact.Status,
-		Remark:              contact.Remark,
-	}
+	return contactStorageRecordFromContact(contact), true, nil
 }
 
 func (h serviceConversationHydrator) GroupByRoom(ctx context.Context, roomID string) (dirextalkdomain.GroupRecord, bool, error) {

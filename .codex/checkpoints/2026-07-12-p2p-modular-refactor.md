@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `3c6f9b045cb5f52d5ff231736d228c4fe6b99858`
+- Current published HEAD: `7f083ff17c0fe16831ac9b9a20c236534db37dff`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified PostgreSQL avatar-clear parity fix, then move the remaining contact handlers behind narrow Matrix, remote-node, policy, event, and conversation ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design rather than changing existing pending-request notification semantics inside the structure refactor.
+- Commit and push the verified `contacts.list` handler/DTO ownership slice, then split the root contact mutation switch into cohesive workflows and migrate `contacts.update` behind narrow conversation/save ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -71,6 +71,10 @@
 - Published `3c6f9b0`: same-peer owner contact actions and contact projectors now share a bounded process-local workflow lock; concurrent first requests create one Matrix room and stale projector snapshots cannot overwrite completed replacements.
 - The PostgreSQL avatar-clear parity fix changes contact upsert to persist the complete `avatar_url` snapshot, matching MemoryStore and projector semantics. A real PostgreSQL regression covers non-empty avatar, explicit empty update, List, and Store reopen without changing schema or migrations.
 - Latest avatar parity gates passed: focused PostgreSQL test repeated with an actual close/reopen, full storage tests, `go test ./p2p/... -count=1` (root 97.962s, storage 43.079s), focused race, gopls/vet/staticcheck, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and independent review with no production finding.
+- Published `7f083ff`: PostgreSQL now persists explicit contact-avatar clears with the same full-snapshot semantics as MemoryStore and the projector, including actual close/reopen coverage.
+- The verified `contacts.list` slice gives `p2p/internal/contacts` ownership of the public contact View DTO, durable conversions, concrete empty-array semantics, and the list action handler. Root `contactRecord` is now a type alias to that View; registry ownership moved without changing ActionSpecs, and duplicate root field converters/facades were removed.
+- Independent review caught and fixed Go concrete-type compatibility: `p2p/domain.ContactRecord` is now a true alias to `contacts.View`, while root continues exposing the domain name, so existing `Service.Handle` type assertions remain valid. A separate legacy-contract struct locks field order/types/tags without alias self-comparison, and an external domain test locks alias identity.
+- Latest contacts list gates passed: module/domain/root focused tests repeated and under race, registry/MCP/WS coverage, `go test ./p2p/... -count=1` (root 95.609s, storage 46.101s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and final independent review with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

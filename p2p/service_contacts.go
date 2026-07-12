@@ -879,14 +879,6 @@ func (s *Service) contactUpdateForPeer(ctx context.Context, params map[string]an
 	return contact, nil
 }
 
-func (s *Service) contactList(ctx context.Context) (any, *apiError) {
-	contacts, err := s.listContacts(ctx)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return map[string]any{"contacts": contacts}, nil
-}
-
 func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
 	return s.contactsModule.Save(ctx, contactStorageRecordFromContact(contact))
 }

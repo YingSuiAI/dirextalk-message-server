@@ -24,7 +24,8 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "conversations", handlers: s.conversationModule.Handlers()},
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
-		s.collectActionHandlerModule("contacts", s.registerContactActions),
+		{name: "contacts", handlers: s.contactsModule.Handlers()},
+		s.collectActionHandlerModule("contact-workflows", s.registerContactActions),
 		{name: "blocks", handlers: s.blocksModule.Handlers()},
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
@@ -87,10 +88,6 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 
 func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	return s.updateAgentConfig(ctx, params)
-}
-
-func (s *Service) contactListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.contactList(ctx)
 }
 
 func (s *Service) contactMutationAction(action string) actionHandler {

@@ -3,6 +3,7 @@ package domain
 import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkplugin"
+	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 )
 
 type PortalState = dirextalkdomain.PortalState
@@ -58,18 +59,7 @@ type ChannelCommentRecord struct {
 	Conversation      *ConversationView `json:"conversation,omitempty"`
 }
 
-type ContactRecord struct {
-	PeerMXID            string            `json:"peer_mxid"`
-	DisplayName         string            `json:"display_name"`
-	DisplayNameOverride bool              `json:"display_name_override,omitempty"`
-	AvatarURL           string            `json:"avatar_url"`
-	Domain              string            `json:"domain"`
-	RoomID              string            `json:"room_id"`
-	Status              string            `json:"status"`
-	Remark              string            `json:"remark,omitempty"`
-	Operation           map[string]any    `json:"operation,omitempty"`
-	Conversation        *ConversationView `json:"conversation,omitempty"`
-}
+type ContactRecord = contactsmodule.View
 
 type BlockRecord = dirextalkdomain.BlockRecord
 
