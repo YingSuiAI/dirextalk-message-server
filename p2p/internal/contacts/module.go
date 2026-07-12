@@ -20,6 +20,7 @@ type ConversationPort interface {
 	ListRecords(ctx context.Context) ([]dirextalkdomain.ConversationRecord, error)
 	Save(ctx context.Context, record dirextalkdomain.ConversationRecord) error
 	DeleteKindByRoom(ctx context.Context, roomID string, kind dirextalkdomain.ConversationKind) error
+	Operation(ctx context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error)
 }
 
 type Config struct {

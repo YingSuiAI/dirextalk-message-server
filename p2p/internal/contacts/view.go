@@ -7,7 +7,10 @@ import (
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
-const actionList = "contacts.list"
+const (
+	actionList   = "contacts.list"
+	actionUpdate = "contacts.update"
+)
 
 // View is the public ProductCore contact response.
 type View struct {
@@ -67,7 +70,10 @@ func RecordsFromViews(views []View) []dirextalkdomain.ContactRecord {
 
 // Handlers returns the exact ProductCore action surface owned by the module.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	return map[string]actionbase.Handler{actionList: m.handleList}
+	return map[string]actionbase.Handler{
+		actionList:   m.handleList,
+		actionUpdate: m.handleUpdate,
+	}
 }
 
 func (m *Module) handleList(ctx context.Context, _ map[string]any) (any, *actionbase.Error) {

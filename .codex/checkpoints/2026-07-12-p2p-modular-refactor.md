@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `7f083ff17c0fe16831ac9b9a20c236534db37dff`
+- Current published HEAD: `145d7be18a93fa51856056d40c67df5a51b4a5f4`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified `contacts.list` handler/DTO ownership slice, then split the root contact mutation switch into cohesive workflows and migrate `contacts.update` behind narrow conversation/save ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified `contacts.update` module slice, then split the remaining root contact mutation switch into cohesive accept/reject/request-delete/contact-delete workflows before moving one action at a time. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -75,6 +75,10 @@
 - The verified `contacts.list` slice gives `p2p/internal/contacts` ownership of the public contact View DTO, durable conversions, concrete empty-array semantics, and the list action handler. Root `contactRecord` is now a type alias to that View; registry ownership moved without changing ActionSpecs, and duplicate root field converters/facades were removed.
 - Independent review caught and fixed Go concrete-type compatibility: `p2p/domain.ContactRecord` is now a true alias to `contacts.View`, while root continues exposing the domain name, so existing `Service.Handle` type assertions remain valid. A separate legacy-contract struct locks field order/types/tags without alias self-comparison, and an external domain test locks alias identity.
 - Latest contacts list gates passed: module/domain/root focused tests repeated and under race, registry/MCP/WS coverage, `go test ./p2p/... -count=1` (root 95.609s, storage 46.101s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and final independent review with no P0-P3 finding.
+- Published `145d7be`: `contacts.list`, its public View DTO, durable conversions, and empty-array/error semantics now belong to `p2p/internal/contacts`; the old domain name remains a true compatibility alias.
+- The verified `contacts.update` slice moves parameter/status validation, same-peer serialization, locked reread, snapshot merge, Save, and operation/conversation presentation into the contacts module. Root registry and the 59-line duplicate implementation were removed.
+- Update tests explicitly lock the peer boundary before starting the handler, wait for the queued reference, and prove no locked reread/write/conversation call occurs until release. They also lock existing partial-commit behavior: Save failure does not call Operation, while Operation failure returns 500 after contact/conversation persistence succeeded.
+- Latest contacts update gates passed: module tests repeated and under race, root contact/registry/conversation/PostgreSQL focused tests, `go test ./p2p/... -count=1` (root 102.085s, storage 40.315s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and final review with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

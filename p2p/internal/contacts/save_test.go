@@ -86,12 +86,15 @@ func (s *saveStore) upserts() []dirextalkdomain.ContactRecord {
 type saveConversationPort struct {
 	mu sync.Mutex
 
-	log        *operationLog
-	deleteErrs map[string]error
-	listErr    error
-	saveErr    error
-	saved      []dirextalkdomain.ConversationRecord
-	records    []dirextalkdomain.ConversationRecord
+	log           *operationLog
+	deleteErrs    map[string]error
+	listErr       error
+	saveErr       error
+	operation     map[string]any
+	operationView *dirextalkdomain.ConversationView
+	operationErr  error
+	saved         []dirextalkdomain.ConversationRecord
+	records       []dirextalkdomain.ConversationRecord
 }
 
 func conversationDeleteKey(roomID string, kind dirextalkdomain.ConversationKind) string {
@@ -106,6 +109,13 @@ func (p *saveConversationPort) ListRecords(context.Context) ([]dirextalkdomain.C
 		return nil, p.listErr
 	}
 	return append([]dirextalkdomain.ConversationRecord(nil), p.records...), nil
+}
+
+func (p *saveConversationPort) Operation(_ context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error) {
+	p.log.add(fmt.Sprintf("operation:%s:%s:%s", action, status, roomID))
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.operation, p.operationView, p.operationErr
 }
 
 func (p *saveConversationPort) DeleteKindByRoom(_ context.Context, roomID string, kind dirextalkdomain.ConversationKind) error {
@@ -431,6 +441,10 @@ func (noOpConversationPort) Save(context.Context, dirextalkdomain.ConversationRe
 
 func (noOpConversationPort) DeleteKindByRoom(context.Context, string, dirextalkdomain.ConversationKind) error {
 	return nil
+}
+
+func (noOpConversationPort) Operation(context.Context, string, string, string) (map[string]any, *dirextalkdomain.ConversationView, error) {
+	return nil, nil, nil
 }
 
 func TestSaveSerializesItsPersistenceOrchestration(t *testing.T) {

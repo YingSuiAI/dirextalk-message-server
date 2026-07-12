@@ -820,65 +820,6 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 	return contact, nil
 }
 
-func (s *Service) contactUpdate(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID := trimString(params["room_id"])
-	if roomID == "" {
-		return nil, badRequest("room_id is required")
-	}
-	if trimString(params["display_name"]) == "" {
-		return nil, badRequest("display_name is required")
-	}
-	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		return nil, statusError(http.StatusNotFound, "contact not found")
-	}
-	var result any
-	var apiErr *apiError
-	s.contactsModule.SerializePeer(contact.PeerMXID, func() {
-		result, apiErr = s.contactUpdateForPeer(ctx, params)
-	})
-	return result, apiErr
-}
-
-func (s *Service) contactUpdateForPeer(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID := trimString(params["room_id"])
-	if roomID == "" {
-		return nil, badRequest("room_id is required")
-	}
-	displayName := trimString(params["display_name"])
-	if displayName == "" {
-		return nil, badRequest("display_name is required")
-	}
-	contact, ok, err := s.lookupContactByRoom(ctx, roomID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		return nil, statusError(http.StatusNotFound, "contact not found")
-	}
-	if !contactAccepted(contact.Status) {
-		return nil, statusError(http.StatusForbidden, "contact is not accepted")
-	}
-	contact.DisplayName = displayName
-	contact.DisplayNameOverride = true
-	if domain := trimString(params["domain"]); domain != "" {
-		contact.Domain = domain
-	}
-	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
-		contact.AvatarURL = avatarURL
-	}
-	if err := s.saveContact(ctx, contact); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.update", contact.Status); err != nil {
-		return nil, internalError(err)
-	}
-	return contact, nil
-}
-
 func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
 	return s.contactsModule.Save(ctx, contactStorageRecordFromContact(contact))
 }
