@@ -160,6 +160,63 @@ func TestDeletedContactRequestRestoresOriginalRoomAfterReload(t *testing.T) {
 	}
 }
 
+func TestContactReplacementAfterReloadRemovesOldDirectConversation(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const peerMXID = "@alice:remote.example"
+	if err := service.saveContact(ctx, contactRecord{
+		PeerMXID: peerMXID, RoomID: "!old:example.com", DisplayName: "Alice", Status: "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reloadedStore, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reloadedStore.Close()
+	reloaded, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, reloadedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.saveContact(ctx, contactRecord{
+		PeerMXID: peerMXID, RoomID: "!replacement:example.com", DisplayName: "Alice", Status: "accepted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	conversations, err := reloaded.listConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldFound, replacementFound bool
+	for _, conversation := range conversations {
+		if conversation.Kind != conversationKindDirect {
+			continue
+		}
+		switch conversation.MatrixRoomID {
+		case "!old:example.com":
+			oldFound = true
+		case "!replacement:example.com":
+			replacementFound = true
+		}
+	}
+	if oldFound || !replacementFound {
+		t.Fatalf("replacement conversations = %#v, want only replacement direct room", conversations)
+	}
+}
+
 func TestContactRemarkUpdatePersistsAfterReload(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

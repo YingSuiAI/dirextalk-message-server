@@ -10,14 +10,12 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
 
-type contactStore interface {
-	UpsertContact(ctx context.Context, contact contactStorageRecord) error
-	ListContacts(ctx context.Context) ([]contactStorageRecord, error)
+type channelInviteGrantStore interface {
 	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
 	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
 }
 
-func (s *Service) contactStore() contactStore {
+func (s *Service) channelInviteGrantStore() channelInviteGrantStore {
 	if s.store == nil {
 		return nil
 	}
@@ -830,58 +828,21 @@ func (s *Service) contactList(ctx context.Context) (any, *apiError) {
 }
 
 func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
-	replacedDirectRoomIDs := []string{}
-	s.mu.Lock()
-	if contact.PeerMXID != "" {
-		for roomID, existing := range s.contacts {
-			if roomID != contact.RoomID && existing.PeerMXID == contact.PeerMXID {
-				delete(s.contacts, roomID)
-				if roomID != "" {
-					replacedDirectRoomIDs = append(replacedDirectRoomIDs, roomID)
-				}
-			}
-		}
-	}
-	s.contacts[contact.RoomID] = contact
-	if contact.RoomID != "" {
-		delete(s.groups, contact.RoomID)
-	}
-	s.mu.Unlock()
-	if store := s.contactStore(); store != nil {
-		if err := store.UpsertContact(ctx, contactStorageRecordFromContact(contact)); err != nil {
-			return err
-		}
-		for _, roomID := range replacedDirectRoomIDs {
-			if err := s.deleteStoredConversationKind(ctx, roomID, conversationKindDirect); err != nil {
-				return err
-			}
-		}
-		if contact.RoomID != "" {
-			if groupStore := s.groupStore(); groupStore != nil {
-				if err := groupStore.DeleteGroup(ctx, contact.RoomID); err != nil {
-					return err
-				}
-			}
-			if err := s.deleteStoredConversationKind(ctx, contact.RoomID, conversationKindGroup); err != nil {
-				return err
-			}
-		}
-	}
-	return s.saveConversation(ctx, conversationFromContact(contact))
+	return s.contactsModule.Save(ctx, contactStorageRecordFromContact(contact))
 }
 
 func (s *Service) saveChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error {
 	s.mu.Lock()
 	s.inviteGrants[grant.GrantID] = grant
 	s.mu.Unlock()
-	if store := s.contactStore(); store != nil {
+	if store := s.channelInviteGrantStore(); store != nil {
 		return store.UpsertChannelInviteGrant(ctx, grant)
 	}
 	return nil
 }
 
 func (s *Service) listChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error) {
-	if store := s.contactStore(); store != nil {
+	if store := s.channelInviteGrantStore(); store != nil {
 		return store.ListChannelInviteGrants(ctx)
 	}
 	s.mu.Lock()

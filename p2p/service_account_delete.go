@@ -288,7 +288,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.channels = map[string]channel{}
 	s.posts = nil
 	s.comments = nil
-	s.contacts = map[string]contactRecord{}
 	s.groups = map[string]groupRecord{}
 	s.reactions = map[string]reactionRecord{}
 	s.members = map[string]memberRecord{}

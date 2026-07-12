@@ -165,10 +165,6 @@ func (s *Service) attachContactConversationOperation(ctx context.Context, contac
 	return nil
 }
 
-func conversationFromContact(contact contactRecord) conversationRecord {
-	return dirextalkdomain.ConversationFromContact(durableContactRecord(contact))
-}
-
 func conversationFromGroup(group groupRecord) conversationRecord {
 	return dirextalkdomain.ConversationFromGroup(durableGroupRecord(group))
 }

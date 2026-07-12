@@ -17,6 +17,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
+	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
@@ -92,6 +93,7 @@ type Service struct {
 	actions            map[string]actionHandler
 	blocksModule       *blocksmodule.Module
 	callsModule        *callsmodule.Module
+	contactsModule     *contactsmodule.Module
 	conversationModule *conversationmodule.Module
 	socialModule       *socialmodule.Module
 
@@ -119,6 +121,7 @@ type Store interface {
 	channelStore
 	channelContentStore
 	contactStore
+	channelInviteGrantStore
 	blockStore
 	groupStore
 	callStore
@@ -134,6 +137,7 @@ type Store interface {
 type socialStore = socialmodule.Store
 type callStore = callsmodule.Store
 type blockStore = blocksmodule.Store
+type contactStore = contactsmodule.Store
 
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
@@ -558,6 +562,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceEventState:     newServiceEventState(),
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
+	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
+	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
+		DeleteGroup: func(ctx context.Context, roomID string) error {
+			return service.store.DeleteGroup(ctx, roomID)
+		},
+	})
 	service.blocksModule = blocksmodule.New(service.store, blocksmodule.Config{
 		LookupContact: func(ctx context.Context, peerMXID string) (dirextalkdomain.ContactRecord, bool, error) {
 			contact, ok, err := service.lookupContactByPeer(ctx, peerMXID)
@@ -570,7 +580,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		NewCallID:    func() string { return "call_" + randomToken("p2p") },
 		PublishEvent: service.appendP2PEvent,
 	})
-	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
 	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
 		Invoker:        p2pDirextalkMCPInvoker{service: service},
