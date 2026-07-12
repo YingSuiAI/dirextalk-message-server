@@ -1,23 +1,62 @@
 package p2p
 
-import "context"
+import (
+	"context"
+	"fmt"
 
-type actionHandler func(context.Context, map[string]any) (any, *apiError)
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
+)
+
+type apiError = actionbase.Error
+type actionHandler = actionbase.Handler
+
+type actionHandlerModule struct {
+	name     string
+	handlers map[string]actionHandler
+}
 
 func (s *Service) actionHandlers() map[string]actionHandler {
-	actions := map[string]actionHandler{}
-	s.registerPortalActions(actions)
-	s.registerReleaseActions(actions)
-	s.registerProfileAndSyncActions(actions)
-	s.registerAgentActions(actions)
-	s.registerPluginActions(actions)
-	s.registerContactActions(actions)
-	s.registerBlockActions(actions)
-	s.registerSocialActions(actions)
-	s.registerCallActions(actions)
-	s.registerGroupActions(actions)
-	s.registerChannelActions(actions)
-	return actions
+	modules := []actionHandlerModule{
+		s.collectActionHandlerModule("portal", s.registerPortalActions),
+		s.collectActionHandlerModule("release", s.registerReleaseActions),
+		s.collectActionHandlerModule("profile-and-sync", s.registerProfileAndSyncActions),
+		s.collectActionHandlerModule("agent", s.registerAgentActions),
+		s.collectActionHandlerModule("plugins", s.registerPluginActions),
+		s.collectActionHandlerModule("contacts", s.registerContactActions),
+		s.collectActionHandlerModule("blocks", s.registerBlockActions),
+		s.collectActionHandlerModule("social", s.registerSocialActions),
+		s.collectActionHandlerModule("calls", s.registerCallActions),
+		s.collectActionHandlerModule("groups", s.registerGroupActions),
+		s.collectActionHandlerModule("channels", s.registerChannelActions),
+	}
+	return mustBuildActionHandlers(
+		serviceapi.ActionSpecs(),
+		[]string{serviceapi.RealtimeWSTicketAction},
+		modules,
+	)
+}
+
+func (s *Service) collectActionHandlerModule(name string, register func(map[string]actionHandler)) actionHandlerModule {
+	handlers := make(map[string]actionHandler)
+	register(handlers)
+	return actionHandlerModule{name: name, handlers: handlers}
+}
+
+func mustBuildActionHandlers(specs []serviceapi.ActionSpec, routeSpecial []string, modules []actionHandlerModule) map[string]actionHandler {
+	registry, err := actionbase.NewRegistry(specs, routeSpecial...)
+	if err != nil {
+		panic(fmt.Sprintf("build ProductCore action registry: %v", err))
+	}
+	for _, module := range modules {
+		if err := registry.Merge(module.name, module.handlers); err != nil {
+			panic(fmt.Sprintf("build ProductCore action registry: %v", err))
+		}
+	}
+	if err := registry.Validate(); err != nil {
+		panic(fmt.Sprintf("build ProductCore action registry: %v", err))
+	}
+	return registry.Handlers()
 }
 
 func (s *Service) portalStatusAction(context.Context, map[string]any) (any, *apiError) {

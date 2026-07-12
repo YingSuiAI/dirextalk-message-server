@@ -23,12 +23,6 @@ type envelope struct {
 	Params map[string]any `json:"params"`
 }
 
-type apiError struct {
-	Status int    `json:"-"`
-	Error  string `json:"error"`
-	Code   string `json:"code,omitempty"`
-}
-
 func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/query", handle(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", handle(service)).Methods(http.MethodPost, http.MethodOptions)

@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
 func (s *Service) sessionLocked() map[string]any {
@@ -43,46 +44,15 @@ func (s *Service) portalStateLocked() portalState {
 }
 
 func trimString(value any) string {
-	switch v := value.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	case fmt.Stringer:
-		return strings.TrimSpace(v.String())
-	default:
-		return ""
-	}
+	return actionbase.String(value)
 }
 
 func normalizedStringSlice(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
+	return actionbase.Strings(values)
 }
 
 func stringSliceParam(value any) []string {
-	switch v := value.(type) {
-	case []string:
-		return normalizedStringSlice(v)
-	case []any:
-		values := make([]string, 0, len(v))
-		for _, item := range v {
-			values = append(values, trimString(item))
-		}
-		return normalizedStringSlice(values)
-	default:
-		return nil
-	}
+	return actionbase.Strings(value)
 }
 
 func contactRequestRemark(params map[string]any) string {
@@ -95,22 +65,7 @@ func contactRequestRemark(params map[string]any) string {
 }
 
 func int64Param(value any) int64 {
-	switch v := value.(type) {
-	case int64:
-		return v
-	case int:
-		return int64(v)
-	case float64:
-		return int64(v)
-	case json.Number:
-		n, _ := v.Int64()
-		return n
-	case string:
-		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		return n
-	default:
-		return 0
-	}
+	return actionbase.Int64(value)
 }
 
 func callTimeParam(values ...any) string {
@@ -135,35 +90,7 @@ func callTimeParam(values ...any) string {
 }
 
 func int64SliceParam(value any) []int64 {
-	switch v := value.(type) {
-	case []int64:
-		return append([]int64{}, v...)
-	case []int:
-		result := make([]int64, 0, len(v))
-		for _, item := range v {
-			result = append(result, int64(item))
-		}
-		return result
-	case []float64:
-		result := make([]int64, 0, len(v))
-		for _, item := range v {
-			result = append(result, int64(item))
-		}
-		return result
-	case []any:
-		result := make([]int64, 0, len(v))
-		for _, item := range v {
-			if n := int64Param(item); n != 0 {
-				result = append(result, n)
-			}
-		}
-		return result
-	default:
-		if n := int64Param(value); n != 0 {
-			return []int64{n}
-		}
-		return nil
-	}
+	return actionbase.Int64s(value)
 }
 
 func channelJoinServerNames(value any, roomID string) []string {
@@ -219,45 +146,11 @@ func jsonArrayStringParam(value any) (string, error) {
 }
 
 func boolParam(value any) bool {
-	switch v := value.(type) {
-	case bool:
-		return v
-	case string:
-		return strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1"
-	case float64:
-		return v != 0
-	case int:
-		return v != 0
-	case int64:
-		return v != 0
-	default:
-		return false
-	}
+	return actionbase.Bool(value)
 }
 
 func boolMapParam(value any) map[string]bool {
-	raw, ok := value.(map[string]any)
-	if !ok {
-		if alternate, alternateOK := value.(map[string]interface{}); alternateOK {
-			raw = alternate
-			ok = true
-		}
-	}
-	if !ok || len(raw) == 0 {
-		return nil
-	}
-	flags := make(map[string]bool, len(raw))
-	for key, value := range raw {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		flags[key] = boolParam(value)
-	}
-	if len(flags) == 0 {
-		return nil
-	}
-	return flags
+	return actionbase.BoolMap(value)
 }
 
 func domainFromMXID(mxid string) string {

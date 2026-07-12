@@ -30,7 +30,7 @@
 
 ## Current Next Action
 
-- Commit and publish the verified mechanical cleanup slice, then start the Store/action module foundation.
+- Finish and independently audit the Action foundation and MemoryStore implementation, then wire the legacy no-database constructors through MemoryStore without changing their observable semantics.
 
 ## Completed Verification
 
@@ -38,3 +38,7 @@
 - `p2p/serviceapi.ActionSpecFor` now uses a duplicate-checked read-only index; generated action contract output remains byte-identical.
 - Passed: `go test ./p2p/... -count=1` (root package 123.195s), `go build ./cmd/dirextalk-message-server`, focused/race serviceapi tests, focused record tests, `gopls check`, incremental unused/ineffassign/staticcheck/dupl/gocyclo lint, and `git diff --check`.
 - Independent standards/spec review reported no actionable findings; its only residual risk was covered by the main task's complete P2P test result above.
+- Published `ae9a868` (`refactor: clean p2p migration scaffolding`), `c957194` (`refactor: unify native agent config records`), and `af88654` (`refactor: share native model HTTP transport`) to draft PR #9.
+- Native Agent skill/MCP config-record consolidation passed package and race tests while preserving exact errors and response shapes.
+- Native Agent OpenAI-compatible/Anthropic direct HTTP and SSE consolidation passed focused provider behavior tests, full package race tests, unused/ineffassign/staticcheck/dupl/gocyclo lint, and `git diff --check`.
+- Storage parity audit found pre-existing observable differences between the legacy in-memory maps and PostgreSQL (ordering, filtering, case handling, duplicate writes). The current structural slice will preserve the no-database behavior; cross-store tests cover only shared invariants, and parity changes remain a separate product decision.
