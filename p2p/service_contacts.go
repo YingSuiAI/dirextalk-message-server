@@ -4,23 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 )
-
-type channelInviteGrantStore interface {
-	UpsertChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error
-	ListChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error)
-}
-
-func (s *Service) channelInviteGrantStore() channelInviteGrantStore {
-	if s.store == nil {
-		return nil
-	}
-	return s.store
-}
 
 type peerContactReactivation struct {
 	PendingInbound bool
@@ -594,63 +581,4 @@ func isAlreadyJoinedRoomError(err error) bool {
 
 func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
 	return s.contactsModule.Save(ctx, contactStorageRecordFromContact(contact))
-}
-
-func (s *Service) saveChannelInviteGrant(ctx context.Context, grant channelInviteGrant) error {
-	s.mu.Lock()
-	s.inviteGrants[grant.GrantID] = grant
-	s.mu.Unlock()
-	if store := s.channelInviteGrantStore(); store != nil {
-		return store.UpsertChannelInviteGrant(ctx, grant)
-	}
-	return nil
-}
-
-func (s *Service) listChannelInviteGrants(ctx context.Context) ([]channelInviteGrant, error) {
-	if store := s.channelInviteGrantStore(); store != nil {
-		return store.ListChannelInviteGrants(ctx)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	grants := make([]channelInviteGrant, 0, len(s.inviteGrants))
-	for _, grant := range s.inviteGrants {
-		grants = append(grants, grant)
-	}
-	sort.SliceStable(grants, func(i, j int) bool {
-		if grants[i].CreatedAt == grants[j].CreatedAt {
-			return grants[i].GrantID < grants[j].GrantID
-		}
-		return grants[i].CreatedAt > grants[j].CreatedAt
-	})
-	return grants, nil
-}
-
-func (s *Service) lookupChannelInviteGrantForParams(ctx context.Context, params map[string]any) (channelInviteGrant, bool, error) {
-	grantID := trimString(params["grant_id"])
-	shareRoomID := trimString(params["share_room_id"])
-	if shareRoomID == "" {
-		shareRoomID = trimString(params["via_room_id"])
-	}
-	roomID := trimString(params["room_id"])
-	channelID := trimString(params["channel_id"])
-	grants, err := s.listChannelInviteGrants(ctx)
-	if err != nil {
-		return channelInviteGrant{}, false, err
-	}
-	for _, grant := range grants {
-		if grantID != "" && grant.GrantID != grantID {
-			continue
-		}
-		if shareRoomID != "" && grant.ShareRoomID != shareRoomID {
-			continue
-		}
-		if roomID != "" && grant.RoomID != roomID {
-			continue
-		}
-		if channelID != "" && grant.ChannelID != channelID {
-			continue
-		}
-		return grant, true, nil
-	}
-	return channelInviteGrant{}, false, nil
 }

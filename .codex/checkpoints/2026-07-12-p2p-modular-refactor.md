@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `33f5f5eb378ba8046fea854fa2bc2d06422e5906`
+- Current published HEAD: `5334e39ba760bcd5f0ce2e20744a89e1d24e5af3`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified peer-side `contacts.reactivate` module slice, then extract typed DirectRoom and peer-reactivation adapters before moving the remaining `contacts.request` leaf transitions. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified channel-invite helper ownership move, then extract typed DirectRoom and peer-reactivation adapters before moving the remaining `contacts.request` leaf transitions. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -99,6 +99,9 @@
 - `dirextalkdomain.DomainFromMXID` now owns the legacy permissive domain fallback and the root helper delegates to it. Module tests cover validation order, missing/mismatched/deleted rooms, untrusted caller profile fields, pending transitions, nil inviter, accepted Invite, held-peer-lock completion, Save/Operation partial commits, and coded adapter errors. Root tests lock full owner-profile/direct-state Invite requests, already-joined success, PolicyError failure, self/deleted/mismatch behavior, and the unchanged contact-request caller flows.
 - Peer handler transport tests moved from the 635-line mixed reactivation file into a 198-line cohesive file, reducing the original to 484 lines.
 - Latest contacts-reactivate gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 100.015s, storage 42.170s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
+- Published `5334e39`: peer-side `contacts.reactivate` now belongs to the contacts module with an explicit no-peer-lock contract, atomic local profile snapshot, and narrow retained-room Invite adapter.
+- Channel invite grant Store selection, save/list ordering, and parameter lookup moved byte-for-byte from `service_contacts.go` into the existing `service_channel_join.go`. This introduces no file or behavior, places the workflow with its owning channel join code, and reduces `service_contacts.go` from 656 to 584 lines while `service_channel_join.go` remains 399 lines.
+- Latest ownership-move gates passed: focused channel join/grant tests, `go test ./p2p/... -count=1` (root 90.315s, storage 41.497s), gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, and `git diff --check`.
 
 ## Related Finding Outside This Structural Slice
 
