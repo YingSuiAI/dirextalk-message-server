@@ -39,6 +39,27 @@ type LocalProfileSnapshot struct {
 // DirectRoomReactivator invites a retained accepted peer back to its room.
 type DirectRoomReactivator func(ctx context.Context, profile LocalProfileSnapshot, roomID, requesterMXID string) *actionbase.Error
 
+// PeerReactivationRequest contains the typed contact and profile state needed
+// to ask a peer node whether it still retains a direct contact room.
+type PeerReactivationRequest struct {
+	Contact           dirextalkdomain.ContactRecord
+	RequesterMXID     string
+	RemoteNodeBaseURL string
+	DisplayName       string
+	AvatarURL         string
+	Domain            string
+	Remark            string
+}
+
+// PeerReactivationResult describes the peer node's retained-room decision.
+type PeerReactivationResult struct {
+	PendingInbound bool
+	RoomID         string
+}
+
+// PeerReactivator is the protocol-independent port used by contact workflows.
+type PeerReactivator func(context.Context, PeerReactivationRequest) (PeerReactivationResult, *actionbase.Error)
+
 type Config struct {
 	DeleteGroup          func(ctx context.Context, roomID string) error
 	LeaveRoom            func(ctx context.Context, roomID string) *actionbase.Error

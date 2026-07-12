@@ -7,12 +7,10 @@ import (
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 )
 
-type peerContactReactivation struct {
-	PendingInbound bool
-	RoomID         string
-}
+type peerContactReactivation = contactsmodule.PeerReactivationResult
 
 func (s *Service) contactRequest(ctx context.Context, params map[string]any) (any, *apiError) {
 	mxid := trimString(params["mxid"])
@@ -496,40 +494,15 @@ func (s *Service) joinReactivatedDirectRoom(ctx context.Context, roomID, userMXI
 }
 
 func (s *Service) requestPeerContactReactivation(ctx context.Context, contact contactRecord, params map[string]any, requesterMXID string) (peerContactReactivation, *apiError) {
-	peerServer := domainFromMXID(contact.PeerMXID)
-	if peerServer == "" || peerServer == s.serverName {
-		return peerContactReactivation{}, statusError(http.StatusForbidden, "peer node is required to reactivate direct room")
-	}
-	remoteBase := remoteNodeBaseURLParam(params)
-	if remoteBase == "" {
-		remoteBase = "https://" + peerServer + "/_p2p"
-	}
-	var result map[string]any
-	status, err := s.remotePublicAction(ctx, peerServer, "contacts.reactivate", map[string]any{
-		"room_id":              contact.RoomID,
-		"requester_mxid":       requesterMXID,
-		"remote_node_base_url": remoteBase,
-		"display_name":         trimString(params["display_name"]),
-		"avatar_url":           trimString(params["avatar_url"]),
-		"domain":               trimString(params["domain"]),
-		"remark":               contactRequestRemark(params),
-	}, &result)
-	if err != nil {
-		if status != 0 && status != http.StatusBadGateway {
-			return peerContactReactivation{}, statusError(status, err.Error())
-		}
-		return peerContactReactivation{}, statusError(http.StatusBadGateway, err.Error())
-	}
-	if status != http.StatusOK {
-		if status == http.StatusNotFound {
-			return peerContactReactivation{}, statusError(status, "retained contact not found")
-		}
-		return peerContactReactivation{}, statusError(status, "target node contact reactivation failed")
-	}
-	if strings.EqualFold(trimString(result["status"]), "pending_inbound") {
-		return peerContactReactivation{PendingInbound: true, RoomID: trimString(result["room_id"])}, nil
-	}
-	return peerContactReactivation{RoomID: trimString(result["room_id"])}, nil
+	return s.reactivatePeerContact(ctx, contactsmodule.PeerReactivationRequest{
+		Contact:           contactStorageRecordFromContact(contact),
+		RequesterMXID:     requesterMXID,
+		RemoteNodeBaseURL: remoteNodeBaseURLParam(params),
+		DisplayName:       trimString(params["display_name"]),
+		AvatarURL:         trimString(params["avatar_url"]),
+		Domain:            trimString(params["domain"]),
+		Remark:            contactRequestRemark(params),
+	})
 }
 
 func contactReactivationNotRetained(apiErr *apiError) bool {
