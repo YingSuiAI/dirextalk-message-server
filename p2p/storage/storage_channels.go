@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 )
 
@@ -335,42 +334,20 @@ func (s *DatabaseStore) ListChannelPosts(ctx context.Context, channelID string) 
 }
 
 func (s *DatabaseStore) ListChannelPostsPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelPostRecord, bool, error) {
-	query := listPostsSelect + ` WHERE origin_server_ts >= $1 AND origin_server_ts <= $2`
-	args := []any{fromTS, snapshotTS}
-	nextArg := 3
-	if strings.TrimSpace(channelID) != "" {
-		query += fmt.Sprintf(` AND channel_id = $%d`, nextArg)
-		args = append(args, channelID)
-		nextArg++
-	}
-	if cursorTS > 0 {
-		query += fmt.Sprintf(` AND (origin_server_ts < $%d OR (origin_server_ts = $%d AND post_id < $%d))`, nextArg, nextArg, nextArg+1)
-		args = append(args, cursorTS, cursorID)
-		nextArg += 2
-	}
-	query += fmt.Sprintf(` ORDER BY origin_server_ts DESC, post_id DESC LIMIT $%d`, nextArg)
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer closeResource(rows)
-	var posts []channelPostRecord
-	for rows.Next() {
-		post, err := scanChannelPost(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		posts = append(posts, post)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	hasMore := len(posts) > limit
-	if hasMore {
-		posts = posts[:limit]
-	}
-	return posts, hasMore, nil
+	return listChannelPage(
+		ctx,
+		s.db,
+		listPostsSelect,
+		"channel_id",
+		channelID,
+		"post_id",
+		fromTS,
+		snapshotTS,
+		cursorTS,
+		cursorID,
+		limit,
+		scanChannelPost,
+	)
 }
 
 const listPostsSelect = `SELECT post_id, channel_id, room_id, event_id, author_mxid, author_name, body, message_type, media_json, origin_server_ts, comment_count FROM p2p_channel_posts`
@@ -474,42 +451,20 @@ func (s *DatabaseStore) ListChannelComments(ctx context.Context, postID string) 
 }
 
 func (s *DatabaseStore) ListChannelCommentsPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]channelCommentRecord, bool, error) {
-	query := listCommentsSelect + ` WHERE origin_server_ts >= $1 AND origin_server_ts <= $2`
-	args := []any{fromTS, snapshotTS}
-	nextArg := 3
-	if strings.TrimSpace(postID) != "" {
-		query += fmt.Sprintf(` AND post_id = $%d`, nextArg)
-		args = append(args, postID)
-		nextArg++
-	}
-	if cursorTS > 0 {
-		query += fmt.Sprintf(` AND (origin_server_ts < $%d OR (origin_server_ts = $%d AND comment_id < $%d))`, nextArg, nextArg, nextArg+1)
-		args = append(args, cursorTS, cursorID)
-		nextArg += 2
-	}
-	query += fmt.Sprintf(` ORDER BY origin_server_ts DESC, comment_id DESC LIMIT $%d`, nextArg)
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer closeResource(rows)
-	var comments []channelCommentRecord
-	for rows.Next() {
-		comment, err := scanChannelComment(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		comments = append(comments, comment)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	hasMore := len(comments) > limit
-	if hasMore {
-		comments = comments[:limit]
-	}
-	return comments, hasMore, nil
+	return listChannelPage(
+		ctx,
+		s.db,
+		listCommentsSelect,
+		"post_id",
+		postID,
+		"comment_id",
+		fromTS,
+		snapshotTS,
+		cursorTS,
+		cursorID,
+		limit,
+		scanChannelComment,
+	)
 }
 
 const listCommentsSelect = `SELECT comment_id, post_id, channel_id, event_id, author_mxid, author_name, body, message_type, media_json, reply_to_comment_id, reply_to_author_mxid, mentions_json, origin_server_ts, reaction_count, reacted_by_me FROM p2p_channel_comments`
