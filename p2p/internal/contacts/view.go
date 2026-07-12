@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	actionList   = "contacts.list"
-	actionUpdate = "contacts.update"
+	actionList          = "contacts.list"
+	actionUpdate        = "contacts.update"
+	actionRequestDelete = "contacts.requests.delete"
 )
 
 // View is the public ProductCore contact response.
@@ -71,8 +72,9 @@ func RecordsFromViews(views []View) []dirextalkdomain.ContactRecord {
 // Handlers returns the exact ProductCore action surface owned by the module.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionList:   m.handleList,
-		actionUpdate: m.handleUpdate,
+		actionList:          m.handleList,
+		actionUpdate:        m.handleUpdate,
+		actionRequestDelete: m.handleRequestDelete,
 	}
 }
 

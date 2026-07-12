@@ -673,7 +673,7 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 		peer = trimString(params["mxid"])
 	}
 	roomID := trimString(params["room_id"])
-	if action == "contacts.delete" || action == "contacts.requests.delete" {
+	if action == "contacts.delete" {
 		contact, ok, err := s.lookupContactByRoom(ctx, roomID)
 		if err != nil {
 			return nil, internalError(err)
@@ -688,15 +688,8 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 				Remark:      contactRequestRemark(params),
 			}
 		}
-		if action == "contacts.requests.delete" && contactAccepted(contact.Status) {
-			result := map[string]any{"status": "ok"}
-			if err := s.attachConversationOperation(ctx, result, action, contact.Status, contact.RoomID); err != nil {
-				return nil, internalError(err)
-			}
-			return result, nil
-		}
 		wasDeleted := contactDeleted(contact.Status)
-		if action == "contacts.delete" && !wasDeleted && contact.RoomID != "" && s.transport != nil {
+		if !wasDeleted && contact.RoomID != "" && s.transport != nil {
 			s.mu.Lock()
 			ownerMXID := s.ownerMXID
 			s.mu.Unlock()

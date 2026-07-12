@@ -94,6 +94,10 @@ func (m *Module) releasePeerMutation(key string, mutation *peerMutationEntry) {
 	}
 }
 
+func acceptedStatus(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "accepted")
+}
+
 // Save serializes the contact and conversation persistence orchestration. It
 // does not cover Matrix room creation or any work performed before this call.
 func (m *Module) Save(ctx context.Context, contact dirextalkdomain.ContactRecord) error {

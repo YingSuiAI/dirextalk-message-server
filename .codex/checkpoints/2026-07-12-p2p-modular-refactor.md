@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `145d7be18a93fa51856056d40c67df5a51b4a5f4`
+- Current published HEAD: `031ebc7e49417801ea26fc85a794c470713fe33e`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified `contacts.update` module slice, then split the remaining root contact mutation switch into cohesive accept/reject/request-delete/contact-delete workflows before moving one action at a time. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified `contacts.requests.delete` module slice, then migrate `contacts.requests.reject` into the same cohesive request-resolution workflow before handling Matrix-writing delete/accept paths. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -79,6 +79,9 @@
 - The verified `contacts.update` slice moves parameter/status validation, same-peer serialization, locked reread, snapshot merge, Save, and operation/conversation presentation into the contacts module. Root registry and the 59-line duplicate implementation were removed.
 - Update tests explicitly lock the peer boundary before starting the handler, wait for the queued reference, and prove no locked reread/write/conversation call occurs until release. They also lock existing partial-commit behavior: Save failure does not call Operation, while Operation failure returns 500 after contact/conversation persistence succeeded.
 - Latest contacts update gates passed: module tests repeated and under race, root contact/registry/conversation/PostgreSQL focused tests, `go test ./p2p/... -count=1` (root 102.085s, storage 40.315s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and final review with no P0-P3 finding.
+- Published `031ebc7`: `contacts.update` now belongs to the contacts module with deterministic peer-lock and partial-commit coverage; the duplicate 59-line root handler was removed.
+- The verified request-delete slice moves `contacts.requests.delete` into `request_resolution.go`, preserving accepted no-op, deleted-state persistence for pending/missing/empty identities, four remark aliases and precedence, actual-peer locking, concrete operation/conversation response values, and Save/Operation error boundaries. The shared root mutation switch no longer carries this branch. A deterministic held-lock test proves the second read, Save, and Operation cannot run before peer-lock release.
+- Latest request-delete gates passed: module/root focused tests and race, full alias/remark/error/lock-boundary coverage, `go test ./p2p/... -count=1` (root 93.639s, storage 42.141s), gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, related policy/HTTP/setup tests, production build, byte-identical Action contract generation, `git diff --check`, and independent review with no production finding; its P3 test suggestion was incorporated and passed under race.
 
 ## Related Finding Outside This Structural Slice
 

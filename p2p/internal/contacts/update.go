@@ -3,7 +3,6 @@ package contacts
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
@@ -43,7 +42,7 @@ func (m *Module) updateForPeer(ctx context.Context, roomID, displayName, domain,
 	if !ok {
 		return nil, actionbase.StatusError(http.StatusNotFound, "contact not found")
 	}
-	if !strings.EqualFold(strings.TrimSpace(contact.Status), "accepted") {
+	if !acceptedStatus(contact.Status) {
 		return nil, actionbase.StatusError(http.StatusForbidden, "contact is not accepted")
 	}
 
