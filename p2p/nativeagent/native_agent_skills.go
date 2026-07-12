@@ -92,52 +92,11 @@ func (r *Runtime) skillInstall(ctx context.Context, params map[string]any) (map[
 }
 
 func (r *Runtime) skillSetEnabled(ctx context.Context, params map[string]any, enabled bool) (map[string]any, error) {
-	id := sanitizeNativeID(fallbackString(trimString(params["id"]), trimString(params["name"])))
-	if id == "" {
-		return nil, fmt.Errorf("skill id is required")
-	}
-	var updated map[string]any
-	if err := r.updateAgentConfig(ctx, func(config map[string]any) {
-		records := configList(config, "skills")
-		for _, record := range records {
-			if sanitizeNativeID(trimString(record["id"])) == id {
-				record["enabled"] = enabled
-				updated = record
-				break
-			}
-		}
-		config["skills"] = records
-	}); err != nil {
-		return nil, err
-	}
-	if updated == nil {
-		return nil, fmt.Errorf("skill %q is not installed", id)
-	}
-	return map[string]any{"ok": true, "skill": updated}, nil
+	return r.setManagedConfigRecordEnabled(ctx, params, enabled, skillConfigRecord)
 }
 
 func (r *Runtime) skillUninstall(ctx context.Context, params map[string]any) (map[string]any, error) {
-	id := sanitizeNativeID(fallbackString(trimString(params["id"]), trimString(params["name"])))
-	if id == "" {
-		return nil, fmt.Errorf("skill id is required")
-	}
-	removed := false
-	if err := r.updateAgentConfig(ctx, func(config map[string]any) {
-		records := configList(config, "skills")
-		filtered := records[:0]
-		for _, record := range records {
-			if sanitizeNativeID(trimString(record["id"])) == id {
-				removed = true
-				continue
-			}
-			filtered = append(filtered, record)
-		}
-		config["skills"] = filtered
-	}); err != nil {
-		return nil, err
-	}
-	_ = os.RemoveAll(filepath.Join(r.dataDir, "skills", id))
-	return map[string]any{"ok": removed, "id": id}, nil
+	return r.uninstallManagedConfigRecord(ctx, params, skillConfigRecord)
 }
 
 func (r *Runtime) enabledSkillsPrompt(ctx context.Context, config map[string]any) string {
