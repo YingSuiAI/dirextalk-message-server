@@ -11,9 +11,3 @@ func (s *Service) registerContactActions(actions map[string]actionHandler) {
 	actions["contacts.delete"] = s.contactMutationAction("contacts.delete")
 	actions["contacts.update"] = s.contactUpdate
 }
-
-func (s *Service) registerBlockActions(actions map[string]actionHandler) {
-	actions["blocks.list"] = s.blockListAction
-	actions["blocks.add"] = s.blockAdd
-	actions["blocks.remove"] = s.blockRemove
-}

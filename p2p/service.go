@@ -15,6 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
+	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
@@ -89,6 +90,7 @@ type Service struct {
 
 	servicePortalState
 	actions            map[string]actionHandler
+	blocksModule       *blocksmodule.Module
 	callsModule        *callsmodule.Module
 	conversationModule *conversationmodule.Module
 	socialModule       *socialmodule.Module
@@ -131,6 +133,7 @@ type Store interface {
 
 type socialStore = socialmodule.Store
 type callStore = callsmodule.Store
+type blockStore = blocksmodule.Store
 
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
@@ -555,6 +558,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceEventState:     newServiceEventState(),
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
+	service.blocksModule = blocksmodule.New(service.store, blocksmodule.Config{
+		LookupContact: func(ctx context.Context, peerMXID string) (dirextalkdomain.ContactRecord, bool, error) {
+			contact, ok, err := service.lookupContactByPeer(ctx, peerMXID)
+			return contactStorageRecordFromContact(contact), ok, err
+		},
+	})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,
 		OwnerMXID:    service.ownerMXID,

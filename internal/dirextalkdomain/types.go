@@ -150,6 +150,30 @@ type BlockRecord struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
+// NormalizeBlockTargetType maps supported contact aliases to the stored type.
+func NormalizeBlockTargetType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "friend", "user", "member", "contact":
+		return "contact"
+	default:
+		return ""
+	}
+}
+
+// BlockKey returns the canonical in-memory identity for a block record.
+func BlockKey(targetType, targetID string) string {
+	return NormalizeBlockTargetType(targetType) + "|" + strings.TrimSpace(targetID)
+}
+
+// DisplayNameFromMXID derives the legacy localpart fallback for an MXID.
+func DisplayNameFromMXID(mxid string) string {
+	localpart := strings.TrimPrefix(mxid, "@")
+	if index := strings.Index(localpart, ":"); index >= 0 {
+		localpart = localpart[:index]
+	}
+	return FallbackString(localpart, mxid)
+}
+
 type CallRecord struct {
 	CallID        string `json:"call_id"`
 	RoomID        string `json:"room_id"`

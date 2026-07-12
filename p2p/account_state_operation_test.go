@@ -39,22 +39,20 @@ func (s *blockingBlockMemoryStore) ResetAccountState() {
 }
 
 func TestAccountDeleteWaitsForInFlightProductWriteBeforeReset(t *testing.T) {
-	service := NewService(Config{
-		ServerName:        "example.com",
-		ReleaseController: &recordingReleaseController{},
-	})
-	service.SetAccountDeactivator(&recordingAccountDeactivator{})
-	deprovisioner := &signalingAccountDeprovisioner{called: make(chan struct{})}
-	service.SetAccountDeprovisioner(deprovisioner)
-	bootstrapService(t, service)
-
 	store := &blockingBlockMemoryStore{
-		MemoryStore:   service.store.(*p2pstorage.MemoryStore),
+		MemoryStore:   p2pstorage.NewMemoryStore(),
 		upsertStarted: make(chan struct{}),
 		releaseUpsert: make(chan struct{}),
 		resetStarted:  make(chan struct{}),
 	}
-	service.store = store
+	service := newService(Config{
+		ServerName:        "example.com",
+		ReleaseController: &recordingReleaseController{},
+	}, store, nil, portalState{}, false)
+	service.SetAccountDeactivator(&recordingAccountDeactivator{})
+	deprovisioner := &signalingAccountDeprovisioner{called: make(chan struct{})}
+	service.SetAccountDeprovisioner(deprovisioner)
+	bootstrapService(t, service)
 
 	writeDone := make(chan *apiError, 1)
 	go func() {

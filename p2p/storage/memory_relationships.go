@@ -32,25 +32,15 @@ func (s *MemoryStore) ListContacts(ctx context.Context) ([]contactRecord, error)
 	return contacts, nil
 }
 
-func memoryBlockKey(targetType, targetID string) string {
-	switch strings.ToLower(strings.TrimSpace(targetType)) {
-	case "friend", "user", "member", "contact":
-		targetType = "contact"
-	default:
-		targetType = ""
-	}
-	return targetType + "|" + strings.TrimSpace(targetID)
-}
-
 func (s *MemoryStore) UpsertBlock(ctx context.Context, block blockRecord) error {
 	s.mu.Lock()
-	s.blocks[memoryBlockKey(block.TargetType, block.TargetID)] = block
+	s.blocks[dirextalkdomain.BlockKey(block.TargetType, block.TargetID)] = block
 	s.mu.Unlock()
 	return nil
 }
 
 func (s *MemoryStore) DeleteBlock(ctx context.Context, targetType, targetID string) (bool, error) {
-	key := memoryBlockKey(targetType, targetID)
+	key := dirextalkdomain.BlockKey(targetType, targetID)
 	s.mu.Lock()
 	_, removed := s.blocks[key]
 	delete(s.blocks, key)

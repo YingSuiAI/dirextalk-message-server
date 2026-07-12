@@ -25,7 +25,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
 		s.collectActionHandlerModule("contacts", s.registerContactActions),
-		s.collectActionHandlerModule("blocks", s.registerBlockActions),
+		{name: "blocks", handlers: s.blocksModule.Handlers()},
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
 		s.collectActionHandlerModule("groups", s.registerGroupActions),

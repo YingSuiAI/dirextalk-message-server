@@ -219,6 +219,28 @@ func TestTerminalCallStateNormalizesKnownTerminalValues(t *testing.T) {
 	}
 }
 
+func TestBlockIdentityHelpersPreserveCompatibility(t *testing.T) {
+	for _, alias := range []string{"contact", " FRIEND ", "User", "member"} {
+		if got := NormalizeBlockTargetType(alias); got != "contact" {
+			t.Fatalf("NormalizeBlockTargetType(%q) = %q", alias, got)
+		}
+	}
+	for _, invalid := range []string{"", "group", "channel", "room"} {
+		if got := NormalizeBlockTargetType(invalid); got != "" {
+			t.Fatalf("NormalizeBlockTargetType(%q) = %q", invalid, got)
+		}
+	}
+	if got := BlockKey(" friend ", " @alice:example.com "); got != "contact|@alice:example.com" {
+		t.Fatalf("BlockKey() = %q", got)
+	}
+	if got := DisplayNameFromMXID("@alice:example.com"); got != "alice" {
+		t.Fatalf("DisplayNameFromMXID() = %q", got)
+	}
+	if got := DisplayNameFromMXID(""); got != "" {
+		t.Fatalf("DisplayNameFromMXID(empty) = %q", got)
+	}
+}
+
 func TestEventAndInviteGrantJSONContracts(t *testing.T) {
 	raw, err := json.Marshal(struct {
 		Grant  ChannelInviteGrant `json:"grant"`

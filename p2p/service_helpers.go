@@ -154,25 +154,15 @@ func domainFromMatrixID(id, sigil string) string {
 }
 
 func displayNameFromMXID(mxid string) string {
-	localpart := strings.TrimPrefix(mxid, "@")
-	if idx := strings.Index(localpart, ":"); idx >= 0 {
-		localpart = localpart[:idx]
-	}
-	return fallbackString(localpart, mxid)
+	return dirextalkdomain.DisplayNameFromMXID(mxid)
 }
 
 func firstMemberID(params map[string]any) string {
-	for _, key := range []string{"user_id", "user_mxid", "peer_mxid", "mxid"} {
-		if userID := trimString(params[key]); userID != "" {
-			return userID
-		}
+	values := actionbase.Params(params)
+	if userID := values.FirstString("user_id", "user_mxid", "peer_mxid", "mxid"); userID != "" {
+		return userID
 	}
-	for _, key := range []string{"user_ids", "user_mxids", "peer_mxids", "invitees"} {
-		if values := stringSliceParam(params[key]); len(values) > 0 {
-			return values[0]
-		}
-	}
-	return ""
+	return values.FirstListString("user_ids", "user_mxids", "peer_mxids", "invitees")
 }
 
 func memberIDsFromParams(params map[string]any) []string {

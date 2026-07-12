@@ -21,6 +21,9 @@ func TestParamsCompatibilityReaders(t *testing.T) {
 		"strings":     []any{" first ", stringValue("second"), "first", ""},
 		"int64s":      []any{json.Number("5"), "6", 0, "invalid"},
 		"bools":       map[string]any{" enabled ": "1", "disabled": false, "": true},
+		"first_empty": "  ",
+		"first_value": " selected ",
+		"list_value":  []any{" first-list ", "second-list"},
 	}
 
 	if got := params.String("string"); got != "value" {
@@ -49,6 +52,12 @@ func TestParamsCompatibilityReaders(t *testing.T) {
 	}
 	if got := params.Raw("missing"); got != nil {
 		t.Fatalf("Raw(missing) = %#v, want nil", got)
+	}
+	if got := params.FirstString("missing", "first_empty", "first_value"); got != "selected" {
+		t.Fatalf("FirstString() = %q, want selected", got)
+	}
+	if got := params.FirstListString("missing", "list_value"); got != "first-list" {
+		t.Fatalf("FirstListString() = %q, want first-list", got)
 	}
 }
 

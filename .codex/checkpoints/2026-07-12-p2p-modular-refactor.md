@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `a96db443ffdffa29acab6bcb2a7f1f87ee53868a`
+- Current published HEAD: `da11fed58deb94b6f6eb2fef3ff24589039eb6db`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified calls lifecycle module, then migrate contacts/blocks while keeping shared room/member lifecycle separate.
+- Commit and push the verified blocks module, then build the contacts Reader/Store layer and lock its restart/concurrency regressions before moving Matrix workflows.
 
 ## Completed Verification
 
@@ -57,9 +57,14 @@
 - Published `a96db44`: all seven favorites/follows actions now live in `p2p/internal/social`; root shadow maps and Store-error fallback paths are gone, and the restart/clock-rollback ID collision regression is covered.
 - The verified calls slice moves all six call actions and lifecycle/time parsing into two cohesive `p2p/internal/calls` production files, removes the 219-line root implementation and calls shadow map, and centralizes terminal-state normalization in `internal/dirextalkdomain` for the module and MemoryStore. A mutation lock now serializes single-process read/transition/upsert/publish so a concurrent connected event cannot reopen a terminal call; deterministic regression and race tests cover the former lost-update window.
 - Latest calls gates passed: module repeated/race tests, focused root call/account-delete/registry/WS tests and race, domain/MemoryStore tests, `go test ./p2p/... -count=1`, gopls/vet, unused/ineffassign/staticcheck and module dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and an independent engineering/contract review with no P0-P2 findings.
+- Published `da11fed`: all six call actions now live in `p2p/internal/calls`; the root calls implementation and shadow map are gone, and single-process lifecycle mutation is serialized through event publication.
+- The verified blocks slice moves the three contact-block actions and policy lookup into one 178-line `p2p/internal/blocks` module, leaves a 19-line root cross-domain facade, removes the blocks shadow map, and centralizes block identity plus first-parameter selection helpers. Pure action tests moved into the module while contacts/projector/account-deletion integration remains at the boundary. Independent review caught and fixed contact-snapshot display-name trimming with a controlled red/green regression.
+- Latest blocks gates passed: `go test ./p2p/... -count=1` (root 92.478s, storage 42.737s), module/root race and account-operation barrier tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering/contract review with no remaining P0-P2 findings.
 
 ## Related Finding Outside This Structural Slice
 
 - Production account deprovision truncates all PostgreSQL tables and delays process shutdown by two seconds. Non-P2P Matrix consumers are outside the Service operation barrier and may have a pre-existing post-truncate replay window; audit this as a separate account-deprovision hardening change rather than changing Matrix shutdown behavior inside the P2P structure refactor.
 - Call persistence and `call.changed` event insertion are not one transaction. If event insertion fails after a terminal call write, retry may return the terminal row without restoring the missing event; address with a durable outbox/transactional boundary in a separate behavior change.
 - PostgreSQL active-call filtering matches only exact lowercase terminal states, while MemoryStore normalizes whitespace and case. Current writers emit lowercase states, but cross-store normalization and empty-list ordering/JSON parity remain separate compatibility decisions.
+- Contacts migration must fix or explicitly lock four pre-existing failure paths: restart-time peer room replacement leaves a ghost direct conversation; concurrent first requests can create two Matrix rooms; `contact.requested` can be permanently lost after Store success/event failure; PostgreSQL cannot persist an explicitly cleared avatar. Each needs a focused restart/concurrency/partial-commit regression before root contact maps are removed.
+- Block `CreatedAt` and display-name ordering differ between MemoryStore and PostgreSQL on repeated/case-only writes. The blocks structure slice preserves both backends; choosing canonical cross-store semantics remains a separate compatibility decision.

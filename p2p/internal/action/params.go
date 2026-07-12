@@ -19,6 +19,26 @@ func (p Params) Int64s(key string) []int64          { return Int64s(p[key]) }
 func (p Params) Bool(key string) bool               { return Bool(p[key]) }
 func (p Params) BoolMap(key string) map[string]bool { return BoolMap(p[key]) }
 
+// FirstString returns the first non-empty scalar string among keys.
+func (p Params) FirstString(keys ...string) string {
+	for _, key := range keys {
+		if value := p.String(key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// FirstListString returns the first normalized entry from the first non-empty list among keys.
+func (p Params) FirstListString(keys ...string) string {
+	for _, key := range keys {
+		if values := p.Strings(key); len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
+}
+
 // String trims string and fmt.Stringer values. Other values return an empty
 // string, matching the existing ProductCore parameter behavior.
 func String(value any) string {
