@@ -76,11 +76,7 @@ func mustUpsertReaction(t *testing.T, service *Service, reaction reactionRecord)
 
 func mustUpsertFavorite(t *testing.T, service *Service, favorite favoriteRecord) {
 	t.Helper()
-	store := service.socialStore()
-	if store == nil {
-		t.Fatal("social store is unavailable")
-	}
-	if err := store.UpsertFavorite(context.Background(), favorite); err != nil {
+	if err := service.store.UpsertFavorite(context.Background(), favorite); err != nil {
 		t.Fatalf("upsert favorite %d: %v", favorite.ID, err)
 	}
 }

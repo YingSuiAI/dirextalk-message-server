@@ -26,10 +26,11 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
 		s.collectActionHandlerModule("contacts", s.registerContactActions),
 		s.collectActionHandlerModule("blocks", s.registerBlockActions),
-		s.collectActionHandlerModule("social", s.registerSocialActions),
+		{name: "social", handlers: s.socialModule.Handlers()},
 		s.collectActionHandlerModule("calls", s.registerCallActions),
 		s.collectActionHandlerModule("groups", s.registerGroupActions),
 		s.collectActionHandlerModule("channels", s.registerChannelActions),
+		s.collectActionHandlerModule("reports", s.registerReportActions),
 	}
 	return mustBuildActionHandlers(
 		serviceapi.ActionSpecs(),
@@ -42,6 +43,19 @@ func (s *Service) collectActionHandlerModule(name string, register func(map[stri
 	handlers := make(map[string]actionHandler)
 	register(handlers)
 	return actionHandlerModule{name: name, handlers: handlers}
+}
+
+func (s *Service) registerCallActions(actions map[string]actionHandler) {
+	actions["calls.create"] = s.callSession
+	actions["calls.incoming"] = s.callSession
+	actions["calls.get"] = s.callGet
+	actions["calls.event"] = s.callEvent
+	actions["calls.active"] = s.callListAction(true)
+	actions["calls.list"] = s.callListAction(false)
+}
+
+func (s *Service) registerReportActions(actions map[string]actionHandler) {
+	actions["reports.submit"] = s.reportSubmit
 }
 
 func mustBuildActionHandlers(specs []serviceapi.ActionSpec, routeSpecial []string, modules []actionHandlerModule) map[string]actionHandler {
@@ -82,14 +96,6 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 
 func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	return s.updateAgentConfig(ctx, params)
-}
-
-func (s *Service) followListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.followList(ctx), nil
-}
-
-func (s *Service) favoriteListAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.favoriteList(ctx, params), nil
 }
 
 func (s *Service) contactListAction(ctx context.Context, _ map[string]any) (any, *apiError) {

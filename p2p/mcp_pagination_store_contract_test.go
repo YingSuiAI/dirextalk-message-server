@@ -1,17 +1,26 @@
 package p2p
 
 import (
-	"bytes"
-	"os"
+	"context"
 	"testing"
 )
 
 func TestMCPPaginationUsesSocialStoreForFavorites(t *testing.T) {
-	source, err := os.ReadFile("mcp_pagination.go")
-	if err != nil {
-		t.Fatal(err)
+	service := NewService(Config{ServerName: "example.com"})
+	if err := service.store.UpsertFavorite(context.Background(), favoriteRecord{
+		ID:          7,
+		EventID:     "$post:example.com",
+		RoomID:      "!channel:example.com",
+		MessageType: "channel_post",
+	}); err != nil {
+		t.Fatalf("seed favorite: %v", err)
 	}
-	if bytes.Contains(source, []byte("s."+"store.ListFavorites")) {
-		t.Fatal("mcp pagination must read favorites through socialStore")
+
+	count, byMe := service.mcpFavoriteStateForPost(context.Background(), channelPostRecord{
+		EventID: "$post:example.com",
+		RoomID:  "!channel:example.com",
+	})
+	if count != 1 || !byMe {
+		t.Fatalf("favorite state = (%d, %t), want (1, true)", count, byMe)
 	}
 }

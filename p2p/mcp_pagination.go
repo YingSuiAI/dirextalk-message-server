@@ -163,20 +163,9 @@ func (s *Service) mcpCommentSummary(comment channelCommentRecord) mcpCommentSumm
 }
 
 func (s *Service) mcpFavoriteStateForPost(ctx context.Context, post channelPostRecord) (int64, bool) {
-	var favorites []favoriteRecord
-	if store := s.socialStore(); store != nil {
-		stored, err := store.ListFavorites(ctx, "")
-		if err != nil {
-			return 0, false
-		}
-		favorites = stored
-	} else {
-		s.mu.Lock()
-		favorites = make([]favoriteRecord, 0, len(s.favorites))
-		for _, favorite := range s.favorites {
-			favorites = append(favorites, favorite)
-		}
-		s.mu.Unlock()
+	favorites, err := s.socialModule.ListFavorites(ctx, "")
+	if err != nil {
+		return 0, false
 	}
 	var count int64
 	for _, favorite := range favorites {

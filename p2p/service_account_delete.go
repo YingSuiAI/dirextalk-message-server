@@ -292,8 +292,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.blocks = map[string]blockRecord{}
 	s.groups = map[string]groupRecord{}
 	s.calls = map[string]callRecord{}
-	s.favorites = map[int64]favoriteRecord{}
-	s.follows = map[string]followRecord{}
 	s.reactions = map[string]reactionRecord{}
 	s.members = map[string]memberRecord{}
 	s.inviteGrants = map[string]channelInviteGrant{}

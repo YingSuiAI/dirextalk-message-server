@@ -26,8 +26,6 @@ type serviceReadModelState struct {
 	blocks        map[string]blockRecord
 	groups        map[string]groupRecord
 	calls         map[string]callRecord
-	favorites     map[int64]favoriteRecord
-	follows       map[string]followRecord
 	reactions     map[string]reactionRecord
 	members       map[string]memberRecord
 	inviteGrants  map[string]channelInviteGrant
@@ -54,8 +52,6 @@ func newServiceReadModelState() serviceReadModelState {
 		blocks:        map[string]blockRecord{},
 		groups:        map[string]groupRecord{},
 		calls:         map[string]callRecord{},
-		favorites:     map[int64]favoriteRecord{},
-		follows:       map[string]followRecord{},
 		reactions:     map[string]reactionRecord{},
 		members:       map[string]memberRecord{},
 		inviteGrants:  map[string]channelInviteGrant{},

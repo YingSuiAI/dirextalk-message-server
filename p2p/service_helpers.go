@@ -90,10 +90,6 @@ func callTimeParam(values ...any) string {
 	return ""
 }
 
-func int64SliceParam(value any) []int64 {
-	return actionbase.Int64s(value)
-}
-
 func channelJoinServerNames(value any, roomID string) []string {
 	names := stringSliceParam(value)
 	result := make([]string, 0, len(names))
