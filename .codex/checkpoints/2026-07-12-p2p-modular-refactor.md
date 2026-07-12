@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD: `c9f01bf29528eb468eae984797a8058ef2944f5c`
+- Current published HEAD: `c0b0da5d2547752240cb4207c38a4378c12d5b3c`
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified `contacts.requests.reject` module slice, then migrate Matrix-writing `contacts.delete` behind a narrow leave-room port before handling the more complex accept path. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
+- Commit and push the verified `contacts.delete` module slice, then migrate the more complex `contacts.requests.accept` join/replacement workflow behind narrow Matrix ports. Keep durable `contact.requested` compensation as a separate outbox/transaction design.
 
 ## Completed Verification
 
@@ -85,6 +85,10 @@
 - Published `c9f01bf`: `contacts.requests.delete` now belongs to the cohesive contacts request-resolution workflow, with its root registry and mutation branch removed.
 - The verified request-reject slice moves `contacts.requests.reject` beside request deletion and shares the same peer-serialized read/transition/save/operation workflow. It preserves accepted no-op behavior, missing-room 404 handling, empty-identity snapshots, explicit peer/profile overrides (including legacy spoof-compatible input), remark precedence, and the existing post-persistence operation failure boundary.
 - Latest request-reject gates passed: focused module/root tests and race, `go test ./p2p/... -count=1` (root 94.941s, storage 39.441s), related policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and changed-file dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering/contract review with no P0-P3 finding.
+- Published `c0b0da5`: `contacts.requests.reject` now shares the contacts request-resolution workflow and root no longer carries its duplicate registry/mutation branch.
+- The verified `contacts.delete` slice moves lookup, locked reread, Matrix-leave decision, deleted snapshot merge, durable Save, and operation response into one contacts workflow. A narrow root leave-room adapter dynamically snapshots the owner, preserves nil transport, exact already-left recognition, and `transportWriteError` policy/ordinary error mapping. Account deletion now calls the same exported module workflow instead of the removed root branch.
+- Delete tests lock missing/empty inputs, peer/profile/remark compatibility, idempotent canonicalization, nil leave port, Leave-before-Save ordering, PolicyError mapping, pre/post-upsert and operation partial commits, and deterministic status reread under the peer lock. Root tests retain already-left, dynamic owner, failed-leave non-persistence, account-deletion abort, durable reopen, conversation response, and registry boundaries.
+- Latest contacts-delete gates passed: repeated module tests and focused module/root race, `go test ./p2p/... -count=1` (root 88.173s, storage 40.541s), related domain/transport/policy/HTTP/setup tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract generation, `git diff --check`, and independent engineering/contract review with no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

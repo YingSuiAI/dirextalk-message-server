@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
 // Store is the durable contact repository used by Module.
@@ -25,6 +26,7 @@ type ConversationPort interface {
 
 type Config struct {
 	DeleteGroup func(ctx context.Context, roomID string) error
+	LeaveRoom   func(ctx context.Context, roomID string) *actionbase.Error
 }
 
 type peerMutationEntry struct {
@@ -36,6 +38,7 @@ type Module struct {
 	store        Store
 	conversation ConversationPort
 	deleteGroup  func(context.Context, string) error
+	leaveRoom    func(context.Context, string) *actionbase.Error
 	mutationMu   sync.Mutex
 
 	peerMutationsMu sync.Mutex
@@ -47,6 +50,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		store:        store,
 		conversation: conversation,
 		deleteGroup:  cfg.DeleteGroup,
+		leaveRoom:    cfg.LeaveRoom,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	actionDelete        = "contacts.delete"
 	actionList          = "contacts.list"
 	actionUpdate        = "contacts.update"
 	actionRequestDelete = "contacts.requests.delete"
@@ -73,6 +74,7 @@ func RecordsFromViews(views []View) []dirextalkdomain.ContactRecord {
 // Handlers returns the exact ProductCore action surface owned by the module.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
+		actionDelete:        m.Delete,
 		actionList:          m.handleList,
 		actionUpdate:        m.handleUpdate,
 		actionRequestDelete: m.handleRequestDelete,

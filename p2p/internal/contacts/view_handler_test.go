@@ -104,7 +104,7 @@ func TestHandlersOwnOnlyContactsListAndReturnConcreteViews(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if want := []string{"contacts.list", "contacts.requests.delete", "contacts.requests.reject", "contacts.update"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"contacts.delete", "contacts.list", "contacts.requests.delete", "contacts.requests.reject", "contacts.update"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("handler names = %v, want %v", names, want)
 	}
 

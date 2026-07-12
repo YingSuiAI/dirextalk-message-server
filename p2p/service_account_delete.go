@@ -148,7 +148,7 @@ func (s *Service) leaveAccountContacts(ctx context.Context, summary *accountDele
 		if apiErr := s.publishAccountDeletedDirectState(ctx, contact); apiErr != nil {
 			return apiErr
 		}
-		if _, apiErr := s.contactMutation(ctx, "contacts.delete", map[string]any{
+		if _, apiErr := s.contactsModule.Delete(ctx, map[string]any{
 			"room_id":   contact.RoomID,
 			"peer_mxid": contact.PeerMXID,
 		}); apiErr != nil {

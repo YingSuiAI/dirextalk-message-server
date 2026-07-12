@@ -673,54 +673,6 @@ func (s *Service) contactMutationForPeer(ctx context.Context, action string, par
 		peer = trimString(params["mxid"])
 	}
 	roomID := trimString(params["room_id"])
-	if action == "contacts.delete" {
-		contact, ok, err := s.lookupContactByRoom(ctx, roomID)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		if !ok {
-			contact = contactRecord{
-				RoomID:      roomID,
-				PeerMXID:    peer,
-				DisplayName: trimString(params["display_name"]),
-				AvatarURL:   trimString(params["avatar_url"]),
-				Domain:      trimString(params["domain"]),
-				Remark:      contactRequestRemark(params),
-			}
-		}
-		wasDeleted := contactDeleted(contact.Status)
-		if !wasDeleted && contact.RoomID != "" && s.transport != nil {
-			s.mu.Lock()
-			ownerMXID := s.ownerMXID
-			s.mu.Unlock()
-			if err := s.transport.LeaveRoom(ctx, LeaveRoomRequest{
-				RoomID:   contact.RoomID,
-				UserMXID: ownerMXID,
-			}); err != nil {
-				if !isAlreadyLeftRoomError(err) {
-					return nil, transportWriteError(err)
-				}
-			}
-		}
-		contact.Status = "deleted"
-		if contact.DisplayName == "" {
-			contact.DisplayName = trimString(params["display_name"])
-		}
-		if contact.AvatarURL == "" {
-			contact.AvatarURL = trimString(params["avatar_url"])
-		}
-		if contact.Domain == "" {
-			contact.Domain = trimString(params["domain"])
-		}
-		if err := s.saveContact(ctx, contact); err != nil {
-			return nil, internalError(err)
-		}
-		result := map[string]any{"status": "ok"}
-		if err := s.attachConversationOperation(ctx, result, action, contact.Status, contact.RoomID); err != nil {
-			return nil, internalError(err)
-		}
-		return result, nil
-	}
 	status := "accepted"
 	var existing contactRecord
 	if roomID != "" {

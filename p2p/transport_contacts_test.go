@@ -705,6 +705,40 @@ func TestContactDeleteMarksDeletedWhenMatrixMembershipAlreadyLeft(t *testing.T) 
 	}
 }
 
+func TestContactDeleteDoesNotPersistWhenLeaveFails(t *testing.T) {
+	tests := []struct {
+		name       string
+		leaveErr   error
+		wantStatus int
+		wantError  string
+	}{
+		{name: "ordinary error", leaveErr: errors.New("leave failed"), wantStatus: http.StatusInternalServerError, wantError: "internal error: leave failed"},
+		{name: "policy error", leaveErr: productpolicy.Forbidden("leave forbidden"), wantStatus: http.StatusForbidden, wantError: "leave forbidden"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transport := &failingLeaveTransport{err: tt.leaveErr}
+			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			bootstrapService(t, service)
+			existing := contactRecord{
+				RoomID: "!dm:remote.example", PeerMXID: "@alice:remote.example", DisplayName: "Alice", Status: "accepted",
+			}
+			if err := service.saveContact(context.Background(), existing); err != nil {
+				t.Fatal(err)
+			}
+
+			result, apiErr := service.Handle(context.Background(), "contacts.delete", map[string]any{"room_id": existing.RoomID})
+			if result != nil || apiErr == nil || apiErr.Status != tt.wantStatus || apiErr.Error != tt.wantError {
+				t.Fatalf("contacts.delete leave failure = (%#v, %#v)", result, apiErr)
+			}
+			contact, ok, err := service.lookupContactByRoom(context.Background(), existing.RoomID)
+			if err != nil || !ok || contact.Status != existing.Status {
+				t.Fatalf("contact after failed leave = %#v ok=%v err=%v, want accepted snapshot", contact, ok, err)
+			}
+		})
+	}
+}
+
 func TestContactRequestRestoresDeletedDirectRoomThroughTransport(t *testing.T) {
 	transport := &recordingTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)

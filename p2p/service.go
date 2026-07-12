@@ -567,6 +567,18 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		DeleteGroup: func(ctx context.Context, roomID string) error {
 			return service.store.DeleteGroup(ctx, roomID)
 		},
+		LeaveRoom: func(ctx context.Context, roomID string) *apiError {
+			if service.transport == nil {
+				return nil
+			}
+			service.mu.Lock()
+			ownerMXID := service.ownerMXID
+			service.mu.Unlock()
+			if err := service.transport.LeaveRoom(ctx, LeaveRoomRequest{RoomID: roomID, UserMXID: ownerMXID}); err != nil && !isAlreadyLeftRoomError(err) {
+				return transportWriteError(err)
+			}
+			return nil
+		},
 	})
 	service.blocksModule = blocksmodule.New(service.store, blocksmodule.Config{
 		LookupContact: func(ctx context.Context, peerMXID string) (dirextalkdomain.ContactRecord, bool, error) {
