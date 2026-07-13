@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `ab6aa80` (`refactor: move contact request dispatch`)
+- Current published HEAD before this verified slice: `f2e7518` (`refactor: move shared member lists`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified shared member-list module, then extract ordinary member leave/remove/mute/unmute/invite-reject workflows without mixing in channel join-request approval. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified member mute/unmute workflows, then extract leave/remove/invite-reject without mixing in channel join-request approval. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -137,6 +137,10 @@
 - The verified member-list slice establishes `p2p/internal/members` as the shared owner of `groups.members` and `channels.members`. Its 97-line module owns hidden-state filtering, output-only role normalization, status/role filtering, stable public ordering, concrete empty arrays, and the two Action handlers while continuing to return durable `dirextalkdomain.MemberRecord` values with legacy JSON aliases.
 - A narrow root reader adapter preserves the legacy Store-error/nil fallback to a locked `service.members` snapshot; the module remains unaware of the dual source. The old 87-line root list/filter/normalization/sort block is removed, and the single exported ordering helper is reused by invite-grant and persistence workflows without changing their behavior.
 - Latest member-list gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 84.571s, storage 38.495s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `f2e7518`: `groups.members` and `channels.members` now share one members-owned reader, filtering contract, ordering helper, and root compatibility adapter.
+- The verified member-policy slice moves `groups.member.mute/unmute` and `channels.member.mute/unmute` into a typed 79-line members workflow. Narrow target, factory, lookup, save, Matrix policy, and conversation ports preserve the exact default/existing record merge, group ChannelID clearing, membership normalization, and `Lookup → Save → member.policy state → Operation` sequence.
+- Mutation tests cover scalar/list user aliases, group and channel behavior, mute and unmute, existing/default snapshots, validation, result operation/conversation, and lookup/save/policy/operation failure cutoffs. The duplicate mute/unmute switch and policy block are removed from the root generic mutation dispatcher; channel join-request approval remains untouched.
+- Latest member-policy gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 82.876s, storage 37.440s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits found no behavior issue; their single P3 package-comment finding was corrected before the final gates.
 
 ## Related Finding Outside This Structural Slice
 

@@ -609,7 +609,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			return contactStorageRecordFromContact(contact), ok, err
 		},
 	})
-	service.membersModule = membersmodule.New(serviceMemberListStore{service: service})
+	service.membersModule = membersmodule.New(serviceMemberListStore{service: service}, membersmodule.Config{
+		ResolveTarget: service.memberTarget,
+		NewMember:     service.memberRecordFor,
+		LookupMember:  service.lookupMember,
+		SaveMember:    service.saveMember,
+		PublishPolicy: service.publishMemberPolicyState,
+		Conversation:  service.conversationModule,
+	})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,
 		OwnerMXID:    service.ownerMXID,

@@ -1,4 +1,5 @@
-// Package members owns shared ProductCore group and channel member reads.
+// Package members owns shared ProductCore group and channel member reads and
+// policy mutations.
 package members
 
 import (
@@ -13,7 +14,11 @@ import (
 
 const (
 	actionChannelMembers = "channels.members"
+	actionChannelMute    = "channels.member.mute"
+	actionChannelUnmute  = "channels.member.unmute"
 	actionGroupMembers   = "groups.members"
+	actionGroupMute      = "groups.member.mute"
+	actionGroupUnmute    = "groups.member.unmute"
 )
 
 // Store is the stable member reader used by Module. The root adapter preserves
@@ -22,19 +27,37 @@ type Store interface {
 	ListMembers(ctx context.Context, roomID, channelID string) ([]dirextalkdomain.MemberRecord, error)
 }
 
-type Module struct {
-	store Store
+type ConversationPort interface {
+	Operation(ctx context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error)
 }
 
-func New(store Store) *Module {
-	return &Module{store: store}
+type Config struct {
+	ResolveTarget func(map[string]any) (roomID, channelID string)
+	NewMember     func(roomID, channelID, userID string) dirextalkdomain.MemberRecord
+	LookupMember  func(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
+	SaveMember    func(context.Context, dirextalkdomain.MemberRecord) error
+	PublishPolicy func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
+	Conversation  ConversationPort
+}
+
+type Module struct {
+	store  Store
+	config Config
+}
+
+func New(store Store, cfg Config) *Module {
+	return &Module{store: store, config: cfg}
 }
 
 // Handlers returns the group and channel actions sharing the same member view.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
 		actionChannelMembers: m.List,
+		actionChannelMute:    m.mutationHandler("channel", actionChannelMute, true),
+		actionChannelUnmute:  m.mutationHandler("channel", actionChannelUnmute, false),
 		actionGroupMembers:   m.List,
+		actionGroupMute:      m.mutationHandler("group", actionGroupMute, true),
+		actionGroupUnmute:    m.mutationHandler("group", actionGroupUnmute, false),
 	}
 }
 

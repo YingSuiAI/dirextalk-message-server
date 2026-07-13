@@ -9,8 +9,6 @@ func (s *Service) registerChannelActions(actions map[string]actionHandler) {
 	actions["channels.dissolve"] = s.dissolveChannel
 	actions["channels.leave"] = s.memberMutationAction("channel", "channels.leave")
 	actions["channels.member.remove"] = s.memberMutationAction("channel", "channels.member.remove")
-	actions["channels.member.mute"] = s.memberMutationAction("channel", "channels.member.mute")
-	actions["channels.member.unmute"] = s.memberMutationAction("channel", "channels.member.unmute")
 	actions["channels.join_request.approve"] = s.memberMutationAction("channel", "channels.join_request.approve")
 	actions["channels.join_request.reject"] = s.memberMutationAction("channel", "channels.join_request.reject")
 	actions["channels.mute"] = s.channelPolicyMutationAction("channels.mute")

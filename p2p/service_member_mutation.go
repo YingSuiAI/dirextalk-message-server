@@ -72,12 +72,6 @@ func (s *Service) memberMutation(ctx context.Context, scope, action string, para
 				return nil, transportWriteError(err)
 			}
 		}
-	case strings.Contains(action, ".unmute"):
-		member.Membership = fallbackString(member.Membership, "join")
-		member.Muted = false
-	case strings.Contains(action, ".mute"):
-		member.Membership = fallbackString(member.Membership, "join")
-		member.Muted = true
 	case strings.Contains(action, ".approve"):
 		member.Membership = "approved"
 	case strings.Contains(action, ".reject"):
@@ -87,11 +81,6 @@ func (s *Service) memberMutation(ctx context.Context, scope, action string, para
 	}
 	if err := s.saveMember(ctx, member); err != nil {
 		return nil, internalError(err)
-	}
-	if strings.Contains(action, ".mute") || strings.Contains(action, ".unmute") {
-		if apiErr := s.publishMemberPolicyState(ctx, member); apiErr != nil {
-			return nil, apiErr
-		}
 	}
 	if strings.Contains(action, ".join_request.") {
 		stateStatus := ""

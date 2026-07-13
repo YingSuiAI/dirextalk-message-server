@@ -29,7 +29,7 @@ func (s *testStore) ListMembers(_ context.Context, roomID, channelID string) ([]
 }
 
 func TestHandlersOwnSharedMemberListActions(t *testing.T) {
-	module := New(&testStore{})
+	module := New(&testStore{}, Config{})
 	handlers := module.Handlers()
 	names := make([]string, 0, len(handlers))
 	for name, handler := range handlers {
@@ -39,11 +39,11 @@ func TestHandlersOwnSharedMemberListActions(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if want := []string{"channels.members", "groups.members"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"channels.member.mute", "channels.member.unmute", "channels.members", "groups.member.mute", "groups.member.unmute", "groups.members"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("handler names = %#v, want %#v", names, want)
 	}
 
-	for _, name := range names {
+	for _, name := range []string{"channels.members", "groups.members"} {
 		result, actionErr := handlers[name](context.Background(), nil)
 		if actionErr != nil {
 			t.Fatalf("%s error = %#v", name, actionErr)
@@ -66,7 +66,7 @@ func TestListFiltersHiddenMembersNormalizesRolesAndSortsCopy(t *testing.T) {
 	}
 	original := append([]dirextalkdomain.MemberRecord(nil), records...)
 	store := &testStore{records: records}
-	module := New(store)
+	module := New(store, Config{})
 
 	result, actionErr := module.List(context.Background(), map[string]any{
 		"room_id": " !room:example.com ", "channel_id": " channel-1 ",
@@ -115,7 +115,7 @@ func TestListStatusAliasAndRoleFilters(t *testing.T) {
 		{UserID: "@pending:example.com", Membership: "PENDING", Role: "legacy", JoinedAt: 20},
 		{UserID: "@joined:example.com", Membership: "join", Role: "legacy", JoinedAt: 10},
 	}}
-	module := New(store)
+	module := New(store, Config{})
 	tests := []struct {
 		name string
 		raw  map[string]any
@@ -140,7 +140,7 @@ func TestListStatusAliasAndRoleFilters(t *testing.T) {
 }
 
 func TestListMapsReaderFailure(t *testing.T) {
-	module := New(&testStore{err: errors.New("read members")})
+	module := New(&testStore{err: errors.New("read members")}, Config{})
 	result, actionErr := module.List(context.Background(), nil)
 	if result != nil || actionErr == nil || actionErr.Status != http.StatusInternalServerError || actionErr.Error != "internal error: read members" {
 		t.Fatalf("list failure = (%#v, %#v)", result, actionErr)
