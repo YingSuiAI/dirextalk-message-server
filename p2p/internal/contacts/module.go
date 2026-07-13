@@ -83,6 +83,9 @@ type Config struct {
 	DeleteGroup          func(ctx context.Context, roomID string) error
 	LeaveRoom            func(ctx context.Context, roomID string) *actionbase.Error
 	AcceptDirectRoom     DirectRoomAcceptor
+	CreateDirectRoom     DirectRoomCreator
+	InviteDirectRoom     DirectRoomInviter
+	NewDirectRoomID      func() string
 	LocalProfile         func() LocalProfileSnapshot
 	ReactivateDirectRoom DirectRoomReactivator
 }
@@ -93,14 +96,17 @@ type peerMutationEntry struct {
 }
 
 type Module struct {
-	store          Store
-	conversation   ConversationPort
-	deleteGroup    func(context.Context, string) error
-	leaveRoom      func(context.Context, string) *actionbase.Error
-	acceptRoom     DirectRoomAcceptor
-	localProfile   func() LocalProfileSnapshot
-	reactivateRoom DirectRoomReactivator
-	mutationMu     sync.Mutex
+	store           Store
+	conversation    ConversationPort
+	deleteGroup     func(context.Context, string) error
+	leaveRoom       func(context.Context, string) *actionbase.Error
+	acceptRoom      DirectRoomAcceptor
+	createRoom      DirectRoomCreator
+	inviteRoom      DirectRoomInviter
+	newDirectRoomID func() string
+	localProfile    func() LocalProfileSnapshot
+	reactivateRoom  DirectRoomReactivator
+	mutationMu      sync.Mutex
 
 	peerMutationsMu sync.Mutex
 	peerMutations   map[string]*peerMutationEntry
@@ -108,13 +114,16 @@ type Module struct {
 
 func New(store Store, conversation ConversationPort, cfg Config) *Module {
 	return &Module{
-		store:          store,
-		conversation:   conversation,
-		deleteGroup:    cfg.DeleteGroup,
-		leaveRoom:      cfg.LeaveRoom,
-		acceptRoom:     cfg.AcceptDirectRoom,
-		localProfile:   cfg.LocalProfile,
-		reactivateRoom: cfg.ReactivateDirectRoom,
+		store:           store,
+		conversation:    conversation,
+		deleteGroup:     cfg.DeleteGroup,
+		leaveRoom:       cfg.LeaveRoom,
+		acceptRoom:      cfg.AcceptDirectRoom,
+		createRoom:      cfg.CreateDirectRoom,
+		inviteRoom:      cfg.InviteDirectRoom,
+		newDirectRoomID: cfg.NewDirectRoomID,
+		localProfile:    cfg.LocalProfile,
+		reactivateRoom:  cfg.ReactivateDirectRoom,
 	}
 }
 

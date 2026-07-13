@@ -11,6 +11,7 @@ const (
 	actionDelete        = "contacts.delete"
 	actionList          = "contacts.list"
 	actionReactivate    = "contacts.reactivate"
+	actionRequest       = "contacts.request"
 	actionUpdate        = "contacts.update"
 	actionRequestAccept = "contacts.requests.accept"
 	actionRequestDelete = "contacts.requests.delete"

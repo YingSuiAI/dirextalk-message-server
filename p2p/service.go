@@ -564,7 +564,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
-		AcceptDirectRoom:     service.acceptDirectContactRoom,
+		AcceptDirectRoom: service.acceptDirectContactRoom,
+		CreateDirectRoom: service.createContactDirectRoom,
+		InviteDirectRoom: service.inviteContactDirectRoom,
+		NewDirectRoomID: func() string {
+			return "!dm-" + randomToken("room") + ":" + service.serverName
+		},
 		LocalProfile:         service.localContactProfileSnapshot,
 		ReactivateDirectRoom: service.reactivateRetainedDirectRoom,
 		DeleteGroup: func(ctx context.Context, roomID string) error {

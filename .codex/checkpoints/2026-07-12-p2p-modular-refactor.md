@@ -1,11 +1,11 @@
 # P2P Modular Refactor Checkpoint
 
 - Status: in_progress
-- Updated: 2026-07-12 Asia/Shanghai
+- Updated: 2026-07-13 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `5fe5ead` (`refactor: isolate peer contact reactivation client`)
+- Current published HEAD before this verified slice: `25c734a` (`refactor: unify direct contact room writes`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified typed DirectRoom Create/Invite adapter, then move the pending-outbound resend leaf and simple fresh/replacement flows into the contacts module. Keep Join outcome classification and durable `contact.requested` compensation as separate later work.
+- Commit and push the verified resend plus simple fresh/replacement request leaves, then migrate the accepted/no-op probe and existing-room approval workflows. Keep Join outcome classification and durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -109,6 +109,10 @@
 - The verified DirectRoom writer slice unifies two duplicate private/direct CreateRoom paths and two duplicate existing-room InviteUser paths behind typed contacts-module Create/Invite ports. The former 41-line reactivation adapter is folded into the cohesive 96-line direct-room Matrix adapter, and `service_contacts.go` falls from 557 to 500 lines without moving the Join/retry state machine.
 - Tests lock current versus captured owner snapshots, exact direct profile state, nil-transport fallbacks, raw/empty/blank room IDs, precise sender-left tolerance, PolicyError and ordinary error mapping, and Matrix-before-persistence integration behavior. The module DTO does not accept a caller-supplied local identity; captured-profile reuse remains a root-private helper.
 - Latest DirectRoom writer gates passed: focused contact tests and adapter race tests, `go test ./p2p/... -count=1` (root 87.299s, storage 37.184s), related transport/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, `git diff --check`, and independent engineering plus contract reviews with no P0-P3 finding.
+- Published `25c734a`: duplicate direct-room Create/Invite writes now share typed contacts ports in one cohesive Matrix adapter; the old 41-line reactivation adapter was folded into it.
+- The verified request-leaf slice moves pending-outbound resend and simple fresh/replacement creation into one 128-line `p2p/internal/contacts/request.go`. The module now owns field/remark merge rules, ID/create/invite ports, Save, operation/conversation response construction, and parameter-copy semantics; root retains dispatch, peer locking, remote probes, and Join lifecycle orchestration. `service_contacts.go` drops from 500 to 424 lines.
+- Tests cover exact remark precedence, optional-field preservation, derived/stored/explicit domain handling, nil/blank invite boundaries, generated/empty creator room IDs, Create/Invite→Save→Operation ordering, Upsert and operation partial commits, replacement inheritance/reset rules, caller-map immutability, and non-reentrant peer-lock use. A root regression confirms no-transport construction wires the `!dm-...:<server>` ID generator.
+- Latest request-leaf gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 77.231s, storage 35.311s), related policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering, contract, and test audits found no production issue; their two test-fidelity findings were corrected before the final gates.
 
 ## Related Finding Outside This Structural Slice
 

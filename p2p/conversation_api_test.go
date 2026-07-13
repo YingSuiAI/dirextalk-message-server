@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,9 @@ func TestContactRequestReturnsConversationOperation(t *testing.T) {
 		t.Fatal(apiErr)
 	}
 	contact := got.(contactRecord)
+	if !strings.HasPrefix(contact.RoomID, "!dm-") || !strings.HasSuffix(contact.RoomID, ":example.com") {
+		t.Fatalf("transportless contact request room ID = %q", contact.RoomID)
+	}
 	if contact.Operation["action"] != "contacts.request" || contact.Operation["status"] != "pending_outbound" || contact.Operation["room_id"] != contact.RoomID {
 		t.Fatalf("unexpected contact request operation: %#v", contact.Operation)
 	}
