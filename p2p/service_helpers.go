@@ -74,10 +74,6 @@ func boolParam(value any) bool {
 	return actionbase.Bool(value)
 }
 
-func boolMapParam(value any) map[string]bool {
-	return actionbase.BoolMap(value)
-}
-
 func domainFromMXID(mxid string) string {
 	return dirextalkdomain.DomainFromMXID(mxid)
 }

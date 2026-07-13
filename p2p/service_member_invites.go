@@ -184,42 +184,6 @@ func (s *Service) refreshRoomChannel(ctx context.Context, roomID string) (string
 	return ch.ChannelID, nil
 }
 
-func (s *Service) refreshRoomMembers(ctx context.Context, roomID, channelID string) error {
-	if s.transport == nil || roomID == "" {
-		return nil
-	}
-	members, err := s.transport.ListRoomMembers(ctx, roomID)
-	if err != nil {
-		return err
-	}
-	if channelID == "" {
-		if ch, ok, lookupErr := s.channelByIDOrRoom(ctx, "", roomID); lookupErr == nil && ok {
-			channelID = ch.ChannelID
-		}
-	}
-	for _, member := range members {
-		member.RoomID = roomID
-		if member.ChannelID == "" {
-			member.ChannelID = channelID
-		}
-		if member.Membership == "" {
-			member.Membership = "join"
-		}
-		if member.Role == "" {
-			member.Role = "member"
-		}
-		if existing, ok, lookupErr := s.lookupMember(ctx, member.RoomID, member.UserID); lookupErr != nil {
-			return lookupErr
-		} else if ok {
-			mergeRefreshedMember(&member, existing)
-		}
-		if err := s.saveMember(ctx, member); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func mergeRefreshedChannel(ch *channel, existing channel) {
 	if ch.Name == "" {
 		ch.Name = existing.Name

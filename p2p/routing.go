@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
@@ -12,8 +11,6 @@ import (
 )
 
 const PathPrefix = "/_p2p/"
-
-const eventStreamHeartbeat = 25 * time.Second
 
 // envelope remains the shared product HTTP request shape used by outbound
 // inter-node adapters and package integration tests.
@@ -89,12 +86,7 @@ func (p serviceHTTPMCPPort) Invoke(ctx context.Context, action string, params ma
 	return p.service.dirextalkMCPService().Invoke(ctx, action, params)
 }
 
-// These compatibility helpers remain for the realtime adapter and package
-// tests until the WS transport moves into its own module.
-func setCORSHeaders(w http.ResponseWriter, r *http.Request) {
-	httpapi.SetCORSHeaders(w, r)
-}
-
+// These compatibility helpers remain for root adapters and package tests.
 func badRequest(message string) *apiError {
 	return actionbase.BadRequest(message)
 }
@@ -109,10 +101,6 @@ func statusError(status int, message string) *apiError {
 
 func codedError(status int, code, message string) *apiError {
 	return actionbase.CodedError(status, code, message)
-}
-
-func writeError(w http.ResponseWriter, err *apiError) {
-	httpapi.WriteError(w, err)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

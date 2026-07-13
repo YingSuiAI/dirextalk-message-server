@@ -292,6 +292,9 @@ func (s *Service) clearAccountStateInMemory() {
 
 func (s *Service) clearAccountStateAfterDeprovision() {
 	s.mu.Lock()
+	if s.realtimeModule != nil {
+		s.realtimeModule.ResetTickets()
+	}
 	s.accountDeprovisioned = true
 	s.initialized = false
 	s.password = ""
@@ -302,7 +305,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.profile = ownerProfile{UserID: s.ownerMXID, Domain: s.serverName}
 	s.agentConfig = agentConfig{}
 	s.clientBuild = clientBuild{}
-	s.realtimeWSTickets = map[string]realtimeWSTicket{}
 	resetter, _ := s.store.(interface{ ResetAccountState() })
 	s.mu.Unlock()
 	s.eventsModule.ResetSequence()

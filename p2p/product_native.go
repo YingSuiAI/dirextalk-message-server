@@ -7,7 +7,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
-	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -160,14 +159,4 @@ func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
 
 func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error) {
 	return s.eventsModule.List(ctx, since, limit)
-}
-
-type p2pEventCursorStatus = eventsmodule.CursorStatus
-
-func (s *Service) p2pEventCursorStatus(ctx context.Context, since int64) (p2pEventCursorStatus, error) {
-	return s.eventsModule.CursorStatus(ctx, since)
-}
-
-func (s *Service) p2pEventWaiter() <-chan struct{} {
-	return s.eventsModule.Waiter()
 }

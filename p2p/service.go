@@ -30,6 +30,7 @@ import (
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
 	profilemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/profile"
 	projectormodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/projector"
+	realtimewsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/realtimews"
 	releasemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/release"
 	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
@@ -119,11 +120,11 @@ type Service struct {
 	portalModule         *portalmodule.Module
 	profileModule        *profilemodule.Module
 	projectorModule      *projectormodule.Module
+	realtimeModule       *realtimewsmodule.Module
 	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
 
-	serviceRealtimeState
 	serviceOperationState
 }
 
@@ -563,7 +564,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			clientBuild:             state.ClientBuild,
 			portalSessionGeneration: 1,
 		},
-		serviceRealtimeState: newServiceRealtimeState(realtimeSessions),
 	}
 	service.eventsModule = eventsmodule.New(service.store, eventsmodule.Config{
 		RetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
@@ -804,6 +804,18 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		MCP:     service.mcpCapabilities,
 	})
 	service.actions = service.actionHandlers()
+	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{
+		Actions:      serviceRealtimeActionPort{service: service},
+		Events:       service.eventsModule,
+		Sessions:     realtimeSessions,
+		Plugins:      service.pluginsModule,
+		Agent:        service.agentModule,
+		TicketActive: service.realtimeWSTicketActive,
+	}, realtimewsmodule.Config{
+		Now:               time.Now,
+		NewToken:          randomToken,
+		HeartbeatInterval: realtimewsmodule.DefaultHeartbeatInterval,
+	})
 	if memoryStore, ok := store.(*p2pstorage.MemoryStore); ok {
 		service.mu.Lock()
 		state := service.portalStateLocked()

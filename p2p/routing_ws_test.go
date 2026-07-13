@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	realtimewsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/realtimews"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
@@ -24,14 +26,13 @@ type recordingReadMarkerStore struct {
 }
 
 func TestRealtimeWSErrorIncludesStructuredRecoveryFields(t *testing.T) {
-	service := &Service{actions: map[string]actionHandler{
-		"test.recovery": func(context.Context, map[string]any) (any, *apiError) {
-			err := codedError(http.StatusGone, "request_expired", "request expired")
-			err.OperationID = "op_test"
-			err.CurrentRoomID = "!current:example.com"
-			return nil, err
-		},
-	}}
+	service := NewService(Config{ServerName: "example.com"})
+	service.actions["test.recovery"] = func(context.Context, map[string]any) (any, *apiError) {
+		err := codedError(http.StatusGone, "request_expired", "request expired")
+		err.OperationID = "op_test"
+		err.CurrentRoomID = "!current:example.com"
+		return nil, err
+	}
 	frame := service.handleRealtimeWSRequest(context.Background(), realtimeWSTicket{Role: "owner"}, map[string]any{
 		"id": "request-1", "action": "test.recovery", "params": map[string]any{},
 	})
@@ -66,8 +67,8 @@ func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwner(t *testing.T) {
 	router := newP2PTestRouter(service)
 
 	ticketResponse := mustCreateRealtimeWSTicketResponse(t, router, service.AccessToken())
-	if int64(ticketResponse["expires_in_ms"].(float64)) != int64(realtimeWSTicketTTL/time.Millisecond) {
-		t.Fatalf("expected ticket TTL to be exposed as %dms, got %#v", int64(realtimeWSTicketTTL/time.Millisecond), ticketResponse)
+	if int64(ticketResponse["expires_in_ms"].(float64)) != int64(realtimewsmodule.TicketTTL/time.Millisecond) {
+		t.Fatalf("expected ticket TTL to be exposed as %dms, got %#v", int64(realtimewsmodule.TicketTTL/time.Millisecond), ticketResponse)
 	}
 	if int64(ticketResponse["expires_in_ms"].(float64)) != 120000 {
 		t.Fatalf("expected weak-network ticket TTL to be 120000ms, got %#v", ticketResponse)
@@ -99,6 +100,18 @@ func TestRealtimeWSUpgradeFailureDoesNotConsumeTicket(t *testing.T) {
 	}
 }
 
+func TestAccountStateClearInvalidatesRealtimeTickets(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	ticket, apiErr := service.createRealtimeWSTicketForToken(service.AccessToken())
+	if apiErr != nil {
+		t.Fatalf("create WS ticket: %#v", apiErr)
+	}
+	service.clearAccountStateInMemory()
+	if err := service.consumeRealtimeWSTicket(ticket["ticket"].(string)); err == nil {
+		t.Fatal("account-state clear left a realtime ticket usable")
+	}
+}
+
 func TestRealtimeWSTicketCreateRejectsMissingOrInvalidBearer(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
@@ -110,7 +123,7 @@ func TestRealtimeWSTicketCreateRejectsMissingOrInvalidBearer(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := jsonRequest(t, "/_p2p/command", map[string]any{
-				"action": realtimeWSTicketAction,
+				"action": serviceapi.RealtimeWSTicketAction,
 				"params": map[string]any{},
 			})
 			if token != "" {
@@ -347,6 +360,9 @@ func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 		actions:            map[string]actionHandler{},
 		servicePortalState: servicePortalState{ownerMXID: "@owner:example.com"},
 	}
+	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{
+		Actions: serviceRealtimeActionPort{service: service},
+	}, realtimewsmodule.Config{})
 	for action := range registered {
 		action := action
 		service.actions[action] = func(context.Context, map[string]any) (any, *apiError) {
@@ -375,7 +391,7 @@ func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 			"action": action,
 			"params": params,
 		})
-		if message := realtimeWSClientRequestBlockedMessage(action); message != "" {
+		if message := realtimewsmodule.ClientRequestBlockedMessage(action); message != "" {
 			if frame["ok"] != false ||
 				int(frame["status"].(int)) != http.StatusBadRequest ||
 				frame["error"] != message {
@@ -494,7 +510,7 @@ func mustCreateRealtimeWSTicket(t *testing.T, router http.Handler, token string)
 func mustCreateRealtimeWSTicketResponse(t *testing.T, router http.Handler, token string) map[string]any {
 	t.Helper()
 	req := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": realtimeWSTicketAction,
+		"action": serviceapi.RealtimeWSTicketAction,
 		"params": map[string]any{},
 	})
 	req.Header.Set("Authorization", "Bearer "+token)

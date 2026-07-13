@@ -1,11 +1,11 @@
 # P2P Modular Refactor Checkpoint
 
-- Status: paused_by_join_recovery_priority
-- Updated: 2026-07-13 Asia/Shanghai
+- Status: in_progress
+- Updated: 2026-07-14 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
-- Branch: `adam/p2p-modular-refactor`
-- Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `a128491` (`refactor: modularize events and projector`)
+- Branch: `adam/p2p-modular-realtime-ws`
+- Base: local `main` at `7dcf8af6ba5f529d4b772db7c0a1e9851756dfef`; `origin/main` remains `675b877d5cdf4b9603ca0915f85d0a766b4a2daa`
+- Current verified working base: `7dcf8af` (`feat: add legacy agent gateway foundation`), preserved without modification by this stage.
 
 ## Outcome And Boundaries
 
@@ -29,11 +29,20 @@
 5. Consolidate HTTP/WS/MCP adapters and confirmed duplicate implementations.
 6. Run contract, PostgreSQL/restart, projection/multi-node, lint, build, and independent standards/spec review gates.
 
-## Current Next Action
+## Current Resume State
 
-- The modular refactor is paused while the higher-priority cross-node join/contact/channel recovery defect is fixed in server and client repositories. Do not resume structural migration or delete join/retry fault-injection tests until that behavior work is complete.
-- Verified refactor HEAD is `35529dc` (`refactor: modularize http transports`) and is pushed to `origin/adam/p2p-modular-refactor`.
-- Unverified realtime-WS extraction WIP is preserved locally as stash commit `1cc53d87589caf2a4f03f152f2ca6234ceedf408` with message `wip: realtime websocket modularization paused for join recovery`. It contains root facade/wiring edits plus partial `p2p/internal/realtimews` tests and must be restored only onto `35529dc`, then completed and verified before any commit.
+- The higher-priority join/contact/channel recovery defect is complete and released as `v1.0.3` at `30afd1f`; retain its focused fault-injection coverage.
+- The realtime WS migration is committed on the current branch. It recreates the old partial WIP from the released implementation rather than applying it: `p2p/internal/realtimews` owns tickets, upgrade/hello/event replay, frame handling, and Plugin/Native Agent streams; root only retains Service wiring and narrow adapters.
+- The migration preserves v1.0.3 WS recovery fields at the top-level error envelope (`code`, `error_code`, `operation_id`, `current_room_id`), ticket single-use/failed-upgrade behavior, account-delete ticket invalidation, Gorilla mount behavior, and existing List-then-Waiter / stream-ID-reuse semantics.
+- The old stash `stash@{0}` / `1cc53d87589caf2a4f03f152f2ca6234ceedf408` remains untouched. It is incomplete and predates v1.0.3; do not apply or drop it.
+- After this WS commit, the next low-risk migration candidate is the root-owned Agent account workflow (`agent.password`, `agent.matrix_session.create`, `agent.config.get/update`) into `p2p/internal/agent`. Avoid join-recovery, direct-room reactivation, and account-deprovision behavior changes.
+
+## Realtime WS Stage Verification
+
+- Focused protocol checks passed: `go test ./p2p/internal/realtimews ./p2p -run '^(TestConsumeTicketRejectsInactiveAccount|TestPluginAndAgentStreamsPreserveFramesAndSharedIDNamespace|TestRealtime|TestAccountStateClearInvalidatesRealtimeTickets|TestNativeAgentRealtime|TestClientVersionReportRejectsConnectedOwnerWS)' -count=1`.
+- Stage gate passed once: `go test ./p2p/... -count=1` (root 85.345s; storage 35.854s), `go test ./internal/httputil ./setup -count=1`, `go test ./p2p/serviceapi -count=1`, and `go build ./cmd/dirextalk-message-server`.
+- Touched files passed `gofmt`, `gopls check`, `go vet ./p2p/...`, `golangci-lint` (`unused`, `ineffassign`, `staticcheck`), and `git diff --check`. The lint pass also removed four confirmed private dead wrappers plus the uncalled `refreshRoomMembers` helper.
+- Independent engineering/contract review found no P0/P1/P2. It confirmed structured recovery fields, account-delete ticket fencing without a new lock cycle, CORS/Origin, ActionSpecs transport restrictions, stream frame shapes, and no join-recovery bypass.
 
 ## Completed Verification
 
