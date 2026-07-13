@@ -1,6 +1,6 @@
 # P2P Modular Refactor Checkpoint
 
-- Status: in_progress
+- Status: paused_by_join_recovery_priority
 - Updated: 2026-07-13 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
@@ -31,7 +31,9 @@
 
 ## Current Next Action
 
-- Commit and push the verified HTTP/MCP transport stage. Next extract the 744-line realtime WS implementation into `p2p/internal/realtimews`, preserving the shared session store, ticket/upgrade ordering, event replay, ActionSpecs gating, plugin/Agent stream frames, and current lock ordering. Keep both known WS concurrency bugs behaviorally unchanged and fix them only in separate follow-up slices.
+- The modular refactor is paused while the higher-priority cross-node join/contact/channel recovery defect is fixed in server and client repositories. Do not resume structural migration or delete join/retry fault-injection tests until that behavior work is complete.
+- Verified refactor HEAD is `35529dc` (`refactor: modularize http transports`) and is pushed to `origin/adam/p2p-modular-refactor`.
+- Unverified realtime-WS extraction WIP is preserved locally as stash commit `1cc53d87589caf2a4f03f152f2ca6234ceedf408` with message `wip: realtime websocket modularization paused for join recovery`. It contains root facade/wiring edits plus partial `p2p/internal/realtimews` tests and must be restored only onto `35529dc`, then completed and verified before any commit.
 
 ## Completed Verification
 
