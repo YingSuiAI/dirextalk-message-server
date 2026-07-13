@@ -1,9 +1,11 @@
 # P2P Operation Recovery Checkpoint
 
-- Status: pre_commit_release_gate_pending
+- Status: complete
 - Updated: 2026-07-14 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
-- Branch: `adam/p2p-operation-recovery`
+- Delivery branch: `main`
+- Recovery branch: `adam/p2p-operation-recovery`
+- Released commit/tag: `30afd1f47cee880825d288232046769e0f1699f9` / `v1.0.3`
 - HEAD before this uncommitted slice: `b8c5547`
 - Base refactor branch: `adam/p2p-modular-refactor`
 - Paused WS-refactor stash: `stash@{0}` / `1cc53d87589caf2a4f03f152f2ca6234ceedf408`; do not apply or drop during recovery/release work.
@@ -63,9 +65,18 @@
   federation deadline fix. Its six focused contact accept regressions passed,
   covering probe and JoinRoom deadlines, lost responses, a normal join,
   federated retry, and non-ambiguous failure handling.
+- CI run `29271110904` passed for `30afd1f`; the repository release contract,
+  formal verification, and the exact-digest retained-data upgrade all passed.
+- v1.0.3 was published with fixed and `latest` digest
+  `sha256:c7d92c066c75d72e17313f9b46dc86536397a60ae785f0a3412331857cd79722`.
+  The annotated tag resolves to `30afd1f`; the formal GitHub Release assets
+  and all checksum files were independently verified, and the pulled image
+  reports `v1.0.3`.
 
-## Remaining Work
+## Completion
 
-1. Run final static checks, commit/push `adam/p2p-operation-recovery`, merge it fast-forward to `main`, and wait for CI.
-2. Run the repository-owned v1.0.3 release workflow from reviewed `main`; inject Docker Hub GitHub secrets through the credential helper without printing them. The authoritative v1.0.2 source digest remains `sha256:fc9897338c688e203152660b91bdedbbc74b02ce5df66f9878e5ba2632e2d42e`.
-3. Client `ad60499` focused contract/state tests (109), channel review widgets (12), friend recovery widgets (3), and `flutter analyze --no-pub lib` passed on 2026-07-13; its worktree remained clean. Send the final server contract/integration result without editing Flutter.
+- The server result and immutable release coordinates were sent to client task
+  `019f5a87-921b-7a20-9b77-1c49cc360a51`; no Flutter files were modified here.
+- Temporary Docker proxy, credential configuration, and release runtime helper
+  files were removed after publication. The paused WS-refactor stash remains
+  untouched.
