@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `d5563e7` (`refactor: move existing contact request workflows`)
+- Current published HEAD before this verified slice: `e316acf` (`refactor: type direct joins and move pending contacts`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified typed Join adapter plus pending-inbound workflow, then migrate no-local retained-room restoration and finally the deleted lifecycle. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified no-local retained-room restoration, then migrate the final deleted-contact lifecycle and collapse the remaining root request dispatcher/facades. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -121,6 +121,10 @@
 - The verified Join/pending slice introduces typed `Succeeded`, `InviteRequired`, `RetainedUnavailable`, and `Failed` Matrix outcomes. The cohesive root adapter owns normal/reactivation mode flags, mode-specific six-attempt retry, Dendrite error classification, server fallback, and raw/blank RoomID behavior. Existing no-local/deleted callers consume the adapter without moving their distinct fallback decisions.
 - `AcceptPendingInbound` now lives in an 81-line workflow file and consumes a Join port only when transport was enabled at construction. It snapshots local identity once, reuses it for normal Join, peer probe, and reactivation Join, maps peer pending/not-retained to the existing old-room approval variants, fills only empty fields, clears remark, and preserves Save/Operation and result-shape semantics. Root `service_contacts.go` falls from 372 to 325 lines.
 - Latest Join/pending gates passed in two batches: focused module/root race tests covering adapter and old pending/deleted/no-local paths, then parallel `go test ./p2p/... -count=1` (root 91.693s, storage 45.745s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `e316acf`: Matrix Join retry/classification is typed at the root adapter, and pending-inbound acceptance/renegotiation now belongs to the contacts module behind a conditionally wired Join port.
+- The verified retained-room slice moves the no-local peer probe, transportless accepted restore, reactivation Join, unavailable-room replacement, final snapshot persistence, and restored flag into a cohesive 79-line module workflow. It preserves the unique rule that NotRetained/Pending/blank remote rooms fall back to a normal fresh request while only RetainedUnavailable creates replacement.
+- Retained tests cover eligibility, peer outcomes/errors, transportless restore, single profile snapshot, room-server fallback, raw joined RoomID, unavailable replacement and replacement failure, ordinary/unknown Join failures, request remark non-persistence, and Save/Operation errors. Root `service_contacts.go` falls from 325 to 259 lines.
+- Latest retained-room gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 81.941s, storage 40.809s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

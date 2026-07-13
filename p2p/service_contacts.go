@@ -50,78 +50,12 @@ func (s *Service) contactRequestForPeer(ctx context.Context, mxid string, params
 	} else if ok {
 		return s.contactsModule.ResolveExistingRequest(ctx, contactStorageRecordFromContact(existing), params, fallbackString(domain, existing.Domain))
 	}
-	if contact, restored, apiErr := s.restoreRetainedPeerContact(ctx, mxid, params, domain); apiErr != nil {
+	if contact, restored, apiErr := s.contactsModule.RestoreRetainedPeer(ctx, mxid, params, domain); apiErr != nil {
 		return nil, apiErr
 	} else if restored {
 		return contact, nil
 	}
 	return s.contactsModule.CreateRequest(ctx, mxid, params, domain)
-}
-
-func (s *Service) restoreRetainedPeerContact(ctx context.Context, mxid string, params map[string]any, domain string) (contactRecord, bool, *apiError) {
-	if remoteNodeBaseURLParam(params) == "" || domain == "" || domain == s.serverName {
-		return contactRecord{}, false, nil
-	}
-	s.mu.Lock()
-	ownerMXID := s.ownerMXID
-	ownerDisplayName := s.profile.DisplayName
-	ownerAvatarURL := s.profile.AvatarURL
-	s.mu.Unlock()
-	reactivation, apiErr := s.requestPeerContactReactivation(ctx, contactRecord{PeerMXID: mxid, Domain: domain}, params, ownerMXID)
-	if apiErr != nil {
-		if contactReactivationNotRetained(apiErr) {
-			return contactRecord{}, false, nil
-		}
-		return contactRecord{}, false, apiErr
-	}
-	if reactivation.PendingInbound || strings.TrimSpace(reactivation.RoomID) == "" {
-		return contactRecord{}, false, nil
-	}
-	roomID := reactivation.RoomID
-	if s.transport != nil {
-		join := s.joinContactDirectRoomTransport(ctx, contactsmodule.DirectRoomJoinRequest{
-			RoomID: roomID,
-			Profile: contactsmodule.LocalProfileSnapshot{
-				MXID: ownerMXID, DisplayName: ownerDisplayName, AvatarURL: ownerAvatarURL,
-			},
-			ServerNames:           stringSliceParam(params["server_names"]),
-			Mode:                  contactsmodule.DirectRoomJoinReactivation,
-			UseRoomServerFallback: true,
-		})
-		if join.Kind != contactsmodule.DirectRoomJoinSucceeded {
-			if join.Kind == contactsmodule.DirectRoomJoinRetainedUnavailable {
-				replacement, apiErr := s.contactsModule.CreateReplacementRequest(ctx, contactStorageRecordFromContact(contactRecord{
-					PeerMXID:    mxid,
-					DisplayName: trimString(params["display_name"]),
-					AvatarURL:   trimString(params["avatar_url"]),
-					Domain:      domain,
-					RoomID:      roomID,
-					Status:      "accepted",
-				}), params, domain)
-				if apiErr != nil {
-					return contactRecord{}, false, apiErr
-				}
-				return replacement, true, nil
-			}
-			return contactRecord{}, false, join.Failure
-		}
-		roomID = join.RoomID
-	}
-	contact := contactRecord{
-		PeerMXID:    mxid,
-		DisplayName: trimString(params["display_name"]),
-		AvatarURL:   trimString(params["avatar_url"]),
-		Domain:      domain,
-		RoomID:      roomID,
-		Status:      "accepted",
-	}
-	if err := s.saveContact(ctx, contact); err != nil {
-		return contactRecord{}, false, internalError(err)
-	}
-	if err := s.attachContactConversationOperation(ctx, &contact, "contacts.request", contact.Status); err != nil {
-		return contactRecord{}, false, internalError(err)
-	}
-	return contact, true, nil
 }
 
 func (s *Service) acceptDirectContactRoom(ctx context.Context, contact contactStorageRecord, serverNames []string) (string, *apiError) {
