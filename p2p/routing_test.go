@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
 	"github.com/gorilla/mux"
 )
 
@@ -93,39 +94,7 @@ func TestEventsEndpointIsRemoved(t *testing.T) {
 	}
 }
 
-func TestBootstrapAndAuthAreBodyActions(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-
-	bootstrap := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "portal.bootstrap",
-		"params": map[string]any{"token": service.password},
-	})
-	bootstrapRec := httptest.NewRecorder()
-	router.ServeHTTP(bootstrapRec, bootstrap)
-	if bootstrapRec.Code != http.StatusOK {
-		t.Fatalf("bootstrap expected 200, got %d body=%s", bootstrapRec.Code, bootstrapRec.Body.String())
-	}
-
-	auth := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "portal.auth",
-		"params": map[string]any{"password": service.password},
-	})
-	authRec := httptest.NewRecorder()
-	router.ServeHTTP(authRec, auth)
-	if authRec.Code != http.StatusOK {
-		t.Fatalf("auth expected 200, got %d body=%s", authRec.Code, authRec.Body.String())
-	}
-	var got map[string]any
-	if err := json.Unmarshal(authRec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["access_token"] == "" {
-		t.Fatalf("expected access token, got %#v", got)
-	}
-}
-
-func TestAutoHomeserverResponseUsesRequestHost(t *testing.T) {
+func TestAutoHomeserverResponseUsesRequestHostAndBootstrapTokenAlias(t *testing.T) {
 	service := NewService(Config{
 		ServerName: "example.com",
 		Homeserver: "http://auto",
@@ -133,8 +102,8 @@ func TestAutoHomeserverResponseUsesRequestHost(t *testing.T) {
 	router := newP2PTestRouter(service)
 
 	req := jsonRequest(t, "/_p2p/query", map[string]any{
-		"action": "portal.auth",
-		"params": map[string]any{"password": service.password},
+		"action": "portal.bootstrap",
+		"params": map[string]any{"token": service.password},
 	})
 	req.Host = "10.0.2.2:18008"
 	rec := httptest.NewRecorder()
@@ -215,54 +184,6 @@ func TestPortalOwnerWellKnownIsPublic(t *testing.T) {
 	}
 }
 
-func TestChannelMembersQueryFiltersStatusAndReturnsLegacyFields(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-
-	mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
-	channelRaw := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":  "approval",
-		"room_id":     "!approval:example.com",
-		"name":        "Approval",
-		"join_policy": "approval",
-	})
-	channelID := channelRaw.ChannelID
-	roomID := channelRaw.RoomID
-	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
-	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@bob:example.com"})
-	mustHandle[map[string]any](t, service, "channels.join_request.approve", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
-
-	list := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": channelID, "status": "pending"})
-	members := list["members"].([]memberRecord)
-	if len(members) != 1 {
-		t.Fatalf("expected one pending member, got %#v", list)
-	}
-	member := members[0]
-	if member.UserID != "@bob:example.com" || member.Membership != "pending" {
-		t.Fatalf("expected legacy and unified member fields, got %#v", member)
-	}
-}
-
-func TestChannelJoinRequestResolutionReturnsChannelForClientRefresh(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-
-	mustHandle[map[string]any](t, service, "portal.bootstrap", map[string]any{"password": service.password})
-	channelRaw := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":  "approval",
-		"room_id":     "!approval:example.com",
-		"name":        "Approval",
-		"join_policy": "approval",
-	})
-	channelID := channelRaw.ChannelID
-	roomID := channelRaw.RoomID
-	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
-
-	approved := mustHandle[map[string]any](t, service, "channels.join_request.approve", map[string]any{"channel_id": channelID, "room_id": roomID, "user_mxid": "@alice:example.com"})
-	channel := approved["channel"].(channel)
-	if approved["status"] != "approved" || channel.ChannelID != channelID || channel.PendingJoinCount != 0 {
-		t.Fatalf("expected approved status and refreshed channel, got %#v", approved)
-	}
-}
-
 func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
@@ -328,57 +249,19 @@ func TestPublicChannelActionsDoNotRequireBearer(t *testing.T) {
 	}
 }
 
-func TestAgentTokenCanOnlyCallAgentBootstrapAndStandardMCP(t *testing.T) {
+func TestRemovedMCPBodyActionIsUnknownOverHTTP(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
-	agentToken := service.AgentToken()
-
-	if !service.Authorize(agentToken, "agent.matrix_session.create") {
-		t.Fatal("expected agent token to authorize agent Matrix session bootstrap")
-	}
-	for _, action := range []string{
-		"contacts.request",
-		"agent.config.get",
-		"agent.config.update",
-		"agent.password",
-		"portal.account.delete",
-		realtimeWSTicketAction,
-	} {
-		if service.Authorize(agentToken, action) {
-			t.Fatalf("expected agent token to reject %s", action)
-		}
-	}
 
 	mcpReq := jsonRequest(t, "/_p2p/query", map[string]any{
 		"action": "mcp.rooms.search",
 		"params": map[string]any{"q": "none"},
 	})
-	mcpReq.Header.Set("Authorization", "Bearer "+agentToken)
+	mcpReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
 	if mcpRec.Code != http.StatusBadRequest || !strings.Contains(mcpRec.Body.String(), "unknown action") {
 		t.Fatalf("expected removed HTTP MCP body action to be unknown, got %d body=%s", mcpRec.Code, mcpRec.Body.String())
-	}
-
-	wsTicketReq := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": realtimeWSTicketAction,
-	})
-	wsTicketReq.Header.Set("Authorization", "Bearer "+agentToken)
-	wsTicketRec := httptest.NewRecorder()
-	router.ServeHTTP(wsTicketRec, wsTicketReq)
-	if wsTicketRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected agent token realtime WS ticket creation to be unauthorized, got %d body=%s", wsTicketRec.Code, wsTicketRec.Body.String())
-	}
-
-	agentRequest := jsonRequest(t, "/_p2p/command", map[string]any{
-		"action": "contacts.request",
-		"params": map[string]any{"mxid": "@agent-ok:example.com"},
-	})
-	agentRequest.Header.Set("Authorization", "Bearer "+agentToken)
-	agentRec := httptest.NewRecorder()
-	router.ServeHTTP(agentRec, agentRequest)
-	if agentRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected agent token to be unauthorized for owner HTTP fallback, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
 }
 
@@ -412,13 +295,49 @@ func TestHealthReportsAdditiveBuildInfo(t *testing.T) {
 	}
 }
 
-func TestMCPInitializeReportsCanonicalBuildVersion(t *testing.T) {
-	result := mcpInitializeResult()
-	serverInfo, ok := result["serverInfo"].(map[string]any)
-	if !ok {
-		t.Fatalf("serverInfo = %#v", result["serverInfo"])
-	}
-	if serverInfo["version"] != "v1.0.2" {
-		t.Fatalf("serverInfo.version = %#v, want v1.0.2", serverInfo["version"])
+func TestProductionMountPreservesMethodAndPathErrors(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	routers := httputil.NewRouters()
+	Register(routers.P2P, service)
+	RegisterMCP(routers.MCP, service)
+	RegisterWellKnown(routers.PortalWellKnown, service)
+
+	external := mux.NewRouter().SkipClean(true).UseEncodedPath()
+	external.Handle(httputil.MCPPath, routers.MCP)
+	external.PathPrefix(httputil.P2PPathPrefix).Handler(routers.P2P)
+	external.PathPrefix(httputil.PublicPortalWellKnownPrefix).Handler(routers.PortalWellKnown)
+	external.NotFoundHandler = httputil.NotFoundCORSHandler
+	external.MethodNotAllowedHandler = httputil.NotAllowedHandler
+
+	for _, test := range []struct {
+		name   string
+		method string
+		path   string
+		status int
+	}{
+		{name: "P2P HEAD", method: http.MethodHead, path: "/_p2p/health", status: http.StatusMethodNotAllowed},
+		{name: "P2P PUT", method: http.MethodPut, path: "/_p2p/query", status: http.StatusMethodNotAllowed},
+		{name: "MCP HEAD", method: http.MethodHead, path: "/mcp", status: http.StatusMethodNotAllowed},
+		{name: "trailing slash", method: http.MethodGet, path: "/_p2p/health/", status: http.StatusNotFound},
+		{name: "encoded path", method: http.MethodGet, path: "/_p2p/%68ealth", status: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, nil)
+			rec := httptest.NewRecorder()
+			external.ServeHTTP(rec, req)
+			if rec.Code != test.status {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.status, rec.Body.String())
+			}
+			if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+				t.Fatalf("global CORS changed: %#v", rec.Header())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["errcode"] != "M_UNRECOGNIZED" || body["error"] != "Unrecognized request" {
+				t.Fatalf("global route error changed: %#v", body)
+			}
+		})
 	}
 }

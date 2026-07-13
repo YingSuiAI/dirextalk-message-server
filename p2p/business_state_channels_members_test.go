@@ -65,7 +65,9 @@ func TestChannelJoinRequestPersistsPendingMemberAndResolves(t *testing.T) {
 		"user_mxid":  "@alice:remote.example",
 	})
 	approvedMember := approved["member"].(memberRecord)
-	if approved["status"] != "approved" || approvedMember.Membership != "approved" {
+	approvedChannel := approved["channel"].(channel)
+	if approved["status"] != "approved" || approvedMember.Membership != "approved" ||
+		approvedChannel.ChannelID != ch.ChannelID || approvedChannel.PendingJoinCount != 0 {
 		t.Fatalf("expected remote approved request without callback to remain approved until requester node joins, got %#v", approved)
 	}
 

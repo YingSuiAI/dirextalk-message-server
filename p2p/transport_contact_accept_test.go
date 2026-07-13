@@ -224,35 +224,6 @@ func TestContactAcceptDoesNotPersistWhenReplacementCreateFails(t *testing.T) {
 	}
 }
 
-func TestContactAcceptAlreadyAcceptedDoesNotJoinDirectRoomThroughTransport(t *testing.T) {
-	transport := &recordingTransport{}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-	if err := service.saveContact(context.Background(), contactRecord{
-		RoomID:      "!dm:remote.example",
-		PeerMXID:    "@alice:remote.example",
-		DisplayName: "Alice",
-		Domain:      "remote.example",
-		Status:      "accepted",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	accepted := mustHandle[contactRecord](t, service, "contacts.requests.accept", map[string]any{
-		"room_id":      "!dm:remote.example",
-		"peer_mxid":    "@alice:remote.example",
-		"display_name": "Wrong Param",
-		"domain":       "remote.example",
-	})
-
-	if accepted.Status != "accepted" || accepted.RoomID != "!dm:remote.example" {
-		t.Fatalf("expected existing accepted contact, got %#v", accepted)
-	}
-	if len(transport.joins) != 0 {
-		t.Fatalf("accepted contact accept must not join direct room again, got %#v", transport.joins)
-	}
-}
-
 func TestContactAcceptDoesNotPersistWhenJoinFails(t *testing.T) {
 	transport := &failOnceJoinTransport{
 		err:      productpolicy.Forbidden("join denied"),

@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `85ec11c` (`refactor: modularize agent and mcp`)
+- Current published HEAD before this verified slice: `a128491` (`refactor: modularize events and projector`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified event/projector/test-cleanup stage. Next extract ProductCore HTTP and standard MCP HTTP into `p2p/internal/httpapi`, leaving Gorilla as the public mount and preserving all method, auth, CORS, JSON, body-limit, forwarded-host, well-known, and JSON-RPC behavior. Move the 703-line realtime WS adapter only in its following grouped stage.
+- Commit and push the verified HTTP/MCP transport stage. Next extract the 744-line realtime WS implementation into `p2p/internal/realtimews`, preserving the shared session store, ticket/upgrade ordering, event replay, ActionSpecs gating, plugin/Agent stream frames, and current lock ordering. Keep both known WS concurrency bugs behaviorally unchanged and fix them only in separate follow-up slices.
 
 ## Completed Verification
 
@@ -178,6 +178,9 @@
 - The verified event/projector/test-cleanup stage moves durable P2P event sequencing, retention, cursor validation, and waiter notification into `p2p/internal/events`, and all roomserver projection workflows into six cohesive `p2p/internal/projector` files. Root retains only the two public projector methods, account-deprovision barrier, identity snapshot, and narrow Matrix/business-module adapters.
 - Read markers now use only the configured Store; the write-only root shadow map and the remaining root read-model/event state containers are gone. Contacts production files were structurally consolidated from 12 to 6 without changing declarations or logic. Small root facades were merged by business ownership, obsolete projector/helper files were removed, and retired-action checks now live in one ActionSpecs table while HTTP, WS, MCP, Matrix, restart, concurrency, and partial-commit boundaries remain covered.
 - Root P2P production code is now 41 files / 5,837 lines, down from 53 files / 7,362 lines at the prior published stage. The grouped gate ran once: `go test ./p2p/... -count=1` (root 99.790s, storage 40.081s), related domain/matrix/projection/state/transport/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, exact 146-action contract hash, and `git diff --check` passed. Independent engineering and contract audits found no P0-P3 issue; focused concurrency tests also passed under race.
+- The verified HTTP/MCP transport stage moves ProductCore HTTP, standard MCP Streamable HTTP/JSON-RPC, shared CORS/JSON/Bearer/body-limit handling, auto homeserver resolution, health, and owner well-known into three cohesive production files under `p2p/internal/httpapi`. Root `routing.go` now owns only Gorilla mounts, narrow Service adapters, the inter-node envelope, and temporary WS/error compatibility helpers; obsolete `routing_mcp.go` is removed without introducing a framework or dependency.
+- Redundant routing/WS/contact transport negatives were reduced by 277 lines while retaining all unique auth, no-token-leak, Matrix-before-persist, partial-commit, retry, and protocol boundaries. A production-like Gorilla mount table now locks HEAD/PUT 405, path 404, encoded-path behavior, Matrix error envelopes, and global CORS; the legacy `portal.bootstrap params.token` alias remains covered through the auto-homeserver integration test.
+- Root P2P production code is now 40 files / 5,507 lines. The grouped gate ran once: `go test ./p2p/... -count=1` (root 126.459s, storage 73.937s), focused `internal/httputil`/`setup`, `go vet`, touched/new-file `gopls check`, unused/ineffassign/staticcheck, production build, exact 146-action contract hash, and `git diff --check` passed. Post-gate test-only audit fixes passed their exact root/httpapi tests. Independent engineering and contract audits found no runtime P0-P2 regression; their method-mount and legacy-alias coverage notes were both closed.
 
 ## Related Finding Outside This Structural Slice
 
@@ -191,3 +194,4 @@
 - Plugin Docker lifecycle and durable plugin/job/config state are not transactional. Pending/finalized jobs, per-plugin serialization, startup reconciliation, and compensation need a separate behavior/storage design rather than being silently introduced during file migration.
 - Realtime WS currently lists events before acquiring its waiter. An event arriving between the empty list result and waiter acquisition can miss the wakeup and remain delayed until a later event; fix the listen/recheck sequence in a separate behavior slice.
 - Event append preserves the existing insert-then-prune behavior: if insertion succeeds but retention pruning fails, no waiter is notified and a deduplicated retry cannot wake it. Resolving this requires an explicit notification/error or outbox policy decision, separate from the structural move.
+- Realtime stream cancellation allows an ID to be reused immediately; the old goroutine can later finish and delete the new stream's cancel handle. A future behavior fix should bind finish/cancel to a registration generation rather than changing stream semantics during the structural WS move.

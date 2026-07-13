@@ -3,7 +3,6 @@ package p2p
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -33,9 +32,8 @@ func trimString(value any) string {
 	return actionbase.String(value)
 }
 
-// cloneAnyMap and jsonValue are shared root transport/Agent helpers. They stay
-// outside the plugin module because MCP, realtime, release, and Native Agent
-// adapters also depend on their legacy shallow-copy and JSON behavior.
+// cloneAnyMap remains the shared root shallow-copy helper for cross-domain
+// adapters until those transports move into their owning modules.
 func cloneAnyMap(values map[string]any) map[string]any {
 	if values == nil {
 		return map[string]any{}
@@ -45,14 +43,6 @@ func cloneAnyMap(values map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
-}
-
-func jsonValue(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }
 
 func stringSliceParam(value any) []string {

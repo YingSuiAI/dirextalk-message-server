@@ -81,6 +81,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `p2p/internal/{conversation,social,calls,blocks,contacts,members,groups,channels,reports,plugins,agent,mcp,portal,profile,release}`：按业务域拥有 ProductCore handler、DTO 与完整工作流。
 - `p2p/internal/events`：拥有持久化产品事件流的序列分配、保留策略、游标校验和实时 waiter 通知。
 - `p2p/internal/projector`：拥有 roomserver output 到 P2P read model 与产品事件的投影工作流。
+- `p2p/internal/httpapi`：拥有 ProductCore HTTP、标准 MCP Streamable HTTP、CORS、JSON 解码和公开 health/well-known 协议处理；Gorilla 仍只在根路由边界负责精确路径与 method 挂载。
 - `p2p/service_*.go`：保留公开 facade、跨域编排及 Matrix/运行时适配。
 - `p2p/storage`：P2P projection/read model 持久化。
 - `internal/dirextalktransport`：产品 Matrix 写入 transport contract。

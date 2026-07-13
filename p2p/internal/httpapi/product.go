@@ -1,0 +1,123 @@
+package httpapi
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
+)
+
+// ProductPort is the narrow root capability required by the ProductCore HTTP
+// adapter. Authorize may return a context carrying an authenticated session.
+type ProductPort interface {
+	HasAction(action string) bool
+	Authorize(ctx context.Context, token, action string) (context.Context, bool)
+	Handle(ctx context.Context, action string, params map[string]any) (any, *actionbase.Error)
+	CreateWSTicket(token string) (any, *actionbase.Error)
+}
+
+type productEnvelope struct {
+	Action string         `json:"action"`
+	Params map[string]any `json:"params"`
+}
+
+// ProductHandler handles both ProductCore query and command envelopes. Route
+// method selection remains owned by the outer router.
+func ProductHandler(port ProductPort) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		SetCORSHeaders(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		var req productEnvelope
+		if err := decodeJSONBody(w, r, &req); err != nil {
+			WriteError(w, actionbase.BadRequest("invalid json"))
+			return
+		}
+		if req.Params == nil {
+			req.Params = map[string]any{}
+		}
+		action := strings.TrimSpace(req.Action)
+		if action == "" {
+			WriteError(w, actionbase.BadRequest("action is required"))
+			return
+		}
+		if _, ok := serviceapi.ActionSpecFor(action); !ok {
+			WriteError(w, actionbase.BadRequest("unknown action"))
+			return
+		}
+		if (port == nil || !port.HasAction(action)) && action != serviceapi.RealtimeWSTicketAction {
+			WriteError(w, actionbase.BadRequest("unknown action"))
+			return
+		}
+		if !serviceapi.HTTPAction(action) {
+			WriteError(w, actionbase.StatusError(http.StatusBadRequest, "action requires websocket"))
+			return
+		}
+
+		token := BearerToken(r.Header.Get("Authorization"))
+		ctx := r.Context()
+		if !serviceapi.PublicAction(action) {
+			var authorized bool
+			if port != nil {
+				ctx, authorized = port.Authorize(ctx, token, action)
+			}
+			if !authorized {
+				WriteError(w, actionbase.StatusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
+				return
+			}
+		}
+
+		if action == serviceapi.RealtimeWSTicketAction {
+			response, err := port.CreateWSTicket(token)
+			if err != nil {
+				WriteError(w, err)
+				return
+			}
+			WriteJSON(w, http.StatusOK, response)
+			return
+		}
+		response, err := port.Handle(ctx, action, req.Params)
+		if err != nil {
+			WriteError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, ResponseForRequest(r, response))
+	}
+}
+
+// HealthHandler exposes the additive build and schema metadata contract.
+func HealthHandler(buildInfo BuildInfoProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		SetCORSHeaders(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		build := currentBuildInfo(buildInfo)
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"status":                "ok",
+			"version":               build.Version,
+			"commit":                build.Commit,
+			"build_time":            build.BuildTime,
+			"schema_version":        build.SchemaVersion,
+			"schema_compat_version": build.SchemaCompatVersion,
+		})
+	}
+}
+
+// WellKnownHandler exposes the public owner profile discovery payload.
+func WellKnownHandler(wellKnown func() any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		SetCORSHeaders(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		WriteJSON(w, http.StatusOK, wellKnown())
+	}
+}

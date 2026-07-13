@@ -84,7 +84,7 @@ func TestActionMetadataCoversRegistryAndDerivesClassifications(t *testing.T) {
 		if _, ok := service.actions[action]; !ok {
 			t.Fatalf("action metadata %s has no registered handler", action)
 		}
-		if spec.Transport == serviceapi.ActionTransportWSStreamOnly && httpProductActionAllowed(action) {
+		if spec.Transport == serviceapi.ActionTransportWSStreamOnly && serviceapi.HTTPAction(action) {
 			t.Fatalf("stream-only action %s must not be allowed through HTTP body actions", action)
 		}
 	}

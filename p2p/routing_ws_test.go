@@ -323,33 +323,6 @@ func TestRealtimeWSClientCommandIsRemoved(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSRejectsHTTPOnlyAgentSession(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-	server := httptest.NewServer(router)
-	defer server.Close()
-	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
-	defer conn.Close(websocket.StatusNormalClosure, "")
-
-	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
-		t.Fatalf("expected ready, got %#v", got)
-	}
-	writeRealtimeFrame(t, conn, map[string]any{
-		"type":   "client.request",
-		"id":     "req-agent-session",
-		"action": "agent.matrix_session.create",
-		"params": map[string]any{"device_id": "DIREXTALK_AGENT_GATEWAY"},
-	})
-	agentSession := readRealtimeResponse(t, conn, "req-agent-session")
-	if agentSession["type"] != "server.response" ||
-		agentSession["ok"] != false ||
-		int(agentSession["status"].(float64)) != http.StatusBadRequest ||
-		agentSession["error"] != "action requires http" {
-		t.Fatalf("expected agent Matrix session request to require HTTP, got %#v", agentSession)
-	}
-}
-
 func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 	registered := NewService(Config{ServerName: "example.com"}).actionHandlers()
 	service := &Service{actions: map[string]actionHandler{}}

@@ -887,7 +887,3 @@ func (s *Service) publishAgentStatusState(ctx context.Context, roomID, senderMXI
 		Event:      agentStatusStateEvent(agentMXID, online),
 	})
 }
-
-func publicAction(action string) bool {
-	return serviceapi.PublicAction(action)
-}

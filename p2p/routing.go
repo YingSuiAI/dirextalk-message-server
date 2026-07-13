@@ -1,202 +1,98 @@
 package p2p
 
 import (
-	"encoding/json"
+	"context"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/internal"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
+	httpapi "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/httpapi"
 	"github.com/gorilla/mux"
 )
 
 const PathPrefix = "/_p2p/"
 
-const (
-	eventStreamHeartbeat = 25 * time.Second
-)
+const eventStreamHeartbeat = 25 * time.Second
 
+// envelope remains the shared product HTTP request shape used by outbound
+// inter-node adapters and package integration tests.
 type envelope struct {
 	Action string         `json:"action"`
 	Params map[string]any `json:"params"`
 }
 
 func Register(router *mux.Router, service *Service) {
-	router.HandleFunc("/query", handle(service)).Methods(http.MethodPost, http.MethodOptions)
-	router.HandleFunc("/command", handle(service)).Methods(http.MethodPost, http.MethodOptions)
+	product := httpapi.ProductHandler(serviceHTTPProductPort{service: service})
+	router.HandleFunc("/query", product).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/command", product).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		setCORSHeaders(w, r)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		buildInfo := internal.CurrentBuildInfo()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":                "ok",
-			"version":               buildInfo.Version,
-			"commit":                buildInfo.Commit,
-			"build_time":            buildInfo.BuildTime,
-			"schema_version":        buildInfo.SchemaVersion,
-			"schema_compat_version": buildInfo.SchemaCompatVersion,
-		})
-	}).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/health", httpapi.HealthHandler(nil)).Methods(http.MethodGet, http.MethodOptions)
 }
 
 func RegisterMCP(router *mux.Router, service *Service) {
-	router.HandleFunc("/mcp", handleMCP(service)).Methods(http.MethodPost, http.MethodGet, http.MethodOptions)
+	handler := httpapi.MCPHandler(httpapi.MCPConfig{Port: serviceHTTPMCPPort{service: service}})
+	router.HandleFunc("/mcp", handler).Methods(http.MethodPost, http.MethodGet, http.MethodOptions)
 }
 
 func RegisterWellKnown(router *mux.Router, service *Service) {
-	router.HandleFunc("/owner.json", func(w http.ResponseWriter, r *http.Request) {
-		setCORSHeaders(w, r)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		writeJSON(w, http.StatusOK, service.profileModule.WellKnown())
-	}).Methods(http.MethodGet, http.MethodOptions)
+	handler := httpapi.WellKnownHandler(func() any { return service.profileModule.WellKnown() })
+	router.HandleFunc("/owner.json", handler).Methods(http.MethodGet, http.MethodOptions)
 }
 
-func handle(service *Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		setCORSHeaders(w, r)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		var req envelope
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024*1024))
-		decoder.UseNumber()
-		if err := decoder.Decode(&req); err != nil {
-			writeError(w, badRequest("invalid json"))
-			return
-		}
-		if req.Params == nil {
-			req.Params = map[string]any{}
-		}
-		action := strings.TrimSpace(req.Action)
-		if action == "" {
-			writeError(w, badRequest("action is required"))
-			return
-		}
-		if _, ok := serviceapi.ActionSpecFor(action); !ok {
-			writeError(w, badRequest("unknown action"))
-			return
-		}
-		if _, ok := service.actions[action]; !ok && action != realtimeWSTicketAction {
-			writeError(w, badRequest("unknown action"))
-			return
-		}
-		req.Action = action
-		if !httpProductActionAllowed(action) {
-			writeError(w, statusError(http.StatusBadRequest, "action requires websocket"))
-			return
-		}
-		token := bearerToken(r.Header.Get("Authorization"))
-		ctx := r.Context()
-		if !publicAction(req.Action) {
-			identity, authorized := service.authorizeProductAction(token, req.Action)
-			if !authorized {
-				writeError(w, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN"))
-				return
-			}
-			if identity.Generation != 0 {
-				ctx = withPortalActionSession(ctx, identity)
-			}
-		}
-		if req.Action == realtimeWSTicketAction {
-			response, err := service.createRealtimeWSTicketForToken(token)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, response)
-			return
-		}
-		response, err := service.Handle(ctx, req.Action, req.Params)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		response = responseForRequest(r, response)
-		writeJSON(w, http.StatusOK, response)
+type serviceHTTPProductPort struct{ service *Service }
+
+func (p serviceHTTPProductPort) HasAction(action string) bool {
+	if p.service == nil {
+		return false
 	}
+	_, ok := p.service.actions[action]
+	return ok
 }
 
-func httpProductActionAllowed(action string) bool {
-	return serviceapi.HTTPAction(action)
+func (p serviceHTTPProductPort) Authorize(ctx context.Context, token, action string) (context.Context, bool) {
+	if p.service == nil {
+		return ctx, false
+	}
+	identity, authorized := p.service.authorizeProductAction(token, action)
+	if !authorized {
+		return ctx, false
+	}
+	if identity.Generation != 0 {
+		ctx = withPortalActionSession(ctx, identity)
+	}
+	return ctx, true
 }
 
-func responseForRequest(r *http.Request, response any) any {
-	session, ok := response.(map[string]any)
-	if !ok {
-		return response
-	}
-	homeserver, ok := session["homeserver"].(string)
-	if !ok || !isAutoHomeserver(homeserver) {
-		return response
-	}
-	copy := make(map[string]any, len(session))
-	for key, value := range session {
-		copy[key] = value
-	}
-	copy["homeserver"] = requestBaseURL(r)
-	return copy
+func (p serviceHTTPProductPort) Handle(ctx context.Context, action string, params map[string]any) (any, *actionbase.Error) {
+	return p.service.Handle(ctx, action, params)
 }
 
-func isAutoHomeserver(value string) bool {
-	value = strings.TrimSpace(value)
-	if strings.EqualFold(value, "auto") {
-		return true
-	}
-	parsed, err := url.Parse(value)
-	return err == nil && strings.EqualFold(parsed.Hostname(), "auto")
+func (p serviceHTTPProductPort) CreateWSTicket(token string) (any, *actionbase.Error) {
+	return p.service.createRealtimeWSTicketForToken(token)
 }
 
-func requestBaseURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
-		scheme = forwardedProto
-	}
-	host := r.Host
-	if forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
-		host = forwardedHost
-	}
-	return scheme + "://" + host
+type serviceHTTPMCPPort struct{ service *Service }
+
+func (p serviceHTTPMCPPort) TokenAuthorized(token string) bool {
+	return p.service != nil && token != "" && token == p.service.AgentToken()
 }
 
-func firstForwardedValue(value string) string {
-	if value == "" {
-		return ""
+func (p serviceHTTPMCPPort) Tools() []dirextalkmcp.Tool {
+	if p.service == nil {
+		return nil
 	}
-	return strings.TrimSpace(strings.Split(value, ",")[0])
+	return p.service.dirextalkMCPService().Tools()
 }
 
+func (p serviceHTTPMCPPort) Invoke(ctx context.Context, action string, params map[string]any) (any, *dirextalkmcp.Error) {
+	return p.service.dirextalkMCPService().Invoke(ctx, action, params)
+}
+
+// These compatibility helpers remain for the realtime adapter and package
+// tests until the WS transport moves into its own module.
 func setCORSHeaders(w http.ResponseWriter, r *http.Request) {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		origin = "*"
-	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Vary", "Origin")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, Last-Event-ID")
-	w.Header().Set("Access-Control-Allow-Private-Network", "true")
-}
-
-func bearerToken(header string) string {
-	if !strings.HasPrefix(header, "Bearer ") {
-		return ""
-	}
-	return strings.TrimPrefix(header, "Bearer ")
+	httpapi.SetCORSHeaders(w, r)
 }
 
 func badRequest(message string) *apiError {
@@ -216,15 +112,9 @@ func codedError(status int, code, message string) *apiError {
 }
 
 func writeError(w http.ResponseWriter, err *apiError) {
-	value := map[string]string{"error": err.Error}
-	if err.Code != "" {
-		value["code"] = err.Code
-	}
-	writeJSON(w, err.Status, value)
+	httpapi.WriteError(w, err)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	httpapi.WriteJSON(w, status, value)
 }
