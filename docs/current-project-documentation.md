@@ -92,6 +92,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `internal/dirextalkdomain`：跨包共享的产品 value records 和纯 domain helper，例如 portal/agent config、conversation records、member/channel records、blocks、calls、favorites、reports、P2P event bounds 等；业务 response DTO 由各自的 `p2p/internal` 模块持有。
 - `internal/dirextalkplugin`：非 Agent plugin catalog/instance/job/secret record shapes；`p2p/internal/plugins` 拥有 plugin action orchestration、Docker runner 和 Native Agent/plugin 隔离规则。
 - `p2p/projector.go`、`p2p/projector_ports.go`：只保留投影公开 facade、账户生命周期门禁和 Matrix/业务模块适配；纯投影 helper 由 `internal/dirextalkprojection` 持有。
+- `p2p/internal/legacygateway`：Release Gate M 的受限 Matrix→vNext Agent Control 兼容边界；独立消费结构化 invoke、严格校验、冻结 digest、持久化幂等 reservation，并通过 tenant-scoped mTLS gRPC 创建 Agent Run。它不保存 prompt、不拥有 Run 结果事实，也不阻塞普通 projector。
 - `p2p/consumer.go`：保留订阅 consumer 的公开 facade，实现在 `p2p/internal/projector`。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。
 
@@ -120,7 +121,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `io.dirextalk.member.policy` 投影成员角色与禁言。
 - `io.dirextalk.join_request` 投影申请审批状态。
 - Matrix `m.room.member membership=join` 是最终 joined 事实。
-- 普通 Matrix timeline 不复制到 P2P 普通消息表；普通消息读写走 Matrix Client-Server API。配置的 agents room 也保持 Matrix-native：本地 bridge 使用 `@agent:<server>` Matrix session 通过 `/sync` 接收消息，通过 Matrix send/edit 写入预览和最终回复，不投影为 `agent_room.message`，也不使用 `client.agent_stream` 或 `server.agent_stream`。
+- 普通 Matrix timeline 不复制到 P2P 普通消息表；普通消息读写走 Matrix Client-Server API。配置的 agents room 也保持 Matrix-native：现有本地 bridge 使用 `@agent:<server>` Matrix session 处理旧文本消息并通过 Matrix send/edit 写入预览和最终回复，不投影为 `agent_room.message`，也不使用 `client.agent_stream` 或 `server.agent_stream`。Release Gate M 的服务端 Legacy Gateway 基础模块只处理 owner 在该房间发送的 `io.dirextalk.agent.invoke.v1` 结构化事件，以独立 JetStream durable 和 PostgreSQL v38 reservation 向 vNext Agent Control 创建 Run；它不会把普通 timeline 或 prompt 复制到新消息表。生产 monolith 暂不开放该 consumer，必须先完成旧 Connect consumer 的可验证互斥切换，避免同一输入双重执行。
 
 ## 5. 用户请求生命周期
 

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/legacygateway"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 )
 
@@ -37,31 +38,38 @@ type MemoryStore struct {
 	pluginSecrets map[string]map[string]pluginSecret
 	reports       map[string]reportRecord
 	operations    map[string]operations.Record
+
+	legacyAgentInvocations           map[legacyAgentInvocationKey]legacygateway.InvocationRecord
+	legacyAgentInvocationEvents      map[string]legacyAgentInvocationKey
+	legacyAgentInvocationIdempotency map[legacyAgentIdempotencyKey]legacyAgentInvocationKey
 }
 
 // NewMemoryStore returns an empty, concurrency-safe store. It deliberately has
 // no configuration hook so it cannot silently replace durable production state.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		readMarks:     make(map[string]readMarker),
-		conversations: make(map[string]conversationRecord),
-		channels:      make(map[string]channel),
-		inviteGrants:  make(map[string]channelInviteGrant),
-		contacts:      make(map[string]contactRecord),
-		blocks:        make(map[string]blockRecord),
-		groups:        make(map[string]groupRecord),
-		calls:         make(map[string]callRecord),
-		favorites:     make(map[int64]favoriteRecord),
-		follows:       make(map[string]followRecord),
-		reactions:     make(map[string]reactionRecord),
-		members:       make(map[string]memberRecord),
-		eventSeq:      make(map[int64]struct{}),
-		eventDedupe:   make(map[string]int64),
-		plugins:       make(map[string]pluginInstance),
-		pluginJobs:    make(map[string]pluginJob),
-		pluginSecrets: make(map[string]map[string]pluginSecret),
-		reports:       make(map[string]reportRecord),
-		operations:    make(map[string]operations.Record),
+		readMarks:                        make(map[string]readMarker),
+		conversations:                    make(map[string]conversationRecord),
+		channels:                         make(map[string]channel),
+		inviteGrants:                     make(map[string]channelInviteGrant),
+		contacts:                         make(map[string]contactRecord),
+		blocks:                           make(map[string]blockRecord),
+		groups:                           make(map[string]groupRecord),
+		calls:                            make(map[string]callRecord),
+		favorites:                        make(map[int64]favoriteRecord),
+		follows:                          make(map[string]followRecord),
+		reactions:                        make(map[string]reactionRecord),
+		members:                          make(map[string]memberRecord),
+		eventSeq:                         make(map[int64]struct{}),
+		eventDedupe:                      make(map[string]int64),
+		plugins:                          make(map[string]pluginInstance),
+		pluginJobs:                       make(map[string]pluginJob),
+		pluginSecrets:                    make(map[string]map[string]pluginSecret),
+		reports:                          make(map[string]reportRecord),
+		operations:                       make(map[string]operations.Record),
+		legacyAgentInvocations:           make(map[legacyAgentInvocationKey]legacygateway.InvocationRecord),
+		legacyAgentInvocationEvents:      make(map[string]legacyAgentInvocationKey),
+		legacyAgentInvocationIdempotency: make(map[legacyAgentIdempotencyKey]legacyAgentInvocationKey),
 	}
 }
 

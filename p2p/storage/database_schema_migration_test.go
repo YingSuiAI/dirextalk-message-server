@@ -66,6 +66,7 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_members_user_channel_idx",
 		"p2p_events_room_idx",
 		"p2p_events_type_idx",
+		"p2p_legacy_agent_invocations_state_updated_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {

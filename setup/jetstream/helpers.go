@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/nats-io/nats.go"
@@ -20,6 +21,27 @@ import (
 func JetStreamConsumer(
 	ctx context.Context, js nats.JetStreamContext, subj, durable string, batch int,
 	f func(ctx context.Context, msgs []*nats.Msg) bool,
+	opts ...nats.SubOpt,
+) error {
+	return jetStreamConsumer(ctx, js, subj, durable, batch, f, nil, opts...)
+}
+
+// JetStreamConsumerWithNakDelay behaves like JetStreamConsumer, but negative
+// acknowledgements use the per-message delay returned by nakDelay. This keeps
+// transient downstream failures from causing immediate redelivery loops.
+func JetStreamConsumerWithNakDelay(
+	ctx context.Context, js nats.JetStreamContext, subj, durable string, batch int,
+	f func(ctx context.Context, msgs []*nats.Msg) bool,
+	nakDelay func(msg *nats.Msg) time.Duration,
+	opts ...nats.SubOpt,
+) error {
+	return jetStreamConsumer(ctx, js, subj, durable, batch, f, nakDelay, opts...)
+}
+
+func jetStreamConsumer(
+	ctx context.Context, js nats.JetStreamContext, subj, durable string, batch int,
+	f func(ctx context.Context, msgs []*nats.Msg) bool,
+	nakDelay func(msg *nats.Msg) time.Duration,
 	opts ...nats.SubOpt,
 ) error {
 	defer func(durable string) {
@@ -42,13 +64,14 @@ func JetStreamConsumer(
 		logrus.WithContext(ctx).WithError(err).Warnf("Failed to configure durable %q", durable)
 		return err
 	}
-	go jetStreamConsumerWorker(ctx, sub, subj, batch, f)
+	go jetStreamConsumerWorker(ctx, sub, subj, batch, f, nakDelay)
 	return nil
 }
 
 func jetStreamConsumerWorker(
 	ctx context.Context, sub *nats.Subscription, subj string, batch int,
 	f func(ctx context.Context, msgs []*nats.Msg) bool,
+	nakDelay func(msg *nats.Msg) time.Duration,
 ) {
 	for {
 		// If the parent context has given up then there's no point in
@@ -115,8 +138,19 @@ func jetStreamConsumerWorker(
 			}
 		} else {
 			for _, msg := range msgs {
-				if err = msg.Nak(nats.Context(ctx)); err != nil {
-					logrus.WithContext(ctx).WithField("subject", subj).Warn(fmt.Errorf("msg.Nak: %w", err))
+				operation := "msg.Nak"
+				if nakDelay == nil {
+					err = msg.Nak(nats.Context(ctx))
+				} else {
+					delay := nakDelay(msg)
+					if delay <= 0 {
+						delay = time.Second
+					}
+					operation = "msg.NakWithDelay"
+					err = msg.NakWithDelay(delay, nats.Context(ctx))
+				}
+				if err != nil {
+					logrus.WithContext(ctx).WithField("subject", subj).Warn(fmt.Errorf("%s: %w", operation, err))
 					sentry.CaptureException(err)
 				}
 			}

@@ -22,6 +22,7 @@ import (
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
+	legacygatewaymodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/legacygateway"
 	mcpmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/mcp"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	operationsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
@@ -101,6 +102,7 @@ type Service struct {
 	mcpModule                 *mcpmodule.Module
 	mcpCapabilities           *dirextalkmcp.Service
 	releaseController         releasecontrol.Controller
+	legacyAgentGatewayModule  *legacygatewaymodule.Module
 
 	servicePortalState
 	actions              map[string]actionHandler
@@ -140,6 +142,7 @@ type AccountDeprovisioner interface {
 
 type Store interface {
 	operationsmodule.Store
+	legacygatewaymodule.Store
 	portalStore
 	readMarkerStore
 	channelStore

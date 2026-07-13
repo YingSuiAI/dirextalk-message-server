@@ -702,6 +702,49 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: legacy agent invocation reservations v38",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_legacy_agent_invocations (
+					matrix_room_id TEXT NOT NULL CHECK (matrix_room_id <> ''),
+					request_id UUID NOT NULL,
+					matrix_invoke_event_id TEXT NOT NULL CHECK (matrix_invoke_event_id <> ''),
+					matrix_input_event_id TEXT NOT NULL CHECK (matrix_input_event_id <> ''),
+					tenant_id UUID NOT NULL,
+					installation_id UUID NOT NULL,
+					conversation_id UUID NOT NULL,
+					request_event_id UUID NOT NULL,
+					source_digest BYTEA NOT NULL CHECK (octet_length(source_digest) = 32),
+					idempotency_digest BYTEA NOT NULL CHECK (octet_length(idempotency_digest) = 32),
+					request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32),
+					preferred_connector_id UUID,
+					required_capabilities TEXT[] NOT NULL DEFAULT '{}'
+						CHECK (cardinality(required_capabilities) <= 64),
+					dispatch_mode TEXT NOT NULL CHECK (dispatch_mode IN ('single', 'failover')),
+					grant_version BIGINT NOT NULL CHECK (grant_version > 0 AND grant_version <= 9007199254740991),
+					state TEXT NOT NULL CHECK (state IN ('reserved', 'accepted', 'rejected')),
+					run_id UUID,
+					routing_state TEXT NOT NULL DEFAULT ''
+						CHECK (routing_state IN ('', 'queued', 'offered', 'leased', 'reconcile_required', 'expired')),
+					inserted BOOLEAN,
+					error_code TEXT NOT NULL DEFAULT '',
+					created_at TIMESTAMPTZ NOT NULL,
+					updated_at TIMESTAMPTZ NOT NULL,
+					CHECK (
+						(state = 'reserved' AND run_id IS NULL AND routing_state = '' AND inserted IS NULL AND error_code = '')
+						OR (state = 'accepted' AND run_id IS NOT NULL AND routing_state <> '' AND inserted IS NOT NULL AND error_code = '')
+						OR (state = 'rejected' AND run_id IS NULL AND routing_state = '' AND inserted IS NULL AND error_code <> '')
+					),
+					PRIMARY KEY (matrix_room_id, request_id),
+					UNIQUE (matrix_invoke_event_id),
+					UNIQUE (tenant_id, matrix_room_id, idempotency_digest)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_legacy_agent_invocations_state_updated_idx
+					ON p2p_legacy_agent_invocations(state, updated_at)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 
