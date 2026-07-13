@@ -4,8 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
+	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
@@ -147,7 +148,7 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 	if profile.Dissolved {
 		return s.deleteChannel(ctx, channelID)
 	}
-	ch := projection.ChannelProfile(event.RoomID().String(), channelID, existing, profile.Raw)
+	ch := dirextalkprojection.ChannelProfile(event.RoomID().String(), channelID, existing, profile.Raw)
 	if err := s.channelStore().UpsertChannel(ctx, ch); err != nil {
 		return err
 	}
@@ -166,7 +167,7 @@ func (s *Service) projectGroupProfileContent(ctx context.Context, event *types.H
 		return s.deleteGroup(ctx, roomID)
 	}
 	existing, _, _ := s.groupByRoom(ctx, roomID)
-	group := projection.GroupProfile(roomID, existing, profile.Raw)
+	group := groupsmodule.ViewFromRecord(dirextalkprojection.GroupProfile(roomID, groupsmodule.RecordFromView(existing), profile.Raw))
 	if err := s.saveGroup(ctx, group); err != nil {
 		return err
 	}
@@ -191,7 +192,7 @@ func (s *Service) projectMemberPolicyState(ctx context.Context, event *types.Hea
 	if err != nil {
 		return err
 	}
-	member = projection.MemberPolicy(event.RoomID().String(), policy.UserID, member, ok, policy.Raw, eventTime(event))
+	member = dirextalkprojection.MemberPolicy(event.RoomID().String(), policy.UserID, member, ok, policy.Raw, eventTime(event))
 	if err := s.saveMember(ctx, member); err != nil {
 		return err
 	}
@@ -217,7 +218,7 @@ func (s *Service) projectJoinRequestState(ctx context.Context, event *types.Head
 	if err != nil {
 		return err
 	}
-	member, valid := projection.JoinRequestMember(roomID, joinRequest.ChannelID, joinRequest.UserID, member, ok, joinRequest.Raw, eventTime(event))
+	member, valid := dirextalkprojection.JoinRequestMember(roomID, joinRequest.ChannelID, joinRequest.UserID, member, ok, joinRequest.Raw, eventTime(event))
 	if !valid {
 		return nil
 	}

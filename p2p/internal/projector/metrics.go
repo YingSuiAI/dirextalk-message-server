@@ -1,4 +1,4 @@
-package p2p
+package projector
 
 import (
 	"sync"
@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-type p2pProjectorConsumerMetrics struct {
+type consumerMetrics struct {
 	mu                    sync.Mutex
 	received              uint64
 	processed             uint64
@@ -21,7 +21,7 @@ type p2pProjectorConsumerMetrics struct {
 	lastMessageAgeSeconds float64
 }
 
-type p2pProjectorConsumerMetricsSnapshot struct {
+type consumerMetricsSnapshot struct {
 	Received              uint64
 	Processed             uint64
 	Discarded             uint64
@@ -32,9 +32,9 @@ type p2pProjectorConsumerMetricsSnapshot struct {
 	LastMessageAgeSeconds float64
 }
 
-var defaultP2PProjectorConsumerMetrics = newP2PProjectorConsumerMetrics()
+var defaultConsumerMetrics = newConsumerMetrics()
 
-var p2pProjectorConsumerEvents = promauto.NewCounterVec(
+var consumerEvents = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Namespace: "dirextalk_message_server",
 		Subsystem: "p2p_projector",
@@ -51,7 +51,7 @@ func init() {
 		Name:      "consumer_consecutive_failures",
 		Help:      "Current consecutive P2P projector consumer failures.",
 	}, func() float64 {
-		return float64(defaultP2PProjectorConsumerMetrics.snapshot().ConsecutiveFailures)
+		return float64(defaultConsumerMetrics.snapshot().ConsecutiveFailures)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "dirextalk_message_server",
@@ -59,7 +59,7 @@ func init() {
 		Name:      "consumer_last_success_unixtime",
 		Help:      "Unix time of the last successful P2P projector consumer message.",
 	}, func() float64 {
-		return float64(defaultP2PProjectorConsumerMetrics.snapshot().LastSuccessUnix)
+		return float64(defaultConsumerMetrics.snapshot().LastSuccessUnix)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "dirextalk_message_server",
@@ -67,7 +67,7 @@ func init() {
 		Name:      "consumer_last_failure_unixtime",
 		Help:      "Unix time of the last failed P2P projector consumer message.",
 	}, func() float64 {
-		return float64(defaultP2PProjectorConsumerMetrics.snapshot().LastFailureUnix)
+		return float64(defaultConsumerMetrics.snapshot().LastFailureUnix)
 	})
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "dirextalk_message_server",
@@ -75,15 +75,15 @@ func init() {
 		Name:      "consumer_last_message_age_seconds",
 		Help:      "Age in seconds of the last P2P projector roomserver output message when metadata is available.",
 	}, func() float64 {
-		return defaultP2PProjectorConsumerMetrics.snapshot().LastMessageAgeSeconds
+		return defaultConsumerMetrics.snapshot().LastMessageAgeSeconds
 	})
 }
 
-func newP2PProjectorConsumerMetrics() *p2pProjectorConsumerMetrics {
-	return &p2pProjectorConsumerMetrics{}
+func newConsumerMetrics() *consumerMetrics {
+	return &consumerMetrics{}
 }
 
-func (m *p2pProjectorConsumerMetrics) recordReceived(msg *nats.Msg) {
+func (m *consumerMetrics) recordReceived(msg *nats.Msg) {
 	if m == nil {
 		return
 	}
@@ -103,10 +103,10 @@ func (m *p2pProjectorConsumerMetrics) recordReceived(msg *nats.Msg) {
 		m.lastMessageAgeSeconds = ageSeconds
 	}
 	m.mu.Unlock()
-	p2pProjectorConsumerEvents.WithLabelValues("received").Inc()
+	consumerEvents.WithLabelValues("received").Inc()
 }
 
-func (m *p2pProjectorConsumerMetrics) recordProcessed() {
+func (m *consumerMetrics) recordProcessed() {
 	if m == nil {
 		return
 	}
@@ -115,20 +115,20 @@ func (m *p2pProjectorConsumerMetrics) recordProcessed() {
 	m.consecutiveFailures = 0
 	m.lastSuccessUnix = time.Now().Unix()
 	m.mu.Unlock()
-	p2pProjectorConsumerEvents.WithLabelValues("processed").Inc()
+	consumerEvents.WithLabelValues("processed").Inc()
 }
 
-func (m *p2pProjectorConsumerMetrics) recordDiscarded() {
+func (m *consumerMetrics) recordDiscarded() {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	m.discarded++
 	m.mu.Unlock()
-	p2pProjectorConsumerEvents.WithLabelValues("discarded").Inc()
+	consumerEvents.WithLabelValues("discarded").Inc()
 }
 
-func (m *p2pProjectorConsumerMetrics) recordFailed() {
+func (m *consumerMetrics) recordFailed() {
 	if m == nil {
 		return
 	}
@@ -137,16 +137,16 @@ func (m *p2pProjectorConsumerMetrics) recordFailed() {
 	m.consecutiveFailures++
 	m.lastFailureUnix = time.Now().Unix()
 	m.mu.Unlock()
-	p2pProjectorConsumerEvents.WithLabelValues("failed").Inc()
+	consumerEvents.WithLabelValues("failed").Inc()
 }
 
-func (m *p2pProjectorConsumerMetrics) snapshot() p2pProjectorConsumerMetricsSnapshot {
+func (m *consumerMetrics) snapshot() consumerMetricsSnapshot {
 	if m == nil {
-		return p2pProjectorConsumerMetricsSnapshot{}
+		return consumerMetricsSnapshot{}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return p2pProjectorConsumerMetricsSnapshot{
+	return consumerMetricsSnapshot{
 		Received:              m.received,
 		Processed:             m.processed,
 		Discarded:             m.discarded,

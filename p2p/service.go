@@ -14,7 +14,6 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
@@ -22,6 +21,8 @@ import (
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
+	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
+	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
@@ -69,6 +70,7 @@ type Service struct {
 	matrixSessionMu    sync.Mutex
 	accountOperationMu sync.RWMutex
 	memberWritesMu     sync.Mutex
+	systemRoomMu       sync.Mutex
 	memberWrites       map[string]*memberWriteEntry
 
 	serverName                 string
@@ -89,7 +91,6 @@ type Service struct {
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
 	eventRetentionPruneOnWrite bool
-	pluginRunner               PluginRunner
 	nativeAgentRunner          NativeAgentRunner
 	mcpCapabilities            *dirextalkmcp.Service
 	releaseController          releasecontrol.Controller
@@ -104,6 +105,8 @@ type Service struct {
 	conversationModule   *conversationmodule.Module
 	groupsModule         *groupsmodule.Module
 	membersModule        *membersmodule.Module
+	pluginsModule        *pluginsmodule.Module
+	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
 
 	serviceReadModelState
@@ -138,8 +141,8 @@ type Store interface {
 	memberStore
 	conversationStore
 	eventStore
-	pluginStore
-	reportStore
+	pluginsmodule.Store
+	reportsmodule.Store
 }
 
 type socialStore = socialmodule.Store
@@ -149,32 +152,26 @@ type channelStore = channelsmodule.Store
 type contactStore = contactsmodule.Store
 type groupStore = groupsmodule.Store
 
-type portalState = domain.PortalState
-type ownerProfile = domain.OwnerProfile
-type agentConfig = domain.AgentConfig
+type portalState = dirextalkdomain.PortalState
+type ownerProfile = dirextalkdomain.OwnerProfile
+type agentConfig = dirextalkdomain.AgentConfig
 
 const matrixPortalDeviceID = "P2P_PORTAL"
 
-type readMarker = domain.ReadMarker
-type channel = domain.Channel
-type channelInviteGrant = domain.ChannelInviteGrant
-type channelPostRecord = domain.ChannelPostRecord
-type channelCommentRecord = domain.ChannelCommentRecord
-type contactRecord = domain.ContactRecord
-type blockRecord = domain.BlockRecord
-type groupRecord = domain.GroupRecord
-type callRecord = domain.CallRecord
-type favoriteRecord = domain.FavoriteRecord
-type followRecord = domain.FollowRecord
-type reactionRecord = domain.ReactionRecord
-type channelReactionHistory = domain.ChannelReactionHistory
-type memberRecord = domain.MemberRecord
-type eventBounds = domain.EventBounds
-type pluginCatalogEntry = domain.PluginCatalogEntry
-type pluginInstance = domain.PluginInstance
-type pluginJob = domain.PluginJob
-type pluginSecret = domain.PluginSecret
-type reportRecord = domain.ReportRecord
+type readMarker = dirextalkdomain.ReadMarker
+type channel = dirextalkdomain.Channel
+type channelInviteGrant = dirextalkdomain.ChannelInviteGrant
+type channelPostRecord = channelsmodule.Post
+type channelCommentRecord = channelsmodule.Comment
+type contactRecord = contactsmodule.View
+type blockRecord = dirextalkdomain.BlockRecord
+type groupRecord = groupsmodule.View
+type callRecord = dirextalkdomain.CallRecord
+type favoriteRecord = dirextalkdomain.FavoriteRecord
+type followRecord = dirextalkdomain.FollowRecord
+type reactionRecord = dirextalkdomain.ReactionRecord
+type memberRecord = dirextalkdomain.MemberRecord
+type eventBounds = dirextalkdomain.EventBounds
 type clientBuild = dirextalkdomain.ClientBuild
 
 func NewService(cfg Config) *Service {
@@ -201,7 +198,7 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 	}
 	shouldPersist := !ok || !state.Initialized || strings.TrimSpace(state.Password) == "" || migratedAgentConfig
 	service := newService(cfg, store, transport, state, ok)
-	if err := service.loadPlugins(ctx); err != nil {
+	if err := service.pluginsModule.CheckStore(ctx); err != nil {
 		return nil, err
 	}
 	agentRoomChanged, err := service.ensureAgentRoom(ctx)
@@ -539,7 +536,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	basePluginRunner := cfg.PluginRunner
 	if basePluginRunner == nil {
-		basePluginRunner = newEnvironmentPluginRunner()
+		basePluginRunner = pluginsmodule.NewEnvironmentRunner()
 	}
 	service := &Service{
 		serverName:                 serverName,
@@ -552,7 +549,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		storeMode:                  storeMode(store),
 		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
-		pluginRunner:               basePluginRunner,
 		releaseController:          cfg.ReleaseController,
 		servicePortalState: servicePortalState{
 			initialized:             state.Initialized,
@@ -619,6 +615,23 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		SetMemberMute: service.setGroupMemberMute,
 		RequireOwner:  service.requireOwnerMember,
 		OwnerMXID:     service.memberOwnerMXID,
+	})
+	service.reportsModule = reportsmodule.New(
+		service.store,
+		serviceReportTargetPort{service: service},
+		serviceReportSystemRoomPort{service: service},
+		serviceReportMatrixPort{service: service},
+		service.conversationModule,
+		reportsmodule.Config{
+			NewReportID:       func() string { return "report_" + randomToken("report") },
+			Now:               time.Now,
+			MapTransportError: transportWriteError,
+		},
+	)
+	service.pluginsModule = pluginsmodule.New(service.store, basePluginRunner, pluginsmodule.Config{
+		Homeserver: service.homeserver,
+		Now:        time.Now,
+		NewJobID:   func() string { return randomToken("plugin_job") },
 	})
 	var joinDirectRoom contactsmodule.DirectRoomJoiner
 	if service.transport != nil {
@@ -711,7 +724,6 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	if nativeAgentRunner == nil {
 		nativeAgentRunner = newNativeAgentRuntime(service, cfg.NativeAgentDataDir)
 	}
-	service.pluginRunner = basePluginRunner
 	service.nativeAgentRunner = nativeAgentRunner
 	service.actions = service.actionHandlers()
 	if memoryStore, ok := store.(*p2pstorage.MemoryStore); ok {

@@ -23,7 +23,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("profile-and-sync", s.registerProfileAndSyncActions),
 		{name: "conversations", handlers: s.conversationModule.Handlers()},
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
-		s.collectActionHandlerModule("plugins", s.registerPluginActions),
+		{name: "plugins", handlers: s.pluginsModule.Handlers()},
 		{name: "contacts", handlers: s.contactsModule.Handlers()},
 		{name: "members", handlers: s.membersModule.Handlers()},
 		{name: "blocks", handlers: s.blocksModule.Handlers()},
@@ -33,7 +33,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "channels", handlers: s.channelsModule.Handlers()},
 		{name: "channel-content", handlers: s.channelContentModule.Handlers()},
 		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),
-		s.collectActionHandlerModule("reports", s.registerReportActions),
+		{name: "reports", handlers: s.reportsModule.Handlers()},
 	}
 	return mustBuildActionHandlers(
 		serviceapi.ActionSpecs(),
@@ -46,10 +46,6 @@ func (s *Service) collectActionHandlerModule(name string, register func(map[stri
 	handlers := make(map[string]actionHandler)
 	register(handlers)
 	return actionHandlerModule{name: name, handlers: handlers}
-}
-
-func (s *Service) registerReportActions(actions map[string]actionHandler) {
-	actions["reports.submit"] = s.reportSubmit
 }
 
 func mustBuildActionHandlers(specs []serviceapi.ActionSpec, routeSpecial []string, modules []actionHandlerModule) map[string]actionHandler {

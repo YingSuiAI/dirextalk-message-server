@@ -431,35 +431,27 @@ func TestMCPMessagesPaginationUsesStableSnapshot(t *testing.T) {
 	}
 }
 
-func TestMCPRejectsLegacyTimestampParams(t *testing.T) {
+func TestMCPRejectsInvalidTimeParams(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{})
 
 	for _, tc := range []struct {
-		action string
-		params map[string]any
+		name    string
+		action  string
+		params  map[string]any
+		message string
 	}{
-		{dirextalkmcp.ActionMessagesList, map[string]any{"room_id": "!room:example.com", "from_ts": float64(1710000000000)}},
-		{dirextalkmcp.ActionChannelPostsList, map[string]any{"room_id": "!channel:example.com", "to_ts": float64(1710000000000)}},
-		{dirextalkmcp.ActionChannelCommentsList, map[string]any{"post_id": "post_1", "from_ts": float64(1710000000000)}},
+		{"message legacy timestamp", dirextalkmcp.ActionMessagesList, map[string]any{"room_id": "!room:example.com", "from_ts": float64(1710000000000)}, "from_time"},
+		{"post legacy timestamp", dirextalkmcp.ActionChannelPostsList, map[string]any{"room_id": "!channel:example.com", "to_ts": float64(1710000000000)}, "from_time"},
+		{"comment legacy timestamp", dirextalkmcp.ActionChannelCommentsList, map[string]any{"post_id": "post_1", "from_ts": float64(1710000000000)}, "from_time"},
+		{"non-UTC timestamp", dirextalkmcp.ActionMessagesList, map[string]any{"room_id": "!room:example.com", "from_time": "2024-03-10T00:00:00+08:00"}, "UTC"},
 	} {
-		_, apiErr := service.invokeDirextalkMCP(context.Background(), tc.action, tc.params)
-		if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "from_time") {
-			t.Fatalf("expected %s to reject legacy timestamp params, got %#v", tc.action, apiErr)
-		}
-	}
-}
-
-func TestMCPRejectsNonUTCTimeParams(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	service.SetMatrixMessageReader(&fakeMCPMessageReader{})
-
-	_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesList, map[string]any{
-		"room_id":   "!room:example.com",
-		"from_time": "2024-03-10T00:00:00+08:00",
-	})
-	if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, "UTC") {
-		t.Fatalf("expected non-UTC time to be rejected, got %#v", apiErr)
+		t.Run(tc.name, func(t *testing.T) {
+			_, apiErr := service.invokeDirextalkMCP(context.Background(), tc.action, tc.params)
+			if apiErr == nil || apiErr.Status != http.StatusBadRequest || !strings.Contains(apiErr.Error, tc.message) {
+				t.Fatalf("expected invalid time to mention %q, got %#v", tc.message, apiErr)
+			}
+		})
 	}
 }
 

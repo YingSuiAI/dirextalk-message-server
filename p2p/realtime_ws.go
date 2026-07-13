@@ -342,7 +342,7 @@ func (s *Service) startRealtimeWSPluginStream(ctx context.Context, wsConn *realt
 		wsConn.send(realtimeWSPluginStreamError(id, action, http.StatusBadRequest, "params must be an object"))
 		return
 	}
-	req, clientAction, apiErr := s.pluginInvokeRequest(ctx, params, true)
+	prepared, apiErr := s.pluginsModule.PrepareStream(ctx, params)
 	if apiErr != nil {
 		wsConn.send(realtimeWSPluginStreamError(id, action, apiErr.Status, apiErr.Error))
 		return
@@ -356,7 +356,7 @@ func (s *Service) startRealtimeWSPluginStream(ctx context.Context, wsConn *realt
 	go func() {
 		defer wsConn.finishStream(id)
 		doneSent := false
-		err := s.pluginRunner.StreamPlugin(streamCtx, req, func(event PluginStreamEvent) error {
+		err := s.pluginsModule.RunStream(streamCtx, prepared, func(event PluginStreamEvent) error {
 			eventName := strings.TrimSpace(event.Event)
 			if eventName == "" {
 				eventName = "message"
@@ -371,8 +371,8 @@ func (s *Service) startRealtimeWSPluginStream(ctx context.Context, wsConn *realt
 			return wsConn.sendBlocking(streamCtx, map[string]any{
 				"type":      "server.plugin_stream.event",
 				"id":        id,
-				"plugin_id": req.PluginID,
-				"action":    clientAction,
+				"plugin_id": prepared.PluginID,
+				"action":    prepared.Action,
 				"event":     eventName,
 				"data":      data,
 			})
@@ -381,15 +381,15 @@ func (s *Service) startRealtimeWSPluginStream(ctx context.Context, wsConn *realt
 			if streamCtx.Err() != nil {
 				return
 			}
-			_ = wsConn.sendBlocking(ctx, realtimeWSPluginStreamError(id, clientAction, http.StatusBadGateway, err.Error()))
+			_ = wsConn.sendBlocking(ctx, realtimeWSPluginStreamError(id, prepared.Action, http.StatusBadGateway, err.Error()))
 			return
 		}
 		if !doneSent {
 			_ = wsConn.sendBlocking(ctx, map[string]any{
 				"type":      "server.plugin_stream.event",
 				"id":        id,
-				"plugin_id": req.PluginID,
-				"action":    clientAction,
+				"plugin_id": prepared.PluginID,
+				"action":    prepared.Action,
 				"event":     "done",
 				"data":      map[string]any{},
 			})

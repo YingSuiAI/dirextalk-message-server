@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
@@ -22,9 +23,9 @@ func TestDatabaseStoreMigratesLegacyAgentPluginConfigToNativePortalConfig(t *tes
 	defer store.Close()
 
 	if err := store.UpsertPlugin(ctx, pluginInstance{
-		ID:      agentPluginID,
+		ID:      pluginsmodule.LegacyAgentPluginID,
 		Name:    "Legacy Agent",
-		Status:  pluginStatusEnabled,
+		Status:  pluginsmodule.StatusEnabled,
 		Enabled: true,
 		Config: map[string]any{
 			"display_name":         "Migrated Agent",

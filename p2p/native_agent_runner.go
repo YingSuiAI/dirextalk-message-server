@@ -6,22 +6,18 @@ import (
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
+	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
 const (
-	agentPluginID = "io.dirextalk.agent"
-	opsPluginID   = "io.dirextalk.ops"
+	agentPluginID = pluginsmodule.LegacyAgentPluginID
 )
 
 type NativeAgentRunner interface {
 	Apply(ctx context.Context, action string) error
 	Invoke(ctx context.Context, action string, params map[string]any) (map[string]any, error)
 	Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error
-}
-
-func dockerPluginRunnerEnabled(r PluginRunner) bool {
-	return pluginRunnerEnabled(r)
 }
 
 type nativeAgentRuntimeRunner struct {

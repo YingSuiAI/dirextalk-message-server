@@ -23,19 +23,24 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 		},
 	}
 
-	missingAuth := jsonRequest(t, "/mcp", initialize)
-	missingAuthRec := httptest.NewRecorder()
-	router.ServeHTTP(missingAuthRec, missingAuth)
-	if missingAuthRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected missing MCP bearer to return 401, got %d body=%s", missingAuthRec.Code, missingAuthRec.Body.String())
-	}
-
-	ownerAuth := jsonRequest(t, "/mcp", initialize)
-	ownerAuth.Header.Set("Authorization", "Bearer "+service.AccessToken())
-	ownerAuthRec := httptest.NewRecorder()
-	router.ServeHTTP(ownerAuthRec, ownerAuth)
-	if ownerAuthRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected owner token to be rejected by MCP HTTP endpoint, got %d body=%s", ownerAuthRec.Code, ownerAuthRec.Body.String())
+	for _, tc := range []struct {
+		name  string
+		token string
+	}{
+		{name: "missing bearer"},
+		{name: "owner token", token: service.AccessToken()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := jsonRequest(t, "/mcp", initialize)
+			if tc.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected MCP request to return 401, got %d body=%s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 
 	agentAuth := jsonRequest(t, "/mcp", initialize)
@@ -131,48 +136,34 @@ func TestMCPHTTPRejectsQueryTokensBadOriginAndGET(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 
-	getReq := httptest.NewRequest(http.MethodGet, "/mcp", nil)
-	getReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	getRec := httptest.NewRecorder()
-	router.ServeHTTP(getRec, getReq)
-	if getRec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected MCP GET to return 405, got %d body=%s", getRec.Code, getRec.Body.String())
-	}
-
-	queryTokenReq := jsonRequest(t, "/mcp?access_token=owner-token", mcpInitializeRequest())
-	queryTokenReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	queryTokenRec := httptest.NewRecorder()
-	router.ServeHTTP(queryTokenRec, queryTokenReq)
-	if queryTokenRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected MCP query tokens to return 400, got %d body=%s", queryTokenRec.Code, queryTokenRec.Body.String())
-	}
-
-	badOriginReq := jsonRequest(t, "/mcp", mcpInitializeRequest())
-	badOriginReq.Host = "example.com"
-	badOriginReq.Header.Set("Origin", "https://evil.example")
-	badOriginReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	badOriginRec := httptest.NewRecorder()
-	router.ServeHTTP(badOriginRec, badOriginReq)
-	if badOriginRec.Code != http.StatusForbidden {
-		t.Fatalf("expected bad MCP Origin to return 403, got %d body=%s", badOriginRec.Code, badOriginRec.Body.String())
-	}
-
-	sameOriginReq := jsonRequest(t, "/mcp", mcpInitializeRequest())
-	sameOriginReq.Host = "example.com"
-	sameOriginReq.Header.Set("Origin", "http://example.com")
-	sameOriginReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	sameOriginRec := httptest.NewRecorder()
-	router.ServeHTTP(sameOriginRec, sameOriginReq)
-	if sameOriginRec.Code != http.StatusOK {
-		t.Fatalf("expected same MCP Origin to succeed, got %d body=%s", sameOriginRec.Code, sameOriginRec.Body.String())
-	}
-
-	oldPathReq := jsonRequest(t, "/_p2p/mcp", mcpInitializeRequest())
-	oldPathReq.Header.Set("Authorization", "Bearer "+service.AgentToken())
-	oldPathRec := httptest.NewRecorder()
-	router.ServeHTTP(oldPathRec, oldPathReq)
-	if oldPathRec.Code != http.StatusNotFound {
-		t.Fatalf("expected old /_p2p/mcp path to stay unavailable, got %d body=%s", oldPathRec.Code, oldPathRec.Body.String())
+	for _, tc := range []struct {
+		name, method, path, origin string
+		want                       int
+	}{
+		{"GET", http.MethodGet, "/mcp", "", http.StatusMethodNotAllowed},
+		{"query token", http.MethodPost, "/mcp?access_token=owner-token", "", http.StatusBadRequest},
+		{"cross origin", http.MethodPost, "/mcp", "https://evil.example", http.StatusForbidden},
+		{"same origin", http.MethodPost, "/mcp", "http://example.com", http.StatusOK},
+		{"retired path", http.MethodPost, "/_p2p/mcp", "", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *http.Request
+			if tc.method == http.MethodGet {
+				req = httptest.NewRequest(tc.method, tc.path, nil)
+			} else {
+				req = jsonRequest(t, tc.path, mcpInitializeRequest())
+			}
+			req.Host = "example.com"
+			req.Header.Set("Authorization", "Bearer "+service.AgentToken())
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
 	}
 }
 

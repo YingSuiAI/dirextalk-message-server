@@ -37,27 +37,36 @@ func TestDirectMCPServiceInvokeUsesUnifiedDirextalkMCPService(t *testing.T) {
 	}
 }
 
-func TestNativeAgentDirextalkToolsInvokeUnifiedDirextalkMCPService(t *testing.T) {
+func TestNativeAgentProductActionsUseUnifiedDirextalkMCPService(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	invoker := &recordingDirextalkMCPInvoker{}
 	service.mcpCapabilities = dirextalkmcp.NewService(invoker)
 
-	var handler func(context.Context, map[string]any) (any, error)
-	for _, tool := range nativeAgentTools(service) {
-		if tool.Name == "dirextalk_messages_list" {
-			handler = tool.Handler
-			break
-		}
+	for _, tc := range []struct {
+		action string
+		want   string
+	}{
+		{"agent.contacts.list", dirextalkmcp.ActionContactsList},
+		{"agent.contacts.search", dirextalkmcp.ActionContactsSearch},
+		{"agent.rooms.search", dirextalkmcp.ActionRoomsSearch},
+		{"agent.messages.list", dirextalkmcp.ActionMessagesList},
+		{"agent.messages.send", dirextalkmcp.ActionMessagesSend},
+		{"agent.room_members.list", dirextalkmcp.ActionRoomMembersList},
+		{"agent.channel_posts.list", dirextalkmcp.ActionChannelPostsList},
+		{"agent.channel_comments.list", dirextalkmcp.ActionChannelCommentsList},
+		{"agent.channel_comments.create", dirextalkmcp.ActionChannelCommentsCreate},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			invoker.action = ""
+			result := mustHandle[map[string]any](t, service, tc.action, map[string]any{})
+			if result["via"] != "unified-dirextalkmcp" || invoker.action != tc.want {
+				t.Fatalf("action mapped to %q with result %#v, want %q", invoker.action, result, tc.want)
+			}
+		})
 	}
-	if handler == nil {
-		t.Fatal("expected dirextalk_messages_list native tool")
-	}
-	result, err := handler(context.Background(), map[string]any{"room_id": "!room:example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resultMap := result.(map[string]any)
-	if resultMap["via"] != "unified-dirextalkmcp" || invoker.action != dirextalkmcp.ActionMessagesList {
-		t.Fatalf("expected native tool to use unified MCP service, result=%#v invoker=%#v", result, invoker)
+
+	summary := mustHandle[map[string]any](t, service, "agent.summarize", map[string]any{"text": "hello world"})
+	if summary["summary"] != "hello world" {
+		t.Fatalf("agent.summarize result = %#v", summary)
 	}
 }

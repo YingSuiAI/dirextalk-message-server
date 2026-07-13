@@ -85,10 +85,10 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `internal/dirextalkmatrix`：Matrix Client-Server HTTP profile/history reader；`p2p/matrix_profile_resolver.go`、`p2p/matrix_history_reader.go` 和 `p2p/matrixhistory` 仅保留 facade/compatibility aliases。
 - `internal/dirextalkprojection`：projection-only helper，例如成员 joined/pending 统计；P2P action 和 conversation view 只调用该 helper，不复制计算逻辑。
 - `internal/dirextalkstate`：产品 Matrix state event content builder，例如 `io.dirextalk.room.profile`、`io.dirextalk.member.policy`、`io.dirextalk.join_request`；P2P action 仍负责决定何时通过 transport 发布。
-- `internal/dirextalkdomain`：跨包共享的产品 value records 和纯 domain helper，例如 portal/agent config、conversation records、member/channel records、blocks、calls、favorites、reports、P2P event bounds 等；`p2p/domain` 保留带 `Operation`/`ConversationView` 的 response-shaped facade 类型和兼容 alias。
-- `internal/dirextalkplugin`：非 Agent plugin catalog/instance/job/secret record shapes；`p2p` 继续拥有 plugin action orchestration、Docker runner 和 Native Agent/plugin 隔离规则。
-- `p2p/projector_*.go`、`p2p/projection`：roomserver output 到 P2P projection 的投影。
-- `p2p/consumer.go`：订阅 roomserver 输出并调用 projector。
+- `internal/dirextalkdomain`：跨包共享的产品 value records 和纯 domain helper，例如 portal/agent config、conversation records、member/channel records、blocks、calls、favorites、reports、P2P event bounds 等；业务 response DTO 由各自的 `p2p/internal` 模块持有。
+- `internal/dirextalkplugin`：非 Agent plugin catalog/instance/job/secret record shapes；`p2p/internal/plugins` 拥有 plugin action orchestration、Docker runner 和 Native Agent/plugin 隔离规则。
+- `p2p/projector_*.go`、`p2p/internal/projector`：roomserver output 到 P2P projection 的投影与 consumer；纯投影 helper 由 `internal/dirextalkprojection` 持有。
+- `p2p/consumer.go`：保留订阅 consumer 的公开 facade，实现在 `p2p/internal/projector`。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。
 
 服务端所有持久化状态统一使用 PostgreSQL。SQLite/file DSN 不再支持，配置或启动阶段必须报错，不允许静默退化为内存态；P2P store 必须成功打开 PostgreSQL-backed store，不能因为迁移失败回退到 memory store。生产持久化优先使用全局 Dirextalk Message Server 数据库配置；未配置时 P2P store 会使用 roomserver 的 PostgreSQL 数据库配置。Docker 开发栈使用 PostgreSQL 18。

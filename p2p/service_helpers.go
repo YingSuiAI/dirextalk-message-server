@@ -48,6 +48,28 @@ func trimString(value any) string {
 	return actionbase.String(value)
 }
 
+// cloneAnyMap and jsonValue are shared root transport/Agent helpers. They stay
+// outside the plugin module because MCP, realtime, release, and Native Agent
+// adapters also depend on their legacy shallow-copy and JSON behavior.
+func cloneAnyMap(values map[string]any) map[string]any {
+	if values == nil {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func jsonValue(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 func normalizedStringSlice(values []string) []string {
 	return actionbase.Strings(values)
 }

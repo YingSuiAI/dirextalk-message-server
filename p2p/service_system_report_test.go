@@ -2,12 +2,29 @@ package p2p
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
+
+func TestReportSubmitWithoutMatrixTransportFailsClosed(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	bootstrapService(t, service)
+	service.systemRoomID = "!system:example.com"
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!group:example.com", "name": "Reported Group",
+	})
+
+	_, apiErr := service.Handle(context.Background(), "reports.submit", map[string]any{
+		"target_type": "group", "room_id": group.RoomID,
+	})
+	if apiErr == nil || apiErr.Status != http.StatusInternalServerError {
+		t.Fatalf("reports.submit without Matrix transport = %#v", apiErr)
+	}
+}
 
 func TestReportSubmitPersistsReportAndSystemConversationAfterReload(t *testing.T) {
 	ctx := context.Background()

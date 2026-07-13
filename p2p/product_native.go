@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -27,7 +27,7 @@ const (
 	AgentGatewaySourceContentKey  = "io.dirextalk.gateway_source"
 )
 
-type p2pEvent = domain.Event
+type p2pEvent = dirextalkdomain.Event
 
 func roomStateEvent(event dirextalkstate.StateEvent) RoomStateEvent {
 	return RoomStateEvent{

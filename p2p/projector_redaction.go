@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
@@ -32,5 +31,9 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 }
 
 func eventTime(event *types.HeaderedEvent) time.Time {
-	return projection.EventTime(event)
+	ts := int64(event.OriginServerTS())
+	if ts <= 0 {
+		return time.Now().UTC()
+	}
+	return time.UnixMilli(ts).UTC()
 }

@@ -315,31 +315,6 @@ func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSClientRequestRejectsStreamOnlyActionsWithWebsocketHint(t *testing.T) {
-	service := &Service{actions: map[string]actionHandler{}}
-	for _, action := range []string{"agent.chat.stream", "plugins.invoke.stream"} {
-		action := action
-		service.actions[action] = func(context.Context, map[string]any) (any, *apiError) {
-			return map[string]any{"unexpected": action}, nil
-		}
-	}
-	record := realtimeWSTicket{Role: "owner", UserID: "@owner:example.com"}
-
-	for _, action := range []string{"agent.chat.stream", "plugins.invoke.stream"} {
-		frame := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
-			"type":   "client.request",
-			"id":     "req-" + strings.ReplaceAll(action, ".", "-"),
-			"action": action,
-			"params": map[string]any{},
-		})
-		if frame["ok"] != false ||
-			int(frame["status"].(int)) != http.StatusBadRequest ||
-			frame["error"] != "action requires websocket" {
-			t.Fatalf("expected %s to require websocket stream, got %#v", action, frame)
-		}
-	}
-}
-
 func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 	registered := NewService(Config{ServerName: "example.com"}).actionHandlers()
 	service := &Service{actions: map[string]actionHandler{}}

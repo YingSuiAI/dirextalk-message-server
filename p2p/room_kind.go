@@ -1,7 +1,11 @@
 package p2p
 
-import "github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
+import "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
 
 func conversationKindFromContent(content map[string]any) (conversationKind, string) {
-	return projection.ConversationKindFromContent(content)
+	kind := conversationKindFromStateKind(dirextalkprojection.ConversationKindFromRoomType(trimString(content["room_type"])))
+	if kind != "" {
+		return kind, ""
+	}
+	return "", "missing explicit room_type"
 }

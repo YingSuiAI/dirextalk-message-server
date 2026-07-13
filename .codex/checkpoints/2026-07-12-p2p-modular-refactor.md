@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `f1f1770` (`refactor: modularize member workflows`)
+- Current published HEAD before this verified slice: `de99859` (`refactor: modularize channel content`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified channel-content stage, then migrate reports and plugin workflows before the remaining Agent/MCP, projector/consumer, portal/profile/release, and transport cleanup. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified reports/plugins/projector-consumer stage, then migrate the portal/profile/release and Agent/MCP adapters in grouped stages. Keep durable outbox/reconciliation changes separate from the structural refactor.
 
 ## Completed Verification
 
@@ -163,6 +163,11 @@
 - Service post/comment/reaction shadow state, 925 lines of root content logic, duplicate durable converters/tests, root projector upserts, and MCP in-memory pagination are removed. The pure `p2p/matrixhistory` facade and duplicate reader test are deleted after all six callers moved to `internal/dirextalkmatrix`. Repeated comment validation, post/comment redaction failure, and post/chat backfill tests are table-driven without dropping their unique behavior checks.
 - Focused verification caught and fixed a dynamic-transport compatibility regression by adding a per-operation Matrix port provider; existing runtime/test transport replacement and policy-error mapping are preserved. The stage gate then passed once: `go test ./p2p/... -count=1` (root 79.921s, storage 32.417s), related domain/matrix/transport/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck plus content-module dupl/gocyclo, production build, byte-identical 146-action contract generation, and `git diff --check`.
 - Independent engineering and contract audits found no production issue. Their only P3 coverage note was closed with one concise durable-record round-trip test proving post/comment fields survive while request-scoped reaction, operation, and conversation enrichment is not persisted; the focused module test and root compile check passed.
+- The verified reports/plugins/projector-consumer stage moves `reports.submit`, all 13 `plugins.*` actions, plugin lifecycle/config/invoke/Docker runner logic, and the roomserver consumer plus its metrics into cohesive `p2p/internal` modules. Root retains only narrow Matrix/system-room adapters, public runner aliases, and the public consumer constructor facade.
+- Repository-unused `p2p/domain`, `p2p/projection`, `p2p/mcp`, and `p2p/transportapi` migration facades are removed after all in-repo callers moved to their owning packages. Plugin shadow maps and duplicate root plugin runner/service implementations are gone; root P2P production code is now 58 files / 8,386 lines, down from 61 files / 9,898 lines before this stage.
+- Redundant plugin runner files, duplicate WS stream negatives, repeated MCP timestamp/auth cases, and the former giant Native Agent capability-state test were removed or consolidated. One compact table now verifies all nine public Agent direct-tool actions through the default runtime into the unified MCP service, while high-value HTTP/WS/MCP boundaries remain covered.
+- Independent review found and the stage fixed three local safety issues: nested `model_profiles[*].api_key` is stripped into the secret store, system-room creation/persistence is serialized and publishes the in-memory ID only after durable save, and reports fail closed instead of panicking when a stored system room exists without Matrix transport.
+- The grouped stage gate ran once after all work: `go test ./p2p/... -count=1` (root 95.574s, storage 47.399s), related domain/MCP/plugin/projection/state/transport/policy tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck and new-module dupl/gocyclo lint, production build, byte-identical 146-action contract generation, and `git diff --check` all passed.
 
 ## Related Finding Outside This Structural Slice
 
@@ -172,3 +177,5 @@
 - Contacts persistence now reconciles restart-time peer-room replacement and retry after old-conversation cleanup failure. One Service serializes same-peer action/projector workflows so concurrent first requests create one Matrix room; cross-Service/process coordination still requires durable CAS if deployment topology changes. PostgreSQL now persists explicitly cleared avatars across reopen.
 - `contact.requested` can still be permanently lost after contact Store success/event failure. A controlled red test reproduced it, but the event-ID-only compensation experiment was rejected in review because a different Matrix event for an existing pending contact would violate the documented no-duplicate notification contract. Correct recovery needs a durable request generation plus transactional outbox (and must also handle Insert-success/prune-failure notification), so it remains a separate behavior/storage design rather than an uncommitted structural shortcut.
 - Block `CreatedAt` and display-name ordering differ between MemoryStore and PostgreSQL on repeated/case-only writes. The blocks structure slice preserves both backends; choosing canonical cross-store semantics remains a separate compatibility decision.
+- Report notification, report persistence, and conversation projection are not transactional. A durable idempotency key plus pending/outbox state is required to prevent duplicate Matrix notices after partial failure; changing the report schema/order is intentionally excluded from this structure-only stage.
+- Plugin Docker lifecycle and durable plugin/job/config state are not transactional. Pending/finalized jobs, per-plugin serialization, startup reconciliation, and compensation need a separate behavior/storage design rather than being silently introduced during file migration.

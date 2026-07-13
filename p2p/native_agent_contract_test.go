@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
+	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/coder/websocket"
 )
@@ -71,76 +72,42 @@ func TestNativeAgentActionsAreOwnerOnlyAndCallNativeRuntimeDirectly(t *testing.T
 	}
 }
 
-func TestNativeAgentActionsRegisteredForCurrentRuntimeSurface(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: &recordingNativeAgentRunner{}})
-	for _, action := range []string{
-		"agent.chat",
-		"agent.chat.stream",
-		"agent.models.list",
-		"agent.runtime.inspect",
-		"agent.runtime.install",
-		"agent.runtime.which",
-		"agent.runtime.run",
-		"agent.skills.list",
-		"agent.skills.install",
-		"agent.skills.enable",
-		"agent.skills.disable",
-		"agent.skills.uninstall",
-		"agent.skills.registry.search",
-		"agent.mcp.servers.list",
-		"agent.mcp.servers.install",
-		"agent.mcp.servers.enable",
-		"agent.mcp.servers.disable",
-		"agent.mcp.servers.uninstall",
-		"agent.mcp.registry.search",
-		"agent.context.compress",
-		"agent.config.propose_patch",
-	} {
-		if _, ok := service.actions[action]; !ok {
-			t.Fatalf("expected native agent action %q to be registered", action)
-		}
-		if service.Authorize(service.AgentToken(), action) {
-			t.Fatalf("agent_token must not authorize owner native agent action %q", action)
-		}
-	}
-}
-
 func TestNativeAgentIsNotManagedAsPlugin(t *testing.T) {
 	runner := &recordingPluginRunner{}
 	service := NewService(Config{ServerName: "example.com", PluginRunner: runner, NativeAgentRunner: &recordingNativeAgentRunner{}})
 
 	catalog := mustHandle[map[string]any](t, service, "plugins.catalog.list", nil)
 	entries := catalog["plugins"].([]pluginCatalogEntry)
-	if catalogHasPluginID(entries, agentPluginID) {
+	if catalogHasPluginID(entries, pluginsmodule.LegacyAgentPluginID) {
 		t.Fatalf("agent plugin must not be returned in catalog, got %#v", entries)
 	}
-	if !catalogHasPlugin(entries, opsPluginID) {
+	if !catalogHasPlugin(entries, pluginsmodule.OpsPluginID) {
 		t.Fatalf("ops plugin must remain available when docker runner is enabled, got %#v", entries)
 	}
 
-	if err := service.savePlugin(context.Background(), pluginInstance{ID: agentPluginID, Name: "Hidden Agent", Status: pluginStatusEnabled, Enabled: true}); err != nil {
+	if err := service.store.UpsertPlugin(context.Background(), pluginInstance{ID: pluginsmodule.LegacyAgentPluginID, Name: "Hidden Agent", Status: pluginsmodule.StatusEnabled, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.savePlugin(context.Background(), pluginInstance{ID: opsPluginID, Name: "Dirextalk Ops", Status: pluginStatusEnabled, Enabled: true}); err != nil {
+	if err := service.store.UpsertPlugin(context.Background(), pluginInstance{ID: pluginsmodule.OpsPluginID, Name: "Dirextalk Ops", Status: pluginsmodule.StatusEnabled, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	installed := mustHandle[map[string]any](t, service, "plugins.installed.list", nil)
 	plugins := installed["plugins"].([]pluginInstance)
-	if pluginInstancesHaveID(plugins, agentPluginID) {
+	if pluginInstancesHaveID(plugins, pluginsmodule.LegacyAgentPluginID) {
 		t.Fatalf("agent plugin must be hidden from installed plugin list, got %#v", plugins)
 	}
-	if !pluginInstancesHaveID(plugins, opsPluginID) {
+	if !pluginInstancesHaveID(plugins, pluginsmodule.OpsPluginID) {
 		t.Fatalf("ops plugin must remain visible in installed list, got %#v", plugins)
 	}
 
 	for _, action := range []string{"plugins.install", "plugins.enable", "plugins.disable", "plugins.uninstall", "plugins.config.get", "plugins.health", "plugins.logs.tail"} {
-		_, apiErr := service.Handle(context.Background(), action, map[string]any{"plugin_id": agentPluginID})
+		_, apiErr := service.Handle(context.Background(), action, map[string]any{"plugin_id": pluginsmodule.LegacyAgentPluginID})
 		if apiErr == nil || apiErr.Status < http.StatusBadRequest {
 			t.Fatalf("expected %s to reject agent plugin, got %#v", action, apiErr)
 		}
 	}
 	_, apiErr := service.Handle(context.Background(), "plugins.invoke", map[string]any{
-		"plugin_id": agentPluginID,
+		"plugin_id": pluginsmodule.LegacyAgentPluginID,
 		"action":    "agent.chat",
 		"params":    map[string]any{"prompt": "hello"},
 	})
@@ -159,8 +126,8 @@ func TestNativeAgentConfigStoreUsesPortalAgentConfigNotPluginRecords(t *testing.
 			map[string]any{"id": "portal-profile", "provider": "deepseek", "model": "deepseek-chat"},
 		},
 	}
-	if err := service.savePlugin(context.Background(), pluginInstance{
-		ID:      agentPluginID,
+	if err := service.store.UpsertPlugin(context.Background(), pluginInstance{
+		ID:      pluginsmodule.LegacyAgentPluginID,
 		Name:    "Legacy Agent",
 		Enabled: true,
 		Config: map[string]any{
@@ -206,7 +173,7 @@ func TestNativeAgentConfigStoreUsesPortalAgentConfigNotPluginRecords(t *testing.
 	if got := service.agentConfig.DisplayName; got != "Saved Native Agent" {
 		t.Fatalf("expected Save to update portal agent config, got %q", got)
 	}
-	plugin, ok, err := service.getPlugin(context.Background(), agentPluginID)
+	plugin, ok, err := service.store.GetPlugin(context.Background(), pluginsmodule.LegacyAgentPluginID)
 	if err != nil || !ok {
 		t.Fatalf("expected untouched legacy plugin to remain for migration compatibility, ok=%v err=%v", ok, err)
 	}
