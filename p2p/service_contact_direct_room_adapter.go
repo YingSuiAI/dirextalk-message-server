@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"strings"
 
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 )
@@ -69,6 +70,47 @@ func (s *Service) inviteContactDirectRoom(ctx context.Context, request contactsm
 		return transportWriteError(err)
 	}
 	return nil
+}
+
+func (s *Service) joinContactDirectRoomTransport(ctx context.Context, request contactsmodule.DirectRoomJoinRequest) contactsmodule.DirectRoomJoinOutcome {
+	if s.transport == nil || request.RoomID == "" {
+		return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinSucceeded, RoomID: request.RoomID}
+	}
+	serverNames := request.ServerNames
+	if request.UseRoomServerFallback && len(serverNames) == 0 {
+		serverNames = retainedRoomServerNames(nil, request.RoomID)
+	}
+	joinRequest := JoinRoomRequest{
+		RoomIDOrAlias:             request.RoomID,
+		UserMXID:                  request.Profile.MXID,
+		DisplayName:               request.Profile.DisplayName,
+		AvatarURL:                 request.Profile.AvatarURL,
+		ServerNames:               serverNames,
+		DirectContactReactivation: request.Mode == contactsmodule.DirectRoomJoinReactivation,
+	}
+	retryable := isFederatedJoinInProgress
+	if request.Mode == contactsmodule.DirectRoomJoinReactivation {
+		retryable = func(err error) bool {
+			return isDirectRoomJoinRequiresInvite(err) || isFederatedJoinInProgress(err)
+		}
+	}
+	result, err := s.joinRoomWithRetry(ctx, joinRequest, 6, retryable)
+	if err != nil {
+		if request.Mode == contactsmodule.DirectRoomJoinNormal && isDirectRoomJoinRequiresInvite(err) {
+			return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinInviteRequired}
+		}
+		if request.Mode == contactsmodule.DirectRoomJoinReactivation && isDirectContactReactivationJoinFailed(err) {
+			return contactsmodule.DirectRoomJoinOutcome{
+				Kind: contactsmodule.DirectRoomJoinRetainedUnavailable, Failure: transportWriteError(err),
+			}
+		}
+		return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinFailed, Failure: transportWriteError(err)}
+	}
+	roomID := request.RoomID
+	if strings.TrimSpace(result.RoomID) != "" {
+		roomID = result.RoomID
+	}
+	return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinSucceeded, RoomID: roomID}
 }
 
 func (s *Service) reactivateRetainedDirectRoom(

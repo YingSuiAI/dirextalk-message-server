@@ -103,15 +103,7 @@ func (m *Module) ResolveExistingRequest(
 	if m.reactivatePeer == nil {
 		return m.existingRequestView(ctx, contact)
 	}
-	result, actionErr := m.reactivatePeer(ctx, PeerReactivationRequest{
-		Contact:           contact,
-		RequesterMXID:     profile.MXID,
-		RemoteNodeBaseURL: params.String("remote_node_base_url"),
-		DisplayName:       params.String("display_name"),
-		AvatarURL:         params.String("avatar_url"),
-		Domain:            params.String("domain"),
-		Remark:            requestRemark(params),
-	})
+	result, actionErr := m.reactivatePeer(ctx, peerReactivationRequest(contact, params, profile.MXID))
 	if actionErr != nil {
 		return nil, actionErr
 	}
@@ -201,6 +193,22 @@ func mergeRequestFields(
 
 func requestRemark(params actionbase.Params) string {
 	return params.FirstString("remark", "request_message", "message", "reason")
+}
+
+func peerReactivationRequest(
+	contact dirextalkdomain.ContactRecord,
+	params actionbase.Params,
+	requesterMXID string,
+) PeerReactivationRequest {
+	return PeerReactivationRequest{
+		Contact:           contact,
+		RequesterMXID:     requesterMXID,
+		RemoteNodeBaseURL: params.String("remote_node_base_url"),
+		DisplayName:       params.String("display_name"),
+		AvatarURL:         params.String("avatar_url"),
+		Domain:            params.String("domain"),
+		Remark:            requestRemark(params),
+	}
 }
 
 func fallbackRequestString(value, fallback string) string {

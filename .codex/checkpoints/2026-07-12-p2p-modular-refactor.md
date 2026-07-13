@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `5a68524` (`refactor: move simple contact request leaves`)
+- Current published HEAD before this verified slice: `d5563e7` (`refactor: move existing contact request workflows`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified accepted/no-op probe plus existing-room approval workflows, then introduce typed Join outcomes before migrating pending-inbound, deleted, and retained-room restoration. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified typed Join adapter plus pending-inbound workflow, then migrate no-local retained-room restoration and finally the deleted lifecycle. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -117,6 +117,10 @@
 - The verified existing-request slice moves accepted/no-op remote probing and stale existing-room approval into `internal/contacts/request.go`. Peer 404 is now a typed `NotRetained` outcome for module decisions, while the root compatibility wrapper preserves the exact legacy 404/error for pending/deleted/Join callers. Request approval shares field merge logic with resend and preserves blank-room fresh creation, invite gating, Save, and operation ordering.
 - `ResolveExistingRequest` deliberately returns `nil` on peer/no-op operation failures but preserves the historical zero-View result on replacement subflow failures; tests lock this odd observable distinction. The cohesive request production file is 202 lines, existing-request tests are separated into a 232-line workflow file, and `service_contacts.go` drops from 424 to 372 lines.
 - Latest existing-request gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 79.677s, storage 35.634s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `d5563e7`: accepted/no-op peer probing and stale existing-room approval now belong to the contacts module; typed `NotRetained` is consumed internally while root Join callers retain the legacy 404 wrapper.
+- The verified Join/pending slice introduces typed `Succeeded`, `InviteRequired`, `RetainedUnavailable`, and `Failed` Matrix outcomes. The cohesive root adapter owns normal/reactivation mode flags, mode-specific six-attempt retry, Dendrite error classification, server fallback, and raw/blank RoomID behavior. Existing no-local/deleted callers consume the adapter without moving their distinct fallback decisions.
+- `AcceptPendingInbound` now lives in an 81-line workflow file and consumes a Join port only when transport was enabled at construction. It snapshots local identity once, reuses it for normal Join, peer probe, and reactivation Join, maps peer pending/not-retained to the existing old-room approval variants, fills only empty fields, clears remark, and preserves Save/Operation and result-shape semantics. Root `service_contacts.go` falls from 372 to 325 lines.
+- Latest Join/pending gates passed in two batches: focused module/root race tests covering adapter and old pending/deleted/no-local paths, then parallel `go test ./p2p/... -count=1` (root 91.693s, storage 45.745s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

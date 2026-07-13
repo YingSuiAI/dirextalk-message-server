@@ -27,6 +27,8 @@ type requestHarness struct {
 	reactivationResult PeerReactivationResult
 	reactivationErr    *actionbase.Error
 	profile            LocalProfileSnapshot
+	joins              []DirectRoomJoinRequest
+	joinOutcomes       []DirectRoomJoinOutcome
 }
 
 func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarness {
@@ -63,6 +65,15 @@ func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarnes
 			harness.log.add("invite:" + request.Contact.RoomID)
 			harness.invites = append(harness.invites, request)
 			return harness.inviteErr
+		},
+		JoinDirectRoom: func(_ context.Context, request DirectRoomJoinRequest) DirectRoomJoinOutcome {
+			harness.log.add("join:" + request.RoomID)
+			harness.joins = append(harness.joins, request)
+			index := len(harness.joins) - 1
+			if index < len(harness.joinOutcomes) {
+				return harness.joinOutcomes[index]
+			}
+			return DirectRoomJoinOutcome{}
 		},
 		LocalProfile: func() LocalProfileSnapshot {
 			return harness.profile

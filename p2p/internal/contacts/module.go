@@ -55,6 +55,43 @@ type DirectRoomInviteRequest struct {
 
 type DirectRoomInviter func(ctx context.Context, request DirectRoomInviteRequest) *actionbase.Error
 
+type DirectRoomJoinMode uint8
+
+const (
+	DirectRoomJoinNormal DirectRoomJoinMode = iota
+	DirectRoomJoinReactivation
+)
+
+type DirectRoomJoinKind uint8
+
+const (
+	DirectRoomJoinUnknown DirectRoomJoinKind = iota
+	DirectRoomJoinSucceeded
+	DirectRoomJoinInviteRequired
+	DirectRoomJoinRetainedUnavailable
+	DirectRoomJoinFailed
+)
+
+// DirectRoomJoinRequest describes one Matrix join attempt using a workflow's
+// atomic local identity snapshot.
+type DirectRoomJoinRequest struct {
+	RoomID                string
+	Profile               LocalProfileSnapshot
+	ServerNames           []string
+	Mode                  DirectRoomJoinMode
+	UseRoomServerFallback bool
+}
+
+// DirectRoomJoinOutcome classifies Matrix-specific failures for contact
+// workflows without exposing Dendrite error strings to the module.
+type DirectRoomJoinOutcome struct {
+	Kind    DirectRoomJoinKind
+	RoomID  string
+	Failure *actionbase.Error
+}
+
+type DirectRoomJoiner func(context.Context, DirectRoomJoinRequest) DirectRoomJoinOutcome
+
 // DirectRoomReactivator invites a retained accepted peer back to its room.
 type DirectRoomReactivator func(ctx context.Context, profile LocalProfileSnapshot, roomID, requesterMXID string) *actionbase.Error
 
@@ -87,6 +124,7 @@ type Config struct {
 	AcceptDirectRoom     DirectRoomAcceptor
 	CreateDirectRoom     DirectRoomCreator
 	InviteDirectRoom     DirectRoomInviter
+	JoinDirectRoom       DirectRoomJoiner
 	NewDirectRoomID      func() string
 	LocalProfile         func() LocalProfileSnapshot
 	ReactivatePeer       PeerReactivator
@@ -107,6 +145,7 @@ type Module struct {
 	acceptRoom      DirectRoomAcceptor
 	createRoom      DirectRoomCreator
 	inviteRoom      DirectRoomInviter
+	joinRoom        DirectRoomJoiner
 	newDirectRoomID func() string
 	localProfile    func() LocalProfileSnapshot
 	reactivatePeer  PeerReactivator
@@ -127,6 +166,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		acceptRoom:      cfg.AcceptDirectRoom,
 		createRoom:      cfg.CreateDirectRoom,
 		inviteRoom:      cfg.InviteDirectRoom,
+		joinRoom:        cfg.JoinDirectRoom,
 		newDirectRoomID: cfg.NewDirectRoomID,
 		localProfile:    cfg.LocalProfile,
 		reactivatePeer:  cfg.ReactivatePeer,

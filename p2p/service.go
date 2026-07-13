@@ -563,11 +563,16 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
+	var joinDirectRoom contactsmodule.DirectRoomJoiner
+	if service.transport != nil {
+		joinDirectRoom = service.joinContactDirectRoomTransport
+	}
 	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
 		ServerName:       service.serverName,
 		AcceptDirectRoom: service.acceptDirectContactRoom,
 		CreateDirectRoom: service.createContactDirectRoom,
 		InviteDirectRoom: service.inviteContactDirectRoom,
+		JoinDirectRoom:   joinDirectRoom,
 		NewDirectRoomID: func() string {
 			return "!dm-" + randomToken("room") + ":" + service.serverName
 		},
