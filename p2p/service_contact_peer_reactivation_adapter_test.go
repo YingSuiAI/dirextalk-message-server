@@ -104,21 +104,6 @@ func TestPeerReactivationAdapterMapsRemoteResponsesAndStripsRoutingParam(t *test
 	}
 }
 
-func TestPeerReactivationCompatibilityWrapperPreservesNotRetainedError(t *testing.T) {
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer remote.Close()
-
-	service := NewService(Config{ServerName: "example.com", RemoteNodeAllowPrivateBaseURLs: true})
-	result, apiErr := service.requestPeerContactReactivation(context.Background(), contactRecord{
-		PeerMXID: "@alice:remote.example", RoomID: "!old:remote.example",
-	}, map[string]any{"remote_node_base_url": remote.URL + "/_p2p"}, "@owner:example.com")
-	if result != (peerContactReactivation{}) || apiErr == nil || apiErr.Status != http.StatusNotFound || apiErr.Error != "retained contact not found" {
-		t.Fatalf("compatibility wrapper = (%#v, %#v)", result, apiErr)
-	}
-}
-
 func TestPeerReactivationAdapterUsesLegacyDefaultURLAndMapsNetworkFailure(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	requests := 0

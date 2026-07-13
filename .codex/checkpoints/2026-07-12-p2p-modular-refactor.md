@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `e316acf` (`refactor: type direct joins and move pending contacts`)
+- Current published HEAD before this verified slice: `75a430a` (`refactor: move retained contact restoration`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified no-local retained-room restoration, then migrate the final deleted-contact lifecycle and collapse the remaining root request dispatcher/facades. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified deleted-contact restoration, then collapse the remaining root request dispatcher/facades. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -125,6 +125,10 @@
 - The verified retained-room slice moves the no-local peer probe, transportless accepted restore, reactivation Join, unavailable-room replacement, final snapshot persistence, and restored flag into a cohesive 79-line module workflow. It preserves the unique rule that NotRetained/Pending/blank remote rooms fall back to a normal fresh request while only RetainedUnavailable creates replacement.
 - Retained tests cover eligibility, peer outcomes/errors, transportless restore, single profile snapshot, room-server fallback, raw joined RoomID, unavailable replacement and replacement failure, ordinary/unknown Join failures, request remark non-persistence, and Save/Operation errors. Root `service_contacts.go` falls from 325 to 259 lines.
 - Latest retained-room gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 81.941s, storage 40.809s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `75a430a`: no-local retained-room restoration now belongs to the contacts module, including its distinct fresh-request and unavailable-room replacement decisions.
+- The verified deleted-contact slice moves both proactive peer reactivation and reactive Join-then-probe workflows into a cohesive 112-line module workflow. It preserves the exact non-empty RoomID/transport guard, one local-profile snapshot, stored-room authority, mode-specific room-server fallback, Pending/NotRetained branch differences, accepted-field merge rules, Save-to-Operation order, and legacy result shapes. Root `service_contacts.go` falls from 259 to 138 lines, and the obsolete Join/reactivation compatibility wrapper plus its private test are removed.
+- Deleted-contact tests cover transportless restore, local-peer eligibility, exact empty/blank RoomID behavior, complete peer DTOs, normalized explicit server names, ignored peer RoomID, proactive no-fallback failures, reactive Pending/NotRetained/retained decisions, no old-room invite on NotRetained, and persistence failures.
+- Latest deleted-contact gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 81.863s, storage 36.346s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 
