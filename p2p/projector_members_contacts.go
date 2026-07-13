@@ -535,23 +535,9 @@ func (s *Service) channelIDForRoom(ctx context.Context, roomID string) string {
 	if roomID == "" {
 		return ""
 	}
-	s.mu.Lock()
-	for _, ch := range s.channels {
-		if ch.RoomID == roomID {
-			s.mu.Unlock()
-			return ch.ChannelID
-		}
-	}
-	s.mu.Unlock()
-	if store := s.channelStore(); store != nil {
-		channels, err := store.ListChannels(ctx)
-		if err == nil {
-			for _, ch := range channels {
-				if ch.RoomID == roomID {
-					return ch.ChannelID
-				}
-			}
-		}
+	ch, ok, err := s.channelByIDOrRoom(ctx, "", roomID)
+	if err == nil && ok {
+		return ch.ChannelID
 	}
 	return ""
 }

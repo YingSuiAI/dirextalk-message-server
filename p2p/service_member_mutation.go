@@ -82,27 +82,28 @@ func (s *Service) requireOwnerMember(ctx context.Context, roomID string) *apiErr
 	return nil
 }
 
-func (s *Service) memberTarget(params map[string]any) (string, string) {
+func (s *Service) memberTarget(ctx context.Context, params map[string]any) (string, string, error) {
 	roomID := trimString(params["room_id"])
 	channelID := trimString(params["channel_id"])
 	if roomID == "" && channelID != "" {
-		s.mu.Lock()
-		if ch, ok := s.channels[channelID]; ok {
+		ch, ok, err := s.channelByIDOrRoom(ctx, channelID, "")
+		if err != nil {
+			return "", "", err
+		}
+		if ok {
 			roomID = ch.RoomID
 		}
-		s.mu.Unlock()
 	}
 	if channelID == "" && roomID != "" {
-		s.mu.Lock()
-		for _, ch := range s.channels {
-			if ch.RoomID == roomID {
-				channelID = ch.ChannelID
-				break
-			}
+		ch, ok, err := s.channelByIDOrRoom(ctx, "", roomID)
+		if err != nil {
+			return "", "", err
 		}
-		s.mu.Unlock()
+		if ok {
+			channelID = ch.ChannelID
+		}
 	}
-	return roomID, channelID
+	return roomID, channelID, nil
 }
 
 func (s *Service) memberRecordFor(roomID, channelID, userID string) memberRecord {

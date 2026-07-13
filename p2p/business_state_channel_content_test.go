@@ -218,9 +218,9 @@ func TestPublicChannelReadsRefreshMemberCountFromMembership(t *testing.T) {
 		"visibility": "public",
 	})
 	ch.MemberCount = 0
-	service.mu.Lock()
-	service.channels[ch.ChannelID] = ch
-	service.mu.Unlock()
+	if err := service.store.UpsertChannel(context.Background(), ch); err != nil {
+		t.Fatalf("store stale channel count: %v", err)
+	}
 
 	detail := mustHandle[channel](t, service, "channels.public.get", map[string]any{
 		"channel_id": ch.ChannelID,

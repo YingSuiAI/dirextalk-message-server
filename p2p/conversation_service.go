@@ -123,7 +123,3 @@ func (s *Service) conversationOperation(ctx context.Context, action, status, roo
 func (s *Service) attachConversationOperation(ctx context.Context, result map[string]any, action, status, roomID string) error {
 	return s.conversationModule.AttachOperation(ctx, result, action, status, roomID)
 }
-
-func conversationFromChannel(ch channel) conversationRecord {
-	return dirextalkdomain.ConversationFromChannel(ch)
-}

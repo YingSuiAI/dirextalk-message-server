@@ -17,6 +17,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/domain"
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
@@ -95,6 +96,7 @@ type Service struct {
 	actions            map[string]actionHandler
 	blocksModule       *blocksmodule.Module
 	callsModule        *callsmodule.Module
+	channelsModule     *channelsmodule.Module
 	contactsModule     *contactsmodule.Module
 	conversationModule *conversationmodule.Module
 	groupsModule       *groupsmodule.Module
@@ -141,6 +143,7 @@ type Store interface {
 type socialStore = socialmodule.Store
 type callStore = callsmodule.Store
 type blockStore = blocksmodule.Store
+type channelStore = channelsmodule.Store
 type contactStore = contactsmodule.Store
 type groupStore = groupsmodule.Store
 
@@ -568,6 +571,18 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
+	service.channelsModule = channelsmodule.New(service.store, service.conversationModule, service.store, channelsmodule.Config{
+		NewChannelID: func() string { return "ch_" + randomToken("channel") },
+		CreateRoom:   service.createChannelRoom,
+		SaveOwnerMember: func(ctx context.Context, roomID, channelID string) error {
+			return service.saveOwnerMember(ctx, roomID, channelID)
+		},
+		PublishState:   service.publishChannelState,
+		PublishHistory: service.publishChannelHistoryVisibilityState,
+		SetMemberMute:  service.setChannelMemberMute,
+		RequireOwner:   service.requireOwnerMember,
+		OwnerMXID:      service.memberOwnerMXID,
+	})
 	service.groupsModule = groupsmodule.New(service.store, service.conversationModule, groupsmodule.Config{
 		CreateRoom: service.createGroupRoom,
 		SaveOwnerMember: func(ctx context.Context, roomID string) error {

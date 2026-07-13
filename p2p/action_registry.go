@@ -35,7 +35,8 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 			"groups.invite": s.inviteMembersAction("group"),
 			"groups.join":   s.joinMemberAction("group"),
 		}},
-		s.collectActionHandlerModule("channels", s.registerChannelActions),
+		{name: "channels", handlers: s.channelsModule.Handlers()},
+		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),
 		s.collectActionHandlerModule("reports", s.registerReportActions),
 	}
 	return mustBuildActionHandlers(
@@ -105,16 +106,6 @@ func (s *Service) joinMemberAction(roomKind string) actionHandler {
 	return func(ctx context.Context, params map[string]any) (any, *apiError) {
 		return s.joinMember(ctx, roomKind, params)
 	}
-}
-
-func (s *Service) channelPolicyMutationAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.channelPolicyMutation(ctx, action, params)
-	}
-}
-
-func (s *Service) channelListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.channelList(ctx), nil
 }
 
 func (s *Service) channelPostsAction(ctx context.Context, params map[string]any) (any, *apiError) {

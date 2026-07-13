@@ -109,3 +109,25 @@ func (s *Service) deleteGroup(ctx context.Context, roomID string) error {
 func (s *Service) groupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
 	return s.groupsModule.ByRoom(ctx, roomID)
 }
+
+func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) error {
+	roomID = strings.TrimSpace(roomID)
+	groupStore := s.groupStore()
+	if groupStore == nil || roomID == "" {
+		return nil
+	}
+	target, ok, err := groupStore.GetGroupByRoom(ctx, roomID)
+	if err != nil || !ok {
+		return err
+	}
+	memberStore := s.memberStore()
+	if memberStore == nil {
+		return nil
+	}
+	memberCount, _, err := memberStore.CountProductMembers(ctx, roomID, "")
+	if err != nil {
+		return err
+	}
+	target.MemberCount = memberCount
+	return groupStore.UpsertGroup(ctx, target)
+}

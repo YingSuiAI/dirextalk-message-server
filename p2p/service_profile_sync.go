@@ -122,25 +122,11 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 		return nil, internalError(err)
 	}
 	groups := visibleGroups
-	var channels []channel
-	var visibleChannels []channel
-	channelStore := s.channelStore()
-	if channelStore != nil {
-		visibleChannels, err = channelStore.ListJoinedChannelsForUser(ctx, userID)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		channels = visibleChannels
-	} else {
-		channels, err = s.listChannels(ctx)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		visibleChannels, err = s.joinedChannelsForOwner(ctx, channels)
-		if err != nil {
-			return nil, internalError(err)
-		}
+	visibleChannels, err := s.channelsModule.ListJoined(ctx, userID)
+	if err != nil {
+		return nil, internalError(err)
 	}
+	channels := visibleChannels
 	members, err := s.membersForUser(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)
@@ -151,7 +137,7 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 			return nil, internalError(err)
 		}
 	}
-	if channelStore != nil && hasPendingChannelInvite(members) {
+	if hasPendingChannelInvite(members) {
 		channels, err = s.listChannels(ctx)
 		if err != nil {
 			return nil, internalError(err)

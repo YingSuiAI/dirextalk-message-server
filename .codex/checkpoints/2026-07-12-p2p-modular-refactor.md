@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `f849d7f` (`refactor: move channel join request resolution`)
+- Current published HEAD before this verified slice: `6bff880` (`refactor: modularize group workflows`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified groups stage, then extract the cohesive channel lifecycle/profile module while keeping shared group/channel invite/join and remote reactivation as one workflow. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified channel-core stage, then move channel public lookup behind typed module ports before tackling the shared invite/join/grant workflow. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -151,6 +151,9 @@
 - The verified groups stage moves `groups.create/update/list/dissolve/mute/unmute/invite_policy.update`, public View conversion, durable group persistence, and conversation orchestration into two cohesive `p2p/internal/groups` production files. The root retains only shared room creation, Matrix state, member-policy adapters, and thin cross-domain Save/Delete/Get facades; `groups.invite/join` deliberately remain in the one shared group/channel workflow.
 - Group state now has one Store path: the root `Service.groups` shadow map, group-specific fallback/list filtering, duplicate storage converters, and obsolete group registry file are removed. Redundant owner-order coverage and four separate group operation tests were consolidated, removing another 124 test lines before the module's focused workflow/order coverage.
 - Groups stage gates passed once: focused group/registry/Matrix/operation tests, `go test ./p2p/... -count=1` (root 75.318s, storage 30.803s), related domain/state/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, Action contract artifact coverage, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- The verified channel-core stage moves `channels.create/update/list/dissolve/mute/unmute`, Store queries, public local search/list primitives, and member-count reconciliation into two cohesive `p2p/internal/channels` production files. Shared public remote lookup, invite/join/grant, backfill, and content workflows remain at the root until they can move without duplicated state machines.
+- `Service.channels`, its map fallback/read paths, locked count refresh, and obsolete source-regex adapter tests are removed. Member target resolution now accepts context and resolves channel IDs through the authoritative Store; profile sync, account deletion, projector lookup, public local reads, and cross-domain facades all use the module. Channel profile projection deliberately remains Store-only and channel dissolution still leaves its conversation record, preserving baseline behavior.
+- Channel-core gates passed after removing the obsolete source scanner: module/member focused tests, the complete root `p2p` package (82.024s), the already-completed remaining `p2p/...` packages including storage (44.242s), related domain/state/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, Action registry/contract coverage, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

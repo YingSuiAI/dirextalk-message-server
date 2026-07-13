@@ -1,16 +1,10 @@
 package p2p
 
 func (s *Service) registerChannelActions(actions map[string]actionHandler) {
-	actions["channels.create"] = s.channelResult
-	actions["channels.update"] = s.channelUpdate
 	actions["channels.join"] = s.joinMemberAction("channel")
 	actions["channels.invite_grant.create"] = s.channelInviteGrantCreate
 	actions["channels.invite"] = s.inviteMembersAction("channel")
-	actions["channels.dissolve"] = s.dissolveChannel
-	actions["channels.mute"] = s.channelPolicyMutationAction("channels.mute")
-	actions["channels.unmute"] = s.channelPolicyMutationAction("channels.unmute")
 	actions["channels.read_marker"] = s.updateReadMarker
-	actions["channels.list"] = s.channelListAction
 	actions["channels.public.search"] = s.channelPublicSearch
 	actions["channels.public.get"] = s.channelPublicGet
 	actions["channels.public.join_request"] = s.channelJoinRequest

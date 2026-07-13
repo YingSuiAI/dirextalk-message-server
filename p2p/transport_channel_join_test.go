@@ -278,43 +278,6 @@ func TestGroupJoinDoesNotBackfillRoomAsChannel(t *testing.T) {
 	}
 }
 
-func TestGroupJoinDoesNotCopyStaleChannelIDToMembers(t *testing.T) {
-	transport := &recordingTransport{
-		roomID: "!group:example.com",
-		roomMembers: []memberRecord{
-			{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner", Membership: "join", Role: "owner"},
-			{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice", Membership: "join", Role: "member"},
-		},
-	}
-	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
-	bootstrapService(t, service)
-	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
-		"room_id": "!group:example.com",
-		"name":    "Group with A, B",
-	})
-	service.mu.Lock()
-	service.channels["ghost_channel"] = channel{
-		ChannelID: "ghost_channel",
-		RoomID:    group.RoomID,
-		Name:      "Stale channel projection",
-	}
-	service.mu.Unlock()
-
-	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
-		"room_id": group.RoomID,
-		"user_id": "@alice:remote.example",
-	})
-
-	members := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": group.RoomID})["members"].([]memberRecord)
-	alice := findMember(members, "@alice:remote.example")
-	if alice.UserID == "" {
-		t.Fatalf("expected joined group member, got %#v", members)
-	}
-	if alice.ChannelID != "" {
-		t.Fatalf("expected group member channel_id to stay empty, got %#v", alice)
-	}
-}
-
 func TestJoinRefreshPreservesExistingSparseRoomStateFields(t *testing.T) {
 	transport := &recordingTransport{
 		roomID:      "!channel:example.com",

@@ -54,9 +54,9 @@ func newMutationHarness() *mutationHarness {
 	h := &mutationHarness{ownerMXID: "@owner:example.com", conversation: &mutationConversation{}}
 	h.conversation.onCall = func() { h.order = append(h.order, "operation") }
 	h.module = New(&testStore{}, Config{
-		ResolveTarget: func(raw map[string]any) (string, string) {
+		ResolveTarget: func(_ context.Context, raw map[string]any) (string, string, error) {
 			params := actionbase.Params(raw)
-			return params.String("room_id"), params.String("channel_id")
+			return params.String("room_id"), params.String("channel_id"), nil
 		},
 		NewMember: func(roomID, channelID, userID string) dirextalkdomain.MemberRecord {
 			return dirextalkdomain.MemberRecord{RoomID: roomID, ChannelID: channelID, UserID: userID, Membership: "join", Role: "member"}

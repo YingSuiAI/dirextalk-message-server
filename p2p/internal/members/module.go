@@ -39,7 +39,7 @@ type ConversationPort interface {
 }
 
 type Config struct {
-	ResolveTarget       func(map[string]any) (roomID, channelID string)
+	ResolveTarget       func(context.Context, map[string]any) (roomID, channelID string, err error)
 	NewMember           func(roomID, channelID, userID string) dirextalkdomain.MemberRecord
 	LookupMember        func(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
 	SaveMember          func(context.Context, dirextalkdomain.MemberRecord) error

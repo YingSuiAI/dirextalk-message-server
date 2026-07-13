@@ -148,13 +148,8 @@ func (s *Service) projectChannelProfileContent(ctx context.Context, event *types
 		return s.deleteChannel(ctx, channelID)
 	}
 	ch := projection.ChannelProfile(event.RoomID().String(), channelID, existing, profile.Raw)
-	s.mu.Lock()
-	s.channels[ch.ChannelID] = ch
-	s.mu.Unlock()
-	if store := s.channelStore(); store != nil {
-		if err := store.UpsertChannel(ctx, ch); err != nil {
-			return err
-		}
+	if err := s.channelStore().UpsertChannel(ctx, ch); err != nil {
+		return err
 	}
 	return s.appendP2PEvent(ctx, p2pEvent{
 		Type:      "profile.changed",

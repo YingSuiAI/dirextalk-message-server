@@ -9,7 +9,10 @@ import (
 )
 
 func (s *Service) inviteMembers(ctx context.Context, scope string, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
+	roomID, channelID, err := s.memberTarget(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	if roomID == "" && channelID == "" {
 		return nil, badRequest("room_id or channel_id is required")
 	}
@@ -76,7 +79,10 @@ func (s *Service) inviteMembers(ctx context.Context, scope string, params map[st
 
 //nolint:gocyclo // Invite grants validate channel, share-room, and Matrix invite side effects together.
 func (s *Service) channelInviteGrantCreate(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
+	roomID, channelID, err := s.memberTarget(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	if roomID == "" && channelID == "" {
 		return nil, badRequest("room_id or channel_id is required")
 	}
@@ -258,7 +264,10 @@ func (s *Service) productInviteRoomState(ctx context.Context, scope, roomID, cha
 
 //nolint:gocyclo // Join flow intentionally keeps Matrix join, invite-card, and projection refresh ordering together.
 func (s *Service) joinMember(ctx context.Context, scope string, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
+	roomID, channelID, err := s.memberTarget(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	if scope == "channel" && roomID == "" && channelID == "" {
 		if grant, ok, err := s.lookupChannelInviteGrantForParams(ctx, params); err != nil {
 			return nil, internalError(err)

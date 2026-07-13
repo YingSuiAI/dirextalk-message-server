@@ -195,7 +195,10 @@ func (m *Module) loadMember(
 	if m.config.ResolveTarget == nil || m.config.NewMember == nil || m.config.LookupMember == nil {
 		return dirextalkdomain.MemberRecord{}, false, actionbase.InternalError(errors.New("member lookup dependencies are not configured"))
 	}
-	roomID, channelID := m.config.ResolveTarget(raw)
+	roomID, channelID, err := m.config.ResolveTarget(ctx, raw)
+	if err != nil {
+		return dirextalkdomain.MemberRecord{}, false, actionbase.InternalError(err)
+	}
 	if roomID == "" && channelID == "" {
 		return dirextalkdomain.MemberRecord{}, false, actionbase.BadRequest("room_id or channel_id is required")
 	}

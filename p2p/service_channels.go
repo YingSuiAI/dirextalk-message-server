@@ -4,23 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkprojection"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 )
-
-type channelStore interface {
-	UpsertChannel(ctx context.Context, ch channel) error
-	DeleteChannel(ctx context.Context, channelID string) error
-	ListChannels(ctx context.Context) ([]channel, error)
-	GetChannelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error)
-	ListJoinedChannelsForUser(ctx context.Context, userID string) ([]channel, error)
-	SearchPublicChannels(ctx context.Context, query string, limit int) ([]channel, error)
-	ListPublicChannelsForOwner(ctx context.Context, userID string) ([]channel, error)
-}
 
 func (s *Service) channelStore() channelStore {
 	if s.store == nil {
@@ -29,131 +17,19 @@ func (s *Service) channelStore() channelStore {
 	return s.store
 }
 
-func (s *Service) channelResult(ctx context.Context, params map[string]any) (any, *apiError) {
-	channelID := trimString(params["channel_id"])
-	if channelID == "" {
-		channelID = "ch_" + randomToken("channel")
+func (s *Service) createChannelRoom(ctx context.Context, ch channel) (string, *apiError) {
+	initialState := []RoomStateEvent{channelStateEvent(ch, false)}
+	if historyVisibilityState, ok := channelHistoryVisibilityStateEvent(ch.ChannelType); ok {
+		initialState = append([]RoomStateEvent{historyVisibilityState}, initialState...)
 	}
-	roomID := trimString(params["room_id"])
-	existingRoomID := roomID != ""
-	channelType := fallbackString(trimString(params["channel_type"]), "post")
-	ch := channel{
-		ChannelID:        channelID,
-		RoomID:           roomID,
-		Name:             fallbackString(trimString(params["name"]), channelID),
-		Description:      trimString(params["description"]),
-		AvatarURL:        trimString(params["avatar_url"]),
-		Visibility:       fallbackString(trimString(params["visibility"]), "public"),
-		JoinPolicy:       fallbackString(trimString(params["join_policy"]), "open"),
-		ChannelType:      channelType,
-		CommentsEnabled:  true,
-		MemberCount:      1,
-		PendingJoinCount: 0,
-		IsOwned:          true,
-		Role:             "owner",
-		MemberStatus:     "join",
-	}
-	if _, ok := params["comments_enabled"]; ok {
-		ch.CommentsEnabled = boolParam(params["comments_enabled"])
-	}
-	if roomID == "" {
-		var apiErr *apiError
-		initialState := []RoomStateEvent{
-			channelStateEvent(ch, false),
-		}
-		if historyVisibilityState, ok := channelHistoryVisibilityStateEvent(channelType); ok {
-			initialState = append([]RoomStateEvent{historyVisibilityState}, initialState...)
-		}
-		roomID, apiErr = s.ensureProductRoom(ctx, "channel", CreateRoomRequest{
-			Name:         fallbackString(trimString(params["name"]), channelID),
-			Topic:        trimString(params["description"]),
-			Visibility:   fallbackString(trimString(params["visibility"]), "public"),
-			RoomType:     DirextalkRoomTypeChannel,
-			IsDirect:     false,
-			InitialState: initialState,
-		})
-		if apiErr != nil {
-			return nil, apiErr
-		}
-	}
-	ch.RoomID = roomID
-	if err := s.saveChannel(ctx, ch); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.saveOwnerMember(ctx, ch.RoomID, ch.ChannelID); err != nil {
-		return nil, internalError(err)
-	}
-	if existingRoomID {
-		if err := s.publishChannelHistoryVisibilityState(ctx, ch); err != nil {
-			return nil, internalError(err)
-		}
-	}
-	return ch, nil
-}
-
-func (s *Service) channelUpdate(ctx context.Context, params map[string]any) (any, *apiError) {
-	channelID := trimString(params["channel_id"])
-	roomID := trimString(params["room_id"])
-	if channelID == "" && roomID == "" {
-		return nil, badRequest("channel_id or room_id is required")
-	}
-	ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		return nil, statusError(404, "channel not found")
-	}
-	if name := trimString(params["name"]); name != "" {
-		ch.Name = name
-	}
-	if _, ok := params["description"]; ok {
-		ch.Description = trimString(params["description"])
-	}
-	if _, ok := params["avatar_url"]; ok {
-		ch.AvatarURL = trimString(params["avatar_url"])
-	}
-	if visibility := trimString(params["visibility"]); visibility != "" {
-		ch.Visibility = visibility
-	}
-	if joinPolicy := trimString(params["join_policy"]); joinPolicy != "" {
-		ch.JoinPolicy = joinPolicy
-	}
-	if _, ok := params["comments_enabled"]; ok {
-		ch.CommentsEnabled = boolParam(params["comments_enabled"])
-	}
-	if _, ok := params["muted"]; ok {
-		ch.Muted = boolParam(params["muted"])
-	}
-	if err := s.saveChannel(ctx, ch); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.publishChannelState(ctx, ch, false); err != nil {
-		return nil, internalError(err)
-	}
-	return ch, nil
-}
-
-func (s *Service) channelList(ctx context.Context) any {
-	if store := s.channelStore(); store != nil {
-		s.mu.Lock()
-		ownerMXID := s.ownerMXID
-		s.mu.Unlock()
-		channels, err := store.ListJoinedChannelsForUser(ctx, ownerMXID)
-		if err != nil {
-			return map[string]any{"channels": []channel{}}
-		}
-		return map[string]any{"channels": channels}
-	}
-	channels, err := s.listChannels(ctx)
-	if err != nil {
-		return map[string]any{"channels": []channel{}}
-	}
-	enriched, err := s.joinedChannelsForOwner(ctx, channels)
-	if err != nil {
-		return map[string]any{"channels": []channel{}}
-	}
-	return map[string]any{"channels": enriched}
+	return s.ensureProductRoom(ctx, "channel", CreateRoomRequest{
+		Name:         ch.Name,
+		Topic:        ch.Description,
+		Visibility:   ch.Visibility,
+		RoomType:     DirextalkRoomTypeChannel,
+		IsDirect:     false,
+		InitialState: initialState,
+	})
 }
 
 func (s *Service) channelPublicGet(ctx context.Context, params map[string]any) (any, *apiError) {
@@ -234,40 +110,16 @@ func (s *Service) channelPublicSearch(ctx context.Context, params map[string]any
 		}
 		return map[string]any{"channels": []channel{channelResult}, "results": []channel{channelResult}}, nil
 	}
-	if store := s.channelStore(); store != nil {
-		results, err := store.SearchPublicChannels(ctx, query, limit)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		for i := range results {
-			ch, err := s.channelWithCurrentCounts(ctx, results[i])
-			if err != nil {
-				return nil, internalError(err)
-			}
-			results[i] = ch
-		}
-		return map[string]any{"channels": results, "results": results}, nil
-	}
-	channels, err := s.listChannels(ctx)
+	results, err := s.channelsModule.SearchPublic(ctx, query, limit)
 	if err != nil {
 		return nil, internalError(err)
 	}
-	results := make([]channel, 0, len(channels))
-	for _, ch := range channels {
-		if !strings.EqualFold(ch.Visibility, "public") {
-			continue
-		}
-		if query != "" && !strings.Contains(strings.ToLower(ch.ChannelID+" "+ch.RoomID+" "+ch.Name+" "+ch.Description), query) {
-			continue
-		}
-		ch, err = s.channelWithCurrentCounts(ctx, ch)
+	for i := range results {
+		ch, err := s.channelWithCurrentCounts(ctx, results[i])
 		if err != nil {
 			return nil, internalError(err)
 		}
-		results = append(results, ch)
-		if len(results) >= limit {
-			break
-		}
+		results[i] = ch
 	}
 	return map[string]any{"channels": results, "results": results}, nil
 }
@@ -304,100 +156,29 @@ func (s *Service) userPublicChannels(ctx context.Context, params map[string]any)
 		}
 		return map[string]any{"user_id": fallbackString(remote.UserID, userID), "channels": channels, "results": channels}, nil
 	}
-	if store := s.channelStore(); store != nil {
-		publicChannels, err := store.ListPublicChannelsForOwner(ctx, userID)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		for i := range publicChannels {
-			ch, err := s.channelWithCurrentCounts(ctx, publicChannels[i])
-			if err != nil {
-				return nil, internalError(err)
-			}
-			publicChannels[i] = ch
-		}
-		return map[string]any{"user_id": userID, "channels": publicChannels}, nil
-	}
-	channels, err := s.listChannels(ctx)
+	publicChannels, err := s.channelsModule.ListPublic(ctx, userID)
 	if err != nil {
 		return nil, internalError(err)
 	}
-	members, err := s.membersForUser(ctx, userID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	ownedChannelIDs := map[string]bool{}
-	ownedRoomIDs := map[string]bool{}
-	for _, member := range members {
-		if memberHidden(member.Membership) {
-			continue
-		}
-		if !strings.EqualFold(member.Role, "owner") {
-			continue
-		}
-		if member.ChannelID != "" {
-			ownedChannelIDs[member.ChannelID] = true
-		}
-		if member.RoomID != "" {
-			ownedRoomIDs[member.RoomID] = true
-		}
-	}
-	publicChannels := make([]channel, 0, len(channels))
-	for _, ch := range channels {
-		if !ownedChannelIDs[ch.ChannelID] && !ownedRoomIDs[ch.RoomID] {
-			continue
-		}
-		if !strings.EqualFold(ch.Visibility, "public") {
-			continue
-		}
-		ch, err = s.channelWithCurrentCounts(ctx, ch)
+	for i := range publicChannels {
+		ch, err := s.channelWithCurrentCounts(ctx, publicChannels[i])
 		if err != nil {
 			return nil, internalError(err)
 		}
-		publicChannels = append(publicChannels, ch)
+		publicChannels[i] = ch
 	}
-	sort.SliceStable(publicChannels, func(i, j int) bool {
-		if publicChannels[i].Name == publicChannels[j].Name {
-			return publicChannels[i].ChannelID < publicChannels[j].ChannelID
-		}
-		return publicChannels[i].Name < publicChannels[j].Name
-	})
 	return map[string]any{"user_id": userID, "channels": publicChannels}, nil
 }
 
-func (s *Service) channelPolicyMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
-	channelID := trimString(params["channel_id"])
-	roomID := trimString(params["room_id"])
-	if channelID == "" && roomID == "" {
-		return nil, badRequest("channel_id or room_id is required")
-	}
-	ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		return nil, statusError(404, "channel not found")
-	}
-	ch.Muted = action == "channels.mute"
-	if err := s.saveChannel(ctx, ch); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.setProductMemberMute(ctx, ch.RoomID, ch.ChannelID, ch.Muted); err != nil {
-		return nil, internalError(err)
-	}
-	return map[string]any{"status": "ok", "channel_id": ch.ChannelID, "room_id": ch.RoomID, "muted": ch.Muted, "channel": ch}, nil
+func (s *Service) saveChannel(ctx context.Context, ch channel) error {
+	return s.channelsModule.Save(ctx, ch)
 }
 
-func (s *Service) saveChannel(ctx context.Context, ch channel) error {
-	s.mu.Lock()
-	s.channels[ch.ChannelID] = ch
-	s.mu.Unlock()
-	if store := s.channelStore(); store != nil {
-		if err := store.UpsertChannel(ctx, ch); err != nil {
-			return err
-		}
+func (s *Service) setChannelMemberMute(ctx context.Context, roomID, channelID string, muted bool) *apiError {
+	if err := s.setProductMemberMute(ctx, roomID, channelID, muted); err != nil {
+		return internalError(err)
 	}
-	return s.saveConversation(ctx, conversationFromChannel(ch))
+	return nil
 }
 
 func channelStateEvent(ch channel, dissolved bool) RoomStateEvent {
@@ -485,186 +266,21 @@ func (s *Service) publishMemberPolicyState(ctx context.Context, member memberRec
 }
 
 func (s *Service) deleteChannel(ctx context.Context, channelID string) error {
-	s.mu.Lock()
-	delete(s.channels, channelID)
-	s.mu.Unlock()
-	if store := s.channelStore(); store != nil {
-		return store.DeleteChannel(ctx, channelID)
-	}
-	return nil
-}
-
-func (s *Service) dissolveChannel(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
-	if roomID == "" && channelID == "" {
-		return nil, badRequest("channel_id or room_id is required")
-	}
-	ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		return nil, statusError(404, "channel not found")
-	}
-	if apiErr := s.requireOwnerMember(ctx, ch.RoomID); apiErr != nil {
-		return nil, apiErr
-	}
-	if err := s.publishChannelState(ctx, ch, true); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.deleteChannel(ctx, ch.ChannelID); err != nil {
-		return nil, internalError(err)
-	}
-	return map[string]any{"status": "ok", "channel": ch}, nil
+	return s.channelsModule.Delete(ctx, channelID)
 }
 
 func (s *Service) channelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error) {
-	if store := s.channelStore(); store != nil {
-		return store.GetChannelByIDOrRoom(ctx, channelID, roomID)
-	}
-	channels, err := s.listChannels(ctx)
-	if err != nil {
-		return channel{}, false, err
-	}
-	for _, ch := range channels {
-		if channelID != "" && ch.ChannelID == channelID {
-			return ch, true, nil
-		}
-		if roomID != "" && ch.RoomID == roomID {
-			return ch, true, nil
-		}
-	}
-	return channel{}, false, nil
+	return s.channelsModule.ByIDOrRoom(ctx, channelID, roomID)
 }
 
 func (s *Service) channelSnapshot(ctx context.Context, channelID string) channel {
-	channelID = strings.TrimSpace(channelID)
-	if channelID == "" {
-		return channel{}
-	}
-	if store := s.channelStore(); store != nil {
-		ch, ok, err := store.GetChannelByIDOrRoom(ctx, channelID, "")
-		if err == nil && ok {
-			return ch
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.channels[channelID]
+	return s.channelsModule.Snapshot(ctx, channelID)
 }
 
 func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (channel, error) {
-	if strings.TrimSpace(ch.ChannelID) == "" {
-		return ch, nil
-	}
-	if store := s.memberStore(); store != nil {
-		memberCount, pendingJoinCount, err := store.CountProductMembers(ctx, ch.RoomID, ch.ChannelID)
-		if err != nil {
-			return channel{}, err
-		}
-		if memberCount == 0 && pendingJoinCount == 0 {
-			return ch, nil
-		}
-		if ch.MemberCount == memberCount && ch.PendingJoinCount == pendingJoinCount {
-			return ch, nil
-		}
-		ch.MemberCount = memberCount
-		ch.PendingJoinCount = pendingJoinCount
-		if err := s.saveChannel(ctx, ch); err != nil {
-			return channel{}, err
-		}
-		return ch, nil
-	}
-	var members []memberRecord
-	s.mu.Lock()
-	members = make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if member.ChannelID == ch.ChannelID {
-			members = append(members, member)
-		}
-	}
-	s.mu.Unlock()
-	if len(members) == 0 {
-		return ch, nil
-	}
-	memberCount, pendingJoinCount := dirextalkprojection.ProductMemberCounts(members)
-	if ch.MemberCount == memberCount && ch.PendingJoinCount == pendingJoinCount {
-		return ch, nil
-	}
-	ch.MemberCount = memberCount
-	ch.PendingJoinCount = pendingJoinCount
-	if err := s.saveChannel(ctx, ch); err != nil {
-		return channel{}, err
-	}
-	return ch, nil
+	return s.channelsModule.WithCurrentCounts(ctx, ch)
 }
 
 func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID string) error {
-	channelID = strings.TrimSpace(channelID)
-	channelStore := s.channelStore()
-	if channelStore == nil || channelID == "" {
-		return nil
-	}
-	target, ok, err := channelStore.GetChannelByIDOrRoom(ctx, channelID, "")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	memberStore := s.memberStore()
-	if memberStore == nil {
-		return nil
-	}
-	memberCount, pendingJoinCount, err := memberStore.CountProductMembers(ctx, target.RoomID, channelID)
-	if err != nil {
-		return err
-	}
-	target.MemberCount = memberCount
-	target.PendingJoinCount = pendingJoinCount
-	return s.saveChannel(ctx, target)
-}
-
-func (s *Service) refreshStoredGroupCounts(ctx context.Context, roomID string) error {
-	roomID = strings.TrimSpace(roomID)
-	groupStore := s.groupStore()
-	if groupStore == nil || roomID == "" {
-		return nil
-	}
-	target, ok, err := groupStore.GetGroupByRoom(ctx, roomID)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	memberStore := s.memberStore()
-	if memberStore == nil {
-		return nil
-	}
-	memberCount, _, err := memberStore.CountProductMembers(ctx, roomID, "")
-	if err != nil {
-		return err
-	}
-	target.MemberCount = memberCount
-	return groupStore.UpsertGroup(ctx, target)
-}
-
-func (s *Service) refreshChannelCountsLocked(channelID string) {
-	channelID = strings.TrimSpace(channelID)
-	if channelID == "" {
-		return
-	}
-	ch, ok := s.channels[channelID]
-	if !ok {
-		return
-	}
-	members := make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if member.ChannelID == channelID {
-			members = append(members, member)
-		}
-	}
-	ch.MemberCount, ch.PendingJoinCount = dirextalkprojection.ProductMemberCounts(members)
-	s.channels[channelID] = ch
+	return s.channelsModule.RefreshCounts(ctx, channelID)
 }

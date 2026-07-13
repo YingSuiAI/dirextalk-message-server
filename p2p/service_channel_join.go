@@ -21,7 +21,10 @@ func (s *Service) channelInviteGrantStore() channelInviteGrantStore {
 }
 
 func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
+	roomID, channelID, err := s.memberTarget(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	if roomID == "" && channelID == "" {
 		return nil, badRequest("room_id or channel_id is required")
 	}
@@ -111,7 +114,10 @@ func (s *Service) channelJoinRequest(ctx context.Context, params map[string]any)
 }
 
 func (s *Service) channelJoinResult(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
+	roomID, channelID, err := s.memberTarget(ctx, params)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	if roomID == "" && channelID == "" {
 		return nil, badRequest("room_id or channel_id is required")
 	}
