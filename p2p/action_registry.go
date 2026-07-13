@@ -107,12 +107,6 @@ func (s *Service) groupListAction(ctx context.Context, _ map[string]any) (any, *
 	return s.groupList(ctx), nil
 }
 
-func (s *Service) channelJoinRequestMutationAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.channelJoinRequestMutation(ctx, action, params)
-	}
-}
-
 func (s *Service) groupPolicyMutationAction(action string) actionHandler {
 	return func(ctx context.Context, params map[string]any) (any, *apiError) {
 		return s.groupPolicyMutation(ctx, action, params)

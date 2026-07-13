@@ -13,17 +13,19 @@ import (
 )
 
 const (
-	actionChannelMembers    = "channels.members"
-	actionChannelLeave      = "channels.leave"
-	actionChannelRemove     = "channels.member.remove"
-	actionChannelMute       = "channels.member.mute"
-	actionChannelUnmute     = "channels.member.unmute"
-	actionGroupMembers      = "groups.members"
-	actionGroupLeave        = "groups.leave"
-	actionGroupRemove       = "groups.member.remove"
-	actionGroupInviteReject = "groups.invite.reject"
-	actionGroupMute         = "groups.member.mute"
-	actionGroupUnmute       = "groups.member.unmute"
+	actionChannelMembers            = "channels.members"
+	actionChannelLeave              = "channels.leave"
+	actionChannelRemove             = "channels.member.remove"
+	actionChannelJoinRequestApprove = "channels.join_request.approve"
+	actionChannelJoinRequestReject  = "channels.join_request.reject"
+	actionChannelMute               = "channels.member.mute"
+	actionChannelUnmute             = "channels.member.unmute"
+	actionGroupMembers              = "groups.members"
+	actionGroupLeave                = "groups.leave"
+	actionGroupRemove               = "groups.member.remove"
+	actionGroupInviteReject         = "groups.invite.reject"
+	actionGroupMute                 = "groups.member.mute"
+	actionGroupUnmute               = "groups.member.unmute"
 )
 
 // Store is the stable member reader used by Module. The root adapter preserves
@@ -37,15 +39,17 @@ type ConversationPort interface {
 }
 
 type Config struct {
-	ResolveTarget func(map[string]any) (roomID, channelID string)
-	NewMember     func(roomID, channelID, userID string) dirextalkdomain.MemberRecord
-	LookupMember  func(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
-	SaveMember    func(context.Context, dirextalkdomain.MemberRecord) error
-	PublishPolicy func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
-	Conversation  ConversationPort
-	OwnerMXID     func() string
-	KickMember    func(context.Context, string, string, string, string) *actionbase.Error
-	LeaveMember   func(context.Context, string, string) *actionbase.Error
+	ResolveTarget       func(map[string]any) (roomID, channelID string)
+	NewMember           func(roomID, channelID, userID string) dirextalkdomain.MemberRecord
+	LookupMember        func(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
+	SaveMember          func(context.Context, dirextalkdomain.MemberRecord) error
+	PublishPolicy       func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
+	Conversation        ConversationPort
+	OwnerMXID           func() string
+	KickMember          func(context.Context, string, string, string, string) *actionbase.Error
+	LeaveMember         func(context.Context, string, string) *actionbase.Error
+	PublishJoinRequest  func(context.Context, string, string, string, string) *actionbase.Error
+	CompleteJoinRequest func(context.Context, bool, dirextalkdomain.MemberRecord, map[string]any) (map[string]any, *actionbase.Error)
 }
 
 type Module struct {
@@ -60,17 +64,19 @@ func New(store Store, cfg Config) *Module {
 // Handlers returns the group and channel actions sharing the same member view.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionChannelMembers:    m.List,
-		actionChannelLeave:      m.lifecycleHandler(actionChannelLeave),
-		actionChannelRemove:     m.lifecycleHandler(actionChannelRemove),
-		actionChannelMute:       m.mutationHandler("channel", actionChannelMute, true),
-		actionChannelUnmute:     m.mutationHandler("channel", actionChannelUnmute, false),
-		actionGroupMembers:      m.List,
-		actionGroupLeave:        m.lifecycleHandler(actionGroupLeave),
-		actionGroupRemove:       m.lifecycleHandler(actionGroupRemove),
-		actionGroupInviteReject: m.lifecycleHandler(actionGroupInviteReject),
-		actionGroupMute:         m.mutationHandler("group", actionGroupMute, true),
-		actionGroupUnmute:       m.mutationHandler("group", actionGroupUnmute, false),
+		actionChannelMembers:            m.List,
+		actionChannelLeave:              m.lifecycleHandler(actionChannelLeave),
+		actionChannelRemove:             m.lifecycleHandler(actionChannelRemove),
+		actionChannelJoinRequestApprove: m.joinRequestHandler(actionChannelJoinRequestApprove),
+		actionChannelJoinRequestReject:  m.joinRequestHandler(actionChannelJoinRequestReject),
+		actionChannelMute:               m.mutationHandler("channel", actionChannelMute, true),
+		actionChannelUnmute:             m.mutationHandler("channel", actionChannelUnmute, false),
+		actionGroupMembers:              m.List,
+		actionGroupLeave:                m.lifecycleHandler(actionGroupLeave),
+		actionGroupRemove:               m.lifecycleHandler(actionGroupRemove),
+		actionGroupInviteReject:         m.lifecycleHandler(actionGroupInviteReject),
+		actionGroupMute:                 m.mutationHandler("group", actionGroupMute, true),
+		actionGroupUnmute:               m.mutationHandler("group", actionGroupUnmute, false),
 	}
 }
 

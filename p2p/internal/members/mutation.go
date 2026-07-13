@@ -71,6 +71,75 @@ func (m *Module) lifecycleHandler(action string) actionbase.Handler {
 	}
 }
 
+func (m *Module) joinRequestHandler(action string) actionbase.Handler {
+	return func(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+		return m.handleJoinRequest(ctx, action, raw)
+	}
+}
+
+func (m *Module) handleJoinRequest(ctx context.Context, action string, raw map[string]any) (any, *actionbase.Error) {
+	approved := action == actionChannelJoinRequestApprove
+	if !approved && action != actionChannelJoinRequestReject {
+		return nil, actionbase.InternalError(errors.New("unknown channel join-request action"))
+	}
+	if m.config.SaveMember == nil || m.config.PublishJoinRequest == nil ||
+		m.config.CompleteJoinRequest == nil || m.config.Conversation == nil {
+		return nil, actionbase.InternalError(errors.New("channel join-request dependencies are not configured"))
+	}
+	member, found, actionErr := m.loadMember(ctx, "channel", raw, func() string {
+		return firstMemberID(actionbase.Params(raw))
+	})
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	if !found || !joinRequestMutationAllowed(approved, member.Membership) {
+		return nil, actionbase.StatusError(http.StatusNotFound, "join request not found")
+	}
+
+	stateStatus := "rejected"
+	member.Membership = "reject"
+	if approved {
+		stateStatus = "approved"
+		member.Membership = "approved"
+	}
+	if err := m.config.SaveMember(ctx, member); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if actionErr := m.config.PublishJoinRequest(ctx, member.RoomID, member.UserID, stateStatus, actionbase.Params(raw).String("reason")); actionErr != nil {
+		return nil, actionErr
+	}
+	result, actionErr := m.config.CompleteJoinRequest(ctx, approved, member, raw)
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	if result == nil {
+		result = map[string]any{}
+	}
+	status := "rejected"
+	if approved {
+		status = actionbase.String(result["status"])
+		if status == "" {
+			status = "approved"
+		}
+	} else {
+		result["status"] = status
+	}
+	return m.attachOperation(ctx, result, action, status, member.RoomID)
+}
+
+func joinRequestMutationAllowed(approved bool, membership string) bool {
+	membership = strings.ToLower(strings.TrimSpace(membership))
+	if approved {
+		switch membership {
+		case "pending", "approved", "join_failed":
+			return true
+		default:
+			return false
+		}
+	}
+	return membership == "pending"
+}
+
 // HandleLifecycle applies the shared leave, remove, and invite-reject workflow.
 func (m *Module) HandleLifecycle(ctx context.Context, action string, raw map[string]any) (any, *actionbase.Error) {
 	spec, ok := lifecycleSpecs[action]
@@ -153,7 +222,11 @@ func (m *Module) loadMember(
 
 func (m *Module) resultWithOperation(ctx context.Context, action, status string, member dirextalkdomain.MemberRecord) (any, *actionbase.Error) {
 	result := map[string]any{"status": status, "member": member}
-	operation, conversation, err := m.config.Conversation.Operation(ctx, action, status, member.RoomID)
+	return m.attachOperation(ctx, result, action, status, member.RoomID)
+}
+
+func (m *Module) attachOperation(ctx context.Context, result map[string]any, action, status, roomID string) (any, *actionbase.Error) {
+	operation, conversation, err := m.config.Conversation.Operation(ctx, action, status, roomID)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}

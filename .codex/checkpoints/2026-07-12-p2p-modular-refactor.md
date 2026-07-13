@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `b843c95` (`refactor: move member policy mutations`)
+- Current published HEAD before this verified slice: `830d530` (`refactor: consolidate member lifecycle tests`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified test-cleanup and member lifecycle stage, then move channel join-request approve/reject into the existing members module without moving its remote/Matrix completion adapters. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified channel join-request stage, then extract the cohesive group invite/join workflow while leaving remote/Matrix adapters at the root boundary. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -145,6 +145,9 @@
 - The verified test-cleanup stage removes 11 redundant test files and 44 tests (about 2,466 test lines): duplicated fake-port failure matrices, private call-order assertions, type-alias/compiler checks, and pagination/config negatives already protected by root integration or owning-package tests. PostgreSQL reopen/CAS, contact partial-commit recovery and peer serialization, Matrix side effects, ActionSpecs, WS/MCP boundaries, and known bug regressions remain covered.
 - The verified member-lifecycle stage moves `groups.leave`, `channels.leave`, both `*.member.remove`, and `groups.invite.reject` into the existing members mutation file without creating another production file. It preserves owner selection/protection, absent-member compatibility, `reject` versus public `rejected`, trimmed reasons, and `Kick/Leave -> Save -> Operation`; account deletion calls the same module workflow. Root `memberMutation` is narrowed to channel join-request approval/rejection only.
 - Stage gates passed once after the grouped work: focused internal/root tests, `go test ./p2p/... -count=1` (root 80.385s, storage 35.991s), related domain/policy tests, touched-file gopls, unused/ineffassign/staticcheck, production build, and `git diff --check`. A single combined engineering/contract/test-cleanup review reported no P0-P3 finding.
+- Published `830d530`: redundant fake-port tests were reduced and five leave/remove/invite-reject actions moved into the members module in one verified stage.
+- The verified channel join-request stage moves `channels.join_request.approve/reject` status gating, first persistence, native Matrix join-request state publication, completion dispatch, and final conversation operation into the existing members mutation file. The root keeps one narrow completion adapter for local/remote Matrix and HTTP work; no production file was added.
+- Join-request focused coverage passed once for the members module plus local, retry, channel-refresh, remote approval, Matrix join, and Action registry root paths. Touched-file gopls and `git diff --check` passed, and the single combined review found no P0-P3 behavior, contract, partial-commit, or dependency-boundary issue. The immediately preceding grouped stage already passed the full P2P/build/lint gate, so it was not repeated for this adjacent slice.
 
 ## Related Finding Outside This Structural Slice
 

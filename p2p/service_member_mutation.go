@@ -5,54 +5,9 @@ import (
 	"strings"
 )
 
-func (s *Service) channelJoinRequestMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
-	roomID, channelID := s.memberTarget(params)
-	if roomID == "" && channelID == "" {
-		return nil, badRequest("room_id or channel_id is required")
-	}
-	userID := firstMemberID(params)
-	if userID == "" {
-		return nil, badRequest("user_id is required")
-	}
-	member := s.memberRecordFor(roomID, channelID, userID)
-	existing, ok, err := s.lookupMember(ctx, roomID, userID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if ok {
-		member = existing
-		if channelID != "" {
-			member.ChannelID = channelID
-		}
-	}
-	if !ok || !joinRequestMutationAllowed(action, existing.Membership) {
-		return nil, statusError(404, "join request not found")
-	}
-	if strings.Contains(action, ".approve") {
-		member.Membership = "approved"
-	} else {
-		member.Membership = "reject"
-	}
-	if err := s.saveMember(ctx, member); err != nil {
-		return nil, internalError(err)
-	}
-	stateStatus := "rejected"
-	if strings.Contains(action, ".approve") {
-		stateStatus = "approved"
-	}
-	if apiErr := s.publishJoinRequestState(ctx, member.RoomID, member.UserID, stateStatus, trimString(params["reason"])); apiErr != nil {
-		return nil, apiErr
-	}
-	if strings.Contains(action, ".approve") {
-		result, apiErr := s.completeApprovedChannelJoin(ctx, member, params)
-		if apiErr != nil {
-			return nil, apiErr
-		}
-		status := fallbackString(trimString(result["status"]), "approved")
-		if err := s.attachConversationOperation(ctx, result, action, status, member.RoomID); err != nil {
-			return nil, internalError(err)
-		}
-		return result, nil
+func (s *Service) completeChannelJoinRequest(ctx context.Context, approved bool, member memberRecord, params map[string]any) (map[string]any, *apiError) {
+	if approved {
+		return s.completeApprovedChannelJoin(ctx, member, params)
 	}
 	if domainFromMXID(member.UserID) != s.serverName {
 		result, apiErr := s.notifyRemoteChannelJoinResult(ctx, member, "rejected", params)
@@ -60,33 +15,13 @@ func (s *Service) channelJoinRequestMutation(ctx context.Context, action string,
 			return nil, apiErr
 		}
 		result["status"] = "rejected"
-		if err := s.attachConversationOperation(ctx, result, action, "rejected", member.RoomID); err != nil {
-			return nil, internalError(err)
-		}
 		return result, nil
 	}
-	result := map[string]any{
+	return map[string]any{
 		"status":  "rejected",
 		"member":  member,
 		"channel": s.channelSnapshot(ctx, member.ChannelID),
-	}
-	if err := s.attachConversationOperation(ctx, result, action, "rejected", member.RoomID); err != nil {
-		return nil, internalError(err)
-	}
-	return result, nil
-}
-
-func joinRequestMutationAllowed(action, membership string) bool {
-	membership = strings.ToLower(strings.TrimSpace(membership))
-	if strings.Contains(action, ".approve") {
-		switch membership {
-		case "pending", "approved", "join_failed":
-			return true
-		default:
-			return false
-		}
-	}
-	return membership == "pending"
+	}, nil
 }
 
 func (s *Service) memberOwnerMXID() string {
