@@ -564,6 +564,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
+		ServerName:       service.serverName,
 		AcceptDirectRoom: service.acceptDirectContactRoom,
 		CreateDirectRoom: service.createContactDirectRoom,
 		InviteDirectRoom: service.inviteContactDirectRoom,
@@ -571,6 +572,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			return "!dm-" + randomToken("room") + ":" + service.serverName
 		},
 		LocalProfile:         service.localContactProfileSnapshot,
+		ReactivatePeer:       service.reactivatePeerContact,
 		ReactivateDirectRoom: service.reactivateRetainedDirectRoom,
 		DeleteGroup: func(ctx context.Context, roomID string) error {
 			return service.store.DeleteGroup(ctx, roomID)

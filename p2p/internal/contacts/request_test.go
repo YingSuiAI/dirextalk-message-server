@@ -14,19 +14,29 @@ import (
 )
 
 type requestHarness struct {
-	module       *Module
-	store        *saveStore
-	conversation *saveConversationPort
-	log          *operationLog
-	invites      []DirectRoomInviteRequest
-	inviteErr    *actionbase.Error
-	creates      []DirectRoomCreateRequest
-	createRoomID string
-	createErr    *actionbase.Error
+	module             *Module
+	store              *saveStore
+	conversation       *saveConversationPort
+	log                *operationLog
+	invites            []DirectRoomInviteRequest
+	inviteErr          *actionbase.Error
+	creates            []DirectRoomCreateRequest
+	createRoomID       string
+	createErr          *actionbase.Error
+	reactivations      []PeerReactivationRequest
+	reactivationResult PeerReactivationResult
+	reactivationErr    *actionbase.Error
+	profile            LocalProfileSnapshot
 }
 
 func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarness {
-	harness := &requestHarness{log: &operationLog{}, createRoomID: "!created:example.com"}
+	harness := &requestHarness{
+		log:          &operationLog{},
+		createRoomID: "!created:example.com",
+		profile: LocalProfileSnapshot{
+			MXID: "@owner:example.com", DisplayName: "Owner", AvatarURL: "mxc://example.com/owner",
+		},
+	}
 	harness.store = &saveStore{log: harness.log, records: append([]dirextalkdomain.ContactRecord(nil), existing...)}
 	var existingRoomID string
 	var existingStatus string
@@ -39,6 +49,7 @@ func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarnes
 		operationView: &dirextalkdomain.ConversationView{MatrixRoomID: existingRoomID, Kind: dirextalkdomain.ConversationKindDirect},
 	}
 	harness.module = New(harness.store, harness.conversation, Config{
+		ServerName: "example.com",
 		NewDirectRoomID: func() string {
 			harness.log.add("new-room-id")
 			return "!fallback:example.com"
@@ -52,6 +63,14 @@ func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarnes
 			harness.log.add("invite:" + request.Contact.RoomID)
 			harness.invites = append(harness.invites, request)
 			return harness.inviteErr
+		},
+		LocalProfile: func() LocalProfileSnapshot {
+			return harness.profile
+		},
+		ReactivatePeer: func(_ context.Context, request PeerReactivationRequest) (PeerReactivationResult, *actionbase.Error) {
+			harness.log.add("reactivate:" + request.Contact.PeerMXID)
+			harness.reactivations = append(harness.reactivations, request)
+			return harness.reactivationResult, harness.reactivationErr
 		},
 	})
 	return harness

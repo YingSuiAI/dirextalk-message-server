@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `25c734a` (`refactor: unify direct contact room writes`)
+- Current published HEAD before this verified slice: `5a68524` (`refactor: move simple contact request leaves`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified resend plus simple fresh/replacement request leaves, then migrate the accepted/no-op probe and existing-room approval workflows. Keep Join outcome classification and durable `contact.requested` compensation as separate later work.
+- Commit and push the verified accepted/no-op probe plus existing-room approval workflows, then introduce typed Join outcomes before migrating pending-inbound, deleted, and retained-room restoration. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -113,6 +113,10 @@
 - The verified request-leaf slice moves pending-outbound resend and simple fresh/replacement creation into one 128-line `p2p/internal/contacts/request.go`. The module now owns field/remark merge rules, ID/create/invite ports, Save, operation/conversation response construction, and parameter-copy semantics; root retains dispatch, peer locking, remote probes, and Join lifecycle orchestration. `service_contacts.go` drops from 500 to 424 lines.
 - Tests cover exact remark precedence, optional-field preservation, derived/stored/explicit domain handling, nil/blank invite boundaries, generated/empty creator room IDs, Create/Invite→Save→Operation ordering, Upsert and operation partial commits, replacement inheritance/reset rules, caller-map immutability, and non-reentrant peer-lock use. A root regression confirms no-transport construction wires the `!dm-...:<server>` ID generator.
 - Latest request-leaf gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 77.231s, storage 35.311s), related policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering, contract, and test audits found no production issue; their two test-fidelity findings were corrected before the final gates.
+- Published `5a68524`: pending-outbound resend and simple fresh/replacement contact requests now belong to the contacts module behind typed Create/Invite/ID ports.
+- The verified existing-request slice moves accepted/no-op remote probing and stale existing-room approval into `internal/contacts/request.go`. Peer 404 is now a typed `NotRetained` outcome for module decisions, while the root compatibility wrapper preserves the exact legacy 404/error for pending/deleted/Join callers. Request approval shares field merge logic with resend and preserves blank-room fresh creation, invite gating, Save, and operation ordering.
+- `ResolveExistingRequest` deliberately returns `nil` on peer/no-op operation failures but preserves the historical zero-View result on replacement subflow failures; tests lock this odd observable distinction. The cohesive request production file is 202 lines, existing-request tests are separated into a 232-line workflow file, and `service_contacts.go` drops from 424 to 372 lines.
+- Latest existing-request gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 79.677s, storage 35.634s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

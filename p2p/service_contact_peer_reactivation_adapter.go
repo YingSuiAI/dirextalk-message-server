@@ -37,7 +37,7 @@ func (s *Service) reactivatePeerContact(ctx context.Context, request contactsmod
 	}
 	if status != http.StatusOK {
 		if status == http.StatusNotFound {
-			return contactsmodule.PeerReactivationResult{}, statusError(status, "retained contact not found")
+			return contactsmodule.PeerReactivationResult{NotRetained: true}, nil
 		}
 		return contactsmodule.PeerReactivationResult{}, statusError(status, "target node contact reactivation failed")
 	}

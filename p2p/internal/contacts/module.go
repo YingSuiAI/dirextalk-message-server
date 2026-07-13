@@ -73,6 +73,7 @@ type PeerReactivationRequest struct {
 // PeerReactivationResult describes the peer node's retained-room decision.
 type PeerReactivationResult struct {
 	PendingInbound bool
+	NotRetained    bool
 	RoomID         string
 }
 
@@ -80,6 +81,7 @@ type PeerReactivationResult struct {
 type PeerReactivator func(context.Context, PeerReactivationRequest) (PeerReactivationResult, *actionbase.Error)
 
 type Config struct {
+	ServerName           string
 	DeleteGroup          func(ctx context.Context, roomID string) error
 	LeaveRoom            func(ctx context.Context, roomID string) *actionbase.Error
 	AcceptDirectRoom     DirectRoomAcceptor
@@ -87,6 +89,7 @@ type Config struct {
 	InviteDirectRoom     DirectRoomInviter
 	NewDirectRoomID      func() string
 	LocalProfile         func() LocalProfileSnapshot
+	ReactivatePeer       PeerReactivator
 	ReactivateDirectRoom DirectRoomReactivator
 }
 
@@ -96,6 +99,7 @@ type peerMutationEntry struct {
 }
 
 type Module struct {
+	serverName      string
 	store           Store
 	conversation    ConversationPort
 	deleteGroup     func(context.Context, string) error
@@ -105,6 +109,7 @@ type Module struct {
 	inviteRoom      DirectRoomInviter
 	newDirectRoomID func() string
 	localProfile    func() LocalProfileSnapshot
+	reactivatePeer  PeerReactivator
 	reactivateRoom  DirectRoomReactivator
 	mutationMu      sync.Mutex
 
@@ -114,6 +119,7 @@ type Module struct {
 
 func New(store Store, conversation ConversationPort, cfg Config) *Module {
 	return &Module{
+		serverName:      cfg.ServerName,
 		store:           store,
 		conversation:    conversation,
 		deleteGroup:     cfg.DeleteGroup,
@@ -123,6 +129,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		inviteRoom:      cfg.InviteDirectRoom,
 		newDirectRoomID: cfg.NewDirectRoomID,
 		localProfile:    cfg.LocalProfile,
+		reactivatePeer:  cfg.ReactivatePeer,
 		reactivateRoom:  cfg.ReactivateDirectRoom,
 	}
 }

@@ -38,7 +38,7 @@ func TestPeerReactivationAdapterMapsRemoteResponsesAndStripsRoutingParam(t *test
 	}{
 		{name: "pending inbound", status: http.StatusOK, body: `{"status":"pending_inbound","room_id":" !old:remote.example "}`, wantResult: contactsmodule.PeerReactivationResult{PendingInbound: true, RoomID: "!old:remote.example"}},
 		{name: "unknown success status remains retained", status: http.StatusOK, body: `{"status":"future_status","room_id":" !old:remote.example "}`, wantResult: contactsmodule.PeerReactivationResult{RoomID: "!old:remote.example"}},
-		{name: "not found canonicalized", status: http.StatusNotFound, body: `{}`, wantStatus: http.StatusNotFound, wantError: "retained contact not found"},
+		{name: "not found becomes typed outcome", status: http.StatusNotFound, body: `{}`, wantResult: contactsmodule.PeerReactivationResult{NotRetained: true}},
 		{name: "forbidden preserves remote error", status: http.StatusForbidden, body: `{"error":"reactivation forbidden"}`, wantStatus: http.StatusForbidden, wantError: "target node public action failed: status=403 error=reactivation forbidden"},
 		{name: "server error preserves status", status: http.StatusInternalServerError, body: `{"error":"remote failure"}`, wantStatus: http.StatusInternalServerError, wantError: "target node public action failed: status=500 error=remote failure"},
 		{name: "invalid success JSON becomes bad gateway", status: http.StatusOK, body: `{`, wantStatus: http.StatusBadGateway},
@@ -101,6 +101,21 @@ func TestPeerReactivationAdapterMapsRemoteResponsesAndStripsRoutingParam(t *test
 				}
 			}
 		})
+	}
+}
+
+func TestPeerReactivationCompatibilityWrapperPreservesNotRetainedError(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer remote.Close()
+
+	service := NewService(Config{ServerName: "example.com", RemoteNodeAllowPrivateBaseURLs: true})
+	result, apiErr := service.requestPeerContactReactivation(context.Background(), contactRecord{
+		PeerMXID: "@alice:remote.example", RoomID: "!old:remote.example",
+	}, map[string]any{"remote_node_base_url": remote.URL + "/_p2p"}, "@owner:example.com")
+	if result != (peerContactReactivation{}) || apiErr == nil || apiErr.Status != http.StatusNotFound || apiErr.Error != "retained contact not found" {
+		t.Fatalf("compatibility wrapper = (%#v, %#v)", result, apiErr)
 	}
 }
 
