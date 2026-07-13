@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 )
 
 func (s *Service) inviteMembers(ctx context.Context, scope string, params map[string]any) (any, *apiError) {
@@ -221,7 +223,7 @@ func (s *Service) shareRoomMembersForInviteGrant(ctx context.Context, shareRoomI
 		byUserID[member.UserID] = len(members)
 		members = append(members, member)
 	}
-	sortMembersByJoinOrder(members)
+	membersmodule.SortByJoinOrder(members)
 	return members, nil
 }
 

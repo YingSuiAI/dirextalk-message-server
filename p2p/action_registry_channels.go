@@ -17,7 +17,6 @@ func (s *Service) registerChannelActions(actions map[string]actionHandler) {
 	actions["channels.unmute"] = s.channelPolicyMutationAction("channels.unmute")
 	actions["channels.read_marker"] = s.updateReadMarker
 	actions["channels.list"] = s.channelListAction
-	actions["channels.members"] = s.memberListAction
 	actions["channels.public.search"] = s.channelPublicSearch
 	actions["channels.public.get"] = s.channelPublicGet
 	actions["channels.public.join_request"] = s.channelJoinRequest

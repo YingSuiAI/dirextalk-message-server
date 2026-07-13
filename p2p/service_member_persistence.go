@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 )
 
 type memberStore interface {
@@ -16,6 +17,35 @@ type memberStore interface {
 	ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error)
 	CountProductMembers(ctx context.Context, roomID, channelID string) (joined, pending int64, err error)
 	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
+}
+
+type serviceMemberListStore struct {
+	service *Service
+}
+
+func (a serviceMemberListStore) ListMembers(ctx context.Context, roomID, channelID string) ([]dirextalkdomain.MemberRecord, error) {
+	if a.service == nil {
+		return nil, errors.New("member list service is not configured")
+	}
+	if store := a.service.memberStore(); store != nil {
+		members, err := store.ListMembers(ctx, roomID, channelID)
+		if err == nil {
+			return members, nil
+		}
+	}
+	a.service.mu.Lock()
+	defer a.service.mu.Unlock()
+	members := make([]dirextalkdomain.MemberRecord, 0, len(a.service.members))
+	for _, member := range a.service.members {
+		if roomID != "" && member.RoomID != roomID {
+			continue
+		}
+		if channelID != "" && member.ChannelID != channelID {
+			continue
+		}
+		members = append(members, member)
+	}
+	return members, nil
 }
 
 func (s *Service) memberStore() memberStore {
@@ -176,6 +206,6 @@ func (s *Service) membersForProduct(ctx context.Context, roomID, channelID strin
 		}
 		members = append(members, member)
 	}
-	sortMembersByJoinOrder(members)
+	membersmodule.SortByJoinOrder(members)
 	return members, nil
 }

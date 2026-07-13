@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `095f031` (`refactor: move deleted contact restoration`)
+- Current published HEAD before this verified slice: `ab6aa80` (`refactor: move contact request dispatch`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified contact-request dispatcher/facade collapse, then audit the next rooms/member lifecycle extraction slice. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified shared member-list module, then extract ordinary member leave/remove/mute/unmute/invite-reject workflows without mixing in channel join-request approval. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -133,6 +133,10 @@
 - The verified request-dispatch slice gives `p2p/internal/contacts` ownership of the full `contacts.request` handler: validation, self rejection, same-peer serialization, blocks-owned lookup through one narrow port, domain derivation, durable contact lookup, status dispatch, retained-room probe, and fresh fallback. The root Action registry now has one contacts owner while the public HTTP-only `rooms.reactivate` callback remains separately registered.
 - Entry tests cover validation/block/lookup short-circuiting, all stored-status branches, permissive domain/port derivation, no-local peer outcomes and probe-before-create order, plus strict nil versus boxed-zero-View error shapes. The old six-line contact registry file and 138-line `service_contacts.go` are deleted; DirectRoom adapters and the still-required projector storage facade are consolidated into their owning existing files without creating another root file.
 - Latest request-dispatch gates passed in two batches: focused module/root race tests, then the final parallel gate (restarted once after an interface interruption left no verifiable output) with `go test ./p2p/... -count=1` (root 86.435s, storage 41.623s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `ab6aa80`: `contacts.request` validation, locking, blocks gate, status dispatch, retained probe, and fresh fallback now form one contacts-owned handler; obsolete root dispatcher files are gone.
+- The verified member-list slice establishes `p2p/internal/members` as the shared owner of `groups.members` and `channels.members`. Its 97-line module owns hidden-state filtering, output-only role normalization, status/role filtering, stable public ordering, concrete empty arrays, and the two Action handlers while continuing to return durable `dirextalkdomain.MemberRecord` values with legacy JSON aliases.
+- A narrow root reader adapter preserves the legacy Store-error/nil fallback to a locked `service.members` snapshot; the module remains unaware of the dual source. The old 87-line root list/filter/normalization/sort block is removed, and the single exported ordering helper is reused by invite-grant and persistence workflows without changing their behavior.
+- Latest member-list gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 84.571s, storage 38.495s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

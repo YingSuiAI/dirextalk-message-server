@@ -19,6 +19,7 @@ import (
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
+	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
@@ -95,6 +96,7 @@ type Service struct {
 	callsModule        *callsmodule.Module
 	contactsModule     *contactsmodule.Module
 	conversationModule *conversationmodule.Module
+	membersModule      *membersmodule.Module
 	socialModule       *socialmodule.Module
 
 	serviceReadModelState
@@ -607,6 +609,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			return contactStorageRecordFromContact(contact), ok, err
 		},
 	})
+	service.membersModule = membersmodule.New(serviceMemberListStore{service: service})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,
 		OwnerMXID:    service.ownerMXID,

@@ -26,6 +26,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
 		{name: "contacts", handlers: s.contactsModule.Handlers()},
 		{name: "room-workflows", handlers: map[string]actionHandler{"rooms.reactivate": s.roomReactivate}},
+		{name: "members", handlers: s.membersModule.Handlers()},
 		{name: "blocks", handlers: s.blocksModule.Handlers()},
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
@@ -104,10 +105,6 @@ func (s *Service) joinMemberAction(roomKind string) actionHandler {
 
 func (s *Service) groupListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
 	return s.groupList(ctx), nil
-}
-
-func (s *Service) memberListAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.memberList(ctx, params), nil
 }
 
 func (s *Service) memberMutationAction(roomKind, action string) actionHandler {

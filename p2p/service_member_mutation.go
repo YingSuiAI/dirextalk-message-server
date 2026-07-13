@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"sort"
 	"strings"
 )
 
@@ -188,92 +187,6 @@ func (s *Service) requireOwnerMember(ctx context.Context, roomID string) *apiErr
 		return statusError(403, "owner role is required")
 	}
 	return nil
-}
-
-func (s *Service) memberList(ctx context.Context, params map[string]any) any {
-	roomID := trimString(params["room_id"])
-	channelID := trimString(params["channel_id"])
-	status := fallbackString(trimString(params["status"]), trimString(params["membership"]))
-	role := trimString(params["role"])
-	if store := s.memberStore(); store != nil {
-		members, err := store.ListMembers(ctx, roomID, channelID)
-		if err == nil {
-			visible := make([]memberRecord, 0, len(members))
-			for _, member := range members {
-				if !memberHidden(member.Membership) {
-					visible = append(visible, member)
-				}
-			}
-			return map[string]any{"members": filterMembers(visible, status, role)}
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	members := make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if roomID != "" && member.RoomID != roomID {
-			continue
-		}
-		if channelID != "" && member.ChannelID != channelID {
-			continue
-		}
-		if memberHidden(member.Membership) {
-			continue
-		}
-		members = append(members, member)
-	}
-	sortMembersByJoinOrder(members)
-	return map[string]any{"members": filterMembers(members, status, role)}
-}
-
-func filterMembers(members []memberRecord, status, role string) []memberRecord {
-	members = normalizeProductMemberRoles(members)
-	if status == "" && role == "" {
-		sortMembersByJoinOrder(members)
-		return members
-	}
-	filtered := make([]memberRecord, 0, len(members))
-	for _, member := range members {
-		if status != "" && !strings.EqualFold(member.Membership, status) {
-			continue
-		}
-		if role != "" && !strings.EqualFold(member.Role, role) {
-			continue
-		}
-		filtered = append(filtered, member)
-	}
-	sortMembersByJoinOrder(filtered)
-	return filtered
-}
-
-func normalizeProductMemberRoles(members []memberRecord) []memberRecord {
-	normalized := make([]memberRecord, len(members))
-	copy(normalized, members)
-	for i := range normalized {
-		normalized[i].Role = normalizeProductMemberRole(normalized[i].Role)
-	}
-	return normalized
-}
-
-func sortMembersByJoinOrder(members []memberRecord) {
-	sort.SliceStable(members, func(i, j int) bool {
-		left, right := members[i], members[j]
-		leftOwner := strings.EqualFold(left.Role, "owner")
-		rightOwner := strings.EqualFold(right.Role, "owner")
-		if leftOwner != rightOwner {
-			return leftOwner
-		}
-		if left.JoinedAt != right.JoinedAt {
-			if left.JoinedAt == 0 {
-				return false
-			}
-			if right.JoinedAt == 0 {
-				return true
-			}
-			return left.JoinedAt < right.JoinedAt
-		}
-		return left.UserID < right.UserID
-	})
 }
 
 func (s *Service) memberTarget(params map[string]any) (string, string) {

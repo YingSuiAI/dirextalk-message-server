@@ -6,7 +6,6 @@ func (s *Service) registerGroupActions(actions map[string]actionHandler) {
 	actions["groups.invite"] = s.inviteMembersAction("group")
 	actions["groups.join"] = s.joinMemberAction("group")
 	actions["groups.list"] = s.groupListAction
-	actions["groups.members"] = s.memberListAction
 	actions["groups.dissolve"] = s.dissolveGroup
 	actions["groups.leave"] = s.memberMutationAction("group", "groups.leave")
 	actions["groups.invite.reject"] = s.memberMutationAction("group", "groups.invite.reject")
