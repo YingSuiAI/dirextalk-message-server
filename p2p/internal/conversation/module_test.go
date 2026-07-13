@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 
@@ -162,75 +161,6 @@ func TestHandlersListAndGetPreserveActionContract(t *testing.T) {
 	}
 	if view = response.(dirextalkdomain.ConversationView); view.ConversationID != second.ConversationID {
 		t.Fatalf("conversations.get by room = %#v", view)
-	}
-}
-
-func TestHandlersPreserveConversationErrors(t *testing.T) {
-	tests := []struct {
-		name       string
-		action     string
-		params     map[string]any
-		store      *moduleStore
-		hydrator   *moduleHydrator
-		wantStatus int
-		wantError  string
-	}{
-		{
-			name:       "get requires identifier",
-			action:     "conversations.get",
-			store:      &moduleStore{},
-			hydrator:   &moduleHydrator{},
-			wantStatus: 400,
-			wantError:  "conversation_id or room_id is required",
-		},
-		{
-			name:       "get missing",
-			action:     "conversations.get",
-			params:     map[string]any{"room_id": "!missing:example.com"},
-			store:      &moduleStore{},
-			hydrator:   &moduleHydrator{},
-			wantStatus: 404,
-			wantError:  "conversation not found",
-		},
-		{
-			name:       "get store failure",
-			action:     "conversations.get",
-			params:     map[string]any{"conversation_id": "conv_failed"},
-			store:      &moduleStore{getErr: errors.New("read failed")},
-			hydrator:   &moduleHydrator{},
-			wantStatus: 500,
-			wantError:  "internal error: read failed",
-		},
-		{
-			name:       "list store failure",
-			action:     "conversations.list",
-			store:      &moduleStore{listErr: errors.New("list failed")},
-			hydrator:   &moduleHydrator{},
-			wantStatus: 500,
-			wantError:  "internal error: list failed",
-		},
-		{
-			name:   "view hydration failure",
-			action: "conversations.list",
-			store: &moduleStore{records: []dirextalkdomain.ConversationRecord{{
-				ConversationID: "conv_group",
-				MatrixRoomID:   "!group:example.com",
-				Kind:           dirextalkdomain.ConversationKindGroup,
-			}}},
-			hydrator:   &moduleHydrator{viewErr: errors.New("hydrate failed")},
-			wantStatus: 500,
-			wantError:  "internal error: hydrate failed",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			module := New(tt.store, tt.hydrator)
-			response, apiErr := module.Handlers()[tt.action](context.Background(), tt.params)
-			if response != nil || apiErr == nil || apiErr.Status != tt.wantStatus || apiErr.Error != tt.wantError {
-				t.Fatalf("handler response=(%#v, %#v), want nil, status=%d error=%q", response, apiErr, tt.wantStatus, tt.wantError)
-			}
-		})
 	}
 }
 

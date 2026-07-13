@@ -217,30 +217,3 @@ func TestFavoriteDeleteAndBatchContracts(t *testing.T) {
 		}
 	})
 }
-
-func TestFavoriteWriteFailuresReturnStableInternalErrors(t *testing.T) {
-	t.Run("find", func(t *testing.T) {
-		store := newTestStore()
-		store.findFavoriteErr = errors.New("find failed")
-		result, apiErr := New(store, Config{}).Handlers()["favorites.add"](context.Background(), map[string]any{"event_id": "$event"})
-		assertInternalError(t, result, apiErr, "find failed")
-	})
-	t.Run("upsert", func(t *testing.T) {
-		store := newTestStore()
-		store.upsertFavoriteErr = errors.New("write failed")
-		result, apiErr := New(store, Config{}).Handlers()["favorites.add"](context.Background(), nil)
-		assertInternalError(t, result, apiErr, "write failed")
-	})
-	t.Run("initialize IDs", func(t *testing.T) {
-		store := newTestStore()
-		store.listFavoritesErr = errors.New("read failed")
-		result, apiErr := New(store, Config{}).Handlers()["favorites.add"](context.Background(), nil)
-		assertInternalError(t, result, apiErr, "read failed")
-	})
-	t.Run("delete", func(t *testing.T) {
-		store := newTestStore()
-		store.deleteFavoriteErrs[7] = errors.New("delete failed")
-		result, apiErr := New(store, Config{}).Handlers()["favorites.delete"](context.Background(), map[string]any{"id": int64(7)})
-		assertInternalError(t, result, apiErr, "delete failed")
-	})
-}

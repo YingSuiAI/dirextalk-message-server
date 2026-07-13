@@ -7,10 +7,8 @@ func (s *Service) registerChannelActions(actions map[string]actionHandler) {
 	actions["channels.invite_grant.create"] = s.channelInviteGrantCreate
 	actions["channels.invite"] = s.inviteMembersAction("channel")
 	actions["channels.dissolve"] = s.dissolveChannel
-	actions["channels.leave"] = s.memberMutationAction("channel", "channels.leave")
-	actions["channels.member.remove"] = s.memberMutationAction("channel", "channels.member.remove")
-	actions["channels.join_request.approve"] = s.memberMutationAction("channel", "channels.join_request.approve")
-	actions["channels.join_request.reject"] = s.memberMutationAction("channel", "channels.join_request.reject")
+	actions["channels.join_request.approve"] = s.channelJoinRequestMutationAction("channels.join_request.approve")
+	actions["channels.join_request.reject"] = s.channelJoinRequestMutationAction("channels.join_request.reject")
 	actions["channels.mute"] = s.channelPolicyMutationAction("channels.mute")
 	actions["channels.unmute"] = s.channelPolicyMutationAction("channels.unmute")
 	actions["channels.read_marker"] = s.updateReadMarker

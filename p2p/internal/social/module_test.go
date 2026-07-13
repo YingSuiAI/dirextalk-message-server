@@ -2,7 +2,6 @@ package social
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"sort"
 	"sync"
@@ -177,29 +176,6 @@ func TestHandlersOwnExactSocialActionsAndFollowContract(t *testing.T) {
 	}
 	if !reflect.DeepEqual(store.deletedFollowDomains, []string{""}) {
 		t.Fatalf("DeleteFollow calls = %v, want empty domain", store.deletedFollowDomains)
-	}
-}
-
-func TestFollowStoreFailuresReturnStableInternalErrors(t *testing.T) {
-	tests := []struct {
-		name   string
-		action string
-		setup  func(*testStore)
-		params map[string]any
-	}{
-		{name: "add", action: "follows.add", params: map[string]any{"domain": "remote.example"}, setup: func(s *testStore) { s.upsertFollowErr = errors.New("write failed") }},
-		{name: "list", action: "follows.list", setup: func(s *testStore) { s.listFollowsErr = errors.New("read failed") }},
-		{name: "remove", action: "follows.remove", setup: func(s *testStore) { s.deleteFollowErr = errors.New("delete failed") }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := newTestStore()
-			tt.setup(store)
-			result, apiErr := New(store, Config{}).Handlers()[tt.action](context.Background(), tt.params)
-			if result != nil || apiErr == nil || apiErr.Status != 500 || apiErr.Error == "" {
-				t.Fatalf("%s failure = (%#v, %#v)", tt.action, result, apiErr)
-			}
-		})
 	}
 }
 

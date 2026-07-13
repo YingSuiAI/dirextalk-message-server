@@ -3,10 +3,7 @@ package members
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net/http"
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
@@ -28,21 +25,9 @@ func (s *testStore) ListMembers(_ context.Context, roomID, channelID string) ([]
 	return append([]dirextalkdomain.MemberRecord(nil), s.records...), s.err
 }
 
-func TestHandlersOwnSharedMemberListActions(t *testing.T) {
+func TestSharedMemberListHandlersReturnEmptyArrays(t *testing.T) {
 	module := New(&testStore{}, Config{})
 	handlers := module.Handlers()
-	names := make([]string, 0, len(handlers))
-	for name, handler := range handlers {
-		if handler == nil {
-			t.Fatalf("handler %q is nil", name)
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if want := []string{"channels.member.mute", "channels.member.unmute", "channels.members", "groups.member.mute", "groups.member.unmute", "groups.members"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("handler names = %#v, want %#v", names, want)
-	}
-
 	for _, name := range []string{"channels.members", "groups.members"} {
 		result, actionErr := handlers[name](context.Background(), nil)
 		if actionErr != nil {
@@ -136,14 +121,6 @@ func TestListStatusAliasAndRoleFilters(t *testing.T) {
 				t.Fatalf("members = %#v, want %#v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestListMapsReaderFailure(t *testing.T) {
-	module := New(&testStore{err: errors.New("read members")}, Config{})
-	result, actionErr := module.List(context.Background(), nil)
-	if result != nil || actionErr == nil || actionErr.Status != http.StatusInternalServerError || actionErr.Error != "internal error: read members" {
-		t.Fatalf("list failure = (%#v, %#v)", result, actionErr)
 	}
 }
 

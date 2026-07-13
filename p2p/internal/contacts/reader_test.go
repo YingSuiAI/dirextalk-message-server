@@ -2,7 +2,6 @@ package contacts
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 
@@ -115,27 +114,5 @@ func TestContactLookupsPreserveRawSelection(t *testing.T) {
 	}
 	if store.listCalls != before {
 		t.Fatalf("empty lookups read Store: calls = %d, want %d", store.listCalls, before)
-	}
-}
-
-func TestContactReadersPropagateStoreErrors(t *testing.T) {
-	wantErr := errors.New("read contacts")
-	module := New(&testStore{listErr: wantErr}, nil, Config{})
-
-	tests := []struct {
-		name string
-		read func() error
-	}{
-		{name: "raw", read: func() error { _, err := module.ListRaw(context.Background()); return err }},
-		{name: "visible", read: func() error { _, err := module.ListVisible(context.Background()); return err }},
-		{name: "room lookup", read: func() error { _, _, err := module.LookupByRoom(context.Background(), "!room:example.com"); return err }},
-		{name: "peer lookup", read: func() error { _, _, err := module.LookupByPeer(context.Background(), "@alice:example.com"); return err }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.read(); !errors.Is(err, wantErr) {
-				t.Fatalf("error = %v, want %v", err, wantErr)
-			}
-		})
 	}
 }

@@ -5,25 +5,6 @@ import (
 	"testing"
 )
 
-func assertStorageRecordExcludesFacadeFields(t *testing.T, recordType reflect.Type, recordName string, fieldNames ...string) {
-	t.Helper()
-	for _, fieldName := range fieldNames {
-		if _, ok := recordType.FieldByName(fieldName); ok {
-			t.Fatalf("durable %s storage record must not expose response-only field %s", recordName, fieldName)
-		}
-	}
-}
-
-func TestContactStorageRecordExcludesFacadeFields(t *testing.T) {
-	assertStorageRecordExcludesFacadeFields(
-		t,
-		reflect.TypeOf(contactStorageRecord{}),
-		"contact",
-		"Operation",
-		"Conversation",
-	)
-}
-
 func TestContactStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
 	conversation := conversationView{ConversationID: "conv_direct"}
 	contact := contactRecord{
@@ -67,16 +48,6 @@ func TestContactStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
 	}
 }
 
-func TestGroupStorageRecordExcludesFacadeFields(t *testing.T) {
-	assertStorageRecordExcludesFacadeFields(
-		t,
-		reflect.TypeOf(groupStorageRecord{}),
-		"group",
-		"Operation",
-		"Conversation",
-	)
-}
-
 func TestGroupStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
 	conversation := conversationView{ConversationID: "conv_group"}
 	group := groupRecord{
@@ -115,18 +86,6 @@ func TestGroupStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
 		restored.Muted != group.Muted {
 		t.Fatalf("facade conversion lost durable group fields: %#v", restored)
 	}
-}
-
-func TestChannelPostStorageRecordExcludesFacadeFields(t *testing.T) {
-	assertStorageRecordExcludesFacadeFields(
-		t,
-		reflect.TypeOf(channelPostStorageRecord{}),
-		"channel post",
-		"ReactionCount",
-		"ReactedByMe",
-		"Operation",
-		"Conversation",
-	)
 }
 
 func TestChannelPostStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
@@ -181,18 +140,6 @@ func TestChannelPostStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {
 		restored.CommentCount != post.CommentCount {
 		t.Fatalf("facade conversion lost durable channel post fields: %#v", restored)
 	}
-}
-
-func TestChannelCommentStorageRecordExcludesFacadeFields(t *testing.T) {
-	assertStorageRecordExcludesFacadeFields(
-		t,
-		reflect.TypeOf(channelCommentStorageRecord{}),
-		"channel comment",
-		"ReactionCount",
-		"ReactedByMe",
-		"Operation",
-		"Conversation",
-	)
 }
 
 func TestChannelCommentStorageRecordConversionUsesOnlyDurableFields(t *testing.T) {

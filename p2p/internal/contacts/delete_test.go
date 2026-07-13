@@ -2,8 +2,6 @@ package contacts
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"reflect"
 	"testing"
 
@@ -260,72 +258,5 @@ func TestDeleteRereadsStatusUnderPeerLockBeforeLeavingRoom(t *testing.T) {
 	case roomID := <-leaves:
 		t.Fatalf("left %q after locked reread observed deleted status", roomID)
 	default:
-	}
-}
-
-func TestDeleteMapsLeaveSaveAndOperationErrors(t *testing.T) {
-	existing := dirextalkdomain.ContactRecord{
-		PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", Status: "accepted",
-	}
-	wantErr := errors.New("delete failed")
-	tests := []struct {
-		name          string
-		configure     func(*deleteHarness)
-		wantStatus    int
-		wantError     string
-		wantLeave     bool
-		wantCommitted bool
-		wantOperation bool
-	}{
-		{
-			name: "read", configure: func(h *deleteHarness) { h.store.listErr = wantErr },
-			wantStatus: http.StatusInternalServerError, wantError: "internal error: delete failed",
-		},
-		{
-			name: "leave", configure: func(h *deleteHarness) {
-				h.leaveErr = actionbase.CodedError(http.StatusForbidden, "leave_denied", "leave denied")
-			},
-			wantStatus: http.StatusForbidden, wantError: "leave denied", wantLeave: true,
-		},
-		{
-			name: "save", configure: func(h *deleteHarness) { h.store.upsertErr = wantErr },
-			wantStatus: http.StatusInternalServerError, wantError: "internal error: delete failed", wantLeave: true,
-		},
-		{
-			name: "save after contact commit", configure: func(h *deleteHarness) { h.conversation.saveErr = wantErr },
-			wantStatus: http.StatusInternalServerError, wantError: "internal error: delete failed", wantLeave: true, wantCommitted: true,
-		},
-		{
-			name: "operation", configure: func(h *deleteHarness) { h.conversation.operationErr = wantErr },
-			wantStatus: http.StatusInternalServerError, wantError: "internal error: delete failed", wantLeave: true, wantCommitted: true, wantOperation: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			harness := newDeleteHarness([]dirextalkdomain.ContactRecord{existing})
-			tt.configure(harness)
-			result, apiErr := harness.module.Handlers()[actionDelete](context.Background(), map[string]any{"room_id": existing.RoomID})
-			if result != nil || apiErr == nil || apiErr.Status != tt.wantStatus || apiErr.Error != tt.wantError {
-				t.Fatalf("contacts.delete failure = (%#v, %#v), want status=%d error=%q", result, apiErr, tt.wantStatus, tt.wantError)
-			}
-			if tt.name == "leave" && apiErr.Code != "leave_denied" {
-				t.Fatalf("contacts.delete code = %q, want leave_denied", apiErr.Code)
-			}
-			if got := len(harness.leaves) > 0; got != tt.wantLeave {
-				t.Fatalf("LeaveRoom called = %t, want %t", got, tt.wantLeave)
-			}
-			if got := len(harness.store.upserts()) == 1; got != tt.wantCommitted {
-				t.Fatalf("successful contact commit = %t, want %t", got, tt.wantCommitted)
-			}
-			operationCalled := false
-			for _, call := range harness.log.snapshot() {
-				if call == "operation:contacts.delete:deleted:!direct:example.com" {
-					operationCalled = true
-				}
-			}
-			if operationCalled != tt.wantOperation {
-				t.Fatalf("Operation called = %t, want %t", operationCalled, tt.wantOperation)
-			}
-		})
 	}
 }

@@ -616,6 +616,9 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		SaveMember:    service.saveMember,
 		PublishPolicy: service.publishMemberPolicyState,
 		Conversation:  service.conversationModule,
+		OwnerMXID:     service.memberOwnerMXID,
+		KickMember:    service.kickMember,
+		LeaveMember:   service.leaveMember,
 	})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,

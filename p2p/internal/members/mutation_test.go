@@ -12,12 +12,16 @@ import (
 )
 
 type mutationConversation struct {
-	err   error
-	calls []string
+	err    error
+	calls  []string
+	onCall func()
 }
 
 func (c *mutationConversation) Operation(_ context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error) {
 	c.calls = append(c.calls, action+":"+status+":"+roomID)
+	if c.onCall != nil {
+		c.onCall()
+	}
 	if c.err != nil {
 		return nil, nil, c.err
 	}
@@ -34,10 +38,16 @@ type mutationHarness struct {
 	saved        []dirextalkdomain.MemberRecord
 	published    []dirextalkdomain.MemberRecord
 	conversation *mutationConversation
+	ownerMXID    string
+	kicks        []string
+	leaves       []string
+	transportErr *actionbase.Error
+	order        []string
 }
 
 func newMutationHarness() *mutationHarness {
-	h := &mutationHarness{conversation: &mutationConversation{}}
+	h := &mutationHarness{ownerMXID: "@owner:example.com", conversation: &mutationConversation{}}
+	h.conversation.onCall = func() { h.order = append(h.order, "operation") }
 	h.module = New(&testStore{}, Config{
 		ResolveTarget: func(raw map[string]any) (string, string) {
 			params := actionbase.Params(raw)
@@ -51,6 +61,7 @@ func newMutationHarness() *mutationHarness {
 		},
 		SaveMember: func(_ context.Context, member dirextalkdomain.MemberRecord) error {
 			h.saved = append(h.saved, member)
+			h.order = append(h.order, "save")
 			return h.saveErr
 		},
 		PublishPolicy: func(_ context.Context, member dirextalkdomain.MemberRecord) *actionbase.Error {
@@ -58,6 +69,17 @@ func newMutationHarness() *mutationHarness {
 			return h.policyErr
 		},
 		Conversation: h.conversation,
+		OwnerMXID:    func() string { return h.ownerMXID },
+		KickMember: func(_ context.Context, roomID, senderMXID, targetMXID, reason string) *actionbase.Error {
+			h.kicks = append(h.kicks, roomID+"|"+senderMXID+"|"+targetMXID+"|"+reason)
+			h.order = append(h.order, "kick")
+			return h.transportErr
+		},
+		LeaveMember: func(_ context.Context, roomID, userMXID string) *actionbase.Error {
+			h.leaves = append(h.leaves, roomID+"|"+userMXID)
+			h.order = append(h.order, "leave")
+			return h.transportErr
+		},
 	})
 	return h
 }
@@ -99,48 +121,95 @@ func TestMemberMuteAndUnmuteHandlersPreserveWorkflow(t *testing.T) {
 	}
 }
 
-func TestMemberMuteValidation(t *testing.T) {
-	for _, tt := range []struct {
-		name, errorText string
-		raw             map[string]any
+func TestMemberMuteStopsBeforePolicyWhenSaveFails(t *testing.T) {
+	h := newMutationHarness()
+	h.saveErr = errors.New("save failed")
+	result, actionErr := h.module.Handlers()[actionGroupMute](context.Background(), map[string]any{"room_id": "!room:example.com", "user_id": "@alice:example.com"})
+	if result != nil || actionErr == nil || len(h.saved) != 1 || len(h.published) != 0 || len(h.conversation.calls) != 0 {
+		t.Fatalf("failure = (%#v, %#v), saved=%#v policy=%#v ops=%#v", result, actionErr, h.saved, h.published, h.conversation.calls)
+	}
+}
+
+func TestMemberLifecycleHandlersPreserveMatrixPersistenceOrder(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         string
+		raw            map[string]any
+		existing       dirextalkdomain.MemberRecord
+		found          bool
+		wantMembership string
+		wantStatus     string
+		wantOrder      []string
+		wantKick       string
+		wantLeave      string
 	}{
-		{name: "missing target", raw: map[string]any{"user_id": "@alice:example.com"}, errorText: "room_id or channel_id is required"},
-		{name: "missing user", raw: map[string]any{"room_id": "!room:example.com"}, errorText: "user_id is required"},
-	} {
+		{
+			name: "group remove", action: actionGroupRemove,
+			raw:            map[string]any{"room_id": "!group:example.com", "user_id": "@alice:example.com", "reason": " cleanup "},
+			wantMembership: "remove", wantStatus: "ok", wantOrder: []string{"kick", "save", "operation"},
+			wantKick: "!group:example.com|@owner:example.com|@alice:example.com|cleanup",
+		},
+		{
+			name: "channel leave uses owner", action: actionChannelLeave,
+			raw:            map[string]any{"room_id": "!channel:example.com", "channel_id": "channel_1", "user_id": "@spoofed:example.com"},
+			wantMembership: "leave", wantStatus: "ok", wantOrder: []string{"leave", "save", "operation"},
+			wantLeave: "!channel:example.com|@owner:example.com",
+		},
+		{
+			name: "group invite reject", action: actionGroupInviteReject,
+			raw:      map[string]any{"room_id": "!group:example.com", "channel_id": "stale", "user_id": "@spoofed:example.com"},
+			existing: dirextalkdomain.MemberRecord{RoomID: "!group:example.com", ChannelID: "stale", UserID: "@owner:example.com", Membership: " invite ", Role: "member"}, found: true,
+			wantMembership: "reject", wantStatus: "rejected", wantOrder: []string{"save", "operation"},
+		},
+	}
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newMutationHarness()
-			result, actionErr := h.module.Handlers()[actionChannelMute](context.Background(), tt.raw)
-			if result != nil || actionErr == nil || actionErr.Status != http.StatusBadRequest || actionErr.Error != tt.errorText || len(h.saved) != 0 {
-				t.Fatalf("validation = (%#v, %#v), saved=%#v", result, actionErr, h.saved)
+			h.existing, h.found = tt.existing, tt.found
+			result, actionErr := h.module.Handlers()[tt.action](context.Background(), tt.raw)
+			if actionErr != nil {
+				t.Fatal(actionErr)
+			}
+			response := result.(map[string]any)
+			member := response["member"].(dirextalkdomain.MemberRecord)
+			if member.Membership != tt.wantMembership || response["status"] != tt.wantStatus || (tt.action == actionGroupInviteReject && member.ChannelID != "") {
+				t.Fatalf("response = %#v", response)
+			}
+			if !reflect.DeepEqual(h.order, tt.wantOrder) || !reflect.DeepEqual(h.kicks, compactStrings(tt.wantKick)) || !reflect.DeepEqual(h.leaves, compactStrings(tt.wantLeave)) {
+				t.Fatalf("order/kick/leave = %#v / %#v / %#v", h.order, h.kicks, h.leaves)
 			}
 		})
 	}
 }
 
-func TestMemberMuteFailureOrder(t *testing.T) {
+func TestMemberLifecycleGuardsStopBeforePersistence(t *testing.T) {
 	tests := []struct {
 		name         string
-		lookupErr    error
-		saveErr      error
-		policyErr    *actionbase.Error
-		operationErr error
-		wantSaved    int
-		wantPolicy   int
-		wantOps      int
+		action       string
+		existing     dirextalkdomain.MemberRecord
+		found        bool
+		transportErr *actionbase.Error
+		wantStatus   int
 	}{
-		{name: "lookup", lookupErr: errors.New("lookup failed")},
-		{name: "save", saveErr: errors.New("save failed"), wantSaved: 1},
-		{name: "policy", policyErr: actionbase.StatusError(http.StatusForbidden, "policy failed"), wantSaved: 1, wantPolicy: 1},
-		{name: "operation", operationErr: errors.New("operation failed"), wantSaved: 1, wantPolicy: 1, wantOps: 1},
+		{name: "owner remove", action: actionGroupRemove, existing: dirextalkdomain.MemberRecord{RoomID: "!room:example.com", UserID: "@alice:example.com", Role: "owner", Membership: "join"}, found: true, wantStatus: http.StatusConflict},
+		{name: "reject requires invite", action: actionGroupInviteReject, existing: dirextalkdomain.MemberRecord{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: "join"}, found: true, wantStatus: http.StatusNotFound},
+		{name: "transport failure", action: actionChannelRemove, transportErr: actionbase.StatusError(http.StatusForbidden, "kick denied"), wantStatus: http.StatusForbidden},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newMutationHarness()
-			h.lookupErr, h.saveErr, h.policyErr, h.conversation.err = tt.lookupErr, tt.saveErr, tt.policyErr, tt.operationErr
-			result, actionErr := h.module.Handlers()[actionGroupMute](context.Background(), map[string]any{"room_id": "!room:example.com", "user_id": "@alice:example.com"})
-			if result != nil || actionErr == nil || len(h.saved) != tt.wantSaved || len(h.published) != tt.wantPolicy || len(h.conversation.calls) != tt.wantOps {
-				t.Fatalf("failure = (%#v, %#v), saved=%#v policy=%#v ops=%#v", result, actionErr, h.saved, h.published, h.conversation.calls)
+			h.existing, h.found, h.transportErr = tt.existing, tt.found, tt.transportErr
+			result, actionErr := h.module.Handlers()[tt.action](context.Background(), map[string]any{"room_id": "!room:example.com", "user_id": "@alice:example.com"})
+			if result != nil || actionErr == nil || actionErr.Status != tt.wantStatus || len(h.saved) != 0 || len(h.conversation.calls) != 0 {
+				t.Fatalf("guard = (%#v, %#v), saved=%#v ops=%#v", result, actionErr, h.saved, h.conversation.calls)
 			}
 		})
 	}
+}
+
+func compactStrings(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return []string{value}
 }

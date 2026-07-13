@@ -218,7 +218,7 @@ func (s *Service) leaveOrDissolveAccountRooms(ctx context.Context, summary *acco
 				}
 				summary.ChannelsDissolved++
 			} else {
-				if _, apiErr := s.memberMutation(ctx, "channel", "channels.leave", map[string]any{
+				if _, apiErr := s.membersModule.HandleLifecycle(ctx, "channels.leave", map[string]any{
 					"channel_id": ch.ChannelID,
 					"room_id":    ch.RoomID,
 				}); apiErr != nil {
@@ -241,7 +241,7 @@ func (s *Service) leaveOrDissolveAccountRooms(ctx context.Context, summary *acco
 			}
 			summary.GroupsDissolved++
 		} else {
-			if _, apiErr := s.memberMutation(ctx, "group", "groups.leave", map[string]any{"room_id": group.RoomID}); apiErr != nil {
+			if _, apiErr := s.membersModule.HandleLifecycle(ctx, "groups.leave", map[string]any{"room_id": group.RoomID}); apiErr != nil {
 				return apiErr
 			}
 			summary.GroupsLeft++

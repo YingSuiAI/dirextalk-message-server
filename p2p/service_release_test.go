@@ -27,7 +27,7 @@ type recordingReleaseController struct {
 }
 
 type blockingClientBuildStore struct {
-	aggregateFocusedStore
+	Store
 	mu             sync.Mutex
 	state          portalState
 	narrowEntered  chan struct{}
@@ -295,6 +295,7 @@ func TestClientVersionReportUsesNarrowDeviceCASWithoutLosingConcurrentPortalFiel
 	initial := service.portalStateLocked()
 	service.mu.Unlock()
 	store := &blockingClientBuildStore{
+		Store:          service.store,
 		state:          initial,
 		narrowEntered:  make(chan struct{}),
 		releaseNarrow:  make(chan struct{}),
@@ -350,6 +351,7 @@ func TestClientVersionReportSerializesSameDevicePasswordRotation(t *testing.T) {
 			initial := service.portalStateLocked()
 			service.mu.Unlock()
 			store := &blockingClientBuildStore{
+				Store:          service.store,
 				state:          initial,
 				narrowEntered:  make(chan struct{}),
 				releaseNarrow:  make(chan struct{}),

@@ -1,5 +1,5 @@
 // Package members owns shared ProductCore group and channel member reads and
-// policy mutations.
+// lifecycle and policy mutations.
 package members
 
 import (
@@ -13,12 +13,17 @@ import (
 )
 
 const (
-	actionChannelMembers = "channels.members"
-	actionChannelMute    = "channels.member.mute"
-	actionChannelUnmute  = "channels.member.unmute"
-	actionGroupMembers   = "groups.members"
-	actionGroupMute      = "groups.member.mute"
-	actionGroupUnmute    = "groups.member.unmute"
+	actionChannelMembers    = "channels.members"
+	actionChannelLeave      = "channels.leave"
+	actionChannelRemove     = "channels.member.remove"
+	actionChannelMute       = "channels.member.mute"
+	actionChannelUnmute     = "channels.member.unmute"
+	actionGroupMembers      = "groups.members"
+	actionGroupLeave        = "groups.leave"
+	actionGroupRemove       = "groups.member.remove"
+	actionGroupInviteReject = "groups.invite.reject"
+	actionGroupMute         = "groups.member.mute"
+	actionGroupUnmute       = "groups.member.unmute"
 )
 
 // Store is the stable member reader used by Module. The root adapter preserves
@@ -38,6 +43,9 @@ type Config struct {
 	SaveMember    func(context.Context, dirextalkdomain.MemberRecord) error
 	PublishPolicy func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
 	Conversation  ConversationPort
+	OwnerMXID     func() string
+	KickMember    func(context.Context, string, string, string, string) *actionbase.Error
+	LeaveMember   func(context.Context, string, string) *actionbase.Error
 }
 
 type Module struct {
@@ -52,12 +60,17 @@ func New(store Store, cfg Config) *Module {
 // Handlers returns the group and channel actions sharing the same member view.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionChannelMembers: m.List,
-		actionChannelMute:    m.mutationHandler("channel", actionChannelMute, true),
-		actionChannelUnmute:  m.mutationHandler("channel", actionChannelUnmute, false),
-		actionGroupMembers:   m.List,
-		actionGroupMute:      m.mutationHandler("group", actionGroupMute, true),
-		actionGroupUnmute:    m.mutationHandler("group", actionGroupUnmute, false),
+		actionChannelMembers:    m.List,
+		actionChannelLeave:      m.lifecycleHandler(actionChannelLeave),
+		actionChannelRemove:     m.lifecycleHandler(actionChannelRemove),
+		actionChannelMute:       m.mutationHandler("channel", actionChannelMute, true),
+		actionChannelUnmute:     m.mutationHandler("channel", actionChannelUnmute, false),
+		actionGroupMembers:      m.List,
+		actionGroupLeave:        m.lifecycleHandler(actionGroupLeave),
+		actionGroupRemove:       m.lifecycleHandler(actionGroupRemove),
+		actionGroupInviteReject: m.lifecycleHandler(actionGroupInviteReject),
+		actionGroupMute:         m.mutationHandler("group", actionGroupMute, true),
+		actionGroupUnmute:       m.mutationHandler("group", actionGroupUnmute, false),
 	}
 }
 

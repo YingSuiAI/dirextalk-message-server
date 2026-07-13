@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `f2e7518` (`refactor: move shared member lists`)
+- Current published HEAD before this verified slice: `b843c95` (`refactor: move member policy mutations`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified member mute/unmute workflows, then extract leave/remove/invite-reject without mixing in channel join-request approval. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified test-cleanup and member lifecycle stage, then move channel join-request approve/reject into the existing members module without moving its remote/Matrix completion adapters. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -141,6 +141,10 @@
 - The verified member-policy slice moves `groups.member.mute/unmute` and `channels.member.mute/unmute` into a typed 79-line members workflow. Narrow target, factory, lookup, save, Matrix policy, and conversation ports preserve the exact default/existing record merge, group ChannelID clearing, membership normalization, and `Lookup → Save → member.policy state → Operation` sequence.
 - Mutation tests cover scalar/list user aliases, group and channel behavior, mute and unmute, existing/default snapshots, validation, result operation/conversation, and lookup/save/policy/operation failure cutoffs. The duplicate mute/unmute switch and policy block are removed from the root generic mutation dispatcher; channel join-request approval remains untouched.
 - Latest member-policy gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 82.876s, storage 37.440s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits found no behavior issue; their single P3 package-comment finding was corrected before the final gates.
+- Published `b843c95`: all four group/channel member mute and unmute actions now belong to the members module behind target/member/save/policy/conversation ports.
+- The verified test-cleanup stage removes 11 redundant test files and 44 tests (about 2,466 test lines): duplicated fake-port failure matrices, private call-order assertions, type-alias/compiler checks, and pagination/config negatives already protected by root integration or owning-package tests. PostgreSQL reopen/CAS, contact partial-commit recovery and peer serialization, Matrix side effects, ActionSpecs, WS/MCP boundaries, and known bug regressions remain covered.
+- The verified member-lifecycle stage moves `groups.leave`, `channels.leave`, both `*.member.remove`, and `groups.invite.reject` into the existing members mutation file without creating another production file. It preserves owner selection/protection, absent-member compatibility, `reject` versus public `rejected`, trimmed reasons, and `Kick/Leave -> Save -> Operation`; account deletion calls the same module workflow. Root `memberMutation` is narrowed to channel join-request approval/rejection only.
+- Stage gates passed once after the grouped work: focused internal/root tests, `go test ./p2p/... -count=1` (root 80.385s, storage 35.991s), related domain/policy tests, touched-file gopls, unused/ineffassign/staticcheck, production build, and `git diff --check`. A single combined engineering/contract/test-cleanup review reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

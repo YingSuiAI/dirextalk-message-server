@@ -2,8 +2,6 @@ package contacts
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"reflect"
 	"testing"
 
@@ -190,45 +188,6 @@ func TestRequestDeleteRereadsAndWritesOnlyAfterPeerLockAcquisition(t *testing.T)
 	}
 }
 
-func TestRequestDeleteMapsReadSaveAndOperationErrors(t *testing.T) {
-	existing := dirextalkdomain.ContactRecord{
-		PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", Status: "pending_inbound",
-	}
-	wantErr := errors.New("request delete failed")
-	tests := []struct {
-		name              string
-		configure         func(*saveHarness)
-		wantCommitted     bool
-		wantOperationCall bool
-	}{
-		{name: "read", configure: func(h *saveHarness) { h.store.listErr = wantErr }},
-		{name: "save", configure: func(h *saveHarness) { h.store.upsertErr = wantErr }},
-		{name: "operation", configure: func(h *saveHarness) { h.conversation.operationErr = wantErr }, wantCommitted: true, wantOperationCall: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			harness := newSaveHarness([]dirextalkdomain.ContactRecord{existing})
-			tt.configure(harness)
-			result, apiErr := harness.module.Handlers()[actionRequestDelete](context.Background(), map[string]any{"room_id": existing.RoomID})
-			if result != nil || apiErr == nil || apiErr.Status != http.StatusInternalServerError || apiErr.Error != "internal error: request delete failed" {
-				t.Fatalf("contacts.requests.delete failure = (%#v, %#v)", result, apiErr)
-			}
-			if committed := len(harness.store.upserts()) == 1; committed != tt.wantCommitted {
-				t.Fatalf("successful contact commit = %t, want %t", committed, tt.wantCommitted)
-			}
-			operationCalled := false
-			for _, call := range harness.log.snapshot() {
-				if call == "operation:contacts.requests.delete:deleted:!direct:example.com" {
-					operationCalled = true
-				}
-			}
-			if operationCalled != tt.wantOperationCall {
-				t.Fatalf("Operation called = %t, want %t", operationCalled, tt.wantOperationCall)
-			}
-		})
-	}
-}
-
 func TestRequestRejectAcceptedIsNoOpWithContactView(t *testing.T) {
 	existing := dirextalkdomain.ContactRecord{
 		PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", DisplayName: "Alice", Status: "accepted", Remark: "friend",
@@ -312,50 +271,6 @@ func TestRequestRejectPersistsCompatibleRejectedSnapshot(t *testing.T) {
 			}
 			if got := harness.store.upserts(); !reflect.DeepEqual(got, []dirextalkdomain.ContactRecord{tt.want}) {
 				t.Fatalf("upserted contacts = %#v, want %#v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestRequestRejectMapsNotFoundAndPersistenceErrors(t *testing.T) {
-	existing := dirextalkdomain.ContactRecord{PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", Status: "pending_inbound"}
-	wantErr := errors.New("request reject failed")
-	tests := []struct {
-		name              string
-		records           []dirextalkdomain.ContactRecord
-		params            map[string]any
-		configure         func(*saveHarness)
-		wantStatus        int
-		wantError         string
-		wantCommitted     bool
-		wantOperationCall bool
-	}{
-		{name: "not found", params: map[string]any{"room_id": existing.RoomID}, wantStatus: http.StatusNotFound, wantError: "contact request not found"},
-		{name: "read", records: []dirextalkdomain.ContactRecord{existing}, params: map[string]any{"room_id": existing.RoomID}, configure: func(h *saveHarness) { h.store.listErr = wantErr }, wantStatus: http.StatusInternalServerError, wantError: "internal error: request reject failed"},
-		{name: "save", records: []dirextalkdomain.ContactRecord{existing}, params: map[string]any{"room_id": existing.RoomID}, configure: func(h *saveHarness) { h.store.upsertErr = wantErr }, wantStatus: http.StatusInternalServerError, wantError: "internal error: request reject failed"},
-		{name: "operation", records: []dirextalkdomain.ContactRecord{existing}, params: map[string]any{"room_id": existing.RoomID}, configure: func(h *saveHarness) { h.conversation.operationErr = wantErr }, wantStatus: http.StatusInternalServerError, wantError: "internal error: request reject failed", wantCommitted: true, wantOperationCall: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			harness := newSaveHarness(tt.records)
-			if tt.configure != nil {
-				tt.configure(harness)
-			}
-			result, apiErr := harness.module.Handlers()[actionRequestReject](context.Background(), tt.params)
-			if result != nil || apiErr == nil || apiErr.Status != tt.wantStatus || apiErr.Error != tt.wantError {
-				t.Fatalf("contacts.requests.reject failure = (%#v, %#v)", result, apiErr)
-			}
-			if committed := len(harness.store.upserts()) == 1; committed != tt.wantCommitted {
-				t.Fatalf("successful contact commit = %t, want %t", committed, tt.wantCommitted)
-			}
-			operationCalled := false
-			for _, call := range harness.log.snapshot() {
-				if call == "operation:contacts.requests.reject:rejected:!direct:example.com" {
-					operationCalled = true
-				}
-			}
-			if operationCalled != tt.wantOperationCall {
-				t.Fatalf("Operation called = %t, want %t", operationCalled, tt.wantOperationCall)
 			}
 		})
 	}

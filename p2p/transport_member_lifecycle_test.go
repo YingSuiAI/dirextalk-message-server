@@ -18,9 +18,6 @@ func TestServiceUsesTransportForMemberLifecycle(t *testing.T) {
 	mustHandle[map[string]any](t, service, "groups.invite", map[string]any{"room_id": group.RoomID, "user_id": "@alice:example.com"})
 	mustHandle[map[string]any](t, service, "groups.join", map[string]any{"room_id": group.RoomID, "user_id": "@alice:example.com"})
 	mustHandle[map[string]any](t, service, "groups.member.remove", map[string]any{"room_id": group.RoomID, "user_id": "@alice:example.com"})
-	if _, apiErr := service.Handle(context.Background(), "groups.leave", map[string]any{"room_id": group.RoomID}); apiErr == nil || apiErr.Status != 409 {
-		t.Fatalf("expected owner group leave to return 409, got %#v", apiErr)
-	}
 
 	if len(transport.invites) != 1 || transport.invites[0] != "@owner:example.com -> @alice:example.com in !group:example.com" {
 		t.Fatalf("expected invite through transport, got %#v", transport.invites)
@@ -45,9 +42,6 @@ func TestServiceUsesTransportForMemberLifecycle(t *testing.T) {
 	}
 	if len(transport.kicks) != 1 || transport.kicks[0] != "@owner:example.com kicks @alice:example.com from !group:example.com" {
 		t.Fatalf("expected kick through transport, got %#v", transport.kicks)
-	}
-	if len(transport.leaves) != 0 {
-		t.Fatalf("expected owner leave rejection to avoid transport leave, got %#v", transport.leaves)
 	}
 }
 

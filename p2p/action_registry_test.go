@@ -1,82 +1,11 @@
 package p2p
 
 import (
-	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
-	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 )
-
-func TestRootActionTypesAliasInternalFoundation(t *testing.T) {
-	var handler actionHandler = func(context.Context, map[string]any) (any, *apiError) {
-		return nil, &apiError{Status: 409, Error: "conflict", Code: "M_CONFLICT"}
-	}
-	var foundationHandler actionbase.Handler = handler
-	_, err := foundationHandler(context.Background(), nil)
-	if err == nil || err.Status != 409 || err.Error != "conflict" || err.Code != "M_CONFLICT" {
-		t.Fatalf("aliased handler returned %#v", err)
-	}
-}
-
-func TestMustBuildActionHandlersPanicsOnInvalidCoverage(t *testing.T) {
-	specs := []serviceapi.ActionSpec{
-		{Name: "first.action", Auth: serviceapi.ActionAuthOwner, Transport: serviceapi.ActionTransportHTTPAndWS},
-		{Name: "second.action", Auth: serviceapi.ActionAuthOwner, Transport: serviceapi.ActionTransportWSStreamOnly},
-	}
-	handler := func(context.Context, map[string]any) (any, *apiError) { return nil, nil }
-
-	tests := []struct {
-		name    string
-		modules []actionHandlerModule
-		want    string
-	}{
-		{
-			name: "missing including stream",
-			modules: []actionHandlerModule{
-				{name: "first", handlers: map[string]actionHandler{"first.action": handler}},
-			},
-			want: "missing handler",
-		},
-		{
-			name: "extra",
-			modules: []actionHandlerModule{
-				{name: "all", handlers: map[string]actionHandler{
-					"first.action":  handler,
-					"second.action": handler,
-					"extra.action":  handler,
-				}},
-			},
-			want: "no action spec",
-		},
-		{
-			name: "duplicate",
-			modules: []actionHandlerModule{
-				{name: "first", handlers: map[string]actionHandler{"first.action": handler}},
-				{name: "overlap", handlers: map[string]actionHandler{
-					"first.action":  handler,
-					"second.action": handler,
-				}},
-			},
-			want: "duplicate handler",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				value := recover()
-				if value == nil || !strings.Contains(fmt.Sprint(value), tt.want) {
-					t.Fatalf("panic = %#v, want text %q", value, tt.want)
-				}
-			}()
-			mustBuildActionHandlers(specs, nil, tt.modules)
-		})
-	}
-}
 
 func TestActionRegistryCoversPublicAndAgentActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})

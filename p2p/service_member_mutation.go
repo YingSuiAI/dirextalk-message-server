@@ -5,17 +5,12 @@ import (
 	"strings"
 )
 
-func (s *Service) memberMutation(ctx context.Context, scope, action string, params map[string]any) (any, *apiError) {
+func (s *Service) channelJoinRequestMutation(ctx context.Context, action string, params map[string]any) (any, *apiError) {
 	roomID, channelID := s.memberTarget(params)
 	if roomID == "" && channelID == "" {
 		return nil, badRequest("room_id or channel_id is required")
 	}
 	userID := firstMemberID(params)
-	if strings.HasSuffix(action, ".leave") || action == "groups.leave" || action == "channels.leave" || strings.Contains(action, ".invite.reject") {
-		s.mu.Lock()
-		userID = s.ownerMXID
-		s.mu.Unlock()
-	}
 	if userID == "" {
 		return nil, badRequest("user_id is required")
 	}
@@ -30,109 +25,52 @@ func (s *Service) memberMutation(ctx context.Context, scope, action string, para
 			member.ChannelID = channelID
 		}
 	}
-	if strings.Contains(action, ".join_request.") {
-		if !ok || !joinRequestMutationAllowed(action, existing.Membership) {
-			return nil, statusError(404, "join request not found")
-		}
+	if !ok || !joinRequestMutationAllowed(action, existing.Membership) {
+		return nil, statusError(404, "join request not found")
 	}
-	if strings.Contains(action, ".invite.reject") {
-		if !ok || !strings.EqualFold(strings.TrimSpace(existing.Membership), "invite") {
-			return nil, statusError(404, scope+" invite not found")
-		}
-	}
-	if scope == "group" {
-		member.ChannelID = ""
-	}
-	if (strings.HasSuffix(action, ".leave") || strings.Contains(action, ".remove")) && strings.EqualFold(member.Role, "owner") {
-		return nil, statusError(409, scope+" owner cannot leave; dissolve the "+scope+" instead")
-	}
-	switch {
-	case strings.Contains(action, ".remove"):
-		member.Membership = "remove"
-		if s.transport != nil {
-			s.mu.Lock()
-			senderMXID := s.ownerMXID
-			s.mu.Unlock()
-			if err := s.transport.KickUser(ctx, KickUserRequest{
-				RoomID:     member.RoomID,
-				SenderMXID: senderMXID,
-				TargetMXID: member.UserID,
-				Reason:     trimString(params["reason"]),
-			}); err != nil {
-				return nil, transportWriteError(err)
-			}
-		}
-	case strings.HasSuffix(action, ".leave"):
-		member.Membership = "leave"
-		if s.transport != nil {
-			if err := s.transport.LeaveRoom(ctx, LeaveRoomRequest{
-				RoomID:   member.RoomID,
-				UserMXID: member.UserID,
-			}); err != nil {
-				return nil, transportWriteError(err)
-			}
-		}
-	case strings.Contains(action, ".approve"):
+	if strings.Contains(action, ".approve") {
 		member.Membership = "approved"
-	case strings.Contains(action, ".reject"):
+	} else {
 		member.Membership = "reject"
-	default:
-		member.Membership = fallbackString(member.Membership, "join")
 	}
 	if err := s.saveMember(ctx, member); err != nil {
 		return nil, internalError(err)
 	}
-	if strings.Contains(action, ".join_request.") {
-		stateStatus := ""
-		if strings.Contains(action, ".approve") {
-			stateStatus = "approved"
-		}
-		if strings.Contains(action, ".reject") {
-			stateStatus = "rejected"
-		}
-		if stateStatus != "" {
-			if apiErr := s.publishJoinRequestState(ctx, member.RoomID, member.UserID, stateStatus, trimString(params["reason"])); apiErr != nil {
-				return nil, apiErr
-			}
-		}
-		if strings.Contains(action, ".approve") {
-			result, apiErr := s.completeApprovedChannelJoin(ctx, member, params)
-			if apiErr != nil {
-				return nil, apiErr
-			}
-			status := fallbackString(trimString(result["status"]), "approved")
-			if err := s.attachConversationOperation(ctx, result, action, status, member.RoomID); err != nil {
-				return nil, internalError(err)
-			}
-			return result, nil
-		}
-		if strings.Contains(action, ".reject") && domainFromMXID(member.UserID) != s.serverName {
-			result, apiErr := s.notifyRemoteChannelJoinResult(ctx, member, "rejected", params)
-			if apiErr != nil {
-				return nil, apiErr
-			}
-			result["status"] = "rejected"
-			if err := s.attachConversationOperation(ctx, result, action, "rejected", member.RoomID); err != nil {
-				return nil, internalError(err)
-			}
-			return result, nil
-		}
+	stateStatus := "rejected"
+	if strings.Contains(action, ".approve") {
+		stateStatus = "approved"
 	}
-	result := map[string]any{"status": "ok", "member": member}
-	if strings.Contains(action, ".invite.reject") {
+	if apiErr := s.publishJoinRequestState(ctx, member.RoomID, member.UserID, stateStatus, trimString(params["reason"])); apiErr != nil {
+		return nil, apiErr
+	}
+	if strings.Contains(action, ".approve") {
+		result, apiErr := s.completeApprovedChannelJoin(ctx, member, params)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		status := fallbackString(trimString(result["status"]), "approved")
+		if err := s.attachConversationOperation(ctx, result, action, status, member.RoomID); err != nil {
+			return nil, internalError(err)
+		}
+		return result, nil
+	}
+	if domainFromMXID(member.UserID) != s.serverName {
+		result, apiErr := s.notifyRemoteChannelJoinResult(ctx, member, "rejected", params)
+		if apiErr != nil {
+			return nil, apiErr
+		}
 		result["status"] = "rejected"
-	}
-	if strings.Contains(action, ".join_request.") {
-		if strings.Contains(action, ".approve") {
-			result["status"] = "approved"
+		if err := s.attachConversationOperation(ctx, result, action, "rejected", member.RoomID); err != nil {
+			return nil, internalError(err)
 		}
-		if strings.Contains(action, ".reject") {
-			result["status"] = "rejected"
-		}
-		result["channel"] = s.channelSnapshot(ctx, member.ChannelID)
+		return result, nil
 	}
-	status := fallbackString(trimString(result["status"]), "ok")
-	if err := s.attachConversationOperation(ctx, result, action, status, member.RoomID); err != nil {
+	result := map[string]any{
+		"status":  "rejected",
+		"member":  member,
+		"channel": s.channelSnapshot(ctx, member.ChannelID),
+	}
+	if err := s.attachConversationOperation(ctx, result, action, "rejected", member.RoomID); err != nil {
 		return nil, internalError(err)
 	}
 	return result, nil
@@ -149,6 +87,37 @@ func joinRequestMutationAllowed(action, membership string) bool {
 		}
 	}
 	return membership == "pending"
+}
+
+func (s *Service) memberOwnerMXID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownerMXID
+}
+
+func (s *Service) kickMember(ctx context.Context, roomID, senderMXID, targetMXID, reason string) *apiError {
+	if s.transport == nil {
+		return nil
+	}
+	if err := s.transport.KickUser(ctx, KickUserRequest{
+		RoomID:     roomID,
+		SenderMXID: senderMXID,
+		TargetMXID: targetMXID,
+		Reason:     reason,
+	}); err != nil {
+		return transportWriteError(err)
+	}
+	return nil
+}
+
+func (s *Service) leaveMember(ctx context.Context, roomID, userMXID string) *apiError {
+	if s.transport == nil {
+		return nil
+	}
+	if err := s.transport.LeaveRoom(ctx, LeaveRoomRequest{RoomID: roomID, UserMXID: userMXID}); err != nil {
+		return transportWriteError(err)
+	}
+	return nil
 }
 
 func (s *Service) lookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error) {
