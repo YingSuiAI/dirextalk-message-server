@@ -12,12 +12,15 @@ import (
 )
 
 const (
-	actionCreate   = "channels.create"
-	actionUpdate   = "channels.update"
-	actionList     = "channels.list"
-	actionDissolve = "channels.dissolve"
-	actionMute     = "channels.mute"
-	actionUnmute   = "channels.unmute"
+	actionCreate       = "channels.create"
+	actionUpdate       = "channels.update"
+	actionList         = "channels.list"
+	actionDissolve     = "channels.dissolve"
+	actionMute         = "channels.mute"
+	actionUnmute       = "channels.unmute"
+	actionPublicGet    = "channels.public.get"
+	actionPublicSearch = "channels.public.search"
+	actionUserPublic   = "users.public_channels"
 )
 
 // Channel is the durable and public ProductCore channel shape.
@@ -47,14 +50,18 @@ type MemberCounter interface {
 // Config contains the narrow Matrix, membership, and identity boundaries used
 // by channel workflows.
 type Config struct {
-	NewChannelID    func() string
-	CreateRoom      func(context.Context, Channel) (string, *actionbase.Error)
-	SaveOwnerMember func(context.Context, string, string) error
-	PublishState    func(context.Context, Channel, bool) error
-	PublishHistory  func(context.Context, Channel) error
-	SetMemberMute   func(context.Context, string, string, bool) *actionbase.Error
-	RequireOwner    func(context.Context, string) *actionbase.Error
-	OwnerMXID       func() string
+	NewChannelID       func() string
+	CreateRoom         func(context.Context, Channel) (string, *actionbase.Error)
+	SaveOwnerMember    func(context.Context, string, string) error
+	PublishState       func(context.Context, Channel, bool) error
+	PublishHistory     func(context.Context, Channel) error
+	SetMemberMute      func(context.Context, string, string, bool) *actionbase.Error
+	RequireOwner       func(context.Context, string) *actionbase.Error
+	OwnerMXID          func() string
+	RemotePublicGet    func(context.Context, string, string, map[string]any) (Channel, bool, *actionbase.Error)
+	FetchRoomChannel   func(context.Context, string) (Channel, bool, *actionbase.Error)
+	RemoteUserChannels func(context.Context, string, map[string]any) (RemoteUserChannelsResult, *actionbase.Error)
+	IsMatrixRoomID     func(string) bool
 }
 
 type Module struct {
@@ -71,12 +78,15 @@ func New(store Store, conversation ConversationPort, members MemberCounter, cfg 
 // Handlers returns the exact ProductCore action surface owned by the module.
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionCreate:   m.Create,
-		actionUpdate:   m.Update,
-		actionList:     m.handleList,
-		actionDissolve: m.Dissolve,
-		actionMute:     m.policyHandler(true),
-		actionUnmute:   m.policyHandler(false),
+		actionCreate:       m.Create,
+		actionUpdate:       m.Update,
+		actionList:         m.handleList,
+		actionDissolve:     m.Dissolve,
+		actionMute:         m.policyHandler(true),
+		actionUnmute:       m.policyHandler(false),
+		actionPublicGet:    m.PublicGet,
+		actionPublicSearch: m.PublicSearch,
+		actionUserPublic:   m.UserPublicChannels,
 	}
 }
 

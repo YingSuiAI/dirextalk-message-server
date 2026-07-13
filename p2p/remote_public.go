@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -76,6 +77,33 @@ func (s *Service) remotePublicChannelGet(ctx context.Context, channelID, roomID 
 		return channel{}, false, internalError(err)
 	}
 	return ch, true, nil
+}
+
+func (s *Service) remoteUserPublicChannels(ctx context.Context, userID string, params map[string]any) (channelsmodule.RemoteUserChannelsResult, *apiError) {
+	ownerNode := domainFromMXID(userID)
+	if ownerNode == "" {
+		return channelsmodule.RemoteUserChannelsResult{}, badRequest("valid user_id is required")
+	}
+	var remote struct {
+		UserID   string    `json:"user_id"`
+		Channels []channel `json:"channels"`
+		Results  []channel `json:"results"`
+	}
+	status, err := s.remotePublicAction(ctx, ownerNode, "users.public_channels", params, &remote)
+	if err != nil {
+		if status != 0 && status != http.StatusBadGateway {
+			return channelsmodule.RemoteUserChannelsResult{}, statusError(status, err.Error())
+		}
+		return channelsmodule.RemoteUserChannelsResult{}, statusError(http.StatusBadGateway, err.Error())
+	}
+	if status != http.StatusOK {
+		return channelsmodule.RemoteUserChannelsResult{}, statusError(status, "target node public channels lookup failed")
+	}
+	channels := remote.Channels
+	if channels == nil {
+		channels = remote.Results
+	}
+	return channelsmodule.RemoteUserChannelsResult{UserID: remote.UserID, Channels: channels}, nil
 }
 
 func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[string]any) (map[string]any, bool, *apiError) {

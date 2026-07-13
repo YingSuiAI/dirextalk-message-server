@@ -2,8 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -32,142 +30,21 @@ func (s *Service) createChannelRoom(ctx context.Context, ch channel) (string, *a
 	})
 }
 
-func (s *Service) channelPublicGet(ctx context.Context, params map[string]any) (any, *apiError) {
-	channelID := trimString(params["channel_id"])
-	roomID := trimString(params["room_id"])
-	if channelID == "" && roomID == "" {
-		return nil, badRequest("channel_id or room_id is required")
+func (s *Service) fetchRoomChannel(ctx context.Context, roomID string) (channel, bool, *apiError) {
+	s.mu.Lock()
+	transport := s.transport
+	s.mu.Unlock()
+	if transport == nil {
+		return channel{}, false, nil
 	}
-	ch, ok, err := s.channelByIDOrRoom(ctx, channelID, roomID)
+	ch, found, err := transport.GetRoomChannel(ctx, roomID)
 	if err != nil {
-		return nil, internalError(err)
-	}
-	if !ok {
-		if remote, fetched, apiErr := s.remotePublicChannelGet(ctx, channelID, roomID, params); apiErr != nil {
-			return nil, apiErr
-		} else if fetched {
-			ch = remote
-			ok = true
+		if roomServer := domainFromMatrixID(roomID, "!"); roomServer != "" && roomServer != s.serverName {
+			return channel{}, false, statusError(404, "channel not found")
 		}
+		return channel{}, false, internalError(err)
 	}
-	if !ok {
-		if roomID != "" {
-			s.mu.Lock()
-			transport := s.transport
-			s.mu.Unlock()
-			if transport != nil {
-				fetched, found, fetchErr := transport.GetRoomChannel(ctx, roomID)
-				if fetchErr != nil {
-					if roomServer := domainFromMatrixID(roomID, "!"); roomServer != "" && roomServer != s.serverName {
-						return nil, statusError(404, "channel not found")
-					}
-					return nil, internalError(fetchErr)
-				}
-				if found {
-					ch = fetched
-					ok = true
-					if err := s.saveChannel(ctx, ch); err != nil {
-						return nil, internalError(err)
-					}
-				}
-			}
-		}
-		if !ok {
-			return nil, statusError(404, "channel not found")
-		}
-	}
-	if !strings.EqualFold(ch.Visibility, "public") {
-		return nil, statusError(404, "channel not found")
-	}
-	ch, err = s.channelWithCurrentCounts(ctx, ch)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return ch, nil
-}
-
-func (s *Service) channelPublicSearch(ctx context.Context, params map[string]any) (any, *apiError) {
-	rawQuery := trimString(params["q"])
-	query := strings.ToLower(rawQuery)
-	limit := int(int64Param(params["limit"]))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if matrixRoomIDQuery(rawQuery) {
-		ch, apiErr := s.channelPublicGet(ctx, map[string]any{
-			"room_id":              rawQuery,
-			"remote_node_base_url": remoteNodeBaseURLParam(params),
-		})
-		if apiErr != nil {
-			if apiErr.Status == 404 {
-				return map[string]any{"channels": []channel{}, "results": []channel{}}, nil
-			}
-			return nil, apiErr
-		}
-		channelResult, ok := ch.(channel)
-		if !ok {
-			return nil, internalError(fmt.Errorf("public get returned %T", ch))
-		}
-		return map[string]any{"channels": []channel{channelResult}, "results": []channel{channelResult}}, nil
-	}
-	results, err := s.channelsModule.SearchPublic(ctx, query, limit)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	for i := range results {
-		ch, err := s.channelWithCurrentCounts(ctx, results[i])
-		if err != nil {
-			return nil, internalError(err)
-		}
-		results[i] = ch
-	}
-	return map[string]any{"channels": results, "results": results}, nil
-}
-
-func (s *Service) userPublicChannels(ctx context.Context, params map[string]any) (any, *apiError) {
-	userID := fallbackString(trimString(params["user_id"]), trimString(params["user_mxid"]))
-	userID = fallbackString(userID, trimString(params["mxid"]))
-	if userID == "" {
-		return nil, badRequest("user_id is required")
-	}
-	if remoteNodeBaseURLParam(params) != "" {
-		ownerNode := domainFromMXID(userID)
-		if ownerNode == "" {
-			return nil, badRequest("valid user_id is required")
-		}
-		var remote struct {
-			UserID   string    `json:"user_id"`
-			Channels []channel `json:"channels"`
-			Results  []channel `json:"results"`
-		}
-		status, err := s.remotePublicAction(ctx, ownerNode, "users.public_channels", params, &remote)
-		if err != nil {
-			if status != 0 && status != http.StatusBadGateway {
-				return nil, statusError(status, err.Error())
-			}
-			return nil, statusError(http.StatusBadGateway, err.Error())
-		}
-		if status != http.StatusOK {
-			return nil, statusError(status, "target node public channels lookup failed")
-		}
-		channels := remote.Channels
-		if channels == nil {
-			channels = remote.Results
-		}
-		return map[string]any{"user_id": fallbackString(remote.UserID, userID), "channels": channels, "results": channels}, nil
-	}
-	publicChannels, err := s.channelsModule.ListPublic(ctx, userID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	for i := range publicChannels {
-		ch, err := s.channelWithCurrentCounts(ctx, publicChannels[i])
-		if err != nil {
-			return nil, internalError(err)
-		}
-		publicChannels[i] = ch
-	}
-	return map[string]any{"user_id": userID, "channels": publicChannels}, nil
+	return ch, found, nil
 }
 
 func (s *Service) saveChannel(ctx context.Context, ch channel) error {

@@ -577,11 +577,15 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		SaveOwnerMember: func(ctx context.Context, roomID, channelID string) error {
 			return service.saveOwnerMember(ctx, roomID, channelID)
 		},
-		PublishState:   service.publishChannelState,
-		PublishHistory: service.publishChannelHistoryVisibilityState,
-		SetMemberMute:  service.setChannelMemberMute,
-		RequireOwner:   service.requireOwnerMember,
-		OwnerMXID:      service.memberOwnerMXID,
+		PublishState:       service.publishChannelState,
+		PublishHistory:     service.publishChannelHistoryVisibilityState,
+		SetMemberMute:      service.setChannelMemberMute,
+		RequireOwner:       service.requireOwnerMember,
+		OwnerMXID:          service.memberOwnerMXID,
+		RemotePublicGet:    service.remotePublicChannelGet,
+		FetchRoomChannel:   service.fetchRoomChannel,
+		RemoteUserChannels: service.remoteUserPublicChannels,
+		IsMatrixRoomID:     matrixRoomIDQuery,
 	})
 	service.groupsModule = groupsmodule.New(service.store, service.conversationModule, groupsmodule.Config{
 		CreateRoom: service.createGroupRoom,
