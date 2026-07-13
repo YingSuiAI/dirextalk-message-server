@@ -117,6 +117,10 @@ type PeerReactivationResult struct {
 // PeerReactivator is the protocol-independent port used by contact workflows.
 type PeerReactivator func(context.Context, PeerReactivationRequest) (PeerReactivationResult, *actionbase.Error)
 
+// PeerBlockChecker reports whether a contact request target is already
+// blocked. The blocks module remains the owner of the underlying records.
+type PeerBlockChecker func(context.Context, string) (bool, error)
+
 type Config struct {
 	ServerName           string
 	DeleteGroup          func(ctx context.Context, roomID string) error
@@ -129,6 +133,7 @@ type Config struct {
 	LocalProfile         func() LocalProfileSnapshot
 	ReactivatePeer       PeerReactivator
 	ReactivateDirectRoom DirectRoomReactivator
+	CheckPeerBlocked     PeerBlockChecker
 }
 
 type peerMutationEntry struct {
@@ -137,20 +142,21 @@ type peerMutationEntry struct {
 }
 
 type Module struct {
-	serverName      string
-	store           Store
-	conversation    ConversationPort
-	deleteGroup     func(context.Context, string) error
-	leaveRoom       func(context.Context, string) *actionbase.Error
-	acceptRoom      DirectRoomAcceptor
-	createRoom      DirectRoomCreator
-	inviteRoom      DirectRoomInviter
-	joinRoom        DirectRoomJoiner
-	newDirectRoomID func() string
-	localProfile    func() LocalProfileSnapshot
-	reactivatePeer  PeerReactivator
-	reactivateRoom  DirectRoomReactivator
-	mutationMu      sync.Mutex
+	serverName       string
+	store            Store
+	conversation     ConversationPort
+	deleteGroup      func(context.Context, string) error
+	leaveRoom        func(context.Context, string) *actionbase.Error
+	acceptRoom       DirectRoomAcceptor
+	createRoom       DirectRoomCreator
+	inviteRoom       DirectRoomInviter
+	joinRoom         DirectRoomJoiner
+	newDirectRoomID  func() string
+	localProfile     func() LocalProfileSnapshot
+	reactivatePeer   PeerReactivator
+	reactivateRoom   DirectRoomReactivator
+	checkPeerBlocked PeerBlockChecker
+	mutationMu       sync.Mutex
 
 	peerMutationsMu sync.Mutex
 	peerMutations   map[string]*peerMutationEntry
@@ -158,19 +164,20 @@ type Module struct {
 
 func New(store Store, conversation ConversationPort, cfg Config) *Module {
 	return &Module{
-		serverName:      cfg.ServerName,
-		store:           store,
-		conversation:    conversation,
-		deleteGroup:     cfg.DeleteGroup,
-		leaveRoom:       cfg.LeaveRoom,
-		acceptRoom:      cfg.AcceptDirectRoom,
-		createRoom:      cfg.CreateDirectRoom,
-		inviteRoom:      cfg.InviteDirectRoom,
-		joinRoom:        cfg.JoinDirectRoom,
-		newDirectRoomID: cfg.NewDirectRoomID,
-		localProfile:    cfg.LocalProfile,
-		reactivatePeer:  cfg.ReactivatePeer,
-		reactivateRoom:  cfg.ReactivateDirectRoom,
+		serverName:       cfg.ServerName,
+		store:            store,
+		conversation:     conversation,
+		deleteGroup:      cfg.DeleteGroup,
+		leaveRoom:        cfg.LeaveRoom,
+		acceptRoom:       cfg.AcceptDirectRoom,
+		createRoom:       cfg.CreateDirectRoom,
+		inviteRoom:       cfg.InviteDirectRoom,
+		joinRoom:         cfg.JoinDirectRoom,
+		newDirectRoomID:  cfg.NewDirectRoomID,
+		localProfile:     cfg.LocalProfile,
+		reactivatePeer:   cfg.ReactivatePeer,
+		reactivateRoom:   cfg.ReactivateDirectRoom,
+		checkPeerBlocked: cfg.CheckPeerBlocked,
 	}
 }
 

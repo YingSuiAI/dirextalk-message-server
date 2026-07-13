@@ -29,6 +29,9 @@ type requestHarness struct {
 	profile            LocalProfileSnapshot
 	joins              []DirectRoomJoinRequest
 	joinOutcomes       []DirectRoomJoinOutcome
+	blockChecks        []string
+	blocked            bool
+	blockErr           error
 }
 
 func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarness {
@@ -82,6 +85,10 @@ func newRequestHarness(existing ...dirextalkdomain.ContactRecord) *requestHarnes
 			harness.log.add("reactivate:" + request.Contact.PeerMXID)
 			harness.reactivations = append(harness.reactivations, request)
 			return harness.reactivationResult, harness.reactivationErr
+		},
+		CheckPeerBlocked: func(_ context.Context, peerMXID string) (bool, error) {
+			harness.blockChecks = append(harness.blockChecks, peerMXID)
+			return harness.blocked, harness.blockErr
 		},
 	})
 	return harness

@@ -46,3 +46,7 @@ func contactRecordFromStorage(contact contactStorageRecord) contactRecord {
 func contactRecordsFromStorage(contacts []contactStorageRecord) []contactRecord {
 	return contactsmodule.ViewsFromRecords(contacts)
 }
+
+func (s *Service) saveContact(ctx context.Context, contact contactRecord) error {
+	return s.contactsModule.Save(ctx, contactStorageRecordFromContact(contact))
+}

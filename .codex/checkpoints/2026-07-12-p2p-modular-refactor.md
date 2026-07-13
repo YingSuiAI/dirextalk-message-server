@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `75a430a` (`refactor: move retained contact restoration`)
+- Current published HEAD before this verified slice: `095f031` (`refactor: move deleted contact restoration`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified deleted-contact restoration, then collapse the remaining root request dispatcher/facades. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified contact-request dispatcher/facade collapse, then audit the next rooms/member lifecycle extraction slice. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -129,6 +129,10 @@
 - The verified deleted-contact slice moves both proactive peer reactivation and reactive Join-then-probe workflows into a cohesive 112-line module workflow. It preserves the exact non-empty RoomID/transport guard, one local-profile snapshot, stored-room authority, mode-specific room-server fallback, Pending/NotRetained branch differences, accepted-field merge rules, Save-to-Operation order, and legacy result shapes. Root `service_contacts.go` falls from 259 to 138 lines, and the obsolete Join/reactivation compatibility wrapper plus its private test are removed.
 - Deleted-contact tests cover transportless restore, local-peer eligibility, exact empty/blank RoomID behavior, complete peer DTOs, normalized explicit server names, ignored peer RoomID, proactive no-fallback failures, reactive Pending/NotRetained/retained decisions, no old-room invite on NotRetained, and persistence failures.
 - Latest deleted-contact gates passed in two batches: focused module/root race tests, then parallel `go test ./p2p/... -count=1` (root 81.863s, storage 36.346s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
+- Published `095f031`: proactive and reactive deleted-contact restoration now belong to the contacts module; the obsolete root Join/reactivation compatibility state machine is gone.
+- The verified request-dispatch slice gives `p2p/internal/contacts` ownership of the full `contacts.request` handler: validation, self rejection, same-peer serialization, blocks-owned lookup through one narrow port, domain derivation, durable contact lookup, status dispatch, retained-room probe, and fresh fallback. The root Action registry now has one contacts owner while the public HTTP-only `rooms.reactivate` callback remains separately registered.
+- Entry tests cover validation/block/lookup short-circuiting, all stored-status branches, permissive domain/port derivation, no-local peer outcomes and probe-before-create order, plus strict nil versus boxed-zero-View error shapes. The old six-line contact registry file and 138-line `service_contacts.go` are deleted; DirectRoom adapters and the still-required projector storage facade are consolidated into their owning existing files without creating another root file.
+- Latest request-dispatch gates passed in two batches: focused module/root race tests, then the final parallel gate (restarted once after an interface interruption left no verifiable output) with `go test ./p2p/... -count=1` (root 86.435s, storage 41.623s), related domain/policy tests, gopls/vet, unused/ineffassign/staticcheck and incremental dupl/gocyclo lint, production build, byte-identical Action contract hash, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

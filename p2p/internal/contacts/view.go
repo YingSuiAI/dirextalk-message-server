@@ -80,6 +80,7 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionDelete:        m.Delete,
 		actionList:          m.handleList,
 		actionReactivate:    m.handleReactivate,
+		actionRequest:       m.Request,
 		actionUpdate:        m.handleUpdate,
 		actionRequestAccept: m.handleRequestAccept,
 		actionRequestDelete: m.handleRequestDelete,

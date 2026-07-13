@@ -87,7 +87,7 @@ func TestViewSliceConversionsPreserveConcreteEmptyArrays(t *testing.T) {
 	}
 }
 
-func TestHandlersOwnOnlyContactsListAndReturnConcreteViews(t *testing.T) {
+func TestHandlersOwnContactActionsAndReturnConcreteViews(t *testing.T) {
 	record := dirextalkdomain.ContactRecord{
 		PeerMXID: "@alice:example.com", DisplayName: "Alice", RoomID: "!direct:example.com", Status: "accepted",
 	}
@@ -104,7 +104,7 @@ func TestHandlersOwnOnlyContactsListAndReturnConcreteViews(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if want := []string{"contacts.delete", "contacts.list", "contacts.reactivate", "contacts.requests.accept", "contacts.requests.delete", "contacts.requests.reject", "contacts.update"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"contacts.delete", "contacts.list", "contacts.reactivate", "contacts.request", "contacts.requests.accept", "contacts.requests.delete", "contacts.requests.reject", "contacts.update"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("handler names = %v, want %v", names, want)
 	}
 

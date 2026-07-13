@@ -579,6 +579,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		LocalProfile:         service.localContactProfileSnapshot,
 		ReactivatePeer:       service.reactivatePeerContact,
 		ReactivateDirectRoom: service.reactivateRetainedDirectRoom,
+		CheckPeerBlocked: func(ctx context.Context, peerMXID string) (bool, error) {
+			if service.blocksModule == nil {
+				return false, errors.New("blocks module is not configured")
+			}
+			return service.blocksModule.Exists(ctx, "contact", peerMXID)
+		},
 		DeleteGroup: func(ctx context.Context, roomID string) error {
 			return service.store.DeleteGroup(ctx, roomID)
 		},

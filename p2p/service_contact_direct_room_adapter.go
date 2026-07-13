@@ -2,8 +2,11 @@ package p2p
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 )
 
@@ -15,6 +18,43 @@ func (s *Service) localContactProfileSnapshot() contactsmodule.LocalProfileSnaps
 		DisplayName: s.profile.DisplayName,
 		AvatarURL:   s.profile.AvatarURL,
 	}
+}
+
+func (s *Service) acceptDirectContactRoom(ctx context.Context, contact contactStorageRecord, serverNames []string) (string, *apiError) {
+	if s.transport == nil || strings.TrimSpace(contact.RoomID) == "" {
+		return contact.RoomID, nil
+	}
+	profile := s.localContactProfileSnapshot()
+	join, err := s.joinRoomWithRetry(ctx, JoinRoomRequest{
+		RoomIDOrAlias:             contact.RoomID,
+		UserMXID:                  profile.MXID,
+		DisplayName:               profile.DisplayName,
+		AvatarURL:                 profile.AvatarURL,
+		ServerNames:               serverNames,
+		DirectContactReactivation: contactPendingInbound(contact.Status),
+	}, 6, isFederatedJoinInProgress)
+	if err != nil {
+		if contactPendingInbound(contact.Status) && isDirectContactReactivationJoinFailed(err) {
+			return s.createAcceptedReplacementDirectRoom(ctx, contact, profile)
+		}
+		return "", transportWriteError(err)
+	}
+	if strings.TrimSpace(join.RoomID) != "" {
+		return join.RoomID, nil
+	}
+	return contact.RoomID, nil
+}
+
+func (s *Service) createAcceptedReplacementDirectRoom(
+	ctx context.Context,
+	contact contactStorageRecord,
+	profile contactsmodule.LocalProfileSnapshot,
+) (string, *apiError) {
+	return s.createContactDirectRoomWithProfile(ctx, contactsmodule.DirectRoomCreateRequest{
+		PeerMXID:       contact.PeerMXID,
+		DisplayName:    contact.DisplayName,
+		FallbackRoomID: contact.RoomID,
+	}, profile)
 }
 
 func (s *Service) createContactDirectRoom(ctx context.Context, request contactsmodule.DirectRoomCreateRequest) (string, *apiError) {
@@ -135,4 +175,39 @@ func (s *Service) reactivateRetainedDirectRoom(
 		return transportWriteError(err)
 	}
 	return nil
+}
+
+func isDirectRoomJoinRequiresInvite(err error) bool {
+	var policyErr *productpolicy.PolicyError
+	return errors.As(err, &policyErr) &&
+		policyErr.Code == http.StatusForbidden &&
+		policyErr.Message == "direct room join requires invite"
+}
+
+func isSenderNotJoinedDirextalkRoom(err error) bool {
+	var policyErr *productpolicy.PolicyError
+	return errors.As(err, &policyErr) &&
+		policyErr.Code == http.StatusForbidden &&
+		policyErr.Message == "sender is not joined to the dirextalk room"
+}
+
+func isDirectContactReactivationJoinFailed(err error) bool {
+	if isDirectRoomJoinRequiresInvite(err) {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "inputwasrejected") ||
+		strings.Contains(message, "local server not currently joined to room") ||
+		strings.Contains(message, "unsupported room version") ||
+		strings.Contains(message, "join rule \"invite\" forbids it")
+}
+
+func isAlreadyLeftRoomError(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "not joined to the room") &&
+		strings.Contains(message, "membership is \"leave\"")
+}
+
+func isAlreadyJoinedRoomError(err error) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "already joined")
 }

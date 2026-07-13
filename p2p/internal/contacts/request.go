@@ -2,11 +2,81 @@ package contacts
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
+
+// Request validates and serializes the complete outbound contact-request
+// lifecycle. All peer, Matrix, and persistence work stays inside one peer
+// boundary so a waiting request re-reads the result of the previous one.
+func (m *Module) Request(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	peerMXID := params.String("mxid")
+	if peerMXID == "" {
+		return nil, actionbase.BadRequest("mxid is required")
+	}
+	if m.localProfile == nil {
+		return nil, actionbase.InternalError(errors.New("local contact profile is not configured"))
+	}
+	if peerMXID == m.localProfile().MXID {
+		return nil, actionbase.BadRequest("mxid must be a remote peer")
+	}
+
+	var result any
+	var actionErr *actionbase.Error
+	m.SerializePeer(peerMXID, func() {
+		result, actionErr = m.requestForPeer(ctx, peerMXID, raw)
+	})
+	return result, actionErr
+}
+
+func (m *Module) requestForPeer(ctx context.Context, peerMXID string, raw map[string]any) (any, *actionbase.Error) {
+	if m.checkPeerBlocked == nil {
+		return nil, actionbase.InternalError(errors.New("peer block checker is not configured"))
+	}
+	blocked, err := m.checkPeerBlocked(ctx, peerMXID)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if blocked {
+		return nil, actionbase.StatusError(http.StatusForbidden, "already blocked")
+	}
+
+	params := actionbase.Params(raw)
+	domain := params.String("domain")
+	if domain == "" {
+		domain = dirextalkdomain.DomainFromMXID(peerMXID)
+	}
+	existing, ok, err := m.LookupByPeer(ctx, peerMXID)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if ok {
+		switch strings.ToLower(strings.TrimSpace(existing.Status)) {
+		case "deleted":
+			return m.RestoreDeleted(ctx, existing, raw, domain)
+		case "pending_inbound":
+			return m.AcceptPendingInbound(ctx, existing, raw)
+		case "pending_outbound":
+			return m.ResendPendingOutbound(ctx, existing, raw, domain)
+		default:
+			return m.ResolveExistingRequest(ctx, existing, raw, fallbackRequestString(domain, existing.Domain))
+		}
+	}
+
+	contact, restored, actionErr := m.RestoreRetainedPeer(ctx, peerMXID, raw, domain)
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	if restored {
+		return contact, nil
+	}
+	return m.CreateRequest(ctx, peerMXID, raw, domain)
+}
 
 // CreateRequest creates and persists one fresh outbound contact request. The
 // caller owns the surrounding peer workflow boundary.
