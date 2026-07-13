@@ -17,28 +17,9 @@ type servicePortalState struct {
 	portalSessionGeneration uint64
 }
 
-type serviceReadModelState struct {
-	readMarkers map[string]readMarker
-}
-
-type serviceEventState struct {
-	nextEventSeq int64
-	eventNotify  chan struct{}
-}
-
 type serviceRealtimeState struct {
 	realtimeSessions  *realtime.SessionStore
 	realtimeWSTickets map[string]realtimeWSTicket
-}
-
-func newServiceReadModelState() serviceReadModelState {
-	return serviceReadModelState{
-		readMarkers: map[string]readMarker{},
-	}
-}
-
-func newServiceEventState() serviceEventState {
-	return serviceEventState{eventNotify: make(chan struct{})}
 }
 
 func newServiceRealtimeState(sessions *realtime.SessionStore) serviceRealtimeState {

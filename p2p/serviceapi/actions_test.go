@@ -38,8 +38,15 @@ func TestActionSpecForFindsEveryRegisteredAction(t *testing.T) {
 	}
 }
 
-func TestActionSpecForRejectsUnknownAction(t *testing.T) {
-	for _, action := range []string{"", "   ", "portal.missing", "PORTAL.BOOTSTRAP"} {
+func TestActionSpecForRejectsUnknownAndRetiredActions(t *testing.T) {
+	for _, action := range []string{
+		"", "   ", "portal.missing", "PORTAL.BOOTSTRAP",
+		"portal.setup", "agent.status", "apis.list",
+		"contacts.export", "contacts.download", "contacts.import",
+		"rooms.send", "rooms.send_media", "rooms.messages.delete",
+		"rooms.messages.delete_batch", "rooms.messages.delete_range", "rooms.messages.recall",
+		"sync.messages", "sync.unread", "search",
+	} {
 		if got, ok := ActionSpecFor(action); ok {
 			t.Errorf("ActionSpecFor(%q) = %#v, true; want zero, false", action, got)
 		}

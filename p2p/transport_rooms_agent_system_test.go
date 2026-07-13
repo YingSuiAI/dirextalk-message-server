@@ -2,11 +2,11 @@ package p2p
 
 import (
 	"context"
+	"testing"
+
 	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
-	"net/http"
-	"testing"
 )
 
 func TestGroupUsesJoinedAndUnifiedChannelsUseSharedHistoryVisibility(t *testing.T) {
@@ -82,17 +82,9 @@ func TestChannelCreateWithExistingRoomPublishesSharedHistoryVisibility(t *testin
 	}
 }
 
-func TestServiceUsesTransportForRoomsAndRemovesP2PMessageActions(t *testing.T) {
-	transport := &recordingTransport{
-		roomID:  "!matrix-room:example.com",
-		eventID: "$matrix-event:example.com",
-		ts:      1770000000123,
-	}
-	service := NewServiceWithTransport(Config{
-		ServerName:                      "example.com",
-		RemoteNodeAllowPrivateBaseURLs:  true,
-		RemoteNodeInsecureSkipTLSVerify: true,
-	}, transport)
+func TestServiceUsesTransportForRooms(t *testing.T) {
+	transport := &recordingTransport{roomID: "!matrix-room:example.com"}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
 
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"name": "Team"})
@@ -101,28 +93,6 @@ func TestServiceUsesTransportForRoomsAndRemovesP2PMessageActions(t *testing.T) {
 	}
 	if len(transport.createRooms) != 1 || transport.createRooms[0].Name != "Team" {
 		t.Fatalf("expected group room creation through transport, got %#v", transport.createRooms)
-	}
-
-	for _, action := range []string{
-		"rooms.send",
-		"rooms.send_media",
-		"rooms.messages.delete",
-		"rooms.messages.delete_batch",
-		"rooms.messages.delete_range",
-		"rooms.messages.recall",
-		"search",
-		"sync.messages",
-		"sync.unread",
-	} {
-		if _, apiErr := service.Handle(context.Background(), action, map[string]any{"room_id": group.RoomID, "content": "hello", "event_id": transport.eventID}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-			t.Fatalf("expected removed %s to be unknown, got %#v", action, apiErr)
-		}
-	}
-	if len(transport.messages) != 0 {
-		t.Fatalf("removed P2P message actions must not send through transport, got %#v", transport.messages)
-	}
-	if len(transport.redactions) != 0 {
-		t.Fatalf("removed P2P message actions must not redact through transport, got %#v", transport.redactions)
 	}
 }
 

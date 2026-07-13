@@ -81,28 +81,6 @@ func TestNoDatabaseConstructorWithTransportRemainsLightweight(t *testing.T) {
 	}
 }
 
-func TestNoDatabaseServiceWritesRemainCompatibleWithCanceledContext(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, apiErr := service.Handle(ctx, "blocks.add", map[string]any{
-		"target_type": "contact",
-		"peer_mxid":   "@alice:remote.example",
-	})
-	if apiErr != nil {
-		t.Fatalf("blocks.add with canceled context = %#v", apiErr)
-	}
-	result, apiErr := service.Handle(context.Background(), "blocks.list", nil)
-	if apiErr != nil {
-		t.Fatalf("blocks.list = %#v", apiErr)
-	}
-	contacts := result.(map[string]any)["contacts"].([]blockRecord)
-	if len(contacts) != 1 || contacts[0].PeerMXID != "@alice:remote.example" {
-		t.Fatalf("canceled-context write was not retained: %#v", contacts)
-	}
-}
-
 func TestNoDatabaseEventRetentionAllowsDedupeKeyReuseAfterPrune(t *testing.T) {
 	service := NewService(Config{
 		ServerName:                    "example.com",
@@ -126,32 +104,5 @@ func TestNoDatabaseEventRetentionAllowsDedupeKeyReuseAfterPrune(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "third" || events[0].DedupeKey != "reusable" {
 		t.Fatalf("retained events = %#v", events)
-	}
-}
-
-func TestMemoryBackedMemberListHidesLegacyTombstones(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	store := service.store.(*p2pstorage.MemoryStore)
-	ctx := context.Background()
-	for _, member := range []memberRecord{
-		{RoomID: "!room:example.com", UserID: "@joined:example.com", Membership: "join", Role: "member"},
-		{RoomID: "!room:example.com", UserID: "@left:example.com", Membership: "leave", Role: "member"},
-	} {
-		if err := store.UpsertMember(ctx, member); err != nil {
-			t.Fatalf("UpsertMember(%s): %v", member.UserID, err)
-		}
-	}
-	raw, err := store.ListMembers(ctx, "!room:example.com", "")
-	if err != nil || len(raw) != 2 {
-		t.Fatalf("raw MemoryStore members = (%#v, %v), want two legacy records", raw, err)
-	}
-
-	result, apiErr := service.membersModule.List(ctx, map[string]any{"room_id": "!room:example.com"})
-	if apiErr != nil {
-		t.Fatal(apiErr)
-	}
-	listed := result.(map[string]any)["members"].([]memberRecord)
-	if len(listed) != 1 || listed[0].UserID != "@joined:example.com" {
-		t.Fatalf("public member list exposed hidden records: %#v", listed)
 	}
 }

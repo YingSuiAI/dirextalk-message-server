@@ -8,6 +8,23 @@ import (
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
 )
 
+type portalStore interface {
+	LoadPortal(context.Context) (portalState, bool, error)
+	SavePortal(context.Context, portalState) error
+	SaveClientBuild(context.Context, string, clientBuild) (bool, error)
+}
+
+func portalStoreFrom(store Store) portalStore {
+	return store
+}
+
+func (s *Service) portalStore() portalStore {
+	if s.store == nil {
+		return nil
+	}
+	return s.store
+}
+
 type servicePortalModulePort struct{ service *Service }
 
 func (p servicePortalModulePort) Authenticate(password string) (portalmodule.Snapshot, bool) {

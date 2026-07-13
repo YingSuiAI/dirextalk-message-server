@@ -247,7 +247,7 @@ func TestAccountDeleteDirectDissolveProjectsPeerContactDeleted(t *testing.T) {
 		"account_deleted": true,
 		"deleted_mxid":    "@peer:remote.example",
 	})
-	if err := service.projectRoomProfileState(ctx, event); err != nil {
+	if err := service.ProjectRoomEvent(ctx, event); err != nil {
 		t.Fatal(err)
 	}
 

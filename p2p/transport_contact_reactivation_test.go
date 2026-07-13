@@ -284,14 +284,11 @@ func TestAcceptedContactFreshInviteUsesReplacementWhenRetainedRoomAlreadyJoined(
 		t.Fatal(err)
 	}
 
-	if err := service.savePendingInboundContact(context.Background(), contactRecord{
-		RoomID:      "!new-dm:remote.example",
-		PeerMXID:    "@alice:remote.example",
-		DisplayName: "Alice Remote",
-		AvatarURL:   "mxc://remote.example/new",
-		Domain:      "remote.example",
-		Status:      "pending_inbound",
-	}); err != nil {
+	event := trustedStateEvent(t, "!new-dm:remote.example", "@alice:remote.example", "m.room.member", service.OwnerMXID(), map[string]any{
+		"membership": "invite",
+		"is_direct":  true,
+	})
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
 

@@ -102,10 +102,6 @@ func (s *Service) saveGroup(ctx context.Context, group groupRecord) error {
 	return s.groupsModule.Save(ctx, group)
 }
 
-func (s *Service) deleteGroup(ctx context.Context, roomID string) error {
-	return s.groupsModule.Delete(ctx, roomID)
-}
-
 func (s *Service) groupByRoom(ctx context.Context, roomID string) (groupRecord, bool, error) {
 	return s.groupsModule.ByRoom(ctx, roomID)
 }

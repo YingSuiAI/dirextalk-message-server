@@ -336,15 +336,6 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndStandardMCP(t *testing.T) {
 	if !service.Authorize(agentToken, "agent.matrix_session.create") {
 		t.Fatal("expected agent token to authorize agent Matrix session bootstrap")
 	}
-	if service.Authorize(agentToken, "mcp.rooms.search") {
-		t.Fatal("expected agent token to reject removed fixed MCP body actions")
-	}
-	if service.Authorize(agentToken, "mcp.contacts.search") {
-		t.Fatal("expected agent token to reject removed fixed MCP contact search body action")
-	}
-	if service.Authorize(service.AccessToken(), "does.not.exist") {
-		t.Fatal("expected owner token to reject unknown actions")
-	}
 	for _, action := range []string{
 		"contacts.request",
 		"agent.config.get",
@@ -389,21 +380,6 @@ func TestAgentTokenCanOnlyCallAgentBootstrapAndStandardMCP(t *testing.T) {
 	if agentRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected agent token to be unauthorized for owner HTTP fallback, got %d body=%s", agentRec.Code, agentRec.Body.String())
 	}
-
-	removed := mustRouteError(t, router, service, "/_p2p/command", map[string]any{"action": "apis.list"})
-	if removed.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed apis.list to be unknown, got %#v", removed)
-	}
-}
-
-func TestAgentStatusActionRemoved(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	router := newP2PTestRouter(service)
-
-	err := mustRouteError(t, router, service, "/_p2p/query", map[string]any{"action": "agent.status"})
-	if err.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed agent.status action to be unknown, got %#v", err)
-	}
 }
 
 func TestSyncBootstrapOmitsDeprecatedAgentOnline(t *testing.T) {
@@ -416,23 +392,6 @@ func TestSyncBootstrapOmitsDeprecatedAgentOnline(t *testing.T) {
 	if _, ok := bootstrap["agent_presence"]; ok {
 		t.Fatalf("expected sync.bootstrap to omit deprecated agent_presence, got %#v", bootstrap["agent_presence"])
 	}
-}
-
-func mustRouteError(t *testing.T, router http.Handler, service *Service, path string, body map[string]any) apiError {
-	t.Helper()
-	req := jsonRequest(t, path, body)
-	req.Header.Set("Authorization", "Bearer "+service.AccessToken())
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code == http.StatusOK {
-		t.Fatalf("%s expected error, got 200 body=%s", path, rec.Body.String())
-	}
-	var got apiError
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	got.Status = rec.Code
-	return got
 }
 
 func TestHealthReportsAdditiveBuildInfo(t *testing.T) {

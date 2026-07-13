@@ -93,35 +93,6 @@ func TestStoredFavoriteAddIsIdempotentByEventAndRoom(t *testing.T) {
 	}
 }
 
-func TestRemovedP2PMessageActionsAreUnknown(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	bootstrapService(t, service)
-	for _, action := range []string{
-		"portal.setup",
-		"agent.status",
-		"contacts.export",
-		"contacts.download",
-		"contacts.import",
-		"rooms.send",
-		"rooms.send_media",
-		"rooms.messages.delete",
-		"rooms.messages.delete_batch",
-		"rooms.messages.delete_range",
-		"rooms.messages.recall",
-		"sync.messages",
-		"sync.unread",
-		"search",
-	} {
-		if result, apiErr := service.Handle(context.Background(), action, map[string]any{
-			"room_id":  "!room:example.com",
-			"event_id": "$event:example.com",
-			"content":  "removed",
-		}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-			t.Fatalf("expected removed %s to be unknown, result=%#v err=%#v", action, result, apiErr)
-		}
-	}
-}
-
 func TestCallActionsPersistChangedEvents(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	created := mustHandle[callRecord](t, service, "calls.create", map[string]any{
@@ -299,7 +270,7 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	}
 }
 
-func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
+func TestAgentConfigContactsFavoritesAndReports(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
 

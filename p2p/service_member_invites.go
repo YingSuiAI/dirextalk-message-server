@@ -185,7 +185,9 @@ func (s *Service) refreshRoomMembers(ctx context.Context, roomID, channelID stri
 		return err
 	}
 	if channelID == "" {
-		channelID = s.channelIDForRoom(ctx, roomID)
+		if ch, ok, lookupErr := s.channelByIDOrRoom(ctx, "", roomID); lookupErr == nil && ok {
+			channelID = ch.ChannelID
+		}
 	}
 	for _, member := range members {
 		member.RoomID = roomID

@@ -78,7 +78,9 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `cmd/dirextalk-message-server`：生产服务入口，monolith 模式运行。
 - `setup/monolith.go`：装配 client、federation、media、sync、relay、P2P routes。
 - `p2p/action_registry.go`：P2P action 到业务 handler 的注册表。
-- `p2p/internal/{conversation,social,calls,blocks,contacts,members,groups,channels,reports,plugins,portal,profile,release}`：按业务域拥有 ProductCore handler、DTO 与完整工作流。
+- `p2p/internal/{conversation,social,calls,blocks,contacts,members,groups,channels,reports,plugins,agent,mcp,portal,profile,release}`：按业务域拥有 ProductCore handler、DTO 与完整工作流。
+- `p2p/internal/events`：拥有持久化产品事件流的序列分配、保留策略、游标校验和实时 waiter 通知。
+- `p2p/internal/projector`：拥有 roomserver output 到 P2P read model 与产品事件的投影工作流。
 - `p2p/service_*.go`：保留公开 facade、跨域编排及 Matrix/运行时适配。
 - `p2p/storage`：P2P projection/read model 持久化。
 - `internal/dirextalktransport`：产品 Matrix 写入 transport contract。
@@ -88,7 +90,7 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `internal/dirextalkstate`：产品 Matrix state event content builder，例如 `io.dirextalk.room.profile`、`io.dirextalk.member.policy`、`io.dirextalk.join_request`；P2P action 仍负责决定何时通过 transport 发布。
 - `internal/dirextalkdomain`：跨包共享的产品 value records 和纯 domain helper，例如 portal/agent config、conversation records、member/channel records、blocks、calls、favorites、reports、P2P event bounds 等；业务 response DTO 由各自的 `p2p/internal` 模块持有。
 - `internal/dirextalkplugin`：非 Agent plugin catalog/instance/job/secret record shapes；`p2p/internal/plugins` 拥有 plugin action orchestration、Docker runner 和 Native Agent/plugin 隔离规则。
-- `p2p/projector_*.go`、`p2p/internal/projector`：roomserver output 到 P2P projection 的投影与 consumer；纯投影 helper 由 `internal/dirextalkprojection` 持有。
+- `p2p/projector.go`、`p2p/projector_ports.go`：只保留投影公开 facade、账户生命周期门禁和 Matrix/业务模块适配；纯投影 helper 由 `internal/dirextalkprojection` 持有。
 - `p2p/consumer.go`：保留订阅 consumer 的公开 facade，实现在 `p2p/internal/projector`。
 - `internal/productpolicy`：Matrix Client-Server 写入前的 Dirextalk 产品策略校验。
 

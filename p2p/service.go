@@ -20,12 +20,14 @@ import (
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
+	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	mcpmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/mcp"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
 	profilemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/profile"
+	projectormodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/projector"
 	releasemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/release"
 	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
@@ -78,28 +80,26 @@ type Service struct {
 	systemRoomMu       sync.Mutex
 	memberWrites       map[string]*memberWriteEntry
 
-	serverName                 string
-	homeserver                 string
-	store                      Store
-	transport                  Transport
-	pushRules                  PushRuleManager
-	sessions                   MatrixSessionIssuer
-	matrixMessages             matrixMessageReader
-	matrixProfiles             matrixProfileResolver
-	remoteHTTPClient           *http.Client
-	remoteAllowPrivate         bool
-	accountDeactivator         AccountDeactivator
-	accountDeprovisioner       AccountDeprovisioner
-	accountDeletionInProgress  bool
-	accountDeprovisioned       bool
-	storeMode                  string
-	projectorStarted           bool
-	eventRetentionMaxRows      int64
-	eventRetentionPruneOnWrite bool
-	agentModule                *agentmodule.Module
-	mcpModule                  *mcpmodule.Module
-	mcpCapabilities            *dirextalkmcp.Service
-	releaseController          releasecontrol.Controller
+	serverName                string
+	homeserver                string
+	store                     Store
+	transport                 Transport
+	pushRules                 PushRuleManager
+	sessions                  MatrixSessionIssuer
+	matrixMessages            matrixMessageReader
+	matrixProfiles            matrixProfileResolver
+	remoteHTTPClient          *http.Client
+	remoteAllowPrivate        bool
+	accountDeactivator        AccountDeactivator
+	accountDeprovisioner      AccountDeprovisioner
+	accountDeletionInProgress bool
+	accountDeprovisioned      bool
+	storeMode                 string
+	projectorStarted          bool
+	agentModule               *agentmodule.Module
+	mcpModule                 *mcpmodule.Module
+	mcpCapabilities           *dirextalkmcp.Service
+	releaseController         releasecontrol.Controller
 
 	servicePortalState
 	actions              map[string]actionHandler
@@ -109,17 +109,17 @@ type Service struct {
 	channelContentModule *channelsmodule.ContentModule
 	contactsModule       *contactsmodule.Module
 	conversationModule   *conversationmodule.Module
+	eventsModule         *eventsmodule.Module
 	groupsModule         *groupsmodule.Module
 	membersModule        *membersmodule.Module
 	pluginsModule        *pluginsmodule.Module
 	portalModule         *portalmodule.Module
 	profileModule        *profilemodule.Module
+	projectorModule      *projectormodule.Module
 	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
 
-	serviceReadModelState
-	serviceEventState
 	serviceRealtimeState
 }
 
@@ -159,6 +159,7 @@ type callStore = callsmodule.Store
 type blockStore = blocksmodule.Store
 type channelStore = channelsmodule.Store
 type contactStore = contactsmodule.Store
+type eventStore = eventsmodule.Store
 type groupStore = groupsmodule.Store
 
 type portalState = dirextalkdomain.PortalState
@@ -180,7 +181,6 @@ type favoriteRecord = dirextalkdomain.FavoriteRecord
 type followRecord = dirextalkdomain.FollowRecord
 type reactionRecord = dirextalkdomain.ReactionRecord
 type memberRecord = dirextalkdomain.MemberRecord
-type eventBounds = dirextalkdomain.EventBounds
 type clientBuild = dirextalkdomain.ClientBuild
 
 func NewService(cfg Config) *Service {
@@ -534,17 +534,15 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		basePluginRunner = pluginsmodule.NewEnvironmentRunner()
 	}
 	service := &Service{
-		serverName:                 serverName,
-		homeserver:                 homeserver,
-		store:                      store,
-		transport:                  transport,
-		pushRules:                  cfg.PushRules,
-		remoteHTTPClient:           newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
-		remoteAllowPrivate:         cfg.RemoteNodeAllowPrivateBaseURLs,
-		storeMode:                  storeMode(store),
-		eventRetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
-		eventRetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
-		releaseController:          cfg.ReleaseController,
+		serverName:         serverName,
+		homeserver:         homeserver,
+		store:              store,
+		transport:          transport,
+		pushRules:          cfg.PushRules,
+		remoteHTTPClient:   newRemotePublicHTTPClient(cfg.RemoteNodeInsecureSkipTLSVerify),
+		remoteAllowPrivate: cfg.RemoteNodeAllowPrivateBaseURLs,
+		storeMode:          storeMode(store),
+		releaseController:  cfg.ReleaseController,
 		servicePortalState: servicePortalState{
 			initialized:             state.Initialized,
 			password:                state.Password,
@@ -559,10 +557,13 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			clientBuild:             state.ClientBuild,
 			portalSessionGeneration: 1,
 		},
-		serviceReadModelState: newServiceReadModelState(),
-		serviceEventState:     newServiceEventState(),
-		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
+		serviceRealtimeState: newServiceRealtimeState(realtimeSessions),
 	}
+	service.eventsModule = eventsmodule.New(service.store, eventsmodule.Config{
+		RetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
+		RetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
+		Now:                   time.Now,
+	})
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
 	service.channelsModule = channelsmodule.New(service.store, service.conversationModule, service.store, channelsmodule.Config{
 		NewChannelID: func() string { return "ch_" + randomToken("channel") },
@@ -719,6 +720,27 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		NewGrantID: func() string { return "grant_" + randomToken("channel_invite") },
 		Now:        time.Now,
 	})
+	service.projectorModule = projectormodule.New(projectormodule.Dependencies{
+		Events:         service.eventsModule,
+		Conversations:  service.conversationModule,
+		Channels:       serviceProjectorChannelPort{service: service},
+		ChannelContent: service.channelContentModule,
+		Groups:         serviceProjectorGroupPort{service: service},
+		Contacts:       serviceProjectorContactPort{service: service},
+		Members:        serviceProjectorMemberPort{service: service},
+		Blocks:         service.blocksModule,
+		DirectRooms:    serviceProjectorDirectRoomPort{service: service},
+		Identity: func() projectormodule.IdentitySnapshot {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return projectormodule.IdentitySnapshot{
+				OwnerMXID:        service.ownerMXID,
+				OwnerDisplayName: service.profile.DisplayName,
+				OwnerAvatarURL:   service.profile.AvatarURL,
+				AgentRoomID:      service.agentRoomID,
+			}
+		},
+	}, projectormodule.Config{Now: time.Now})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,
 		OwnerMXID:    service.ownerMXID,

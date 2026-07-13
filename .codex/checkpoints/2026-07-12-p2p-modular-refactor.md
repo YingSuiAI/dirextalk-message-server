@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `3fc44bb` (`refactor: modularize portal profile and release`)
+- Current published HEAD before this verified slice: `85ec11c` (`refactor: modularize agent and mcp`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified Agent/MCP stage. Next remove the write-only read-marker shadow state and redundant white-box/retired-action tests, then extract the event stream and projector as one grouped stage. Keep durable outbox/reconciliation changes separate from the structural refactor.
+- Commit and push the verified event/projector/test-cleanup stage. Next extract ProductCore HTTP and standard MCP HTTP into `p2p/internal/httpapi`, leaving Gorilla as the public mount and preserving all method, auth, CORS, JSON, body-limit, forwarded-host, well-known, and JSON-RPC behavior. Move the 703-line realtime WS adapter only in its following grouped stage.
 
 ## Completed Verification
 
@@ -175,6 +175,9 @@
 - The verified Agent/MCP stage moves Native Agent config mapping, legacy import, secret stripping, default runtime actions/tool bridge, and all nine P2P-backed MCP capabilities into cohesive `p2p/internal/agent` and `p2p/internal/mcp` modules. Root retains the public `NativeAgentRunner` named interface, account/Matrix session/config cross-domain flows, WS lifecycle, a thin MCP facade, and setup's Matrix history token callback.
 - Root `mcp_api.go`, `mcp_pagination.go`, `native_agent_runner.go`, and the 45-line one-action-per-line Agent registry are removed. The root production surface is 53 files / 7,362 lines; this stage removes 1,539 tracked lines while preserving all 146 ActionSpecs. Duplicate config sanitizer coverage and a private-field MCP replacement test moved to concise owning-module behavior tests.
 - The grouped stage gate ran once: `go test ./p2p/... -count=1` (root 85.591s, storage 35.167s), related domain/MCP/transport/policy tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, byte-identical 146-action contract generation, and `git diff --check` passed. Independent MCP and Agent engineering/contract audits found no P0-P2 issue; the Agent audit's type-identity note was closed by retaining the root named interface.
+- The verified event/projector/test-cleanup stage moves durable P2P event sequencing, retention, cursor validation, and waiter notification into `p2p/internal/events`, and all roomserver projection workflows into six cohesive `p2p/internal/projector` files. Root retains only the two public projector methods, account-deprovision barrier, identity snapshot, and narrow Matrix/business-module adapters.
+- Read markers now use only the configured Store; the write-only root shadow map and the remaining root read-model/event state containers are gone. Contacts production files were structurally consolidated from 12 to 6 without changing declarations or logic. Small root facades were merged by business ownership, obsolete projector/helper files were removed, and retired-action checks now live in one ActionSpecs table while HTTP, WS, MCP, Matrix, restart, concurrency, and partial-commit boundaries remain covered.
+- Root P2P production code is now 41 files / 5,837 lines, down from 53 files / 7,362 lines at the prior published stage. The grouped gate ran once: `go test ./p2p/... -count=1` (root 99.790s, storage 40.081s), related domain/matrix/projection/state/transport/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, exact 146-action contract hash, and `git diff --check` passed. Independent engineering and contract audits found no P0-P3 issue; focused concurrency tests also passed under race.
 
 ## Related Finding Outside This Structural Slice
 
@@ -186,3 +189,5 @@
 - Block `CreatedAt` and display-name ordering differ between MemoryStore and PostgreSQL on repeated/case-only writes. The blocks structure slice preserves both backends; choosing canonical cross-store semantics remains a separate compatibility decision.
 - Report notification, report persistence, and conversation projection are not transactional. A durable idempotency key plus pending/outbox state is required to prevent duplicate Matrix notices after partial failure; changing the report schema/order is intentionally excluded from this structure-only stage.
 - Plugin Docker lifecycle and durable plugin/job/config state are not transactional. Pending/finalized jobs, per-plugin serialization, startup reconciliation, and compensation need a separate behavior/storage design rather than being silently introduced during file migration.
+- Realtime WS currently lists events before acquiring its waiter. An event arriving between the empty list result and waiter acquisition can miss the wakeup and remain delayed until a later event; fix the listen/recheck sequence in a separate behavior slice.
+- Event append preserves the existing insert-then-prune behavior: if insertion succeeds but retention pruning fails, no waiter is notified and a deduplicated retry cannot wake it. Resolving this requires an explicit notification/error or outbox policy decision, separate from the structural move.

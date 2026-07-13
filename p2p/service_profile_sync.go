@@ -253,13 +253,12 @@ func (s *Service) updateReadMarker(ctx context.Context, params map[string]any) (
 		EventID:        eventID,
 		OriginServerTS: int64Param(params["origin_server_ts"]),
 	}
-	s.mu.Lock()
-	s.readMarkers[roomID] = marker
-	s.mu.Unlock()
-	if store := s.readMarkerStore(); store != nil {
-		if err := store.SaveReadMarker(ctx, marker); err != nil {
-			return nil, internalError(err)
-		}
+	store := s.readMarkerStore()
+	if store == nil {
+		return nil, internalError(errors.New("read marker store is not configured"))
+	}
+	if err := store.SaveReadMarker(ctx, marker); err != nil {
+		return nil, internalError(err)
 	}
 	return map[string]any{"status": "ok"}, nil
 }

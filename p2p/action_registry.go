@@ -98,3 +98,7 @@ func (s *Service) registerAgentActions(actions map[string]actionHandler) {
 	actions["agent.config.get"] = s.getAgentConfigAction
 	actions["agent.config.update"] = s.updateAgentConfigAction
 }
+
+func (s *Service) registerChannelActions(actions map[string]actionHandler) {
+	actions["channels.read_marker"] = s.updateReadMarker
+}

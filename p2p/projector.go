@@ -13,20 +13,7 @@ func (s *Service) ProjectOutputEvent(ctx context.Context, output roomserverAPI.O
 	if s.accountIsDeprovisioned() {
 		return nil
 	}
-	return s.projectOutputEvent(ctx, output)
-}
-
-func (s *Service) projectOutputEvent(ctx context.Context, output roomserverAPI.OutputEvent) error {
-	if output.Type == roomserverAPI.OutputTypeRedactedEvent && output.RedactedEvent != nil {
-		return s.removeProjectedEvent(ctx, output.RedactedEvent.RedactedEventID)
-	}
-	if output.Type == roomserverAPI.OutputTypeNewInviteEvent && output.NewInviteEvent != nil {
-		return s.projectRoomEvent(ctx, output.NewInviteEvent.Event)
-	}
-	if output.Type != roomserverAPI.OutputTypeNewRoomEvent || output.NewRoomEvent == nil {
-		return nil
-	}
-	return s.projectRoomEvent(ctx, output.NewRoomEvent.Event)
+	return s.projectorModule.ProjectOutputEvent(ctx, output)
 }
 
 func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEvent) error {
@@ -35,34 +22,5 @@ func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEve
 	if s.accountIsDeprovisioned() {
 		return nil
 	}
-	return s.projectRoomEvent(ctx, event)
-}
-
-func (s *Service) projectRoomEvent(ctx context.Context, event *types.HeaderedEvent) error {
-	if event == nil {
-		return nil
-	}
-	switch event.Type() {
-	case "m.room.message":
-		return s.projectMessage(ctx, event)
-	case "m.reaction":
-		return s.projectReaction(ctx, event)
-	case "m.room.member":
-		if event.StateKey() != nil {
-			return s.projectMember(ctx, event)
-		}
-	case DirextalkRoomProfileEventType:
-		if event.StateKey() != nil {
-			return s.projectRoomProfileState(ctx, event)
-		}
-	case DirextalkMemberPolicyEventType:
-		if event.StateKey() != nil {
-			return s.projectMemberPolicyState(ctx, event)
-		}
-	case DirextalkJoinRequestEventType:
-		if event.StateKey() != nil {
-			return s.projectJoinRequestState(ctx, event)
-		}
-	}
-	return nil
+	return s.projectorModule.ProjectRoomEvent(ctx, event)
 }

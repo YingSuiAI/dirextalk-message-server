@@ -2,11 +2,30 @@ package p2p
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 )
+
+// authorizeChannelContentRecall preserves the transportless compatibility
+// rule: the local author or a projected channel owner may recall content.
+func (s *Service) authorizeChannelContentRecall(ctx context.Context, roomID, authorMXID string) *apiError {
+	s.mu.Lock()
+	ownerMXID := s.ownerMXID
+	s.mu.Unlock()
+	if ownerMXID != "" && ownerMXID == authorMXID {
+		return nil
+	}
+	if apiErr := s.requireOwnerMember(ctx, roomID); apiErr != nil {
+		if apiErr.Status != http.StatusForbidden {
+			return apiErr
+		}
+		return statusError(http.StatusForbidden, "content author or channel owner role is required")
+	}
+	return nil
+}
 
 func (s *Service) channelStore() channelStore {
 	if s.store == nil {
@@ -140,10 +159,6 @@ func (s *Service) publishMemberPolicyState(ctx context.Context, member memberRec
 		return internalError(err)
 	}
 	return nil
-}
-
-func (s *Service) deleteChannel(ctx context.Context, channelID string) error {
-	return s.channelsModule.Delete(ctx, channelID)
 }
 
 func (s *Service) channelByIDOrRoom(ctx context.Context, channelID, roomID string) (channel, bool, error) {

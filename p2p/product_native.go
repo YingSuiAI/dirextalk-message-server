@@ -3,11 +3,11 @@ package p2p
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkstate"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -154,101 +154,20 @@ func roomProfileForChannel(ch channel, dissolved bool) RoomStateEvent {
 	return roomStateEvent(dirextalkstate.ChannelRoomProfile(ch, dissolved))
 }
 
-type eventStore interface {
-	InsertEvent(ctx context.Context, event p2pEvent) (bool, error)
-	ListEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error)
-	EventBounds(ctx context.Context) (eventBounds, error)
-	PruneEventsToMaxRows(ctx context.Context, maxRows int64) (int64, error)
-}
-
-func (s *Service) eventStore() eventStore {
-	return s.store
-}
-
 func (s *Service) appendP2PEvent(ctx context.Context, event p2pEvent) error {
-	now := time.Now().UTC()
-	if event.CreatedAt == "" {
-		event.CreatedAt = now.Format(time.RFC3339Nano)
-	}
-	event.DedupeKey = strings.TrimSpace(event.DedupeKey)
-	s.mu.Lock()
-	if event.Seq <= 0 || event.Seq <= s.nextEventSeq {
-		event.Seq = now.UnixNano()
-		if event.Seq <= s.nextEventSeq {
-			event.Seq = s.nextEventSeq + 1
-		}
-	}
-	s.nextEventSeq = event.Seq
-	s.mu.Unlock()
-	inserted, err := s.eventStore().InsertEvent(ctx, event)
-	if err != nil {
-		return err
-	}
-	if !inserted {
-		return nil
-	}
-	if err := s.pruneP2PEventsAfterAppend(ctx); err != nil {
-		return err
-	}
-	s.notifyP2PEventWaiters()
-	return nil
-}
-
-func (s *Service) pruneP2PEventsAfterAppend(ctx context.Context) error {
-	s.mu.Lock()
-	enabled := s.eventRetentionPruneOnWrite
-	maxRows := s.eventRetentionMaxRows
-	s.mu.Unlock()
-	store := s.eventStore()
-	if !enabled || maxRows <= 0 {
-		return nil
-	}
-	_, err := store.PruneEventsToMaxRows(ctx, maxRows)
-	return err
+	return s.eventsModule.Append(ctx, event)
 }
 
 func (s *Service) listP2PEvents(ctx context.Context, since int64, limit int) ([]p2pEvent, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	return s.eventStore().ListEvents(ctx, since, limit)
+	return s.eventsModule.List(ctx, since, limit)
 }
 
-type p2pEventCursorStatus struct {
-	Expired bool
-	Since   int64
-	Bounds  eventBounds
-}
+type p2pEventCursorStatus = eventsmodule.CursorStatus
 
 func (s *Service) p2pEventCursorStatus(ctx context.Context, since int64) (p2pEventCursorStatus, error) {
-	status := p2pEventCursorStatus{Since: since}
-	if since <= 0 {
-		return status, nil
-	}
-	bounds, err := s.eventStore().EventBounds(ctx)
-	if err != nil {
-		return p2pEventCursorStatus{}, err
-	}
-	status.Bounds = bounds
-	status.Expired = bounds.Count > 0 && bounds.MinSeq > 0 && since < bounds.MinSeq
-	return status, nil
+	return s.eventsModule.CursorStatus(ctx, since)
 }
 
 func (s *Service) p2pEventWaiter() <-chan struct{} {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.eventNotify == nil {
-		s.eventNotify = make(chan struct{})
-	}
-	return s.eventNotify
-}
-
-func (s *Service) notifyP2PEventWaiters() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.eventNotify == nil {
-		s.eventNotify = make(chan struct{})
-	}
-	close(s.eventNotify)
-	s.eventNotify = make(chan struct{})
+	return s.eventsModule.Waiter()
 }

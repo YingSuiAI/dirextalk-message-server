@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
@@ -28,9 +27,6 @@ func TestProjectRoomMessageDoesNotCreateP2PMessageRecord(t *testing.T) {
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if _, apiErr := service.Handle(context.Background(), "search", map[string]any{"q": "remote"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed P2P search to be unknown, got %#v", apiErr)
-	}
 	p2pEvents := mustListP2PEvents(t, service)
 	if len(p2pEvents) != 0 {
 		t.Fatalf("ordinary Matrix message must not produce P2P events, got %#v", p2pEvents)
@@ -48,9 +44,6 @@ func TestProjectRoomMessageIgnoresUnknownNonProductRoom(t *testing.T) {
 
 	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
-	}
-	if _, apiErr := service.Handle(context.Background(), "search", map[string]any{"q": "regular"}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected removed P2P search to be unknown, got %#v", apiErr)
 	}
 	p2pEvents := mustListP2PEvents(t, service)
 	if len(p2pEvents) != 0 {

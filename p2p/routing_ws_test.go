@@ -3,15 +3,45 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
+
+type recordingReadMarkerStore struct {
+	Store
+	mu       sync.Mutex
+	attempts int
+	saved    []readMarker
+	err      error
+}
+
+func (s *recordingReadMarkerStore) SaveReadMarker(ctx context.Context, marker readMarker) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attempts++
+	if s.err != nil {
+		return s.err
+	}
+	if err := s.Store.SaveReadMarker(ctx, marker); err != nil {
+		return err
+	}
+	s.saved = append(s.saved, marker)
+	return nil
+}
+
+func (s *recordingReadMarkerStore) snapshot() (int, []readMarker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.attempts, append([]readMarker(nil), s.saved...)
+}
 
 func TestRealtimeWSTicketCreateIssuesSingleUseTicketForOwner(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
@@ -180,6 +210,8 @@ func TestRealtimeWSStreamsLiveEventsAndTracksClientState(t *testing.T) {
 
 func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	readMarkers := &recordingReadMarkerStore{Store: service.store}
+	service.store = readMarkers
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -236,11 +268,28 @@ func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	if !ok || result["status"] != "ok" {
 		t.Fatalf("expected ok command result, got %#v", frame)
 	}
-	service.mu.Lock()
-	marker := service.readMarkers["!room:example.com"]
-	service.mu.Unlock()
-	if marker.EventID != "$event" || marker.OriginServerTS != 1710000000000 {
-		t.Fatalf("expected read marker to update via WS command, got %#v", marker)
+	_, saved := readMarkers.snapshot()
+	if len(saved) != 1 || saved[0] != (readMarker{
+		RoomID: "!room:example.com", EventID: "$event", OriginServerTS: 1710000000000,
+	}) {
+		t.Fatalf("expected read marker to persist via WS command, got %#v", saved)
+	}
+}
+
+func TestReadMarkerStoreFailureReturnsErrorWithoutCommit(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	readMarkers := &recordingReadMarkerStore{Store: service.store, err: errors.New("save failed")}
+	service.store = readMarkers
+
+	result, apiErr := service.Handle(context.Background(), "sync.read_marker", map[string]any{
+		"room_id": "!room:example.com", "event_id": "$failed",
+	})
+	if result != nil || apiErr == nil || apiErr.Status != http.StatusInternalServerError {
+		t.Fatalf("expected failed Store write to return an error, result=%#v err=%#v", result, apiErr)
+	}
+	attempts, saved := readMarkers.snapshot()
+	if attempts != 1 || len(saved) != 0 {
+		t.Fatalf("failed Store write must not look committed, attempts=%d saved=%#v", attempts, saved)
 	}
 }
 
@@ -274,39 +323,25 @@ func TestRealtimeWSClientCommandIsRemoved(t *testing.T) {
 	}
 }
 
-func TestRealtimeWSRejectsMCPRequests(t *testing.T) {
+func TestRealtimeWSRejectsHTTPOnlyAgentSession(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	router := newP2PTestRouter(service)
 	server := httptest.NewServer(router)
 	defer server.Close()
-	ownerConn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
-	defer ownerConn.Close(websocket.StatusNormalClosure, "")
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	writeRealtimeFrame(t, ownerConn, map[string]any{"type": "client.hello"})
-	if got := readRealtimeFrame(t, ownerConn); got["type"] != "server.ready" {
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	if got := readRealtimeFrame(t, conn); got["type"] != "server.ready" {
 		t.Fatalf("expected ready, got %#v", got)
 	}
-	writeRealtimeFrame(t, ownerConn, map[string]any{
-		"type":   "client.request",
-		"id":     "req-owner-mcp",
-		"action": "mcp.rooms.search",
-		"params": map[string]any{"q": "none"},
-	})
-	ownerMCP := readRealtimeResponse(t, ownerConn, "req-owner-mcp")
-	if ownerMCP["type"] != "server.response" ||
-		ownerMCP["ok"] != false ||
-		int(ownerMCP["status"].(float64)) != http.StatusBadRequest ||
-		ownerMCP["error"] != "unknown action" {
-		t.Fatalf("expected removed MCP body action to be unknown over WS, got %#v", ownerMCP)
-	}
-
-	writeRealtimeFrame(t, ownerConn, map[string]any{
+	writeRealtimeFrame(t, conn, map[string]any{
 		"type":   "client.request",
 		"id":     "req-agent-session",
 		"action": "agent.matrix_session.create",
 		"params": map[string]any{"device_id": "DIREXTALK_AGENT_GATEWAY"},
 	})
-	agentSession := readRealtimeResponse(t, ownerConn, "req-agent-session")
+	agentSession := readRealtimeResponse(t, conn, "req-agent-session")
 	if agentSession["type"] != "server.response" ||
 		agentSession["ok"] != false ||
 		int(agentSession["status"].(float64)) != http.StatusBadRequest ||

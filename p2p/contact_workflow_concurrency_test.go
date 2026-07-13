@@ -163,10 +163,12 @@ func TestProjectorSnapshotCannotOverwriteCompletedContactReplacement(t *testing.
 
 	projectorDone := make(chan error, 1)
 	projectorCtx := context.WithValue(context.Background(), projectorSnapshotContextKey{}, true)
+	memberEvent := trustedStateEvent(t, oldRoomID, peerMXID, "m.room.member", peerMXID, map[string]any{
+		"membership":  "join",
+		"displayname": "Stale projector snapshot",
+	})
 	go func() {
-		projectorDone <- service.projectDirectContactMember(projectorCtx, memberRecord{
-			RoomID: oldRoomID, UserID: peerMXID, DisplayName: "Stale projector snapshot",
-		}, map[string]any{})
+		projectorDone <- service.ProjectRoomEvent(projectorCtx, memberEvent)
 	}()
 
 	select {

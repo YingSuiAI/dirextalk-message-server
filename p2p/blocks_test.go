@@ -29,13 +29,11 @@ func TestBlockedContactInviteProjectionIsIgnored(t *testing.T) {
 		"peer_mxid":   "@alice:remote.example",
 	})
 
-	if err := service.savePendingInboundContact(context.Background(), contactRecord{
-		RoomID:      "!direct:example.com",
-		PeerMXID:    "@alice:remote.example",
-		DisplayName: "Alice",
-		Domain:      "remote.example",
-		Status:      "pending_inbound",
-	}); err != nil {
+	event := trustedStateEvent(t, "!direct:example.com", "@alice:remote.example", "m.room.member", service.OwnerMXID(), map[string]any{
+		"membership": "invite",
+		"is_direct":  true,
+	})
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
 

@@ -59,15 +59,6 @@ func stringSliceParam(value any) []string {
 	return actionbase.Strings(value)
 }
 
-func contactRequestRemark(params map[string]any) string {
-	for _, key := range []string{"remark", "request_message", "message", "reason"} {
-		if value := trimString(params[key]); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func int64Param(value any) int64 {
 	return actionbase.Int64(value)
 }
