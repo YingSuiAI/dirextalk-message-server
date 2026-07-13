@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `de99859` (`refactor: modularize channel content`)
+- Current published HEAD before this verified slice: `e185245` (`refactor: modularize reports plugins and consumer`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified reports/plugins/projector-consumer stage, then migrate the portal/profile/release and Agent/MCP adapters in grouped stages. Keep durable outbox/reconciliation changes separate from the structural refactor.
+- Commit and push the verified portal/profile/release stage, then migrate the Agent/MCP adapters as the next grouped stage. Keep durable outbox/reconciliation changes separate from the structural refactor.
 
 ## Completed Verification
 
@@ -168,6 +168,10 @@
 - Redundant plugin runner files, duplicate WS stream negatives, repeated MCP timestamp/auth cases, and the former giant Native Agent capability-state test were removed or consolidated. One compact table now verifies all nine public Agent direct-tool actions through the default runtime into the unified MCP service, while high-value HTTP/WS/MCP boundaries remain covered.
 - Independent review found and the stage fixed three local safety issues: nested `model_profiles[*].api_key` is stripped into the secret store, system-room creation/persistence is serialized and publishes the in-memory ID only after durable save, and reports fail closed instead of panicking when a stored system room exists without Matrix transport.
 - The grouped stage gate ran once after all work: `go test ./p2p/... -count=1` (root 95.574s, storage 47.399s), related domain/MCP/plugin/projection/state/transport/policy tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck and new-module dupl/gocyclo lint, production build, byte-identical 146-action contract generation, and `git diff --check` all passed.
+- The verified portal/profile/release stage moves nine actions, owner well-known projection, credentials/tombstone atomic writing, release validation/status mapping, and device-scoped client-build CAS into five cohesive files under `p2p/internal`. `portal.account.delete` and sync bootstrap/read-marker remain root cross-domain workflows; Matrix/session/member adapters dynamically read current Service dependencies.
+- Portal password rotation and release reporting continue sharing the existing `matrixSessionMu`; one Service PortalState remains authoritative. Profile patch merge stays atomic under the Service mutex and preserves `Portal Save -> Matrix profile -> member Save/Matrix state` ordering. Account deletion now uses the release module's single controller/error owner and the portal module's non-secret tombstone writer.
+- Redundant initialized-state, removed-action, and HTTP-only WS negative assertions were deleted; the bootstrap transport test now covers the legacy `token` password alias. Stale HTTP/WS session and password/report concurrency tests remain.
+- The grouped stage gate ran once: `go test ./p2p/... -count=1` (root 89.943s, storage 40.669s), related domain/release/transport/policy tests, `go vet ./p2p/...`, production build, byte-identical 146-action contract generation, and `git diff --check` passed. A small post-gate test-only cleanup passed its five focused contracts. Independent engineering and contract audits found no P0-P2 issue.
 
 ## Related Finding Outside This Structural Slice
 

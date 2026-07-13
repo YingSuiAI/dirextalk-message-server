@@ -11,12 +11,14 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkplugin"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
 	"github.com/gorilla/mux"
 )
 
 type channelReactionHistory = channelsmodule.ReactionHistory
 type pluginCatalogEntry = dirextalkplugin.CatalogEntry
 type pluginInstance = dirextalkplugin.Instance
+type portalCredentialsFile = portalmodule.Credentials
 type reportRecord = dirextalkdomain.ReportRecord
 
 func mustHandle[T any](t *testing.T, service *Service, action string, params map[string]any) T {

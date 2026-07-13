@@ -57,7 +57,7 @@ func RegisterWellKnown(router *mux.Router, service *Service) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeJSON(w, http.StatusOK, service.portalOwnerWellKnown())
+		writeJSON(w, http.StatusOK, service.profileModule.WellKnown())
 	}).Methods(http.MethodGet, http.MethodOptions)
 }
 

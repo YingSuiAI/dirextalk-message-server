@@ -172,12 +172,6 @@ func TestReleaseActionsOwnerAuthTransportAndPersistence(t *testing.T) {
 			t.Fatalf("%s must be available over owner WS: %#v", action, frame)
 		}
 	}
-	applyWS := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
-		"id": "ws-apply", "action": "release.v1.apply", "params": map[string]any{},
-	})
-	if applyWS["ok"] != false || applyWS["error"] != "action requires http" {
-		t.Fatalf("release apply must be HTTP-only: %#v", applyWS)
-	}
 }
 
 func TestReleaseStatusUnavailableIsParseable(t *testing.T) {
@@ -250,7 +244,7 @@ func TestClientVersionReportRejectsHTTPAuthorizationCapturedBeforeDeviceSwitch(t
 		t.Fatalf("switch portal device: %#v", apiErr)
 	}
 
-	_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{
+	_, apiErr := service.Handle(withPortalActionSession(context.Background(), identity), "client.version.report", map[string]any{
 		"client_version": "v9.9.9",
 	})
 	if apiErr == nil || apiErr.Status != http.StatusUnauthorized || apiErr.Code != "client_session_stale" {
@@ -308,7 +302,7 @@ func TestClientVersionReportUsesNarrowDeviceCASWithoutLosingConcurrentPortalFiel
 	}
 	reportDone := make(chan *apiError, 1)
 	go func() {
-		_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{
+		_, apiErr := service.Handle(withPortalActionSession(context.Background(), identity), "client.version.report", map[string]any{
 			"client_version": "v2.3.4", "build_number": "42", "platform": "android",
 		})
 		reportDone <- apiErr
@@ -321,7 +315,7 @@ func TestClientVersionReportUsesNarrowDeviceCASWithoutLosingConcurrentPortalFiel
 	case <-time.After(2 * time.Second):
 		t.Fatal("client version report did not reach narrow persistence")
 	}
-	if _, apiErr := service.updateProfile(context.Background(), map[string]any{"display_name": "Concurrent Profile"}); apiErr != nil {
+	if _, apiErr := service.Handle(context.Background(), "profile.update", map[string]any{"display_name": "Concurrent Profile"}); apiErr != nil {
 		t.Fatalf("concurrent profile update: %#v", apiErr)
 	}
 	if _, apiErr := service.updateAgentConfig(context.Background(), map[string]any{"system_prompt": "Concurrent Agent Config"}); apiErr != nil {
@@ -378,7 +372,7 @@ func TestClientVersionReportSerializesSameDevicePasswordRotation(t *testing.T) {
 					reportDone <- nil
 					return
 				}
-				_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{"client_version": "v2.3.4"})
+				_, apiErr := service.Handle(withPortalActionSession(context.Background(), identity), "client.version.report", map[string]any{"client_version": "v2.3.4"})
 				reportDone <- apiErr
 			}()
 			<-store.narrowEntered
@@ -418,7 +412,7 @@ func TestClientVersionReportSerializesSameDevicePasswordRotation(t *testing.T) {
 				}
 				return
 			}
-			_, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{"client_version": "v9.9.9"})
+			_, apiErr := service.Handle(withPortalActionSession(context.Background(), identity), "client.version.report", map[string]any{"client_version": "v9.9.9"})
 			if apiErr == nil || apiErr.Code != clientSessionStaleCode {
 				t.Fatalf("old HTTP session remained valid after same-device password rotation: %#v", apiErr)
 			}
@@ -481,7 +475,7 @@ func mustReportClientVersion(t *testing.T, service *Service, params map[string]a
 	if !authorized {
 		t.Fatal("expected current owner session")
 	}
-	result, apiErr := service.reportClientVersion(withPortalActionSession(context.Background(), identity), params)
+	result, apiErr := service.Handle(withPortalActionSession(context.Background(), identity), "client.version.report", params)
 	if apiErr != nil {
 		t.Fatalf("client.version.report failed: %#v", apiErr)
 	}

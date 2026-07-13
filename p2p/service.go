@@ -22,6 +22,9 @@ import (
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
+	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
+	profilemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/profile"
+	releasemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/release"
 	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
@@ -106,6 +109,9 @@ type Service struct {
 	groupsModule         *groupsmodule.Module
 	membersModule        *membersmodule.Module
 	pluginsModule        *pluginsmodule.Module
+	portalModule         *portalmodule.Module
+	profileModule        *profilemodule.Module
+	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
 
@@ -217,7 +223,7 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 			return nil, err
 		}
 	}
-	if err := service.writePortalCredentialsFile(); err != nil {
+	if err := service.portalModule.WriteCurrentCredentials(); err != nil {
 		return nil, err
 	}
 	if err := service.repairLocalChannelOwnerRoles(ctx); err != nil {
@@ -468,20 +474,6 @@ func (s *Service) SetProjectorStarted(started bool) {
 	s.projectorStarted = started
 }
 
-type portalCredentialsFile struct {
-	Version      int       `json:"version"`
-	GeneratedAt  time.Time `json:"generated_at"`
-	OwnerUserID  string    `json:"owner_user_id"`
-	UserID       string    `json:"user_id"`
-	Homeserver   string    `json:"homeserver"`
-	AccessToken  string    `json:"access_token"`
-	DeviceID     string    `json:"device_id"`
-	AgentToken   string    `json:"agent_token"`
-	Password     string    `json:"password"`
-	AgentRoomID  string    `json:"agent_room_id"`
-	SystemRoomID string    `json:"system_room_id"`
-}
-
 func newService(cfg Config, store Store, transport Transport, state portalState, hasPortal bool) *Service {
 	serverName := strings.TrimSpace(cfg.ServerName)
 	if serverName == "" {
@@ -633,6 +625,21 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Now:        time.Now,
 		NewJobID:   func() string { return randomToken("plugin_job") },
 	})
+	service.portalModule = portalmodule.New(
+		servicePortalModulePort{service: service},
+		servicePortalMatrixPort{service: service},
+		&service.matrixSessionMu,
+		servicePortalCredentialsPort{service: service},
+		portalmodule.Config{
+			NewAccessToken:    func() string { return randomToken("p2p_access") },
+			RequestedDeviceID: requestedMatrixDeviceID,
+		},
+	)
+	service.releaseModule = releasemodule.New(serviceReleasePort{service: service}, releasemodule.Config{
+		SessionLocker: &service.matrixSessionMu,
+		Now:           time.Now,
+	})
+	service.profileModule = profilemodule.New(serviceProfilePort{service: service})
 	var joinDirectRoom contactsmodule.DirectRoomJoiner
 	if service.transport != nil {
 		joinDirectRoom = service.joinContactDirectRoomTransport

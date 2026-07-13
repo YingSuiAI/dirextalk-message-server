@@ -6,27 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
-
-func (s *Service) sessionLocked() map[string]any {
-	return map[string]any{
-		"access_token":   s.accessToken,
-		"device_id":      cleanMatrixDeviceID(s.matrixDeviceID),
-		"agent_token":    s.agentToken,
-		"user_id":        s.ownerMXID,
-		"homeserver":     s.homeserver,
-		"agent_room_id":  s.agentRoomID,
-		"system_room_id": s.systemRoomID,
-		"password":       s.password,
-		"initialized":    s.initialized,
-	}
-}
 
 func (s *Service) portalStateLocked() portalState {
 	return portalState{
@@ -233,125 +218,4 @@ func defaultPortalPassword() string {
 		return password
 	}
 	return randomNumericPassword()
-}
-
-func portalCredentialsFilePath() string {
-	return strings.TrimSpace(os.Getenv("P2P_PORTAL_CREDENTIALS_FILE"))
-}
-
-func (s *Service) writePortalCredentialsFile() error {
-	path := strings.TrimSpace(portalCredentialsFilePath())
-	if path == "" {
-		return nil
-	}
-	path = filepath.Clean(path)
-	if path == "." || filepath.Base(path) == "." {
-		return fmt.Errorf("portal credentials file path is required")
-	}
-	s.mu.Lock()
-	credentials := portalCredentialsFile{
-		Version:      1,
-		GeneratedAt:  time.Now().UTC(),
-		OwnerUserID:  s.ownerMXID,
-		UserID:       s.ownerMXID,
-		Homeserver:   s.homeserver,
-		AccessToken:  s.accessToken,
-		DeviceID:     matrixPortalDeviceID,
-		AgentToken:   s.agentToken,
-		Password:     s.password,
-		AgentRoomID:  s.agentRoomID,
-		SystemRoomID: s.systemRoomID,
-	}
-	s.mu.Unlock()
-
-	parent := filepath.Dir(path)
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return fmt.Errorf("create portal credentials directory: %w", err)
-	}
-	temp, err := os.CreateTemp(parent, ".p2p-portal-*.json")
-	if err != nil {
-		return fmt.Errorf("create portal credentials temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	cleanup := true
-	defer func() {
-		_ = temp.Close()
-		if cleanup {
-			_ = os.Remove(tempPath)
-		}
-	}()
-	_ = temp.Chmod(0o600)
-	encoder := json.NewEncoder(temp)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(credentials); err != nil {
-		return fmt.Errorf("encode portal credentials: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		return fmt.Errorf("flush portal credentials: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close portal credentials: %w", err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish portal credentials: %w", err)
-	}
-	_ = os.Chmod(path, 0o600)
-	cleanup = false
-	return nil
-}
-
-func (s *Service) writeAccountDeletedCredentialsFile() error {
-	path := strings.TrimSpace(portalCredentialsFilePath())
-	if path == "" {
-		return nil
-	}
-	path = filepath.Clean(path)
-	if path == "." || filepath.Base(path) == "." {
-		return fmt.Errorf("portal credentials file path is required")
-	}
-	s.mu.Lock()
-	tombstone := map[string]any{
-		"version":       1,
-		"deprovisioned": true,
-		"deleted_at":    time.Now().UTC(),
-		"owner_user_id": s.ownerMXID,
-		"user_id":       s.ownerMXID,
-		"homeserver":    s.homeserver,
-	}
-	s.mu.Unlock()
-
-	parent := filepath.Dir(path)
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return fmt.Errorf("create portal credentials directory: %w", err)
-	}
-	temp, err := os.CreateTemp(parent, ".p2p-portal-deleted-*.json")
-	if err != nil {
-		return fmt.Errorf("create portal credentials temp file: %w", err)
-	}
-	tempPath := temp.Name()
-	cleanup := true
-	defer func() {
-		_ = temp.Close()
-		if cleanup {
-			_ = os.Remove(tempPath)
-		}
-	}()
-	_ = temp.Chmod(0o600)
-	encoder := json.NewEncoder(temp)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(tombstone); err != nil {
-		return fmt.Errorf("encode portal deprovision marker: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		return fmt.Errorf("flush portal deprovision marker: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close portal deprovision marker: %w", err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish portal deprovision marker: %w", err)
-	}
-	_ = os.Chmod(path, 0o600)
-	cleanup = false
-	return nil
 }

@@ -78,11 +78,12 @@ Native Agent is the message-server embedded runtime behind first-class owner `ag
 - `cmd/dirextalk-message-server`：生产服务入口，monolith 模式运行。
 - `setup/monolith.go`：装配 client、federation、media、sync、relay、P2P routes。
 - `p2p/action_registry.go`：P2P action 到业务 handler 的注册表。
-- `p2p/service_*.go`：P2P 业务编排。
+- `p2p/internal/{conversation,social,calls,blocks,contacts,members,groups,channels,reports,plugins,portal,profile,release}`：按业务域拥有 ProductCore handler、DTO 与完整工作流。
+- `p2p/service_*.go`：保留公开 facade、跨域编排及 Matrix/运行时适配。
 - `p2p/storage`：P2P projection/read model 持久化。
 - `internal/dirextalktransport`：产品 Matrix 写入 transport contract。
 - `internal/dirextalktransport/dendrite`：真实 Matrix roomserver 写入适配层；`p2p/dendrite_transport.go` 仅保留 facade 构造入口。
-- `internal/dirextalkmatrix`：Matrix Client-Server HTTP profile/history reader；`p2p/matrix_profile_resolver.go`、`p2p/matrix_history_reader.go` 和 `p2p/matrixhistory` 仅保留 facade/compatibility aliases。
+- `internal/dirextalkmatrix`：Matrix Client-Server HTTP profile/history reader；`p2p/matrix_profile_resolver.go` 与 `p2p/matrix_history_reader.go` 仅保留 facade/compatibility aliases。
 - `internal/dirextalkprojection`：projection-only helper，例如成员 joined/pending 统计；P2P action 和 conversation view 只调用该 helper，不复制计算逻辑。
 - `internal/dirextalkstate`：产品 Matrix state event content builder，例如 `io.dirextalk.room.profile`、`io.dirextalk.member.policy`、`io.dirextalk.join_request`；P2P action 仍负责决定何时通过 transport 发布。
 - `internal/dirextalkdomain`：跨包共享的产品 value records 和纯 domain helper，例如 portal/agent config、conversation records、member/channel records、blocks、calls、favorites、reports、P2P event bounds 等；业务 response DTO 由各自的 `p2p/internal` 模块持有。

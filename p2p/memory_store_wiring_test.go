@@ -36,7 +36,11 @@ func TestNoDatabaseConstructorsUseIndependentSeededMemoryStores(t *testing.T) {
 			t.Fatalf("service %d seeded portal = %#v, want %#v", i, state, want)
 		}
 
-		status := service.portalStatus().(map[string]any)
+		value, apiErr := service.Handle(context.Background(), "portal.status", nil)
+		if apiErr != nil {
+			t.Fatalf("portal status: %#v", apiErr)
+		}
+		status := value.(map[string]any)
 		if status["store_mode"] != "memory" {
 			t.Fatalf("service %d store_mode = %#v, want memory", i, status["store_mode"])
 		}
@@ -52,7 +56,7 @@ func TestNoDatabaseConstructorsUseIndependentSeededMemoryStores(t *testing.T) {
 	if !authorized {
 		t.Fatal("owner access token was not authorized")
 	}
-	_, apiErr := services[0].reportClientVersion(withPortalActionSession(context.Background(), identity), map[string]any{
+	_, apiErr := services[0].Handle(withPortalActionSession(context.Background(), identity), "client.version.report", map[string]any{
 		"client_version": "1.2.3",
 	})
 	if apiErr != nil {

@@ -18,9 +18,11 @@ type actionHandlerModule struct {
 
 func (s *Service) actionHandlers() map[string]actionHandler {
 	modules := []actionHandlerModule{
-		s.collectActionHandlerModule("portal", s.registerPortalActions),
-		s.collectActionHandlerModule("release", s.registerReleaseActions),
-		s.collectActionHandlerModule("profile-and-sync", s.registerProfileAndSyncActions),
+		{name: "portal", handlers: s.portalModule.Handlers()},
+		s.collectActionHandlerModule("portal-cross-domain", s.registerPortalActions),
+		{name: "release", handlers: s.releaseModule.Handlers()},
+		{name: "profile", handlers: s.profileModule.Handlers()},
+		s.collectActionHandlerModule("sync", s.registerSyncActions),
 		{name: "conversations", handlers: s.conversationModule.Handlers()},
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
 		{name: "plugins", handlers: s.pluginsModule.Handlers()},
@@ -64,16 +66,8 @@ func mustBuildActionHandlers(specs []serviceapi.ActionSpec, routeSpecial []strin
 	return registry.Handlers()
 }
 
-func (s *Service) portalStatusAction(context.Context, map[string]any) (any, *apiError) {
-	return s.portalStatus(), nil
-}
-
 func (s *Service) agentPasswordAction(context.Context, map[string]any) (any, *apiError) {
 	return s.agentPassword(), nil
-}
-
-func (s *Service) getProfileAction(context.Context, map[string]any) (any, *apiError) {
-	return s.getProfile(), nil
 }
 
 func (s *Service) syncBootstrapAction(ctx context.Context, _ map[string]any) (any, *apiError) {
@@ -86,4 +80,13 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 
 func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	return s.updateAgentConfig(ctx, params)
+}
+
+func (s *Service) registerPortalActions(actions map[string]actionHandler) {
+	actions["portal.account.delete"] = s.deleteAccount
+}
+
+func (s *Service) registerSyncActions(actions map[string]actionHandler) {
+	actions["sync.bootstrap"] = s.syncBootstrapAction
+	actions["sync.read_marker"] = s.updateReadMarker
 }

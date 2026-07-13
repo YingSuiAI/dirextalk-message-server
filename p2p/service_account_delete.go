@@ -67,7 +67,7 @@ func (s *Service) deleteAccountAfterDesiredState(ctx context.Context) (any, *api
 	if apiErr := s.deactivateAccountUsers(ctx, &summary); apiErr != nil {
 		return nil, apiErr
 	}
-	if err := s.writeAccountDeletedCredentialsFile(); err != nil {
+	if err := s.portalModule.WriteDeletedCredentials(); err != nil {
 		return nil, internalError(err)
 	}
 
@@ -99,16 +99,10 @@ func (s *Service) setAccountDesiredStateDeprovisioned(ctx context.Context) *apiE
 }
 
 func (s *Service) setAccountDesiredState(ctx context.Context, state releasecontrol.DesiredState) *apiError {
-	s.mu.Lock()
-	controller := s.releaseController
-	s.mu.Unlock()
-	if controller == nil {
+	if s.releaseModule == nil {
 		return codedError(http.StatusServiceUnavailable, updaterUnavailableCode, "updater is unavailable")
 	}
-	if err := controller.SetDesiredState(ctx, state); err != nil {
-		return releaseControllerAPIError(err)
-	}
-	return nil
+	return s.releaseModule.SetDesiredState(ctx, state)
 }
 
 func (s *Service) restoreAccountDesiredStateRunning() *apiError {

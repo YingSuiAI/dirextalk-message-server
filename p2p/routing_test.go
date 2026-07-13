@@ -99,7 +99,7 @@ func TestBootstrapAndAuthAreBodyActions(t *testing.T) {
 
 	bootstrap := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": "portal.bootstrap",
-		"params": map[string]any{"password": service.password},
+		"params": map[string]any{"token": service.password},
 	})
 	bootstrapRec := httptest.NewRecorder()
 	router.ServeHTTP(bootstrapRec, bootstrap)

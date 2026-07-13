@@ -7,55 +7,32 @@ import (
 	"time"
 )
 
-func (s *Service) getProfile() any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.profile
+type serviceProfilePort struct{ service *Service }
+
+func (p serviceProfilePort) Current() ownerProfile {
+	p.service.mu.Lock()
+	defer p.service.mu.Unlock()
+	return p.service.profile
 }
 
-func (s *Service) portalOwnerWellKnown() map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return map[string]any{
-		"matrix_user_id": s.profile.UserID,
-		"mxid":           s.profile.UserID,
-		"user_id":        s.profile.UserID,
-		"display_name":   s.profile.DisplayName,
-		"avatar_url":     s.profile.AvatarURL,
-	}
-}
-
-func (s *Service) updateProfile(ctx context.Context, params map[string]any) (any, *apiError) {
-	s.mu.Lock()
-	if v := trimString(params["display_name"]); v != "" {
-		s.profile.DisplayName = v
-	}
-	s.profile.AvatarURL = trimString(params["avatar_url"])
-	s.profile.Gender = trimString(params["gender"])
-	s.profile.Birthday = trimString(params["birthday"])
-	s.profile.Phone = trimString(params["phone"])
-	s.profile.Email = trimString(params["email"])
-	profile := s.profile
-	state := s.portalStateLocked()
-	s.mu.Unlock()
-	if store := s.portalStore(); store != nil {
+func (p serviceProfilePort) Commit(ctx context.Context, mutate func(*ownerProfile)) (ownerProfile, error) {
+	p.service.mu.Lock()
+	mutate(&p.service.profile)
+	profile := p.service.profile
+	state := p.service.portalStateLocked()
+	p.service.mu.Unlock()
+	if store := p.service.portalStore(); store != nil {
 		if err := store.SavePortal(ctx, state); err != nil {
-			return nil, internalError(err)
+			return profile, err
 		}
-	}
-	if err := s.updateMatrixProfile(ctx, profile); err != nil {
-		return nil, internalError(err)
-	}
-	if err := s.updateOwnerMemberProfiles(ctx, profile); err != nil {
-		return nil, internalError(err)
 	}
 	return profile, nil
 }
 
-func (s *Service) updateMatrixProfile(ctx context.Context, profile ownerProfile) error {
-	s.mu.Lock()
-	issuer := s.sessions
-	s.mu.Unlock()
+func (p serviceProfilePort) UpdateMatrix(ctx context.Context, profile ownerProfile) error {
+	p.service.mu.Lock()
+	issuer := p.service.sessions
+	p.service.mu.Unlock()
 	updater, ok := issuer.(MatrixProfileUpdater)
 	if !ok || updater == nil {
 		return nil
@@ -63,24 +40,22 @@ func (s *Service) updateMatrixProfile(ctx context.Context, profile ownerProfile)
 	return updater.UpdateMatrixProfile(ctx, profile.UserID, profile.DisplayName, profile.AvatarURL)
 }
 
-func (s *Service) updateOwnerMemberProfiles(ctx context.Context, profile ownerProfile) error {
-	members, err := s.membersForUser(ctx, profile.UserID)
+func (p serviceProfilePort) UpdateMembers(ctx context.Context, profile ownerProfile) error {
+	members, err := p.service.membersForUser(ctx, profile.UserID)
 	if err != nil {
 		return err
 	}
 	for _, member := range members {
 		member.DisplayName = profile.DisplayName
 		member.AvatarURL = profile.AvatarURL
-		if err := s.saveMember(ctx, member); err != nil {
+		if err := p.service.saveMember(ctx, member); err != nil {
 			return err
 		}
-		if s.transport != nil {
-			if err := s.transport.UpdateMemberProfile(ctx, UpdateMemberProfileRequest{
-				RoomID:      member.RoomID,
-				UserMXID:    profile.UserID,
-				DisplayName: profile.DisplayName,
-				AvatarURL:   profile.AvatarURL,
-				Timestamp:   time.Now().UTC(),
+		if p.service.transport != nil {
+			if err := p.service.transport.UpdateMemberProfile(ctx, UpdateMemberProfileRequest{
+				RoomID: member.RoomID, UserMXID: profile.UserID,
+				DisplayName: profile.DisplayName, AvatarURL: profile.AvatarURL,
+				Timestamp: time.Now().UTC(),
 			}); err != nil {
 				continue
 			}

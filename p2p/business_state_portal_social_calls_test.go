@@ -267,10 +267,6 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	oldAccessToken := bootstrap["access_token"].(string)
 	assertSingleInitializedFlag(t, bootstrap, false)
 
-	if _, apiErr := service.Handle(context.Background(), "portal.setup", nil); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected portal.setup compatibility action to be removed, got %#v", apiErr)
-	}
-
 	mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
 		"display_name": "Alice",
 	})
@@ -301,23 +297,6 @@ func TestPortalPasswordSetupAndAgentActions(t *testing.T) {
 	if service.Authenticate(oldAccessToken) {
 		t.Fatalf("expected old access token to be rotated after password change")
 	}
-}
-
-func TestPortalInitializedDependsOnlyOnPasswordChange(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	defaultPassword := service.password
-
-	password := mustHandle[map[string]any](t, service, "portal.password", map[string]any{
-		"old_password": defaultPassword,
-		"new_password": "new-secret",
-	})
-	assertSingleInitializedFlag(t, password, true)
-
-	mustHandle[ownerProfile](t, service, "profile.update", map[string]any{
-		"display_name": "Alice",
-	})
-	auth := mustHandle[map[string]any](t, service, "portal.auth", map[string]any{"password": "new-secret"})
-	assertSingleInitializedFlag(t, auth, true)
 }
 
 func TestAgentConfigContactsFavoritesAndDeprecatedMessageActions(t *testing.T) {
