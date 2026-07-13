@@ -115,7 +115,7 @@ func (s *Service) publishChannelHistoryVisibilityState(ctx context.Context, ch c
 	return nil
 }
 
-func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, status, reason string) *apiError {
+func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, status, reason, requestID string) *apiError {
 	if s.transport == nil || strings.TrimSpace(roomID) == "" || strings.TrimSpace(userID) == "" {
 		return nil
 	}
@@ -134,7 +134,7 @@ func (s *Service) publishJoinRequestState(ctx context.Context, roomID, userID, s
 	if err := s.transport.SendStateEvent(ctx, SendStateEventRequest{
 		RoomID:     roomID,
 		SenderMXID: senderMXID,
-		Event:      roomStateEvent(dirextalkstate.JoinRequestState(roomID, userID, status, reason, time.Now().UTC())),
+		Event:      roomStateEvent(dirextalkstate.JoinRequestState(roomID, userID, status, reason, requestID, time.Now().UTC())),
 	}); err != nil {
 		return internalError(err)
 	}

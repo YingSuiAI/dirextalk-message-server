@@ -214,6 +214,58 @@ func TestRequestRejectAcceptedIsNoOpWithContactView(t *testing.T) {
 	}
 }
 
+func TestRequestRejectVerifiesAcceptedProjectionAgainstMatrix(t *testing.T) {
+	existing := dirextalkdomain.ContactRecord{
+		PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", DisplayName: "Alice", Status: "accepted", RequestID: "request-1",
+	}
+	for _, tt := range []struct {
+		name       string
+		joined     bool
+		wantStatus string
+	}{
+		{name: "authoritative join keeps accepted", joined: true, wantStatus: "accepted"},
+		{name: "stale projection can be rejected", joined: false, wantStatus: "rejected"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			harness := newSaveHarness([]dirextalkdomain.ContactRecord{existing})
+			harness.conversation.operation = map[string]any{"action": actionRequestReject}
+			verifyCalls := 0
+			harness.module = New(harness.store, harness.conversation, Config{
+				VerifyAcceptedRoom: true,
+				LocalProfile: func() LocalProfileSnapshot {
+					return LocalProfileSnapshot{MXID: "@owner:example.com"}
+				},
+				MatrixJoined: func(_ context.Context, roomID, userID string) (bool, error) {
+					verifyCalls++
+					if roomID != existing.RoomID || userID != "@owner:example.com" {
+						t.Fatalf("MatrixJoined(%q, %q), want (%q, %q)", roomID, userID, existing.RoomID, "@owner:example.com")
+					}
+					return tt.joined, nil
+				},
+			})
+
+			result, apiErr := harness.module.Handlers()[actionRequestReject](context.Background(), map[string]any{
+				"room_id": existing.RoomID,
+			})
+			if apiErr != nil {
+				t.Fatalf("contacts.requests.reject error = %#v", apiErr)
+			}
+			view, ok := result.(View)
+			if !ok || view.Status != tt.wantStatus {
+				t.Fatalf("contacts.requests.reject result = %T %#v, want status %q", result, result, tt.wantStatus)
+			}
+			if verifyCalls != 1 {
+				t.Fatalf("MatrixJoined calls = %d, want 1", verifyCalls)
+			}
+			if upserts := harness.store.upserts(); tt.joined && len(upserts) != 0 {
+				t.Fatalf("authoritative accepted verification wrote contact: %#v", upserts)
+			} else if !tt.joined && (len(upserts) != 1 || upserts[0].Status != "rejected") {
+				t.Fatalf("stale accepted rejection upserts = %#v", upserts)
+			}
+		})
+	}
+}
+
 func TestRequestRejectPersistsCompatibleRejectedSnapshot(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -246,15 +298,6 @@ func TestRequestRejectPersistsCompatibleRejectedSnapshot(t *testing.T) {
 			want: dirextalkdomain.ContactRecord{
 				PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", DisplayName: "Alice",
 				AvatarURL: "mxc://example.com/old", Domain: "old.example", Status: "rejected", Remark: "request",
-			},
-		},
-		{
-			name: "empty room and identity remain compatible",
-			params: map[string]any{
-				"display_name": " Unknown ", "avatar_url": " mxc://example.com/unknown ", "domain": " example.com ",
-			},
-			want: dirextalkdomain.ContactRecord{
-				DisplayName: "Unknown", AvatarURL: "mxc://example.com/unknown", Domain: "example.com", Status: "rejected",
 			},
 		},
 	}

@@ -22,6 +22,72 @@ func (s *MemoryStore) UpsertContact(ctx context.Context, contact contactRecord) 
 	return nil
 }
 
+func (s *MemoryStore) CompareAndSwapContact(_ context.Context, contact, expected contactRecord) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var currentRoomID string
+	var current contactRecord
+	for roomID, candidate := range s.contacts {
+		if candidate.PeerMXID == expected.PeerMXID {
+			currentRoomID = roomID
+			current = candidate
+			break
+		}
+	}
+	if current.PeerMXID == "" || current.RoomID != expected.RoomID || current.RequestID != expected.RequestID ||
+		!strings.EqualFold(strings.TrimSpace(current.Status), strings.TrimSpace(expected.Status)) {
+		return false, nil
+	}
+	delete(s.contacts, currentRoomID)
+	s.contacts[contact.RoomID] = contact
+	return true, nil
+}
+
+func (s *MemoryStore) CompareAndSwapContactProjection(
+	_ context.Context,
+	contact,
+	expected contactRecord,
+) (bool, error) {
+	conversation := normalizeConversationRecord(conversationFromContact(contact))
+	if err := validateConversationRecord(conversation); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var currentRoomID string
+	var current contactRecord
+	for roomID, candidate := range s.contacts {
+		if candidate.PeerMXID == expected.PeerMXID {
+			currentRoomID = roomID
+			current = candidate
+			break
+		}
+	}
+	if current.PeerMXID == "" || current.RoomID != expected.RoomID || current.RequestID != expected.RequestID ||
+		!strings.EqualFold(strings.TrimSpace(current.Status), strings.TrimSpace(expected.Status)) {
+		return false, nil
+	}
+
+	delete(s.contacts, currentRoomID)
+	s.contacts[contact.RoomID] = contact
+	delete(s.groups, contact.RoomID)
+	for conversationID, existing := range s.conversations {
+		if existing.MatrixRoomID == contact.RoomID && existing.Kind != conversationKindDirect {
+			delete(s.conversations, conversationID)
+			continue
+		}
+		if contact.PeerMXID != "" && existing.Kind == conversationKindDirect &&
+			existing.PeerMXID == contact.PeerMXID && existing.MatrixRoomID != contact.RoomID {
+			delete(s.conversations, conversationID)
+		}
+	}
+	if existing, ok := s.conversations[conversation.ConversationID]; ok {
+		conversation = mergeMemoryConversationUpdate(existing, conversation)
+	}
+	s.conversations[conversation.ConversationID] = conversation
+	return true, nil
+}
+
 func (s *MemoryStore) ListContacts(ctx context.Context) ([]contactRecord, error) {
 	s.mu.RLock()
 	contacts := make([]contactRecord, 0, len(s.contacts))

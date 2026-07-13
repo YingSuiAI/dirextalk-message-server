@@ -12,11 +12,71 @@ import (
 
 type memberStore interface {
 	UpsertMember(ctx context.Context, member memberRecord) error
+	InsertMemberIfAbsent(ctx context.Context, member memberRecord) (bool, error)
+	CompareAndSwapMemberGeneration(ctx context.Context, member memberRecord, expectedRequestID, expectedMembership string) (bool, error)
 	LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error)
 	ListMembers(ctx context.Context, roomID, channelID string) ([]memberRecord, error)
 	ListMembersForUser(ctx context.Context, userID string) ([]memberRecord, error)
 	CountProductMembers(ctx context.Context, roomID, channelID string) (joined, pending int64, err error)
 	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
+}
+
+func (s *Service) saveMemberIfAbsent(ctx context.Context, member memberRecord) (bool, error) {
+	release := s.lockMemberWrite(member.RoomID, member.UserID)
+	defer release()
+
+	member.Role = normalizeProductMemberRole(member.Role)
+	if member.JoinedAt == 0 {
+		member.JoinedAt = time.Now().UTC().UnixMilli()
+	}
+	store := s.memberStore()
+	if store == nil {
+		return false, errors.New("member store is not configured")
+	}
+	saved, err := store.InsertMemberIfAbsent(ctx, member)
+	if err != nil || !saved {
+		return saved, err
+	}
+	if member.ChannelID == "" {
+		return true, s.refreshStoredGroupCounts(ctx, member.RoomID)
+	}
+	return true, s.refreshStoredChannelCounts(ctx, member.ChannelID)
+}
+
+func (s *Service) saveMemberIfState(
+	ctx context.Context,
+	member memberRecord,
+	expectedRequestID,
+	expectedMembership string,
+) (bool, error) {
+	release := s.lockMemberWrite(member.RoomID, member.UserID)
+	defer release()
+
+	member.Role = normalizeProductMemberRole(member.Role)
+	if member.JoinedAt == 0 {
+		member.JoinedAt = time.Now().UTC().UnixMilli()
+	}
+	store := s.memberStore()
+	if store == nil {
+		return false, errors.New("member store is not configured")
+	}
+	stored, found, err := store.LookupMember(ctx, member.RoomID, member.UserID)
+	if err != nil {
+		return false, err
+	}
+	if !found || stored.RequestID != expectedRequestID ||
+		(expectedMembership != "" && !strings.EqualFold(strings.TrimSpace(stored.Membership), strings.TrimSpace(expectedMembership))) {
+		return false, nil
+	}
+	mergeMemberPersistence(&member, stored)
+	saved, err := store.CompareAndSwapMemberGeneration(ctx, member, expectedRequestID, expectedMembership)
+	if err != nil || !saved {
+		return saved, err
+	}
+	if member.ChannelID == "" {
+		return true, s.refreshStoredGroupCounts(ctx, member.RoomID)
+	}
+	return true, s.refreshStoredChannelCounts(ctx, member.ChannelID)
 }
 
 type memberWriteEntry struct {
@@ -88,11 +148,14 @@ func (s *Service) lockMemberWrite(roomID, userID string) func() {
 }
 
 func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
-	if existing.JoinedAt > 0 {
+	if existing.JoinedAt > 0 && !memberStartsNewRequestGeneration(existing.Membership, member.Membership) {
 		member.JoinedAt = existing.JoinedAt
 	}
 	if member.RequesterNodeBaseURL == "" {
 		member.RequesterNodeBaseURL = existing.RequesterNodeBaseURL
+	}
+	if member.RequestID == "" {
+		member.RequestID = existing.RequestID
 	}
 	if memberRemoved(existing.Membership) && memberLeft(member.Membership) {
 		member.Membership = existing.Membership
@@ -102,6 +165,20 @@ func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
 		!memberHidden(existing.Membership) &&
 		!memberHidden(member.Membership) {
 		member.Role = existing.Role
+	}
+}
+
+func memberStartsNewRequestGeneration(previous, next string) bool {
+	switch strings.ToLower(strings.TrimSpace(next)) {
+	case "invite", "pending":
+		switch strings.ToLower(strings.TrimSpace(previous)) {
+		case "invite", "pending", "approved", "joining", "join_failed":
+			return false
+		default:
+			return true
+		}
+	default:
+		return false
 	}
 }
 

@@ -73,7 +73,7 @@ func (m *Module) Invite(ctx context.Context, scope string, raw map[string]any) (
 			member.ChannelID = ""
 		}
 		applyMemberProfile(&member, actionbase.Params(raw))
-		if actionErr := sendInvite(ctx, member, raw, actionbase.Params(raw).Bool("is_direct")); actionErr != nil {
+		if actionErr := sendInvite(ctx, &member, raw, actionbase.Params(raw).Bool("is_direct")); actionErr != nil {
 			return nil, actionErr
 		}
 		if err := m.config.SaveMember(ctx, member); err != nil {
@@ -174,7 +174,7 @@ func (m *Module) ChannelInviteGrantCreate(ctx context.Context, raw map[string]an
 		member.DisplayName = fallback(shareMember.DisplayName, member.DisplayName)
 		member.AvatarURL = fallback(shareMember.AvatarURL, member.AvatarURL)
 		member.Domain = fallback(shareMember.Domain, member.Domain)
-		if actionErr := sendInvite(ctx, member, raw, false); actionErr != nil {
+		if actionErr := sendInvite(ctx, &member, raw, false); actionErr != nil {
 			return nil, actionErr
 		}
 		if err := m.config.SaveMember(ctx, member); err != nil {

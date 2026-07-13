@@ -6,7 +6,7 @@
   "upgrade_from": [
     "${UPGRADE_FROM}"
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "schema_compat_version": 1,
   "minimum_client_version": "${MINIMUM_CLIENT_VERSION}",
   "maximum_client_version_exclusive": "${MAXIMUM_CLIENT_VERSION_EXCLUSIVE}",

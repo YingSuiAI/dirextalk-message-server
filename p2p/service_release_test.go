@@ -133,7 +133,7 @@ func TestReleaseActionsOwnerAuthTransportAndPersistence(t *testing.T) {
 	if !ok || watchdog["status"] != "degraded" || watchdog["degraded"] != true || watchdog["error_code"] != "repair_failed" {
 		t.Fatalf("unexpected public watchdog status: %#v", status["watchdog"])
 	}
-	if controller.statusRequest.CurrentVersion != "v1.0.2" || controller.statusRequest.CurrentSchemaVersion != 1 || controller.statusRequest.CurrentSchemaCompatVersion != 1 || controller.statusRequest.ClientVersion != "v2.3.4" {
+	if controller.statusRequest.CurrentVersion != "v1.0.3" || controller.statusRequest.CurrentSchemaVersion != 2 || controller.statusRequest.CurrentSchemaCompatVersion != 1 || controller.statusRequest.ClientVersion != "v2.3.4" {
 		t.Fatalf("unexpected controller status request: %#v", controller.statusRequest)
 	}
 
@@ -201,7 +201,7 @@ func TestReleaseStatusKeepsLocalCurrentAndClientVersionsAuthoritative(t *testing
 	service.mu.Unlock()
 
 	status := mustHandle[map[string]any](t, service, "release.v1.status", nil)
-	if status["current_version"] != "v1.0.2" || status["client_version"] != "v2.3.4" {
+	if status["current_version"] != "v1.0.3" || status["client_version"] != "v2.3.4" {
 		t.Fatalf("updater echo replaced authoritative local versions: %#v", status)
 	}
 }

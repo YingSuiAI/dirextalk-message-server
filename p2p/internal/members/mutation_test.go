@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
@@ -69,6 +70,19 @@ func newMutationHarness() *mutationHarness {
 			h.order = append(h.order, "save")
 			return h.saveErr
 		},
+		SaveMemberGeneration: func(_ context.Context, member dirextalkdomain.MemberRecord, expectedRequestID, expectedMembership string) (bool, error) {
+			if !h.found || h.existing.RequestID != expectedRequestID ||
+				!strings.EqualFold(strings.TrimSpace(h.existing.Membership), strings.TrimSpace(expectedMembership)) {
+				return false, nil
+			}
+			h.saved = append(h.saved, member)
+			h.order = append(h.order, "save")
+			if h.saveErr != nil {
+				return false, h.saveErr
+			}
+			h.existing = member
+			return true, nil
+		},
 		PublishPolicy: func(_ context.Context, member dirextalkdomain.MemberRecord) *actionbase.Error {
 			h.published = append(h.published, member)
 			return h.policyErr
@@ -85,7 +99,7 @@ func newMutationHarness() *mutationHarness {
 			h.order = append(h.order, "leave")
 			return h.transportErr
 		},
-		PublishJoinRequest: func(_ context.Context, roomID, userID, status, reason string) *actionbase.Error {
+		PublishJoinRequest: func(_ context.Context, roomID, userID, status, reason, _ string) *actionbase.Error {
 			h.joinStates = append(h.joinStates, roomID+"|"+userID+"|"+status+"|"+reason)
 			h.order = append(h.order, "join-state")
 			return nil
@@ -207,7 +221,7 @@ func TestMemberLifecycleGuardsStopBeforePersistence(t *testing.T) {
 		wantStatus   int
 	}{
 		{name: "owner remove", action: actionGroupRemove, existing: dirextalkdomain.MemberRecord{RoomID: "!room:example.com", UserID: "@alice:example.com", Role: "owner", Membership: "join"}, found: true, wantStatus: http.StatusConflict},
-		{name: "reject requires invite", action: actionGroupInviteReject, existing: dirextalkdomain.MemberRecord{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: "join"}, found: true, wantStatus: http.StatusNotFound},
+		{name: "reject expired invite", action: actionGroupInviteReject, existing: dirextalkdomain.MemberRecord{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: "join"}, found: true, wantStatus: http.StatusGone},
 		{name: "transport failure", action: actionChannelRemove, transportErr: actionbase.StatusError(http.StatusForbidden, "kick denied"), wantStatus: http.StatusForbidden},
 	}
 	for _, tt := range tests {
@@ -236,7 +250,7 @@ func TestChannelJoinRequestResolutionPreservesFinalStatusAndOrder(t *testing.T) 
 	}{
 		{name: "approve retry", action: actionChannelJoinRequestApprove, membership: " join_failed ", completeStatus: "joined", wantMember: "approved", wantState: "approved", wantCompletion: "true|approved", wantStatus: "joined"},
 		{name: "reject pending", action: actionChannelJoinRequestReject, membership: "pending", completeStatus: "reject", wantMember: "reject", wantState: "rejected", wantCompletion: "false|reject", wantStatus: "rejected"},
-		{name: "ordinary invite is not a join request", action: actionChannelJoinRequestApprove, membership: "invite", wantError: http.StatusNotFound},
+		{name: "ordinary invite is not a join request", action: actionChannelJoinRequestApprove, membership: "invite", wantError: http.StatusGone},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -270,6 +284,104 @@ func TestChannelJoinRequestResolutionPreservesFinalStatusAndOrder(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestChannelJoinRequestApproveRejectedReplayReturnsCurrentState(t *testing.T) {
+	h := newMutationHarness()
+	h.existing = dirextalkdomain.MemberRecord{
+		RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: "@alice:example.com",
+		Membership: "rejected", Role: "member",
+	}
+	h.found = true
+
+	result, actionErr := h.module.Handlers()[actionChannelJoinRequestApprove](context.Background(), map[string]any{
+		"room_id": "!channel:example.com", "channel_id": "channel_1", "user_id": "@alice:example.com",
+	})
+	if actionErr != nil {
+		t.Fatal(actionErr)
+	}
+	response := result.(map[string]any)
+	if response["status"] != "rejected" || len(h.saved) != 0 || len(h.joinStates) != 0 || len(h.completions) != 0 {
+		t.Fatalf("replayed rejected approval mutated state: response=%#v saved=%#v states=%#v completions=%#v", response, h.saved, h.joinStates, h.completions)
+	}
+}
+
+func TestPublicChannelRejectedCallbackKeepsInFlightApprovalState(t *testing.T) {
+	for _, tc := range []struct {
+		membership string
+		errorCode  string
+	}{
+		{membership: "approved"},
+		{membership: "joining", errorCode: actionbase.JoinResultUnconfirmedCode},
+		{membership: "join_failed", errorCode: actionbase.MatrixJoinFailedCode},
+	} {
+		t.Run(tc.membership, func(t *testing.T) {
+			h := newMutationHarness()
+			h.existing = dirextalkdomain.MemberRecord{
+				RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: h.ownerMXID,
+				Membership: tc.membership, Role: "member", RequestID: "request-a",
+			}
+			h.found = true
+			h.module.config.ApplyLocalProfile = func(*dirextalkdomain.MemberRecord) {}
+			h.module.config.ChannelSnapshot = func(_ context.Context, channelID string) dirextalkdomain.Channel {
+				return dirextalkdomain.Channel{ChannelID: channelID, RoomID: h.existing.RoomID}
+			}
+
+			result, actionErr := h.module.ChannelPublicJoinResult(context.Background(), map[string]any{
+				"room_id": h.existing.RoomID, "channel_id": h.existing.ChannelID,
+				"user_id": h.existing.UserID, "request_id": h.existing.RequestID, "status": "rejected",
+			})
+			if actionErr != nil {
+				t.Fatal(actionErr)
+			}
+			response := result.(map[string]any)
+			if response["status"] != tc.membership || actionbase.String(response["error_code"]) != tc.errorCode {
+				t.Fatalf("rejected callback changed current state: %#v", response)
+			}
+			if len(h.saved) != 0 || len(h.joinStates) != 0 || len(h.completions) != 0 {
+				t.Fatalf("rejected callback mutated in-flight approval: saved=%#v states=%#v completions=%#v", h.saved, h.joinStates, h.completions)
+			}
+		})
+	}
+}
+
+func TestMemberDecisionGenerationGuardsStopStaleMutations(t *testing.T) {
+	t.Run("channel decision returns current generation", func(t *testing.T) {
+		h := newMutationHarness()
+		h.existing = dirextalkdomain.MemberRecord{
+			RoomID: "!channel:example.com", ChannelID: "channel_1", UserID: "@alice:example.com",
+			Membership: "pending", Role: "member", RequestID: "request-b",
+		}
+		h.found = true
+		result, actionErr := h.module.Handlers()[actionChannelJoinRequestReject](context.Background(), map[string]any{
+			"room_id": "!channel:example.com", "channel_id": "channel_1", "user_id": "@alice:example.com", "request_id": "request-a",
+		})
+		if actionErr != nil {
+			t.Fatal(actionErr)
+		}
+		response := result.(map[string]any)
+		if response["status"] != "pending" || len(h.saved) != 0 || len(h.joinStates) != 0 || len(h.completions) != 0 {
+			t.Fatalf("stale channel decision mutated current generation: response=%#v order=%#v", response, h.order)
+		}
+	})
+
+	t.Run("group card event is not the persisted invite generation", func(t *testing.T) {
+		h := newMutationHarness()
+		h.existing = dirextalkdomain.MemberRecord{
+			RoomID: "!group:example.com", UserID: "@owner:example.com", Membership: "invite", Role: "member", RequestID: "$invite-b",
+		}
+		h.found = true
+		result, actionErr := h.module.Handlers()[actionGroupInviteReject](context.Background(), map[string]any{
+			"room_id": "!group:example.com", "invite_event_id": "$invite-a",
+		})
+		if actionErr != nil {
+			t.Fatal(actionErr)
+		}
+		response := result.(map[string]any)
+		if response["status"] != "rejected" || len(h.saved) != 1 || h.saved[0].Membership != "reject" {
+			t.Fatalf("card event blocked current persisted invite decision: result=%#v saved=%#v", response, h.saved)
+		}
+	})
 }
 
 func compactStrings(value string) []string {

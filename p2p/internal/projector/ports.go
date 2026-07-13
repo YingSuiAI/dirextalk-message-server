@@ -48,6 +48,7 @@ type ContactPort interface {
 	ListRaw(context.Context) ([]dirextalkdomain.ContactRecord, error)
 	LookupByRoom(context.Context, string) (dirextalkdomain.ContactRecord, bool, error)
 	Save(context.Context, dirextalkdomain.ContactRecord) error
+	SaveProjectionIfCurrent(context.Context, dirextalkdomain.ContactRecord, dirextalkdomain.ContactRecord) (bool, error)
 }
 
 // MemberPort preserves the root member-save orchestration, including its
@@ -55,6 +56,8 @@ type ContactPort interface {
 type MemberPort interface {
 	Lookup(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
 	Save(context.Context, dirextalkdomain.MemberRecord) error
+	SaveProjectionIfAbsent(context.Context, dirextalkdomain.MemberRecord) (bool, error)
+	SaveProjectionIfCurrent(context.Context, dirextalkdomain.MemberRecord, dirextalkdomain.MemberRecord) (bool, error)
 }
 
 type BlockPort interface {

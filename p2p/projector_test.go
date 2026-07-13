@@ -517,6 +517,43 @@ func TestProjectReactionAndMembershipEvents(t *testing.T) {
 	}
 }
 
+func TestProjectOwnerJoinRepairsPendingInboundContact(t *testing.T) {
+	testProjectOwnerJoinRepairsContactStatus(t, "pending_inbound")
+}
+
+func TestProjectOwnerJoinRepairsRejectedContactAfterAcceptCrash(t *testing.T) {
+	testProjectOwnerJoinRepairsContactStatus(t, "rejected")
+}
+
+func testProjectOwnerJoinRepairsContactStatus(t *testing.T, initialStatus string) {
+	t.Helper()
+	owner := test.NewUser(t)
+	peer := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = owner.ID
+	if err := service.saveContact(context.Background(), contactRecord{
+		RoomID: room.ID, PeerMXID: peer.ID, DisplayName: "Peer", Status: initialStatus, RequestID: "$invite-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	join := room.CreateAndInsert(t, owner, "m.room.member", map[string]any{
+		"membership": "join", "displayname": "Owner",
+	}, test.WithStateKey(owner.ID))
+	if err := service.ProjectRoomEvent(context.Background(), join); err != nil {
+		t.Fatal(err)
+	}
+	contact, ok, err := service.lookupContactByRoom(context.Background(), room.ID)
+	if err != nil || !ok || contact.Status != "accepted" {
+		t.Fatalf("owner join did not repair contact: contact=%#v ok=%v err=%v", contact, ok, err)
+	}
+	conversation, found, err := service.conversationModule.GetRecord(context.Background(), "", room.ID)
+	if err != nil || !found || conversation.Lifecycle != "active" {
+		t.Fatalf("owner join did not repair direct conversation: conversation=%#v found=%v err=%v", conversation, found, err)
+	}
+}
+
 func TestProjectDirectInviteCreatesPendingInboundContact(t *testing.T) {
 	owner := test.NewUser(t)
 	remote := test.NewUser(t)
@@ -1166,6 +1203,172 @@ func TestProjectOutputNewInviteCreatesGroupAndChannelPendingItems(t *testing.T) 
 	}
 	if len(channelNotices) != 1 || channelNotices[0]["id"] != channelRoom.ID || channelNotices[0]["title"] != "远端频道" {
 		t.Fatalf("expected projected channel invite, got %#v", pending["channel_notices"])
+	}
+}
+
+func TestProjectTechnicalChannelInvitePreservesPublicJoinWorkflowGeneration(t *testing.T) {
+	for _, membership := range []string{"pending", "joining"} {
+		t.Run(membership, func(t *testing.T) {
+			owner := test.NewUser(t)
+			requester := test.NewUser(t)
+			room := test.NewRoom(t, owner)
+			service := NewService(Config{ServerName: "test"})
+			service.ownerMXID = owner.ID
+			if err := service.saveChannel(context.Background(), channel{
+				ChannelID: "public_channel", RoomID: room.ID, Name: "Public Channel",
+				Visibility: "public", JoinPolicy: "open", ChannelType: "chat",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.saveMember(context.Background(), memberRecord{
+				RoomID: room.ID, ChannelID: "public_channel", UserID: requester.ID,
+				Membership: membership, Role: "member", RequestID: "request-a",
+				RequesterNodeBaseURL: "https://requester.example/_p2p",
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			invite := room.CreateAndInsert(t, owner, "m.room.member", map[string]any{
+				"membership":                          "invite",
+				"io.dirextalk.public_join_request_id": "request-a",
+			}, test.WithStateKey(requester.ID))
+			if err := service.ProjectRoomEvent(context.Background(), invite); err != nil {
+				t.Fatal(err)
+			}
+
+			projected, ok, err := service.lookupMember(context.Background(), room.ID, requester.ID)
+			if err != nil || !ok {
+				t.Fatalf("expected public join workflow member: member=%#v ok=%v err=%v", projected, ok, err)
+			}
+			if projected.Membership != membership || projected.RequestID != "request-a" {
+				t.Fatalf("technical Matrix invite replaced public join workflow generation: member=%#v event_id=%s", projected, invite.EventID())
+			}
+		})
+	}
+}
+
+func TestProjectStaleTechnicalChannelInviteCannotReplaceNewPublicJoinGeneration(t *testing.T) {
+	owner := test.NewUser(t)
+	requester := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = owner.ID
+	if err := service.saveChannel(context.Background(), channel{
+		ChannelID: "public_channel", RoomID: room.ID, Name: "Public Channel",
+		Visibility: "public", JoinPolicy: "open", ChannelType: "chat",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := memberRecord{
+		RoomID: room.ID, ChannelID: "public_channel", UserID: requester.ID,
+		Membership: "joining", Role: "member", RequestID: "request-b",
+		RequesterNodeBaseURL: "https://requester.example/_p2p",
+	}
+	if err := service.saveMember(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+
+	staleInvite := room.CreateAndInsert(t, owner, "m.room.member", map[string]any{
+		"membership":                          "invite",
+		"io.dirextalk.public_join_request_id": "request-a",
+	}, test.WithStateKey(requester.ID))
+	if err := service.ProjectRoomEvent(context.Background(), staleInvite); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok, err := service.lookupMember(context.Background(), room.ID, requester.ID)
+	if err != nil || !ok {
+		t.Fatalf("expected current public join generation: member=%#v ok=%v err=%v", got, ok, err)
+	}
+	if got.Membership != want.Membership || got.RequestID != want.RequestID {
+		t.Fatalf("stale technical invite replaced request B: got=%#v want=%#v event_id=%s", got, want, staleInvite.EventID())
+	}
+}
+
+func TestProjectProductReinviteAdvancesMemberRequestGenerationIdempotently(t *testing.T) {
+	tests := []struct {
+		name      string
+		roomType  string
+		channelID string
+	}{
+		{name: "group", roomType: DirextalkRoomTypeGroup},
+		{name: "channel", roomType: DirextalkRoomTypeChannel, channelID: "remote_channel"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner := test.NewUser(t)
+			remote := test.NewUser(t)
+			room := test.NewRoom(t, remote)
+			service := NewService(Config{ServerName: "test"})
+			service.ownerMXID = owner.ID
+			if tt.roomType == DirextalkRoomTypeGroup {
+				if err := service.saveGroup(context.Background(), groupRecord{
+					RoomID: room.ID, Name: "Remote Group", InvitePolicy: "member",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := service.saveChannel(context.Background(), channel{
+					ChannelID: tt.channelID, RoomID: room.ID, Name: "Remote Channel",
+					Visibility: "public", JoinPolicy: "invite", ChannelType: "chat",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := service.saveMember(context.Background(), memberRecord{
+				RoomID: room.ID, ChannelID: tt.channelID, UserID: owner.ID,
+				// A completed public-join workflow must not make a later ordinary
+				// Product invite look like the technical invite from that workflow.
+				Membership: "rejected", Role: "member", RequestID: "$public-join-a",
+				RequesterNodeBaseURL: "https://requester.example/_p2p",
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			inviteB := room.CreateAndInsert(t, remote, "m.room.member", map[string]any{
+				"membership": "invite",
+			}, test.WithStateKey(owner.ID))
+			profile := map[string]any{
+				"room_type": tt.roomType,
+				"room_id":   room.ID,
+				"name":      "Remote " + tt.name,
+			}
+			if tt.channelID != "" {
+				profile["channel_id"] = tt.channelID
+				profile["visibility"] = "public"
+				profile["join_policy"] = "invite"
+				profile["channel_type"] = "chat"
+			}
+			setInviteRoomProfileState(t, inviteB, remote.ID, profile)
+			output := roomserverAPI.OutputEvent{
+				Type: roomserverAPI.OutputTypeNewInviteEvent,
+				NewInviteEvent: &roomserverAPI.OutputNewInviteEvent{
+					Event: inviteB,
+				},
+			}
+
+			if err := service.ProjectOutputEvent(context.Background(), output); err != nil {
+				t.Fatal(err)
+			}
+			projected, ok, err := service.lookupMember(context.Background(), room.ID, owner.ID)
+			if err != nil || !ok || projected.Membership != "invite" ||
+				projected.RequestID != inviteB.EventID() || projected.RequestID == "$invite-a" {
+				t.Fatalf("invite B did not replace generation A: member=%#v ok=%v err=%v", projected, ok, err)
+			}
+			firstEvents := mustListP2PEvents(t, service)
+
+			if err := service.ProjectOutputEvent(context.Background(), output); err != nil {
+				t.Fatal(err)
+			}
+			replayed, ok, err := service.lookupMember(context.Background(), room.ID, owner.ID)
+			if err != nil || !ok || replayed.Membership != "invite" || replayed.RequestID != inviteB.EventID() {
+				t.Fatalf("duplicate invite B changed the generation: member=%#v ok=%v err=%v", replayed, ok, err)
+			}
+			secondEvents := mustListP2PEvents(t, service)
+			if len(secondEvents) != len(firstEvents) {
+				t.Fatalf("duplicate invite B appended another outbox event: first=%#v second=%#v", firstEvents, secondEvents)
+			}
+		})
 	}
 }
 

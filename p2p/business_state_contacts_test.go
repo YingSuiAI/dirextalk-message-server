@@ -22,6 +22,56 @@ func TestContactAcceptRequiresPendingInboundContact(t *testing.T) {
 	}
 }
 
+func TestContactDecisionsResolvePeerWithoutCreatingMissingRequests(t *testing.T) {
+	decisions := []struct {
+		action     string
+		wantStatus string
+	}{
+		{action: "contacts.requests.accept", wantStatus: "accepted"},
+		{action: "contacts.requests.reject", wantStatus: "rejected"},
+	}
+	for _, decision := range decisions {
+		t.Run(decision.action+" missing", func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			bootstrapService(t, service)
+			result, apiErr := service.Handle(context.Background(), decision.action, map[string]any{
+				"peer_mxid": "@alice:remote.example",
+			})
+			if result != nil || apiErr == nil || apiErr.Status != http.StatusNotFound {
+				t.Errorf("missing peer-only decision = (%#v, %#v), want structured 404", result, apiErr)
+			}
+			contacts := mustHandle[map[string]any](t, service, "contacts.list", nil)["contacts"].([]contactRecord)
+			if len(contacts) != 0 {
+				t.Errorf("missing peer-only decision created contact projection: %#v", contacts)
+			}
+			conversations, err := service.listConversations(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(conversations) != 0 {
+				t.Errorf("missing peer-only decision created conversation projection: %#v", conversations)
+			}
+		})
+
+		t.Run(decision.action+" existing", func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			bootstrapService(t, service)
+			if err := service.saveContact(context.Background(), contactRecord{
+				RoomID: "!direct:example.com", PeerMXID: "@alice:remote.example",
+				DisplayName: "Alice", Status: "pending_inbound", RequestID: "request-a",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			resolved := mustHandle[contactRecord](t, service, decision.action, map[string]any{
+				"peer_mxid": "@alice:remote.example",
+			})
+			if resolved.Status != decision.wantStatus || resolved.RoomID != "!direct:example.com" {
+				t.Fatalf("peer-only decision did not resolve existing room: %#v", resolved)
+			}
+		})
+	}
+}
+
 func TestContactListDeduplicatesPeerAndPrefersAcceptedContact(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)

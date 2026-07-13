@@ -8,6 +8,7 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 )
 
@@ -22,7 +23,7 @@ func (s *Service) reactivatePeerContact(ctx context.Context, request contactsmod
 		remoteBase = "https://" + peerServer + "/_p2p"
 	}
 	var result map[string]any
-	status, err := s.remotePublicAction(ctx, peerServer, "contacts.reactivate", map[string]any{
+	params := map[string]any{
 		"room_id":              request.Contact.RoomID,
 		"requester_mxid":       request.RequesterMXID,
 		"remote_node_base_url": remoteBase,
@@ -30,7 +31,14 @@ func (s *Service) reactivatePeerContact(ctx context.Context, request contactsmod
 		"avatar_url":           request.AvatarURL,
 		"domain":               request.Domain,
 		"remark":               request.Remark,
-	}, &result)
+	}
+	if request.Contact.RequestID != "" {
+		params["request_id"] = request.Contact.RequestID
+	}
+	status, err := s.remotePublicAction(ctx, peerServer, "contacts.reactivate", params, &result)
+	if status == http.StatusNotFound {
+		return contactsmodule.PeerReactivationResult{NotRetained: true}, nil
+	}
 	if err != nil {
 		if status != 0 && status != http.StatusBadGateway {
 			return contactsmodule.PeerReactivationResult{}, statusError(status, err.Error())
@@ -38,9 +46,6 @@ func (s *Service) reactivatePeerContact(ctx context.Context, request contactsmod
 		return contactsmodule.PeerReactivationResult{}, statusError(http.StatusBadGateway, err.Error())
 	}
 	if status != http.StatusOK {
-		if status == http.StatusNotFound {
-			return contactsmodule.PeerReactivationResult{NotRetained: true}, nil
-		}
 		return contactsmodule.PeerReactivationResult{}, statusError(status, "target node contact reactivation failed")
 	}
 	if strings.EqualFold(trimString(result["status"]), "pending_inbound") {
@@ -64,6 +69,24 @@ func (s *Service) acceptDirectContactRoom(ctx context.Context, contact contactSt
 		return contact.RoomID, nil
 	}
 	profile := s.localContactProfileSnapshot()
+	if joined, err := s.matrixMemberJoined(ctx, contact.RoomID, profile.MXID); err != nil {
+		return "", s.directContactJoinRecoveryError(ctx, contact.RoomID, err)
+	} else if joined {
+		if err := markRecoverableOperation(ctx, operationPhaseMatrixCommitted, contact.RoomID); err != nil {
+			return "", recoverableOperationWriteError(ctx, err)
+		}
+		return contact.RoomID, nil
+	}
+	if operation, ok := recoverableOperationSnapshot(ctx); ok && operationHasExternalCommit(operation.Phase) && operation.CurrentRoomID != "" {
+		if operation.CurrentRoomID != contact.RoomID {
+			return operation.CurrentRoomID, nil
+		}
+		if joined, err := s.matrixMemberJoined(ctx, operation.CurrentRoomID, profile.MXID); err != nil {
+			return "", s.directContactJoinRecoveryError(ctx, operation.CurrentRoomID, err)
+		} else if joined {
+			return operation.CurrentRoomID, nil
+		}
+	}
 	join, err := s.joinRoomWithRetry(ctx, JoinRoomRequest{
 		RoomIDOrAlias:             contact.RoomID,
 		UserMXID:                  profile.MXID,
@@ -76,12 +99,25 @@ func (s *Service) acceptDirectContactRoom(ctx context.Context, contact contactSt
 		if contactPendingInbound(contact.Status) && isDirectContactReactivationJoinFailed(err) {
 			return s.createAcceptedReplacementDirectRoom(ctx, contact, profile)
 		}
-		return "", transportWriteError(err)
+		return "", s.directContactJoinRecoveryError(ctx, contact.RoomID, err)
 	}
 	if strings.TrimSpace(join.RoomID) != "" {
-		return join.RoomID, nil
+		contact.RoomID = join.RoomID
+	}
+	if err := markRecoverableOperation(ctx, operationPhaseMatrixCommitted, contact.RoomID); err != nil {
+		return "", recoverableOperationWriteError(ctx, err)
 	}
 	return contact.RoomID, nil
+}
+
+func (s *Service) directContactJoinRecoveryError(ctx context.Context, roomID string, err error) *apiError {
+	if ambiguousChannelJoinTransportError(err) || isFederatedJoinInProgress(err) {
+		if markErr := markRecoverableOperation(ctx, operationPhaseMatrixUnconfirmed, roomID); markErr != nil {
+			return recoverableOperationWriteError(ctx, markErr)
+		}
+		return codedError(http.StatusConflict, actionbase.MatrixJoinUnconfirmedCode, "direct room join could not be confirmed locally")
+	}
+	return transportWriteError(err)
 }
 
 func (s *Service) createAcceptedReplacementDirectRoom(
@@ -111,6 +147,13 @@ func (s *Service) createContactDirectRoomWithProfile(
 	if s.transport == nil {
 		return request.FallbackRoomID, nil
 	}
+	if operation, ok := recoverableOperationSnapshot(ctx); ok && operationHasExternalCommit(operation.Phase) && operation.CurrentRoomID != "" {
+		return operation.CurrentRoomID, nil
+	}
+	idempotencyKey := ""
+	if operation, ok := recoverableOperationSnapshot(ctx); ok {
+		idempotencyKey = operation.OperationID
+	}
 	directName := fallbackString(request.DisplayName, request.PeerMXID)
 	result, err := s.transport.CreateRoom(ctx, CreateRoomRequest{
 		CreatorMXID:        profile.MXID,
@@ -121,12 +164,21 @@ func (s *Service) createContactDirectRoomWithProfile(
 		RoomType:           DirextalkRoomTypeDirect,
 		IsDirect:           true,
 		InviteMXIDs:        []string{request.PeerMXID},
+		IdempotencyKey:     idempotencyKey,
 		InitialState: []RoomStateEvent{
 			roomProfileForDirect(directName, profile.MXID, request.PeerMXID, profile.DisplayName, profile.AvatarURL, request.Remark, false),
 		},
 	})
 	if err != nil {
+		if result.RoomID != "" {
+			if markErr := markRecoverableOperation(ctx, operationPhaseMatrixUnconfirmed, result.RoomID); markErr != nil {
+				return "", recoverableOperationWriteError(ctx, markErr)
+			}
+		}
 		return "", transportWriteError(err)
+	}
+	if err := markRecoverableOperation(ctx, operationPhaseMatrixCommitted, result.RoomID); err != nil {
+		return "", recoverableOperationWriteError(ctx, err)
 	}
 	return result.RoomID, nil
 }
@@ -155,12 +207,28 @@ func (s *Service) joinContactDirectRoomTransport(ctx context.Context, request co
 	if s.transport == nil || request.RoomID == "" {
 		return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinSucceeded, RoomID: request.RoomID}
 	}
+	roomID := request.RoomID
+	if operation, ok := recoverableOperationSnapshot(ctx); ok && operationHasExternalCommit(operation.Phase) && operation.CurrentRoomID != "" {
+		roomID = operation.CurrentRoomID
+	}
+	if joined, err := s.matrixMemberJoined(ctx, roomID, request.Profile.MXID); err != nil {
+		return contactsmodule.DirectRoomJoinOutcome{
+			Kind: contactsmodule.DirectRoomJoinFailed, Failure: transportWriteError(err),
+		}
+	} else if joined {
+		if err := markRecoverableOperation(ctx, operationPhaseMatrixCommitted, roomID); err != nil {
+			return contactsmodule.DirectRoomJoinOutcome{
+				Kind: contactsmodule.DirectRoomJoinFailed, Failure: recoverableOperationWriteError(ctx, err),
+			}
+		}
+		return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinSucceeded, RoomID: roomID}
+	}
 	serverNames := request.ServerNames
 	if request.UseRoomServerFallback && len(serverNames) == 0 {
-		serverNames = retainedRoomServerNames(nil, request.RoomID)
+		serverNames = retainedRoomServerNames(nil, roomID)
 	}
 	joinRequest := JoinRoomRequest{
-		RoomIDOrAlias:             request.RoomID,
+		RoomIDOrAlias:             roomID,
 		UserMXID:                  request.Profile.MXID,
 		DisplayName:               request.Profile.DisplayName,
 		AvatarURL:                 request.Profile.AvatarURL,
@@ -185,9 +253,13 @@ func (s *Service) joinContactDirectRoomTransport(ctx context.Context, request co
 		}
 		return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinFailed, Failure: transportWriteError(err)}
 	}
-	roomID := request.RoomID
 	if strings.TrimSpace(result.RoomID) != "" {
 		roomID = result.RoomID
+	}
+	if err := markRecoverableOperation(ctx, operationPhaseMatrixCommitted, roomID); err != nil {
+		return contactsmodule.DirectRoomJoinOutcome{
+			Kind: contactsmodule.DirectRoomJoinFailed, Failure: recoverableOperationWriteError(ctx, err),
+		}
 	}
 	return contactsmodule.DirectRoomJoinOutcome{Kind: contactsmodule.DirectRoomJoinSucceeded, RoomID: roomID}
 }

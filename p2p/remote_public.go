@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
@@ -34,6 +36,17 @@ func matrixRoomIDQuery(query string) bool {
 	return ok
 }
 
+type publicJoinPreflightChannelContextKey struct{}
+
+func withPublicJoinPreflightChannel(ctx context.Context, value channel) context.Context {
+	return context.WithValue(ctx, publicJoinPreflightChannelContextKey{}, value)
+}
+
+func publicJoinPreflightChannel(ctx context.Context, roomID string) (channel, bool) {
+	value, ok := ctx.Value(publicJoinPreflightChannelContextKey{}).(channel)
+	return value, ok && value.RoomID == strings.TrimSpace(roomID)
+}
+
 func (s *Service) remotePublicChannelGet(ctx context.Context, channelID, roomID string, params map[string]any) (channel, bool, *apiError) {
 	roomID = strings.TrimSpace(roomID)
 	if roomID == "" {
@@ -52,14 +65,14 @@ func (s *Service) remotePublicChannelGet(ctx context.Context, channelID, roomID 
 		"channel_id":           fallbackString(channelID, roomID),
 		"remote_node_base_url": remoteNodeBaseURLParam(params),
 	}, &ch)
+	if status == http.StatusNotFound {
+		return channel{}, false, nil
+	}
 	if err != nil {
 		if status != 0 && status != http.StatusBadGateway {
 			return channel{}, false, statusError(status, err.Error())
 		}
 		return channel{}, false, statusError(http.StatusBadGateway, err.Error())
-	}
-	if status == http.StatusNotFound {
-		return channel{}, false, nil
 	}
 	if status != http.StatusOK {
 		return channel{}, false, statusError(status, "target node public channel lookup failed")
@@ -118,9 +131,16 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if roomServer == s.serverName {
 		return nil, false, nil
 	}
-	ch, found, apiErr := s.remotePublicChannelGet(ctx, trimString(params["channel_id"]), roomID, params)
-	if apiErr != nil {
-		return nil, false, apiErr
+	settlementCtx, cancel := actionbase.SettlementContext(ctx)
+	defer cancel()
+	ctx = settlementCtx
+	ch, found := publicJoinPreflightChannel(ctx, roomID)
+	if !found {
+		var apiErr *apiError
+		ch, found, apiErr = s.remotePublicChannelGet(ctx, trimString(params["channel_id"]), roomID, params)
+		if apiErr != nil {
+			return nil, false, apiErr
+		}
 	}
 	if !found {
 		return nil, false, statusError(http.StatusNotFound, "channel not found")
@@ -138,32 +158,108 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if err != nil {
 		return nil, false, internalError(err)
 	}
+	previousRequestID := localMember.RequestID
+	previousMembership := localMember.Membership
+	restartGeneration := false
 	if !ok {
 		localMember = s.memberRecordFor(roomID, ch.ChannelID, userID)
+		localMember.Membership = "pending"
+	} else if strings.EqualFold(strings.TrimSpace(localMember.Membership), "join") ||
+		strings.EqualFold(strings.TrimSpace(localMember.Membership), "joined") {
+		joined, joinedErr := s.matrixMemberJoined(ctx, roomID, userID)
+		if joinedErr != nil {
+			return nil, false, internalError(joinedErr)
+		}
+		if joined {
+			localMember.ChannelID = ch.ChannelID
+			ch.MemberStatus = "join"
+			ch.Role = normalizeProductMemberRole(localMember.Role)
+			ch.IsOwned = productOwnerRole(localMember.Role)
+			return map[string]any{"status": "joined", "room_id": roomID, "member": localMember, "channel": ch}, true, nil
+		}
+		localMember.Membership = "joining"
 	}
 	localMember.RoomID = roomID
 	localMember.ChannelID = ch.ChannelID
-	localMember.Membership = "pending"
+	requestID := trimString(params["request_id"])
+	if requestID == "" {
+		if operation, ok := recoverableOperationSnapshot(ctx); ok {
+			requestID = fallbackString(operation.RequestID, operation.OperationID)
+		}
+	}
+	if requestID != "" && localMember.RequestID != requestID && channelJoinGenerationMayRestart(localMember.Membership) {
+		restartGeneration = true
+		localMember.RequestID = requestID
+		localMember.JoinedAt = time.Now().UTC().UnixMilli()
+		localMember.Membership = "pending"
+	} else if localMember.RequestID == "" {
+		localMember.RequestID = requestID
+	} else {
+		requestID = localMember.RequestID
+	}
+	if strings.TrimSpace(localMember.Membership) == "" {
+		localMember.Membership = "pending"
+	}
 	localMember.Role = fallbackString(localMember.Role, "member")
-	if localMember.RequesterNodeBaseURL == "" {
-		localMember.RequesterNodeBaseURL = s.publicP2PBaseURL()
+	currentRequesterBaseURL := s.publicP2PBaseURL()
+	if currentRequesterBaseURL != "" && (restartGeneration || localMember.RequesterNodeBaseURL == "") {
+		localMember.RequesterNodeBaseURL = currentRequesterBaseURL
 	}
 	applyMemberProfileParams(&localMember, params)
-	if saveErr := s.saveMember(ctx, localMember); saveErr != nil {
+	if restartGeneration {
+		saved, saveErr := s.saveMemberIfState(ctx, localMember, previousRequestID, previousMembership)
+		if saveErr != nil {
+			return nil, false, internalError(saveErr)
+		}
+		if !saved {
+			current, found, lookupErr := s.lookupMember(ctx, roomID, userID)
+			if lookupErr != nil {
+				return nil, false, internalError(lookupErr)
+			}
+			if !found {
+				return nil, false, internalError(errors.New("channel join generation disappeared during restart"))
+			}
+			result, currentErr := s.currentChannelJoinResult(ctx, current)
+			return result, true, currentErr
+		}
+	} else if ok {
+		saved, saveErr := s.saveMemberIfState(ctx, localMember, previousRequestID, previousMembership)
+		if saveErr != nil {
+			return nil, false, internalError(saveErr)
+		}
+		if !saved {
+			current, found, lookupErr := s.lookupMember(ctx, roomID, userID)
+			if lookupErr != nil {
+				return nil, false, internalError(lookupErr)
+			}
+			if !found {
+				return nil, false, internalError(errors.New("channel join generation disappeared before dispatch"))
+			}
+			result, currentErr := s.currentChannelJoinResult(ctx, current)
+			return result, true, currentErr
+		}
+	} else if saveErr := s.saveMember(ctx, localMember); saveErr != nil {
 		return nil, false, internalError(saveErr)
 	}
 	forwardParams := cloneParams(params)
+	if requestID != "" {
+		forwardParams["request_id"] = requestID
+	}
 	if trimString(forwardParams["requester_node_base_url"]) == "" && localMember.RequesterNodeBaseURL != "" {
 		forwardParams["requester_node_base_url"] = localMember.RequesterNodeBaseURL
 	}
 	var remote struct {
-		Status  string       `json:"status"`
-		Member  memberRecord `json:"member"`
-		Channel channel      `json:"channel"`
-		Error   string       `json:"error"`
+		Status    string       `json:"status"`
+		Member    memberRecord `json:"member"`
+		Channel   channel      `json:"channel"`
+		Error     string       `json:"error"`
+		ErrorCode string       `json:"error_code"`
 	}
 	status, err := s.remotePublicAction(ctx, roomServer, "channels.public.join_request", forwardParams, &remote)
 	if err != nil {
+		if terminalErr := remoteJoinResultTerminalError(status, err); terminalErr != nil {
+			return nil, false, terminalErr
+		}
 		if status != 0 && status != http.StatusBadGateway {
 			return nil, false, statusError(status, err.Error())
 		}
@@ -185,11 +281,16 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if member.Role == "" {
 		member.Role = "member"
 	}
+	// The requester owns the durable generation. Older owner nodes may omit
+	// request_id, and a remote response must never replace the local canonical
+	// value selected before dispatch.
+	member.RequestID = localMember.RequestID
 	if member.RequesterNodeBaseURL == "" {
 		member.RequesterNodeBaseURL = localMember.RequesterNodeBaseURL
 	}
 	remoteStatus := fallbackString(remote.Status, member.Membership)
-	if strings.EqualFold(remoteStatus, "join_failed") || strings.EqualFold(remoteStatus, "approved") || strings.EqualFold(remoteStatus, "joining") {
+	if strings.EqualFold(remoteStatus, "join_failed") || strings.EqualFold(remoteStatus, "approved") ||
+		strings.EqualFold(remoteStatus, "joining") || strings.EqualFold(remoteStatus, "joined") {
 		localJoin := localMember
 		localJoin.RoomID = roomID
 		localJoin.ChannelID = ch.ChannelID
@@ -198,17 +299,48 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 		applyMemberProfileParams(&localJoin, params)
 		joinParams := cloneParams(params)
 		joinParams["server_names"] = channelJoinServerNames(params["server_names"], roomID)
-		if apiErr := s.joinAndProjectRetainedRoom(ctx, "channel", &localJoin, joinParams); apiErr == nil {
+		attempt, apiErr := s.joinAndProjectRetainedRoomGeneration(ctx, "channel", &localJoin, joinParams)
+		localJoin = attempt.Member
+		if attempt.Stale {
+			result, currentErr := s.currentChannelJoinResult(ctx, localJoin)
+			return result, true, currentErr
+		}
+		if apiErr == nil {
 			ch.MemberStatus = "join"
 			ch.Role = normalizeProductMemberRole(localJoin.Role)
 			ch.IsOwned = productOwnerRole(localJoin.Role)
 			return map[string]any{"status": "joined", "room_id": localJoin.RoomID, "member": localJoin, "channel": ch}, true, nil
-		} else if remote.Error == "" {
-			remote.Error = apiErr.Error
 		}
+		if !attempt.Final {
+			return nil, false, apiErr
+		}
+		if attempt.Busy || strings.EqualFold(strings.TrimSpace(localJoin.Membership), "joining") {
+			return map[string]any{
+				"status": "joining", "member": localJoin, "channel": ch,
+				"error": apiErr.Error, "error_code": fallbackString(apiErr.Code, actionbase.MatrixJoinUnconfirmedCode),
+			}, true, nil
+		}
+		if strings.EqualFold(strings.TrimSpace(localJoin.Membership), "join") ||
+			strings.EqualFold(strings.TrimSpace(localJoin.Membership), "joined") {
+			return map[string]any{
+				"status": "joined", "room_id": localJoin.RoomID, "member": localJoin,
+				"channel": ch, "error": apiErr.Error, "error_code": actionbase.OperationRecoveryCode,
+			}, true, nil
+		}
+		return map[string]any{
+			"status": "join_failed", "member": localJoin, "channel": ch,
+			"error": apiErr.Error, "error_code": actionbase.MatrixJoinFailedCode,
+		}, true, nil
 	}
-	if err := s.saveMember(ctx, member); err != nil {
-		return nil, false, internalError(err)
+	if current, stale, apiErr := s.persistRemoteChannelJoinGeneration(
+		ctx,
+		member,
+		localMember.RequestID,
+		localMember.Membership,
+	); apiErr != nil {
+		return nil, false, apiErr
+	} else if stale {
+		return current, true, nil
 	}
 	if remote.Channel.ChannelID != "" {
 		ch = remote.Channel
@@ -220,7 +352,19 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if remote.Error != "" {
 		result["error"] = remote.Error
 	}
+	if remote.ErrorCode != "" {
+		result["error_code"] = remote.ErrorCode
+	}
 	return result, true, nil
+}
+
+func channelJoinGenerationMayRestart(membership string) bool {
+	switch strings.ToLower(strings.TrimSpace(membership)) {
+	case "reject", "rejected", "leave", "left":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) remotePublicAction(ctx context.Context, serverName, action string, params map[string]any, out any) (int, error) {
@@ -250,9 +394,6 @@ func (s *Service) remotePublicAction(ctx context.Context, serverName, action str
 		return http.StatusBadGateway, err
 	}
 	defer closeResource(res.Body)
-	if res.StatusCode == http.StatusNotFound {
-		return res.StatusCode, nil
-	}
 	if res.StatusCode != http.StatusOK {
 		return res.StatusCode, remotePublicError(res.Body, res.StatusCode)
 	}
@@ -353,6 +494,7 @@ func roomServerFromMatrixRoomID(roomID string) (string, bool) {
 func remotePublicError(body io.Reader, status int) error {
 	raw, _ := io.ReadAll(io.LimitReader(body, 4096))
 	message := strings.TrimSpace(string(raw))
+	responseErr := &remotePublicActionError{Status: status}
 	if message != "" {
 		var payload map[string]any
 		if json.Unmarshal(raw, &payload) == nil {
@@ -362,10 +504,26 @@ func remotePublicError(body io.Reader, status int) error {
 					break
 				}
 			}
+			responseErr.Code = fallbackString(trimString(payload["error_code"]), trimString(payload["code"]))
+			responseErr.OperationID = trimString(payload["operation_id"])
+			responseErr.CurrentRoomID = trimString(payload["current_room_id"])
 		}
 	}
 	if message == "" {
 		message = http.StatusText(status)
 	}
-	return fmt.Errorf("target node public action failed: status=%d error=%s", status, message)
+	responseErr.Message = message
+	return responseErr
+}
+
+type remotePublicActionError struct {
+	Status        int
+	Message       string
+	Code          string
+	OperationID   string
+	CurrentRoomID string
+}
+
+func (e *remotePublicActionError) Error() string {
+	return fmt.Sprintf("target node public action failed: status=%d error=%s", e.Status, e.Message)
 }

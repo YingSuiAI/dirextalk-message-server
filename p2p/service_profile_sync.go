@@ -149,7 +149,8 @@ func hasPendingChannelInvite(members []memberRecord) bool {
 func pendingFriendRequestsFromContacts(contacts []contactRecord) []map[string]any {
 	pending := make([]map[string]any, 0)
 	for _, contact := range contacts {
-		if !strings.EqualFold(strings.TrimSpace(contact.Status), "pending_inbound") {
+		status := strings.ToLower(strings.TrimSpace(contact.Status))
+		if status != "pending_inbound" && status != "joining" {
 			continue
 		}
 		id := fallbackString(contact.RoomID, contact.PeerMXID)

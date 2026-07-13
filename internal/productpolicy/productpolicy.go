@@ -22,6 +22,7 @@ const (
 	DirextalkRoomProfileEventType  = "io.dirextalk.room.profile"
 	DirextalkMemberPolicyEventType = "io.dirextalk.member.policy"
 	DirextalkJoinRequestEventType  = "io.dirextalk.join_request"
+	PublicJoinRequestIDContentKey  = "io.dirextalk.public_join_request_id"
 )
 
 const (

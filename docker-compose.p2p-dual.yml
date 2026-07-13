@@ -23,7 +23,55 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: dirextalk_message_server
   POSTGRES_DB: dirextalk_message_server
 
+x-updater-control-stub: &updater-control-stub
+  image: python:3.13-alpine
+  restart: unless-stopped
+  network_mode: "none"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  command: ["python", "/opt/dirextalk/p2p-updater-control-stub.py"]
+  healthcheck:
+    test: ["CMD-SHELL", "test -S /run/dirextalk-updater/http.sock && test -s /etc/dirextalk-updater/control-token && test -s /var/lib/dirextalk-updater/desired-state.json"]
+    interval: 2s
+    timeout: 2s
+    retries: 20
+  tmpfs:
+    - /tmp
+
 services:
+  updater-a:
+    <<: *updater-control-stub
+    environment:
+      DIREXTALK_UPDATER_INSTANCE: p2p-dual-a
+    volumes:
+      - ./scripts/p2p-updater-control-stub.py:/opt/dirextalk/p2p-updater-control-stub.py:ro
+      - p2p_dual_updater_a_run:/run/dirextalk-updater
+      - p2p_dual_updater_a_config:/etc/dirextalk-updater
+      - p2p_dual_updater_a_state:/var/lib/dirextalk-updater
+
+  updater-b:
+    <<: *updater-control-stub
+    environment:
+      DIREXTALK_UPDATER_INSTANCE: p2p-dual-b
+    volumes:
+      - ./scripts/p2p-updater-control-stub.py:/opt/dirextalk/p2p-updater-control-stub.py:ro
+      - p2p_dual_updater_b_run:/run/dirextalk-updater
+      - p2p_dual_updater_b_config:/etc/dirextalk-updater
+      - p2p_dual_updater_b_state:/var/lib/dirextalk-updater
+
+  updater-c:
+    <<: *updater-control-stub
+    environment:
+      DIREXTALK_UPDATER_INSTANCE: p2p-dual-c
+    volumes:
+      - ./scripts/p2p-updater-control-stub.py:/opt/dirextalk/p2p-updater-control-stub.py:ro
+      - p2p_dual_updater_c_run:/run/dirextalk-updater
+      - p2p_dual_updater_c_config:/etc/dirextalk-updater
+      - p2p_dual_updater_c_state:/var/lib/dirextalk-updater
+
   postgres-a:
     image: postgres:18-alpine
     restart: unless-stopped
@@ -203,11 +251,15 @@ services:
     volumes:
       - p2p_dual_message_server_a_config:/etc/dirextalk-message-server
       - p2p_dual_message_server_a_data:/var/dirextalk-message-server
+      - p2p_dual_updater_a_run:/run/dirextalk-updater
+      - p2p_dual_updater_a_config:/etc/dirextalk-updater:ro
     depends_on:
       postgres-a:
         condition: service_healthy
       dendrite-a-init:
         condition: service_completed_successfully
+      updater-a:
+        condition: service_healthy
     networks:
       p2p_dual_a:
         aliases:
@@ -241,11 +293,15 @@ services:
     volumes:
       - p2p_dual_message_server_b_config:/etc/dirextalk-message-server
       - p2p_dual_message_server_b_data:/var/dirextalk-message-server
+      - p2p_dual_updater_b_run:/run/dirextalk-updater
+      - p2p_dual_updater_b_config:/etc/dirextalk-updater:ro
     depends_on:
       postgres-b:
         condition: service_healthy
       dendrite-b-init:
         condition: service_completed_successfully
+      updater-b:
+        condition: service_healthy
     networks:
       - p2p_dual_b
     healthcheck:
@@ -277,11 +333,15 @@ services:
     volumes:
       - p2p_dual_message_server_c_config:/etc/dirextalk-message-server
       - p2p_dual_message_server_c_data:/var/dirextalk-message-server
+      - p2p_dual_updater_c_run:/run/dirextalk-updater
+      - p2p_dual_updater_c_config:/etc/dirextalk-updater:ro
     depends_on:
       postgres-c:
         condition: service_healthy
       dendrite-c-init:
         condition: service_completed_successfully
+      updater-c:
+        condition: service_healthy
     networks:
       - p2p_dual_c
     healthcheck:
@@ -300,6 +360,15 @@ volumes:
   p2p_dual_message_server_b_data:
   p2p_dual_message_server_c_config:
   p2p_dual_message_server_c_data:
+  p2p_dual_updater_a_run:
+  p2p_dual_updater_a_config:
+  p2p_dual_updater_a_state:
+  p2p_dual_updater_b_run:
+  p2p_dual_updater_b_config:
+  p2p_dual_updater_b_state:
+  p2p_dual_updater_c_run:
+  p2p_dual_updater_c_config:
+  p2p_dual_updater_c_state:
 
 networks:
   p2p_dual_a:

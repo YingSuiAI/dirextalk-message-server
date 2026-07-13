@@ -66,7 +66,7 @@ func (m *Module) Join(ctx context.Context, scope string, raw map[string]any) (an
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	if found && removedMembership(existing.Membership) && !removedMemberHasFreshInvite(scope, params) {
+	if found && removedMembership(existing.Membership) && (scope == "group" || !removedMemberHasFreshInvite(scope, params)) {
 		return nil, actionbase.StatusError(http.StatusForbidden, scope+" member was removed")
 	}
 	member := existing
@@ -79,7 +79,21 @@ func (m *Module) Join(ctx context.Context, scope string, raw map[string]any) (an
 	}
 	applyMemberProfile(&member, params)
 	m.config.ApplyLocalProfile(&member)
-	if actionErr := m.config.JoinRetained(ctx, scope, &member, raw); actionErr != nil {
+	settlementCtx, cancel := actionbase.SettlementContext(ctx)
+	defer cancel()
+	if actionErr := m.config.JoinRetained(settlementCtx, scope, &member, raw); actionErr != nil {
+		if actionErr.Code == actionbase.MatrixJoinUnconfirmedCode {
+			result := map[string]any{
+				"status":     "joining",
+				"room_id":    member.RoomID,
+				"member":     member,
+				"error_code": actionbase.MatrixJoinUnconfirmedCode,
+			}
+			if scope == "channel" && m.config.ChannelSnapshot != nil {
+				result["channel"] = m.config.ChannelSnapshot(settlementCtx, member.ChannelID)
+			}
+			return m.attachOperation(settlementCtx, result, scope+"s.join", "joining", member.RoomID)
+		}
 		return nil, actionErr
 	}
 
@@ -88,9 +102,9 @@ func (m *Module) Join(ctx context.Context, scope string, raw map[string]any) (an
 		if m.config.ChannelSnapshot == nil {
 			return nil, actionbase.InternalError(errors.New("channel snapshot is not configured"))
 		}
-		result["channel"] = m.config.ChannelSnapshot(ctx, member.ChannelID)
+		result["channel"] = m.config.ChannelSnapshot(settlementCtx, member.ChannelID)
 	}
-	return m.attachOperation(ctx, result, scope+"s.join", "ok", member.RoomID)
+	return m.attachOperation(settlementCtx, result, scope+"s.join", "ok", member.RoomID)
 }
 
 func (m *Module) joinConfigured() bool {
@@ -133,7 +147,8 @@ func (m *Module) completeChannelTarget(ctx context.Context, raw map[string]any, 
 }
 
 func (m *Module) requireRecordedGroupInvite(ctx context.Context, roomID, userID string, params actionbase.Params) *actionbase.Error {
-	if params.String("invite_event_id") == "" && params.String("direct_room_id") == "" {
+	inviteEventID := params.String("invite_event_id")
+	if inviteEventID == "" && params.String("direct_room_id") == "" {
 		return nil
 	}
 	existing, ok, err := m.config.LookupMember(ctx, roomID, userID)
@@ -141,8 +156,10 @@ func (m *Module) requireRecordedGroupInvite(ctx context.Context, roomID, userID 
 		return actionbase.InternalError(err)
 	}
 	if !ok || (!strings.EqualFold(strings.TrimSpace(existing.Membership), "invite") &&
-		!removedMemberHasFreshGroupInvite(existing.Membership, params)) {
-		return actionbase.StatusError(http.StatusForbidden, "group invite is missing or expired")
+		!strings.EqualFold(strings.TrimSpace(existing.Membership), "join") &&
+		!strings.EqualFold(strings.TrimSpace(existing.Membership), "joined") &&
+		!leftMembership(existing.Membership)) {
+		return actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "group invite is missing or expired")
 	}
 	return nil
 }
@@ -167,7 +184,7 @@ func (m *Module) requireChannelInviteGrant(ctx context.Context, roomID, channelI
 				return nil
 			}
 		}
-		return actionbase.StatusError(http.StatusForbidden, "channel invite grant is missing or expired")
+		return actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "channel invite grant is missing or expired")
 	}
 	if roomID != "" && grant.RoomID != roomID {
 		return actionbase.StatusError(http.StatusForbidden, "channel invite grant room mismatch")
@@ -216,17 +233,11 @@ func (m *Module) lookupChannelInviteGrant(ctx context.Context, params actionbase
 
 func removedMemberHasFreshInvite(scope string, params actionbase.Params) bool {
 	switch scope {
-	case "group":
-		return params.String("invite_event_id") != ""
 	case "channel":
 		return params.String("grant_id") != "" || params.String("share_room_id") != "" || params.String("via_room_id") != ""
 	default:
 		return false
 	}
-}
-
-func removedMemberHasFreshGroupInvite(membership string, params actionbase.Params) bool {
-	return (removedMembership(membership) || leftMembership(membership)) && params.String("invite_event_id") != ""
 }
 
 func removedMembership(membership string) bool {

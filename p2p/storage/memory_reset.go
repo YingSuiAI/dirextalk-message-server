@@ -1,5 +1,7 @@
 package storage
 
+import "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
+
 // ResetAccountState atomically clears the volatile product and portal state
 // removed by the legacy no-database account-deletion path. Installed plugin
 // state is intentionally retained to preserve that path's existing behavior.
@@ -27,4 +29,5 @@ func (s *MemoryStore) ResetAccountState() {
 	s.eventSeq = make(map[int64]struct{})
 	s.eventDedupe = make(map[string]int64)
 	s.reports = make(map[string]reportRecord)
+	s.operations = make(map[string]operations.Record)
 }

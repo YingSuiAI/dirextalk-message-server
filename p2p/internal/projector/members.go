@@ -41,6 +41,15 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 	if err != nil {
 		return err
 	}
+	eventRequestID := textValue(content[productpolicy.PublicJoinRequestIDContentKey])
+	if strings.EqualFold(textValue(content["membership"]), "invite") &&
+		eventRequestID != "" && hasExisting && existing.RequestID != "" && existing.RequestID != eventRequestID {
+		// A marked invite is an implementation step for one public-join
+		// generation, not a new Product invite. Federation replay or restart
+		// may deliver generation A after B is already active; never let that
+		// stale Matrix event replace B's request ID or workflow state.
+		return nil
+	}
 	if channelID == "" && hasExisting {
 		channelID = existing.ChannelID
 	}
@@ -67,19 +76,36 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 	if joinedAt == 0 {
 		joinedAt = m.eventTime(event).UnixMilli()
 	}
+	requestID := existing.RequestID
+	if strings.EqualFold(membership, "invite") {
+		if preservePublicJoinWorkflowOnInvite(existing, eventRequestID) {
+			// A remote public-channel approval uses a Matrix invite as an
+			// implementation step before the requester joins. Keep the Product
+			// request generation and state machine intact; otherwise the invite
+			// event ID makes the subsequent join_result callback look stale.
+			membership = existing.Membership
+		} else if eventRequestID != "" {
+			requestID = eventRequestID
+		} else {
+			requestID = event.EventID()
+		}
+	}
 	member := dirextalkdomain.MemberRecord{
 		RoomID: roomID, ChannelID: channelID, UserID: userID,
 		DisplayName: displayName, AvatarURL: avatarURL, Domain: domain,
 		Membership: membership, Role: role, Muted: muted, JoinedAt: joinedAt,
+		RequesterNodeBaseURL: existing.RequesterNodeBaseURL, RequestID: requestID,
 	}
 	if member.ChannelID == "" &&
 		strings.EqualFold(member.Membership, "invite") &&
 		userID == identity.OwnerMXID {
 		if contact, ok := m.contactRequestFromInvite(event, identity); ok {
+			contact.RequestID = event.EventID()
 			return m.savePendingInboundContact(ctx, contact, identity)
 		}
 		if boolValue(content["is_direct"]) {
 			if contact, ok := m.directContactFromInvite(event, identity); ok {
+				contact.RequestID = event.EventID()
 				return m.savePendingInboundContact(ctx, contact, identity)
 			}
 			return m.savePendingInboundContact(ctx, dirextalkdomain.ContactRecord{
@@ -88,6 +114,7 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 				Domain:      dirextalkdomain.DomainFromMXID(string(event.SenderID())),
 				RoomID:      event.RoomID().String(),
 				Status:      "pending_inbound",
+				RequestID:   event.EventID(),
 			}, identity)
 		}
 	}
@@ -116,13 +143,64 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 	}
 	if member.ChannelID == "" &&
 		strings.EqualFold(member.Membership, "join") &&
-		userID != "" &&
-		userID != identity.OwnerMXID {
-		if err := m.projectDirectContactMember(ctx, member, content); err != nil {
-			return err
+		userID != "" {
+		if userID == identity.OwnerMXID {
+			if err := m.projectOwnerDirectContactJoin(ctx, member); err != nil {
+				return err
+			}
+		} else {
+			if err := m.projectDirectContactMember(ctx, member, content); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func preservePublicJoinWorkflowOnInvite(existing dirextalkdomain.MemberRecord, eventRequestID string) bool {
+	if strings.TrimSpace(existing.RequestID) == "" ||
+		strings.TrimSpace(eventRequestID) != strings.TrimSpace(existing.RequestID) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(existing.Membership)) {
+	case "pending", "approved", "joining", "join_failed", "reject", "rejected", "join", "joined":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Module) projectOwnerDirectContactJoin(ctx context.Context, member dirextalkdomain.MemberRecord) error {
+	if m.dependencies.Contacts == nil {
+		return errors.New("contact projection port is not configured")
+	}
+	contact, ok, err := m.dependencies.Contacts.LookupByRoom(ctx, member.RoomID)
+	if err != nil || !ok || !contactAcceptProjectionPending(contact.Status) {
+		return err
+	}
+	return m.dependencies.Contacts.WithPeer(contact.PeerMXID, func() error {
+		current, found, lookupErr := m.dependencies.Contacts.LookupByRoom(ctx, member.RoomID)
+		if lookupErr != nil || !found {
+			return lookupErr
+		}
+		if !contactAcceptProjectionPending(current.Status) {
+			return nil
+		}
+		accepted := current
+		accepted.Status = "accepted"
+		accepted.Remark = ""
+		_, saveErr := m.dependencies.Contacts.SaveProjectionIfCurrent(ctx, accepted, current)
+		return saveErr
+	})
+}
+
+func contactAcceptProjectionPending(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending_inbound", "joining", "reject", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Module) projectDirectContactMember(ctx context.Context, member dirextalkdomain.MemberRecord, content map[string]any) error {
@@ -139,6 +217,7 @@ func (m *Module) projectDirectContactMemberForPeer(ctx context.Context, member d
 	if err != nil || !ok {
 		return err
 	}
+	expected := contact
 	if contact.PeerMXID != "" && contact.PeerMXID != member.UserID {
 		return nil
 	}
@@ -167,7 +246,8 @@ func (m *Module) projectDirectContactMemberForPeer(ctx context.Context, member d
 	if !changed {
 		return nil
 	}
-	return m.dependencies.Contacts.Save(ctx, contact)
+	_, err = m.dependencies.Contacts.SaveProjectionIfCurrent(ctx, contact, expected)
+	return err
 }
 
 func (m *Module) projectProductInvite(ctx context.Context, event *types.HeaderedEvent, member dirextalkdomain.MemberRecord) (dirextalkdomain.MemberRecord, bool, error) {

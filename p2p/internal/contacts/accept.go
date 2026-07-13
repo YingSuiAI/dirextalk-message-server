@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
@@ -19,34 +20,58 @@ func (m *Module) handleRequestAccept(ctx context.Context, raw map[string]any) (a
 func (m *Module) requestAcceptForPeer(ctx context.Context, params actionbase.Params) (any, *actionbase.Error) {
 	peerMXID := params.FirstString("peer_mxid", "mxid")
 	roomID := params.String("room_id")
-	var existing dirextalkdomain.ContactRecord
-	if roomID != "" {
-		contact, ok, err := m.LookupByRoom(ctx, roomID)
-		if err != nil {
-			return nil, actionbase.InternalError(err)
-		}
-		if !ok {
-			return nil, actionbase.StatusError(http.StatusNotFound, "contact request not found")
-		}
-		existing = contact
-		if peerMXID == "" {
-			peerMXID = existing.PeerMXID
-		}
+	existing, ok, err := m.lookupDecisionContact(ctx, roomID, peerMXID)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
 	}
-	if acceptedStatus(existing.Status) {
+	if !ok {
+		return nil, actionbase.CodedError(http.StatusNotFound, actionbase.RequestNotFoundCode, "contact request not found")
+	}
+	roomID = existing.RoomID
+	if peerMXID == "" {
+		peerMXID = existing.PeerMXID
+	}
+	if dirextalkdomain.ContactDeleted(existing.Status) {
+		return nil, actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "contact request expired")
+	}
+	if acceptedStatus(existing.Status) && (!m.verifyAccepted || m.acceptRoom == nil || existing.RoomID == "") {
 		view, actionErr := m.viewWithOperation(ctx, actionRequestAccept, existing)
 		if actionErr != nil {
 			return nil, actionErr
 		}
 		return view, nil
 	}
+	settlementCtx, cancel := actionbase.SettlementContext(ctx)
+	defer cancel()
 
 	if m.acceptRoom != nil && roomID != "" {
-		resolvedRoomID, actionErr := m.acceptRoom(ctx, existing, params.Strings("server_names"))
+		resolvedRoomID, actionErr := m.acceptRoom(settlementCtx, existing, params.Strings("server_names"))
 		if actionErr != nil {
+			if actionErr.Code == actionbase.MatrixJoinUnconfirmedCode {
+				responseContact := existing
+				responseContact.Status = "joining"
+				responseContact.RequestID = fallbackRequestString(responseContact.RequestID, params.String("request_id"))
+				current, saved, err := m.saveDecision(settlementCtx, responseContact, existing, false)
+				if err != nil {
+					return nil, actionbase.InternalError(err)
+				}
+				if !saved {
+					return m.contactDecisionView(settlementCtx, actionRequestAccept, current)
+				}
+				view, viewErr := m.viewWithOperation(settlementCtx, actionRequestAccept, responseContact)
+				if viewErr != nil {
+					return nil, viewErr
+				}
+				view.ErrorCode = actionbase.MatrixJoinUnconfirmedCode
+				view.CurrentRoomID = existing.RoomID
+				return view, nil
+			}
 			return nil, actionErr
 		}
-		roomID = resolvedRoomID
+		roomID = strings.TrimSpace(resolvedRoomID)
+		if roomID == "" {
+			return nil, actionbase.InternalError(fmt.Errorf("accepted direct room is empty"))
+		}
 	}
 
 	displayName := params.String("display_name")
@@ -60,6 +85,7 @@ func (m *Module) requestAcceptForPeer(ctx context.Context, params actionbase.Par
 		Domain:      params.String("domain"),
 		RoomID:      roomID,
 		Status:      "accepted",
+		RequestID:   fallbackRequestString(existing.RequestID, params.String("request_id")),
 	}
 	if contact.AvatarURL == "" {
 		contact.AvatarURL = existing.AvatarURL
@@ -67,12 +93,32 @@ func (m *Module) requestAcceptForPeer(ctx context.Context, params actionbase.Par
 	if contact.Domain == "" {
 		contact.Domain = existing.Domain
 	}
-	if err := m.Save(ctx, contact); err != nil {
+	current, saved, err := m.saveDecision(settlementCtx, contact, existing, true)
+	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	view, actionErr := m.viewWithOperation(ctx, actionRequestAccept, contact)
+	if !saved {
+		return m.contactDecisionView(settlementCtx, actionRequestAccept, current)
+	}
+	view, actionErr := m.viewWithOperation(settlementCtx, actionRequestAccept, contact)
 	if actionErr != nil {
 		return nil, actionErr
+	}
+	return view, nil
+}
+
+func (m *Module) contactDecisionView(
+	ctx context.Context,
+	action string,
+	contact dirextalkdomain.ContactRecord,
+) (any, *actionbase.Error) {
+	view, actionErr := m.viewWithOperation(ctx, action, contact)
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	if strings.EqualFold(strings.TrimSpace(contact.Status), "joining") {
+		view.Status = "joining"
+		view.ErrorCode = actionbase.MatrixJoinUnconfirmedCode
 	}
 	return view, nil
 }
@@ -192,6 +238,9 @@ func (m *Module) handleReactivate(ctx context.Context, raw map[string]any) (any,
 			contact.Domain = dirextalkdomain.DomainFromMXID(requesterMXID)
 		}
 		contact.Status = "pending_inbound"
+		if requestID := params.String("request_id"); requestID != "" {
+			contact.RequestID = requestID
+		}
 		if err := m.Save(ctx, contact); err != nil {
 			return nil, actionbase.InternalError(err)
 		}

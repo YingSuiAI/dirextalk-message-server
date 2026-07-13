@@ -91,7 +91,7 @@ func TestJoinRequestMemberMapsStatusAndPreservesExistingFields(t *testing.T) {
 	member, valid := JoinRequestMember("!room:example.com", "ch", "@alice:example.com", dirextalkdomain.MemberRecord{
 		Role:   "owner",
 		Domain: "custom.example",
-	}, true, map[string]any{"status": " Approved "}, now)
+	}, true, " Approved ", "", now)
 	if !valid {
 		t.Fatal("expected join request status to be valid")
 	}
@@ -102,5 +102,88 @@ func TestJoinRequestMemberMapsStatusAndPreservesExistingFields(t *testing.T) {
 		member.Domain != "custom.example" ||
 		member.JoinedAt != now.UnixMilli() {
 		t.Fatalf("unexpected join request projection: %#v", member)
+	}
+}
+
+func TestJoinRequestMemberApprovedDoesNotDowngradeActiveWorkflow(t *testing.T) {
+	now := time.UnixMilli(654321)
+	for _, membership := range []string{"approved", "joining", "join_failed", "join", "joined"} {
+		t.Run(membership, func(t *testing.T) {
+			existing := dirextalkdomain.MemberRecord{
+				RoomID:               "!room:example.com",
+				ChannelID:            "channel-id",
+				UserID:               "@alice:example.com",
+				Role:                 "member",
+				Domain:               "example.com",
+				Membership:           membership,
+				JoinedAt:             123456,
+				RequesterNodeBaseURL: "https://requester.example",
+				RequestID:            "request-1",
+			}
+
+			member, valid := JoinRequestMember(existing.RoomID, existing.ChannelID, existing.UserID, existing, true, "approved", existing.RequestID, now)
+			if !valid {
+				t.Fatal("expected approved join request status to be valid")
+			}
+			if member != existing {
+				t.Fatalf("approved projection downgraded active workflow member: got %#v, want %#v", member, existing)
+			}
+		})
+	}
+}
+
+func TestJoinRequestMemberFencesDelayedJoinRequestGeneration(t *testing.T) {
+	now := time.UnixMilli(654321)
+	existing := dirextalkdomain.MemberRecord{
+		RoomID:     "!room:example.com",
+		ChannelID:  "channel-id",
+		UserID:     "@alice:example.com",
+		Role:       "member",
+		Domain:     "example.com",
+		Membership: "pending",
+		JoinedAt:   123456,
+		RequestID:  "request-b",
+	}
+	for _, tc := range []struct {
+		name       string
+		status     string
+		requestID  string
+		membership string
+	}{
+		{name: "delayed_approved", status: "approved", requestID: "request-a"},
+		{name: "markerless_approved", status: "approved"},
+		{name: "delayed_rejected", status: "rejected", requestID: "request-a"},
+		{name: "markerless_rejected", status: "rejected"},
+		{name: "delayed_invite", status: "approved", requestID: "request-a", membership: "invite"},
+		{name: "markerless_invite", status: "rejected", membership: "invite"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := existing
+			if tc.membership != "" {
+				current.Membership = tc.membership
+			}
+			member, valid := JoinRequestMember(current.RoomID, current.ChannelID, current.UserID, current, true, tc.status, tc.requestID, now)
+			if !valid {
+				t.Fatalf("expected %s join request status to be valid", tc.status)
+			}
+			if member != current {
+				t.Fatalf("delayed generation replaced active request: got %#v, want %#v", member, current)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		status     string
+		membership string
+	}{
+		{status: "approved", membership: "invite"},
+		{status: "rejected", membership: "reject"},
+	} {
+		t.Run("current_"+tc.status, func(t *testing.T) {
+			member, valid := JoinRequestMember(existing.RoomID, existing.ChannelID, existing.UserID, existing, true, tc.status, existing.RequestID, now)
+			if !valid || member.Membership != tc.membership || member.RequestID != existing.RequestID {
+				t.Fatalf("current generation projection = %#v, valid=%v", member, valid)
+			}
+		})
 	}
 }

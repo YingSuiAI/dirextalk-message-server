@@ -132,6 +132,10 @@ type legacyContactContract struct {
 	Remark              string                            `json:"remark,omitempty"`
 	Operation           map[string]any                    `json:"operation,omitempty"`
 	Conversation        *dirextalkdomain.ConversationView `json:"conversation,omitempty"`
+	OperationID         string                            `json:"operation_id,omitempty"`
+	CurrentRoomID       string                            `json:"current_room_id,omitempty"`
+	ErrorCode           string                            `json:"error_code,omitempty"`
+	RequestID           string                            `json:"-"`
 }
 
 func TestViewMatchesLegacyContactJSONContractAndRecordRoundTrip(t *testing.T) {

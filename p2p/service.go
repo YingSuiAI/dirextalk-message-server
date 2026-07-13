@@ -24,6 +24,7 @@ import (
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	mcpmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/mcp"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
+	operationsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
 	profilemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/profile"
@@ -121,6 +122,7 @@ type Service struct {
 	socialModule         *socialmodule.Module
 
 	serviceRealtimeState
+	serviceOperationState
 }
 
 type PushRuleManager interface {
@@ -137,6 +139,7 @@ type AccountDeprovisioner interface {
 }
 
 type Store interface {
+	operationsmodule.Store
 	portalStore
 	readMarkerStore
 	channelStore
@@ -649,17 +652,19 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		joinDirectRoom = service.joinContactDirectRoomTransport
 	}
 	service.contactsModule = contactsmodule.New(service.store, service.conversationModule, contactsmodule.Config{
-		ServerName:       service.serverName,
-		AcceptDirectRoom: service.acceptDirectContactRoom,
-		CreateDirectRoom: service.createContactDirectRoom,
-		InviteDirectRoom: service.inviteContactDirectRoom,
-		JoinDirectRoom:   joinDirectRoom,
+		ServerName:         service.serverName,
+		AcceptDirectRoom:   service.acceptDirectContactRoom,
+		VerifyAcceptedRoom: service.transport != nil,
+		CreateDirectRoom:   service.createContactDirectRoom,
+		InviteDirectRoom:   service.inviteContactDirectRoom,
+		JoinDirectRoom:     joinDirectRoom,
 		NewDirectRoomID: func() string {
 			return "!dm-" + randomToken("room") + ":" + service.serverName
 		},
 		LocalProfile:         service.localContactProfileSnapshot,
 		ReactivatePeer:       service.reactivatePeerContact,
 		ReactivateDirectRoom: service.reactivateRetainedDirectRoom,
+		MatrixJoined:         service.matrixMemberJoined,
 		CheckPeerBlocked: func(ctx context.Context, peerMXID string) (bool, error) {
 			if service.blocksModule == nil {
 				return false, errors.New("blocks module is not configured")
@@ -693,6 +698,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		NewMember:                service.memberRecordFor,
 		LookupMember:             service.lookupMember,
 		SaveMember:               service.saveMember,
+		SaveMemberGeneration:     service.saveMemberIfState,
 		PublishPolicy:            service.publishMemberPolicyState,
 		Conversation:             service.conversationModule,
 		OwnerMXID:                service.memberOwnerMXID,
@@ -707,6 +713,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		ShareRoomMembers:         service.shareRoomMembersForInviteGrant,
 		ChannelSnapshot:          service.channelSnapshot,
 		ApplyLocalProfile:        service.applyLocalOwnerMemberProfile,
+		MatrixJoined:             service.matrixMemberJoined,
 		JoinRetained:             service.joinAndProjectRetainedRoom,
 		SaveRetainedMetadata:     service.saveRetainedRoomInviteMetadata,
 		ForwardPublicJoinRequest: service.remoteChannelJoinRequest,
@@ -717,8 +724,9 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 				Payload: map[string]any{"user_id": member.UserID, "status": status, "channel_id": member.ChannelID},
 			})
 		},
-		NewGrantID: func() string { return "grant_" + randomToken("channel_invite") },
-		Now:        time.Now,
+		NewGrantID:   func() string { return "grant_" + randomToken("channel_invite") },
+		NewRequestID: func() string { return "request_" + randomToken("channel_join") },
+		Now:          time.Now,
 	})
 	service.projectorModule = projectormodule.New(projectormodule.Dependencies{
 		Events:         service.eventsModule,
@@ -839,6 +847,26 @@ func (s *Service) Handle(ctx context.Context, action string, params map[string]a
 	defer finishOperation()
 	if s.accountIsDeprovisioned() {
 		return nil, statusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
+	}
+	canonicalParams, canonicalErr := s.canonicalRecoverableParams(ctx, action, params)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	params = canonicalParams
+	ctx, canonicalErr = s.preflightRecoverablePublicAction(ctx, action, params)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	if rebuildErr := validateExplicitRetainedRoomRebuild(action, params); rebuildErr != nil {
+		return nil, rebuildErr
+	}
+	releaseMemberWorkflow, workflowErr := s.lockMemberWorkflowForAction(ctx, action, params)
+	if workflowErr != nil {
+		return nil, workflowErr
+	}
+	defer releaseMemberWorkflow()
+	if s.store != nil && (recoverableProductAction(action) || explicitRetainedRoomRebuildAction(action, params)) {
+		return s.handleRecoverableOperation(ctx, action, params, handler)
 	}
 	return handler(ctx, params)
 }

@@ -62,6 +62,14 @@ func (p serviceProjectorContactPort) Save(ctx context.Context, contact dirextalk
 	return p.service.contactsModule.Save(ctx, contact)
 }
 
+func (p serviceProjectorContactPort) SaveProjectionIfCurrent(
+	ctx context.Context,
+	contact,
+	expected dirextalkdomain.ContactRecord,
+) (bool, error) {
+	return p.service.contactsModule.SaveProjectionIfCurrent(ctx, contact, expected)
+}
+
 type serviceProjectorMemberPort struct{ service *Service }
 
 func (p serviceProjectorMemberPort) Lookup(ctx context.Context, roomID, userID string) (dirextalkdomain.MemberRecord, bool, error) {
@@ -70,6 +78,21 @@ func (p serviceProjectorMemberPort) Lookup(ctx context.Context, roomID, userID s
 
 func (p serviceProjectorMemberPort) Save(ctx context.Context, member dirextalkdomain.MemberRecord) error {
 	return p.service.saveMember(ctx, member)
+}
+
+func (p serviceProjectorMemberPort) SaveProjectionIfAbsent(
+	ctx context.Context,
+	member dirextalkdomain.MemberRecord,
+) (bool, error) {
+	return p.service.saveMemberIfAbsent(ctx, member)
+}
+
+func (p serviceProjectorMemberPort) SaveProjectionIfCurrent(
+	ctx context.Context,
+	member,
+	expected dirextalkdomain.MemberRecord,
+) (bool, error) {
+	return p.service.saveMemberIfState(ctx, member, expected.RequestID, expected.Membership)
 }
 
 type serviceProjectorDirectRoomPort struct{ service *Service }

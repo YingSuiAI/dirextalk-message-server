@@ -114,6 +114,7 @@ func (m *Module) CreateRequest(
 		RoomID:      roomID,
 		Status:      "pending_outbound",
 		Remark:      remark,
+		RequestID:   params.String("request_id"),
 	}
 	if err := m.Save(ctx, contact); err != nil {
 		return View{}, actionbase.InternalError(err)
@@ -159,6 +160,13 @@ func (m *Module) ResolveExistingRequest(
 	raw map[string]any,
 	fallbackDomain string,
 ) (any, *actionbase.Error) {
+	if acceptedStatus(contact.Status) {
+		var err error
+		contact, err = m.EnsureAcceptedProjection(ctx, contact)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+	}
 	params := actionbase.Params(raw)
 	if !acceptedStatus(contact.Status) ||
 		params.String("remote_node_base_url") == "" ||
@@ -244,6 +252,9 @@ func mergeRequestFields(
 	params actionbase.Params,
 	fallbackDomain string,
 ) dirextalkdomain.ContactRecord {
+	if requestID := params.String("request_id"); requestID != "" {
+		contact.RequestID = requestID
+	}
 	if remark := requestRemark(params); remark != "" {
 		contact.Remark = remark
 	}
@@ -270,6 +281,7 @@ func peerReactivationRequest(
 	params actionbase.Params,
 	requesterMXID string,
 ) PeerReactivationRequest {
+	contact.RequestID = fallbackRequestString(params.String("request_id"), contact.RequestID)
 	return PeerReactivationRequest{
 		Contact:           contact,
 		RequesterMXID:     requesterMXID,

@@ -55,14 +55,16 @@ func TestParseJoinRequestContentUsesContentUserOrNormalizedStateKey(t *testing.T
 	stateKey := productpolicy.UserStateKey("@state:example.com")
 	fromStateKey, err := ParseJoinRequestContent([]byte(`{
 		"status": " Approved ",
-		"channel_id": " channel-1 "
+		"channel_id": " channel-1 ",
+		"request_id": " request-1 "
 	}`), &stateKey)
 	if err != nil {
 		t.Fatalf("ParseJoinRequestContent returned error: %v", err)
 	}
 	if fromStateKey.UserID != "@state:example.com" ||
 		fromStateKey.Status != "approved" ||
-		fromStateKey.ChannelID != "channel-1" {
+		fromStateKey.ChannelID != "channel-1" ||
+		fromStateKey.RequestID != "request-1" {
 		t.Fatalf("unexpected join request parse from state key: %#v", fromStateKey)
 	}
 

@@ -5,11 +5,61 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
+
+type contactDecisionCASStore struct {
+	mu      sync.Mutex
+	record  dirextalkdomain.ContactRecord
+	casSeen int
+}
+
+func (s *contactDecisionCASStore) ListContacts(context.Context) ([]dirextalkdomain.ContactRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return []dirextalkdomain.ContactRecord{s.record}, nil
+}
+
+func (s *contactDecisionCASStore) UpsertContact(_ context.Context, contact dirextalkdomain.ContactRecord) error {
+	s.mu.Lock()
+	s.record = contact
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *contactDecisionCASStore) CompareAndSwapContact(
+	_ context.Context,
+	contact,
+	expected dirextalkdomain.ContactRecord,
+) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.casSeen++
+	if s.record.PeerMXID != expected.PeerMXID || s.record.RoomID != expected.RoomID ||
+		s.record.RequestID != expected.RequestID ||
+		!strings.EqualFold(strings.TrimSpace(s.record.Status), strings.TrimSpace(expected.Status)) {
+		return false, nil
+	}
+	s.record = contact
+	return true, nil
+}
+
+func (s *contactDecisionCASStore) replace(contact dirextalkdomain.ContactRecord) {
+	s.mu.Lock()
+	s.record = contact
+	s.mu.Unlock()
+}
+
+func (s *contactDecisionCASStore) snapshot() (dirextalkdomain.ContactRecord, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.record, s.casSeen
+}
 
 type acceptCall struct {
 	contact     dirextalkdomain.ContactRecord
@@ -121,21 +171,52 @@ func TestAcceptPersistsCompatibleSnapshotAndAdapterResult(t *testing.T) {
 	}
 }
 
-func TestAcceptUsesExplicitEmptyFinalRoomFromAdapter(t *testing.T) {
+func TestAcceptAuthoritativeCASDoesNotRestoreConcurrentlyDeletedContact(t *testing.T) {
+	pending := dirextalkdomain.ContactRecord{
+		PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", Status: "pending_inbound", RequestID: "request-1",
+	}
+	deleted := pending
+	deleted.Status = "deleted"
+	store := &contactDecisionCASStore{record: pending}
+	log := &operationLog{}
+	conversation := &saveConversationPort{
+		log: log, deleteErrs: make(map[string]error), operation: map[string]any{"action": actionRequestAccept},
+	}
+	module := New(store, conversation, Config{
+		AcceptDirectRoom: func(context.Context, dirextalkdomain.ContactRecord, []string) (string, *actionbase.Error) {
+			store.replace(deleted)
+			return pending.RoomID, nil
+		},
+	})
+
+	result, apiErr := module.Handlers()[actionRequestAccept](context.Background(), map[string]any{
+		"room_id": pending.RoomID,
+	})
+	if apiErr != nil {
+		t.Fatalf("contacts.requests.accept error = %#v", apiErr)
+	}
+	view, ok := result.(View)
+	if !ok || RecordFromView(view) != deleted {
+		t.Fatalf("accepted CAS race result = %T %#v, want deleted %#v", result, result, deleted)
+	}
+	current, casSeen := store.snapshot()
+	if current != deleted || casSeen != 1 {
+		t.Fatalf("contact after accepted CAS race = %#v with %d CAS attempts, want deleted with one failed CAS", current, casSeen)
+	}
+}
+
+func TestAcceptRejectsEmptyFinalRoomFromAdapter(t *testing.T) {
 	existing := dirextalkdomain.ContactRecord{
 		PeerMXID: "@alice:example.com", RoomID: "!old:example.com", Status: "pending_inbound",
 	}
 	harness := newAcceptHarness([]dirextalkdomain.ContactRecord{existing})
 	result, apiErr := harness.module.Handlers()[actionRequestAccept](context.Background(), map[string]any{"room_id": existing.RoomID})
-	if apiErr != nil {
-		t.Fatalf("contacts.requests.accept error = %#v", apiErr)
+	if result != nil || apiErr == nil || apiErr.Status != http.StatusInternalServerError ||
+		!strings.Contains(apiErr.Error, "accepted direct room is empty") {
+		t.Fatalf("accepted empty final room = (%#v, %#v), want internal error", result, apiErr)
 	}
-	view, ok := result.(View)
-	if !ok || view.RoomID != "" || view.Status != "accepted" {
-		t.Fatalf("accepted empty final room = %T %#v", result, result)
-	}
-	if got := harness.store.upserts(); len(got) != 1 || got[0].RoomID != "" {
-		t.Fatalf("upserted contacts = %#v, want explicit empty room", got)
+	if got := harness.store.upserts(); len(got) != 0 {
+		t.Fatalf("empty accepted room wrote contacts: %#v", got)
 	}
 }
 
@@ -157,11 +238,6 @@ func TestAcceptWithoutAdapterPreservesFallbacksAndLegacyStatuses(t *testing.T) {
 				PeerMXID: "@alice:example.com", RoomID: "!direct:example.com", DisplayName: "Alice",
 				AvatarURL: "mxc://example.com/alice", Domain: "example.com", Status: "accepted",
 			},
-		},
-		{
-			name:   "empty room and identity remain compatible",
-			params: map[string]any{},
-			want:   dirextalkdomain.ContactRecord{Status: "accepted"},
 		},
 	}
 	for _, tt := range tests {

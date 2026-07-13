@@ -81,6 +81,7 @@ type Inputer struct {
 	InputRoomEventTopic string
 	OutputProducer      *producers.RoomEventProducer
 	workers             sync.Map // room ID -> *worker
+	inputQueueLocks     [roomInputQueueLockCount]sync.Mutex
 
 	Queryer       *query.Queryer
 	UserAPI       userapi.RoomserverUserAPI
@@ -347,6 +348,10 @@ func (w *worker) _next() {
 	msg := msgs[0]
 	meta, _ := msg.Metadata()
 	w.durableSeq = meta.Sequence.Stream
+	if msg.Header.Get(roomInputControlHeader) == roomInputControlPurgeCreateOnly {
+		w.processPurgeCreateOnlyRoom(msg)
+		return
+	}
 
 	var inputRoomEvent api.InputRoomEvent
 	if err = json.Unmarshal(msg.Data, &inputRoomEvent); err != nil {
@@ -427,6 +432,16 @@ func (r *Inputer) queueInputRoomEvents(
 	ctx context.Context,
 	request *api.InputRoomEventsRequest,
 ) (replySub *nats.Subscription, err error) {
+	roomIDs := make([]string, 0, len(request.InputRoomEvents))
+	for _, event := range request.InputRoomEvents {
+		if event.Event == nil {
+			return nil, errors.New("input room event is required")
+		}
+		roomIDs = append(roomIDs, event.Event.RoomID().String())
+	}
+	unlock := r.lockInputRoomBatches(roomIDs)
+	defer unlock()
+
 	// If the request is synchronous then we need to create a
 	// temporary inbox to wait for responses on, and then create
 	// a subscription to it. If it's asynchronous then we won't

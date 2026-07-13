@@ -107,6 +107,13 @@ type InputRoomEventsAPI interface {
 	)
 }
 
+// CreateOnlyRoomRecoveryAPI is an optional internal capability used by
+// deterministic room creation. Implementations must serialize the condition
+// check and purge behind all earlier input for the room.
+type CreateOnlyRoomRecoveryAPI interface {
+	PerformAdminPurgeRoomIfCreateOnly(ctx context.Context, req *PerformAdminPurgeCreateOnlyRoomRequest) (bool, error)
+}
+
 type QuerySenderIDAPI interface {
 	QuerySenderIDForUser(ctx context.Context, roomID spec.RoomID, userID spec.UserID) (*spec.SenderID, error)
 	QueryUserIDForSender(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error)

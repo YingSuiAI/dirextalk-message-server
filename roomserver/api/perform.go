@@ -31,6 +31,16 @@ type PerformCreateRoomRequest struct {
 	EventTime       time.Time
 }
 
+// PerformAdminPurgeCreateOnlyRoomRequest describes the only room shape that
+// may be removed by deterministic create recovery. The roomserver rechecks
+// these facts after all earlier input for the room has been processed.
+type PerformAdminPurgeCreateOnlyRoomRequest struct {
+	RoomID                  string `json:"room_id"`
+	CreatorMXID             string `json:"creator_mxid"`
+	CreateEventContentKey   string `json:"create_event_content_key"`
+	CreateEventContentValue string `json:"create_event_content_value"`
+}
+
 type PerformJoinRequest struct {
 	RoomIDOrAlias string                 `json:"room_id_or_alias"`
 	UserID        string                 `json:"user_id"`
@@ -51,14 +61,15 @@ type PerformLeaveResponse struct {
 }
 
 type InviteInput struct {
-	RoomID     spec.RoomID
-	Inviter    spec.UserID
-	Invitee    spec.UserID
-	Reason     string
-	IsDirect   bool
-	KeyID      gomatrixserverlib.KeyID
-	PrivateKey ed25519.PrivateKey
-	EventTime  time.Time
+	RoomID              spec.RoomID
+	Inviter             spec.UserID
+	Invitee             spec.UserID
+	Reason              string
+	IsDirect            bool
+	PublicJoinRequestID string
+	KeyID               gomatrixserverlib.KeyID
+	PrivateKey          ed25519.PrivateKey
+	EventTime           time.Time
 }
 
 type PerformInviteRequest struct {

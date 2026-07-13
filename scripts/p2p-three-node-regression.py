@@ -229,6 +229,7 @@ def action_requires_http(action: str) -> bool:
         "portal.bootstrap",
         "portal.auth",
         "portal.status",
+        "portal.account.delete",
         "realtime.ws_ticket.create",
     }
 
@@ -454,6 +455,26 @@ def update_profile(node: Node, suffix: int) -> None:
     login(node)
 
 
+def accept_direct_contact(accepter: Node, params: dict[str, Any], label: str) -> Any:
+    accepted = p2p(accepter, "command", "contacts.requests.accept", params)
+    if accepted.get("status") == "accepted":
+        return accepted
+    expect(accepted.get("status") == "joining", f"{label} returned unexpected status {accepted.get('status')!r}")
+
+    retry_params = dict(params)
+    if operation_id := accepted.get("operation_id"):
+        retry_params["operation_id"] = operation_id
+
+    def retry_until_accepted() -> Optional[Any]:
+        retry = p2p(accepter, "command", "contacts.requests.accept", retry_params)
+        if retry.get("status") == "accepted":
+            return retry
+        expect(retry.get("status") == "joining", f"{label} retry returned unexpected status {retry.get('status')!r}")
+        return None
+
+    return wait_until(f"{label} did not reconcile", retry_until_accepted)
+
+
 def ensure_direct(a: Node, b: Node) -> str:
     contact = p2p(a, "command", "contacts.request", {"mxid": b.mxid, "display_name": b.name})
     room_id = contact.get("room_id") or ""
@@ -467,13 +488,11 @@ def ensure_direct(a: Node, b: Node) -> str:
                 status="pending_inbound",
             ),
         )
-        accepted = p2p(
+        accepted = accept_direct_contact(
             b,
-            "command",
-            "contacts.requests.accept",
             {"room_id": room_id, "peer_mxid": a.mxid, "display_name": a.name, "domain": a.server_name},
+            "contacts.requests.accept",
         )
-        expect(accepted.get("status") == "accepted", "contacts.requests.accept did not accept")
     else:
         expect(contact.get("status") == "accepted", f"unexpected direct contact status {contact.get('status')!r}")
 
@@ -521,25 +540,22 @@ def verify_mutual_delete_readd(requester: Node, accepter: Node, room_id: str, su
     request = p2p(requester, "command", "contacts.request", {"mxid": accepter.mxid, "display_name": accepter.name})
     request_room = request.get("room_id") or ""
     expect(request_room, "mutual delete contacts.request did not return room_id")
-    if request.get("status") == "pending_outbound":
-        wait_until(
-            "accepter did not receive mutual-delete inbound contact request",
-            lambda: find_by(
-                list((p2p(accepter, "command", "sync.bootstrap").get("contacts") or [])),
-                peer_mxid=requester.mxid,
-                room_id=request_room,
-                status="pending_inbound",
-            ),
-        )
-        accepted = p2p(
-            accepter,
-            "command",
-            "contacts.requests.accept",
-            {"room_id": request_room, "peer_mxid": requester.mxid, "display_name": requester.name, "domain": requester.server_name},
-        )
-        expect(accepted.get("status") == "accepted", "mutual-delete contacts.requests.accept did not accept")
-    else:
-        expect(request.get("status") == "accepted", f"unexpected mutual delete request status {request.get('status')!r}")
+    expect(request.get("status") == "pending_outbound", f"mutual delete must restart approval flow, got {request.get('status')!r}")
+    expect(request_room != room_id, "mutual delete must create a replacement direct room")
+    wait_until(
+        "accepter did not receive mutual-delete inbound contact request",
+        lambda: find_by(
+            list((p2p(accepter, "command", "sync.bootstrap").get("contacts") or [])),
+            peer_mxid=requester.mxid,
+            room_id=request_room,
+            status="pending_inbound",
+        ),
+    )
+    accepted = accept_direct_contact(
+        accepter,
+        {"room_id": request_room, "peer_mxid": requester.mxid, "display_name": requester.name, "domain": requester.server_name},
+        "mutual-delete contacts.requests.accept",
+    )
 
     requester_contact = wait_until(
         "requester did not converge to accepted contact after mutual-delete accept",
@@ -574,18 +590,21 @@ def verify_mutual_delete_readd(requester: Node, accepter: Node, room_id: str, su
     assert_history(requester, requester_contact.get("room_id") or request_room, text)
 
 
-def rebuild_node_with_empty_volumes(node: Node, suffix: int) -> None:
+def rebuild_node_with_empty_state(node: Node, suffix: int) -> None:
     close_ws(node)
     suffix_name = node.label.lower()
     run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "rm", "-f", "-s", "-v", f"dendrite-{suffix_name}", f"dendrite-{suffix_name}-init", f"postgres-{suffix_name}"])
+    # The Matrix signing key is the server's durable identity. Reusing a
+    # server_name with a regenerated key makes its own historical events
+    # cryptographically unverifiable, so a state-loss recovery must preserve
+    # the config volume while replacing PostgreSQL and application data.
     for volume in [
         f"dirextalk-p2p-dual_p2p_dual_postgres_{suffix_name}",
-        f"dirextalk-p2p-dual_p2p_dual_message_server_{suffix_name}_config",
         f"dirextalk-p2p-dual_p2p_dual_message_server_{suffix_name}_data",
     ]:
-        subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+        run_checked(["docker", "volume", "rm", volume])
     run_checked(["docker", "compose", "-f", "docker-compose.p2p-dual.yml", "up", "-d", "--force-recreate", f"dendrite-{suffix_name}"])
-    wait_until(f"{node.label} did not become healthy after empty-volume rebuild", lambda: request_json("GET", f"{node.base}/_p2p/health").get("status") == "ok", seconds=120)
+    wait_until(f"{node.label} did not become healthy after empty-state rebuild", lambda: request_json("GET", f"{node.base}/_p2p/health").get("status") == "ok", seconds=120)
     bootstrap = read_bootstrap(node.container)
     node.password = bootstrap.get("password") or ""
     node.agent_token = bootstrap.get("agent_token") or ""
@@ -606,7 +625,7 @@ def verify_rebuilt_peer_readd(retained_peer: Node, rebuilt_peer: Node, suffix: i
     )
     assert_history(rebuilt_peer, old_room, text)
 
-    rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 1)
+    rebuild_node_with_empty_state(rebuilt_peer, suffix + 1)
     request = p2p(
         rebuilt_peer,
         "command",
@@ -788,7 +807,7 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
     public_chat_channel = create_channel(owner, f"Retained Public Chat {suffix}", "public", "open", "chat")
     wait_public_channel_join(owner, rebuilt_peer, public_chat_channel, "initial chat")
 
-    rebuild_node_with_empty_volumes(rebuilt_peer, suffix + 2)
+    rebuild_node_with_empty_state(rebuilt_peer, suffix + 2)
 
     p2p(
         owner,
@@ -799,6 +818,10 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
             "user_id": rebuilt_peer.mxid,
             "display_name": rebuilt_peer.name,
             "remote_node_base_url": f"{rebuilt_peer.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+            # An empty-state rebuild is the only flow allowed to replace an
+            # otherwise joined Matrix membership. Keep this fence stable for
+            # retries of the same recovery attempt.
+            "rebuild_generation": f"rebuild_group_{suffix}",
         },
     )
     wait_until(
@@ -832,6 +855,7 @@ def verify_rebuilt_room_reentry(owner: Node, rebuilt_peer: Node, suffix: int) ->
             "user_id": rebuilt_peer.mxid,
             "display_name": rebuilt_peer.name,
             "remote_node_base_url": f"{rebuilt_peer.base.replace('127.0.0.1', PUBLIC_HOST)}/_p2p",
+            "rebuild_generation": f"rebuild_channel_{suffix}",
         },
     )
     wait_until(
@@ -1218,7 +1242,7 @@ def main() -> int:
     a, b, c = nodes
 
     verify_rebuilt_peer_readd(a, c, suffix)
-    print("PASS C empty-volume rebuild re-add restores contact, using old room when joinable or replacement room when not")
+    print("PASS C empty-state rebuild re-add restores contact, using old room when joinable or replacement room when not")
 
     direct_room = ensure_direct(a, b)
     verify_delete_readd(b, a, direct_room)
@@ -1228,7 +1252,7 @@ def main() -> int:
     print("PASS direct accepted capabilities, delete/re-add old room, mutual-delete accept sync, self-add guard")
 
     verify_rebuilt_room_reentry(a, c, suffix)
-    print("PASS C empty-volume rebuild requires explicit group/private-channel rejoin and public-channel reapply")
+    print("PASS C empty-state rebuild requires explicit group/private-channel rejoin and public-channel reapply")
 
     message_group = create_group(b, f"BCA Three Message {suffix}")
     invite_and_join(b, c, message_group)

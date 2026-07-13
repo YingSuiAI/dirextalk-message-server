@@ -78,6 +78,11 @@ type fedClient struct {
 	}
 	t       *testing.T
 	sentTxn bool
+
+	sendJoinFailuresAfterCommit int
+	sendJoinCalls               int
+	includeSendJoinEvent        bool
+	lastSendJoinResponse        fclient.RespSendJoin
 }
 
 func (f *fedClient) GetServerKeys(ctx context.Context, matrixServer spec.ServerName) (gomatrixserverlib.ServerKeys, error) {
@@ -151,14 +156,24 @@ func (f *fedClient) MakeJoin(ctx context.Context, origin, s spec.ServerName, roo
 func (f *fedClient) SendJoin(ctx context.Context, origin, s spec.ServerName, event gomatrixserverlib.PDU) (res fclient.RespSendJoin, err error) {
 	f.fedClientMutex.Lock()
 	defer f.fedClientMutex.Unlock()
+	f.sendJoinCalls++
 	for _, r := range f.allowJoins {
 		if r.ID == event.RoomID().String() {
 			r.InsertEvent(f.t, &types.HeaderedEvent{PDU: event})
 			f.t.Logf("Join event: %v", event.EventID())
 			res.StateEvents = types.NewEventJSONsFromHeaderedEvents(r.CurrentState())
 			res.AuthEvents = types.NewEventJSONsFromHeaderedEvents(r.Events())
+			if f.includeSendJoinEvent {
+				res.Origin = s
+				res.Event = event.JSON()
+			}
 		}
 	}
+	if f.sendJoinFailuresAfterCommit > 0 {
+		f.sendJoinFailuresAfterCommit--
+		return fclient.RespSendJoin{}, fmt.Errorf("simulated lost /send_join response after remote commit")
+	}
+	f.lastSendJoinResponse = res
 	return
 }
 
@@ -179,6 +194,138 @@ func (f *fedClient) SendTransaction(ctx context.Context, t gomatrixserverlib.Tra
 func TestFederationAPIJoinThenKeyUpdate(t *testing.T) {
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		testFederationAPIJoinThenKeyUpdate(t, dbType)
+	})
+}
+
+func TestFederationAPIJoinRetriesAfterLostSendJoinResponse(t *testing.T) {
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		cfg, processCtx, close := testrig.CreateConfig(t, dbType)
+		defer close()
+
+		cm := sqlutil.NewConnectionManager(processCtx, cfg.Global.DatabaseOptions)
+		caches := caching.NewRistrettoCache(128*1024*1024, time.Hour, caching.DisableMetrics)
+		natsInstance := jetstream.NATSInstance{}
+		cfg.FederationAPI.PreferDirectFetch = true
+		cfg.FederationAPI.KeyPerspectives = nil
+		jsctx, _ := natsInstance.Prepare(processCtx, &cfg.Global.JetStream)
+		defer jetstream.DeleteAllStreams(jsctx, &cfg.Global.JetStream)
+
+		remoteServer := spec.ServerName("server.a")
+		remoteKeyID := gomatrixserverlib.KeyID("ed25519:servera")
+		remotePrivateKey := test.PrivateKeyA
+		creator := test.NewUser(t, test.WithSigningServer(remoteServer, remoteKeyID, remotePrivateKey))
+		joiningUser := test.NewUser(t, test.WithSigningServer(
+			cfg.Global.ServerName,
+			cfg.Global.KeyID,
+			cfg.Global.PrivateKey,
+		))
+		room := test.NewRoom(t, creator)
+
+		var importedRequests []*rsapi.InputRoomEventsRequest
+		roomserver := &fedRoomserverAPI{
+			inputRoomEvents: func(ctx context.Context, req *rsapi.InputRoomEventsRequest, res *rsapi.InputRoomEventsResponse) {
+				if req.Asynchronous {
+					t.Errorf("InputRoomEvents from PerformJoin MUST be synchronous")
+				}
+				importedRequests = append(importedRequests, req)
+			},
+		}
+		client := &fedClient{
+			allowJoins:                  []*test.Room{room},
+			t:                           t,
+			sendJoinFailuresAfterCommit: 1,
+			includeSendJoinEvent:        true,
+			keys: map[spec.ServerName]struct {
+				key   ed25519.PrivateKey
+				keyID gomatrixserverlib.KeyID
+			}{
+				remoteServer: {
+					key:   remotePrivateKey,
+					keyID: remoteKeyID,
+				},
+				cfg.Global.ServerName: {
+					key:   cfg.Global.PrivateKey,
+					keyID: cfg.Global.KeyID,
+				},
+			},
+		}
+		federation := federationapi.NewInternalAPI(
+			processCtx, cfg, cm, &natsInstance, client, roomserver, caches, nil, false,
+		)
+		request := &api.PerformJoinRequest{
+			RoomID:      room.ID,
+			UserID:      joiningUser.ID,
+			ServerNames: []spec.ServerName{remoteServer},
+		}
+
+		var first api.PerformJoinResponse
+		federation.PerformJoin(context.Background(), request, &first)
+		if first.LastError == nil || !strings.Contains(first.LastError.Error(), "simulated lost /send_join response") {
+			t.Fatalf("first PerformJoin error = %#v, want lost response after remote commit", first.LastError)
+		}
+		if got := len(importedRequests); got != 0 {
+			t.Fatalf("requester imported %d roomserver batches before receiving send_join state, want 0", got)
+		}
+		if got := client.sendJoinCalls; got != 1 {
+			t.Fatalf("SendJoin calls after first attempt = %d, want 1", got)
+		}
+		remoteCommittedJoin := false
+		for _, event := range room.CurrentState() {
+			stateKey := event.StateKey()
+			if event.Type() == spec.MRoomMember && stateKey != nil && *stateKey == joiningUser.ID &&
+				gjson.GetBytes(event.Content(), "membership").String() == spec.Join {
+				remoteCommittedJoin = true
+				break
+			}
+		}
+		if !remoteCommittedJoin {
+			t.Fatal("remote room did not retain the first join after its response was lost")
+		}
+
+		var second api.PerformJoinResponse
+		federation.PerformJoin(context.Background(), request, &second)
+		if second.LastError != nil {
+			t.Fatalf("retry PerformJoin returned error: %+v", *second.LastError)
+		}
+		if second.JoinedVia != remoteServer {
+			t.Fatalf("retry PerformJoin joined via %q, want %q", second.JoinedVia, remoteServer)
+		}
+		if got := client.sendJoinCalls; got != 2 {
+			t.Fatalf("SendJoin calls after retry = %d, want 2", got)
+		}
+		if len(client.lastSendJoinResponse.StateEvents) == 0 {
+			t.Fatal("retry SendJoin response omitted room state")
+		}
+		if len(client.lastSendJoinResponse.AuthEvents) == 0 {
+			t.Fatal("retry SendJoin response omitted auth chain")
+		}
+		if len(client.lastSendJoinResponse.Event) == 0 {
+			t.Fatal("retry SendJoin response omitted the join event")
+		}
+		if got := len(importedRequests); got != 1 {
+			t.Fatalf("requester imported %d roomserver batches after retry, want 1", got)
+		}
+
+		inputs := importedRequests[0].InputRoomEvents
+		if len(inputs) < 2 {
+			t.Fatalf("retry imported %d events, want state/auth outliers and the join event", len(inputs))
+		}
+		joinInput := inputs[len(inputs)-1]
+		if joinInput.Kind != rsapi.KindNew || !joinInput.HasState {
+			t.Fatalf("final imported event kind/has_state = %v/%v, want KindNew/true", joinInput.Kind, joinInput.HasState)
+		}
+		if joinInput.Event == nil || joinInput.Event.Type() != spec.MRoomMember {
+			t.Fatalf("final imported event = %#v, want m.room.member", joinInput.Event)
+		}
+		if stateKey := joinInput.Event.StateKey(); stateKey == nil || *stateKey != joiningUser.ID {
+			t.Fatalf("final imported join state key = %v, want %q", stateKey, joiningUser.ID)
+		}
+		if got := gjson.GetBytes(joinInput.Event.Content(), "membership").String(); got != spec.Join {
+			t.Fatalf("final imported membership = %q, want %q", got, spec.Join)
+		}
+		if len(joinInput.StateEventIDs) == 0 {
+			t.Fatal("final imported join event omitted its state snapshot")
+		}
 	})
 }
 

@@ -93,13 +93,14 @@ func TestMemberPolicyAndJoinRequestState(t *testing.T) {
 	}
 
 	at := time.Date(2026, 7, 8, 12, 0, 0, 123, time.UTC)
-	joinRequest := JoinRequestState("!room:example.com", "@alice:example.com", " Approved ", " ok ", at)
+	joinRequest := JoinRequestState("!room:example.com", "@alice:example.com", " Approved ", " ok ", " request-1 ", at)
 	if joinRequest.Type != JoinRequestEventType ||
 		joinRequest.StateKey != productpolicy.UserStateKey("@alice:example.com") ||
 		joinRequest.Content["status"] != "approved" ||
 		joinRequest.Content["room_id"] != "!room:example.com" ||
 		joinRequest.Content["user_id"] != "@alice:example.com" ||
 		joinRequest.Content["reason"] != "ok" ||
+		joinRequest.Content["request_id"] != "request-1" ||
 		joinRequest.Content["created_at"] != at.Format(time.RFC3339Nano) ||
 		joinRequest.Content["updated_at"] != at.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected join request state: %#v", joinRequest)

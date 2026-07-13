@@ -36,6 +36,10 @@ type CreateRoomRequest struct {
 	IsDirect           bool
 	InviteMXIDs        []string
 	InitialState       []RoomStateEvent
+	// IdempotencyKey makes room creation restart-safe for callers that must
+	// recover after a committed CreateRoom response is lost. It is never sent
+	// into room state; the Dendrite adapter hashes it into a stable room ID.
+	IdempotencyKey string
 }
 
 type RoomStateEvent struct {
@@ -70,12 +74,13 @@ type SendMessageResult struct {
 }
 
 type InviteUserRequest struct {
-	RoomID          string
-	InviterMXID     string
-	InviteeMXID     string
-	Reason          string
-	IsDirect        bool
-	InviteRoomState []RoomStateEvent
+	RoomID              string
+	InviterMXID         string
+	InviteeMXID         string
+	Reason              string
+	IsDirect            bool
+	PublicJoinRequestID string
+	InviteRoomState     []RoomStateEvent
 }
 
 type JoinRoomRequest struct {

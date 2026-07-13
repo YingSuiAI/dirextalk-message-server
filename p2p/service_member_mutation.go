@@ -14,7 +14,6 @@ func (s *Service) completeChannelJoinRequest(ctx context.Context, approved bool,
 		if apiErr != nil {
 			return nil, apiErr
 		}
-		result["status"] = "rejected"
 		return result, nil
 	}
 	return map[string]any{

@@ -129,7 +129,7 @@ def run_account_delete_scenario(iteration: int) -> None:
     )
     reg.wait_until("B still sees C-owned group", lambda: reg.group_visible(b, c_group) is not None, seconds=120)
 
-    reg.rebuild_node_with_empty_volumes(a, suffix + 1)
+    reg.rebuild_node_with_empty_state(a, suffix + 1)
     reg.invite_channel_and_join(b, a, b_channel)
     reg.invite_and_join(c, a, c_group)
     reg.wait_until("rebuilt A missing B-owned channel", lambda: reg.channel_visible(a, b_channel.get("room_id") or "") is not None, seconds=120)

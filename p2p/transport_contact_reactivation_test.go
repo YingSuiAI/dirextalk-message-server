@@ -438,7 +438,9 @@ func TestDeletedContactRequestCreatesReplacementRoomWhenPeerRecordsInboundReques
 }
 
 func TestAcceptedContactRequestMutationsDoNotBypassDeleteLeave(t *testing.T) {
-	transport := &recordingTransport{}
+	transport := &recordingTransport{roomMembers: []memberRecord{{
+		RoomID: "!dm:remote.example", UserID: "@owner:example.com", Membership: "join", Role: "member",
+	}}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	bootstrapService(t, service)
 	if err := service.saveContact(context.Background(), contactRecord{

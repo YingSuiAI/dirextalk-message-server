@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+func TestMemoryStoreCompareAndSwapMemberGenerationGuardsState(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	existing := memberRecord{
+		RoomID: "!channel:example.com", ChannelID: "channel-a", UserID: "@peer:example.com",
+		Membership: "rejected", RequestID: "request-a", JoinedAt: 10,
+	}
+	if err := store.UpsertMember(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	desired := existing
+	desired.Membership = "pending"
+	desired.RequestID = "request-b"
+	desired.JoinedAt = 20
+	if saved, err := store.CompareAndSwapMemberGeneration(ctx, desired, existing.RequestID, "pending"); err != nil || saved {
+		t.Fatalf("stale member state CAS = (%v, %v)", saved, err)
+	}
+	if saved, err := store.CompareAndSwapMemberGeneration(ctx, desired, existing.RequestID, existing.Membership); err != nil || !saved {
+		t.Fatalf("current member state CAS = (%v, %v)", saved, err)
+	}
+	got, found, err := store.LookupMember(ctx, existing.RoomID, existing.UserID)
+	if err != nil || !found || got.RequestID != desired.RequestID || got.JoinedAt != desired.JoinedAt || got.Membership != desired.Membership {
+		t.Fatalf("member after CAS = (%#v, %v, %v)", got, found, err)
+	}
+}
+
 func TestMemoryStoreMembersPreserveLegacyVisibilityCountsAndOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -6,13 +6,13 @@ import (
 )
 
 const (
-	SchemaVersion       = 1
+	SchemaVersion       = 2
 	SchemaCompatVersion = 1
 )
 
 // These values are overridden for release builds with -ldflags -X.
 var (
-	version   = "v1.0.2"
+	version   = "v1.0.3"
 	commit    string
 	buildTime string
 )

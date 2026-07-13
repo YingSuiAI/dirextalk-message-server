@@ -3,6 +3,7 @@ package contacts
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -14,6 +15,14 @@ import (
 type Store interface {
 	UpsertContact(ctx context.Context, contact dirextalkdomain.ContactRecord) error
 	ListContacts(ctx context.Context) ([]dirextalkdomain.ContactRecord, error)
+}
+
+type compareAndSwapContactStore interface {
+	CompareAndSwapContact(ctx context.Context, contact, expected dirextalkdomain.ContactRecord) (bool, error)
+}
+
+type compareAndSwapContactProjectionStore interface {
+	CompareAndSwapContactProjection(ctx context.Context, contact, expected dirextalkdomain.ContactRecord) (bool, error)
 }
 
 // ConversationPort owns durable conversation projection records.
@@ -126,6 +135,7 @@ type Config struct {
 	DeleteGroup          func(ctx context.Context, roomID string) error
 	LeaveRoom            func(ctx context.Context, roomID string) *actionbase.Error
 	AcceptDirectRoom     DirectRoomAcceptor
+	VerifyAcceptedRoom   bool
 	CreateDirectRoom     DirectRoomCreator
 	InviteDirectRoom     DirectRoomInviter
 	JoinDirectRoom       DirectRoomJoiner
@@ -134,6 +144,7 @@ type Config struct {
 	ReactivatePeer       PeerReactivator
 	ReactivateDirectRoom DirectRoomReactivator
 	CheckPeerBlocked     PeerBlockChecker
+	MatrixJoined         func(context.Context, string, string) (bool, error)
 }
 
 type peerMutationEntry struct {
@@ -148,6 +159,7 @@ type Module struct {
 	deleteGroup      func(context.Context, string) error
 	leaveRoom        func(context.Context, string) *actionbase.Error
 	acceptRoom       DirectRoomAcceptor
+	verifyAccepted   bool
 	createRoom       DirectRoomCreator
 	inviteRoom       DirectRoomInviter
 	joinRoom         DirectRoomJoiner
@@ -156,6 +168,7 @@ type Module struct {
 	reactivatePeer   PeerReactivator
 	reactivateRoom   DirectRoomReactivator
 	checkPeerBlocked PeerBlockChecker
+	matrixJoined     func(context.Context, string, string) (bool, error)
 	mutationMu       sync.Mutex
 
 	peerMutationsMu sync.Mutex
@@ -170,6 +183,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		deleteGroup:      cfg.DeleteGroup,
 		leaveRoom:        cfg.LeaveRoom,
 		acceptRoom:       cfg.AcceptDirectRoom,
+		verifyAccepted:   cfg.VerifyAcceptedRoom,
 		createRoom:       cfg.CreateDirectRoom,
 		inviteRoom:       cfg.InviteDirectRoom,
 		joinRoom:         cfg.JoinDirectRoom,
@@ -178,6 +192,7 @@ func New(store Store, conversation ConversationPort, cfg Config) *Module {
 		reactivatePeer:   cfg.ReactivatePeer,
 		reactivateRoom:   cfg.ReactivateDirectRoom,
 		checkPeerBlocked: cfg.CheckPeerBlocked,
+		matrixJoined:     cfg.MatrixJoined,
 	}
 }
 
@@ -232,38 +247,149 @@ func acceptedStatus(status string) bool {
 // Save serializes the contact and conversation persistence orchestration. It
 // does not cover Matrix room creation or any work performed before this call.
 func (m *Module) Save(ctx context.Context, contact dirextalkdomain.ContactRecord) error {
+	_, err := m.save(ctx, contact, nil)
+	return err
+}
+
+// SaveProjectionIfCurrent advances one contact generation together with its
+// direct-conversation projection. Supported production stores provide the
+// atomic repository boundary; the fallback preserves compatibility for narrow
+// in-package stores while retaining generation CAS.
+func (m *Module) SaveProjectionIfCurrent(
+	ctx context.Context,
+	contact,
+	expected dirextalkdomain.ContactRecord,
+) (bool, error) {
+	store, ok := m.store.(compareAndSwapContactProjectionStore)
+	if !ok {
+		return m.save(ctx, contact, &expected)
+	}
+	return store.CompareAndSwapContactProjection(ctx, contact, expected)
+}
+
+// EnsureAcceptedProjection restores the durable direct-conversation projection
+// for an already accepted contact without dispatching another Matrix join. The
+// compare-and-swap fence preserves a concurrent newer contact generation.
+func (m *Module) EnsureAcceptedProjection(
+	ctx context.Context,
+	contact dirextalkdomain.ContactRecord,
+) (dirextalkdomain.ContactRecord, error) {
+	if !acceptedStatus(contact.Status) {
+		return contact, nil
+	}
+	saved, err := m.SaveProjectionIfCurrent(ctx, contact, contact)
+	if err != nil || saved {
+		return contact, err
+	}
+	current, found, err := m.LookupByPeer(ctx, contact.PeerMXID)
+	if err != nil {
+		return current, err
+	}
+	if !found {
+		return current, errors.New("accepted contact disappeared while restoring conversation projection")
+	}
+	return current, nil
+}
+
+func (m *Module) saveDecision(
+	ctx context.Context,
+	contact,
+	expected dirextalkdomain.ContactRecord,
+	authoritativeAccepted bool,
+) (dirextalkdomain.ContactRecord, bool, error) {
+	if expected.PeerMXID == "" {
+		if err := m.Save(ctx, contact); err != nil {
+			return dirextalkdomain.ContactRecord{}, false, err
+		}
+		return contact, true, nil
+	}
+	saved, err := m.SaveProjectionIfCurrent(ctx, contact, expected)
+	if err != nil || saved {
+		return contact, saved, err
+	}
+	current, found, err := m.LookupByPeer(ctx, expected.PeerMXID)
+	if err == nil && !found && contact.PeerMXID != expected.PeerMXID {
+		current, found, err = m.LookupByPeer(ctx, contact.PeerMXID)
+	}
+	if err != nil || !found {
+		return current, false, err
+	}
+	if authoritativeAccepted && acceptedStatus(contact.Status) && current.RequestID == expected.RequestID &&
+		!strings.EqualFold(strings.TrimSpace(current.Status), "deleted") {
+		saved, err = m.SaveProjectionIfCurrent(ctx, contact, current)
+		if err != nil || saved {
+			return contact, saved, err
+		}
+		current, _, err = m.LookupByPeer(ctx, contact.PeerMXID)
+	}
+	return current, false, err
+}
+
+func (m *Module) save(
+	ctx context.Context,
+	contact dirextalkdomain.ContactRecord,
+	expected *dirextalkdomain.ContactRecord,
+) (bool, error) {
 	m.mutationMu.Lock()
 	defer m.mutationMu.Unlock()
 
 	existingContacts, err := m.store.ListContacts(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	existingConversations, err := m.conversation.ListRecords(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	replacedDirectRoomIDs := replacementDirectRoomIDs(contact, existingContacts, existingConversations)
 
-	if err := m.store.UpsertContact(ctx, contact); err != nil {
-		return err
+	if expected != nil {
+		if store, ok := m.store.(compareAndSwapContactStore); ok {
+			saved, err := store.CompareAndSwapContact(ctx, contact, *expected)
+			if err != nil || !saved {
+				return saved, err
+			}
+		} else {
+			current, found := contactByPeer(existingContacts, expected.PeerMXID)
+			if !found || current.RoomID != expected.RoomID || current.RequestID != expected.RequestID ||
+				!strings.EqualFold(strings.TrimSpace(current.Status), strings.TrimSpace(expected.Status)) {
+				return false, nil
+			}
+			if err := m.store.UpsertContact(ctx, contact); err != nil {
+				return false, err
+			}
+		}
+	} else if err := m.store.UpsertContact(ctx, contact); err != nil {
+		return false, err
 	}
 	for _, roomID := range replacedDirectRoomIDs {
 		if err := m.conversation.DeleteKindByRoom(ctx, roomID, dirextalkdomain.ConversationKindDirect); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if contact.RoomID != "" {
 		if m.deleteGroup != nil {
 			if err := m.deleteGroup(ctx, contact.RoomID); err != nil {
-				return err
+				return false, err
 			}
 		}
 		if err := m.conversation.DeleteKindByRoom(ctx, contact.RoomID, dirextalkdomain.ConversationKindGroup); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return m.conversation.Save(ctx, dirextalkdomain.ConversationFromContact(contact))
+	if err := m.conversation.Save(ctx, dirextalkdomain.ConversationFromContact(contact)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func contactByPeer(contacts []dirextalkdomain.ContactRecord, peerMXID string) (dirextalkdomain.ContactRecord, bool) {
+	for _, contact := range contacts {
+		if contact.PeerMXID == peerMXID {
+			return contact, true
+		}
+	}
+	return dirextalkdomain.ContactRecord{}, false
 }
 
 func replacementDirectRoomIDs(

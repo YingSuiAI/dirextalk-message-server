@@ -41,6 +41,33 @@ func TestMemoryStoreContactAndBlockSemantics(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCompareAndSwapContactGuardsRequestState(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	existing := contactRecord{
+		RoomID: "!old:example.com", PeerMXID: "@peer:example.com",
+		Status: "pending_inbound", RequestID: "request-a",
+	}
+	if err := store.UpsertContact(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	desired := existing
+	desired.RoomID = "!replacement:example.com"
+	desired.Status = "accepted"
+	stale := existing
+	stale.Status = "rejected"
+	if saved, err := store.CompareAndSwapContact(ctx, desired, stale); err != nil || saved {
+		t.Fatalf("stale contact state CAS = (%v, %v)", saved, err)
+	}
+	if saved, err := store.CompareAndSwapContact(ctx, desired, existing); err != nil || !saved {
+		t.Fatalf("current contact state CAS = (%v, %v)", saved, err)
+	}
+	contacts, err := store.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 || contacts[0].RoomID != desired.RoomID || contacts[0].Status != "accepted" {
+		t.Fatalf("contact after CAS = %#v, err=%v", contacts, err)
+	}
+}
+
 func TestMemoryStoreGroupCallAndSocialSemantics(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

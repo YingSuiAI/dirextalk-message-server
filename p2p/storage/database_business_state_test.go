@@ -59,6 +59,152 @@ func TestDatabaseStoreUpsertContactIsUniqueByPeer(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreCompareAndSwapContactGuardsRequestState(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	existing := contactRecord{
+		RoomID: "!old:example.com", PeerMXID: "@peer:example.com",
+		Status: "pending_inbound", RequestID: "request-a",
+	}
+	if err := store.UpsertContact(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	desired := existing
+	desired.RoomID = "!replacement:example.com"
+	desired.Status = "accepted"
+	stale := existing
+	stale.Status = "rejected"
+	if saved, err := store.CompareAndSwapContact(ctx, desired, stale); err != nil || saved {
+		t.Fatalf("stale contact state CAS = (%v, %v)", saved, err)
+	}
+	if saved, err := store.CompareAndSwapContact(ctx, desired, existing); err != nil || !saved {
+		t.Fatalf("current contact state CAS = (%v, %v)", saved, err)
+	}
+	contacts, err := store.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 || contacts[0].RoomID != desired.RoomID || contacts[0].Status != "accepted" {
+		t.Fatalf("contact after CAS = %#v, err=%v", contacts, err)
+	}
+}
+
+func TestDatabaseStoreContactProjectionCASRollsBackConversationFailureAndReplays(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	existing := contactRecord{
+		RoomID: "!projection:example.com", PeerMXID: "@peer:remote.example",
+		Status: "joining", RequestID: "request-projection",
+	}
+	if err := store.UpsertContact(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConversation(ctx, conversationFromContact(existing)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		CREATE FUNCTION p2p_test_fail_contact_projection_conversation() RETURNS trigger AS $$
+		BEGIN
+			IF NEW.matrix_room_id = '!projection:example.com' AND NEW.lifecycle = 'active' THEN
+				RAISE EXCEPTION 'injected conversation projection failure';
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		CREATE TRIGGER p2p_test_fail_contact_projection_conversation
+		BEFORE INSERT OR UPDATE ON p2p_conversations
+		FOR EACH ROW EXECUTE FUNCTION p2p_test_fail_contact_projection_conversation()
+	`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = store.DB().ExecContext(context.Background(), `DROP TRIGGER IF EXISTS p2p_test_fail_contact_projection_conversation ON p2p_conversations`)
+		_, _ = store.DB().ExecContext(context.Background(), `DROP FUNCTION IF EXISTS p2p_test_fail_contact_projection_conversation()`)
+	}()
+
+	accepted := existing
+	accepted.Status = "accepted"
+	accepted.Remark = ""
+	if saved, err := store.CompareAndSwapContactProjection(ctx, accepted, existing); err == nil || saved {
+		t.Fatalf("fault-injected contact projection CAS = (%v, %v), want rolled-back error", saved, err)
+	}
+	contacts, err := store.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 || contacts[0].Status != "joining" {
+		t.Fatalf("failed contact projection committed partial contact: contacts=%#v err=%v", contacts, err)
+	}
+	conversation, found, err := store.GetConversationByRoomID(ctx, existing.RoomID)
+	if err != nil || !found || conversation.Lifecycle != dirextalkdomain.ConversationLifecyclePending {
+		t.Fatalf("failed contact projection changed conversation: conversation=%#v found=%v err=%v", conversation, found, err)
+	}
+
+	if _, err := store.DB().ExecContext(ctx, `DROP TRIGGER p2p_test_fail_contact_projection_conversation ON p2p_conversations`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `DROP FUNCTION p2p_test_fail_contact_projection_conversation()`); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := store.CompareAndSwapContactProjection(ctx, accepted, existing); err != nil || !saved {
+		t.Fatalf("replayed contact projection CAS = (%v, %v), want committed", saved, err)
+	}
+	contacts, err = store.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 || contacts[0].Status != "accepted" {
+		t.Fatalf("replayed contact projection did not accept contact: contacts=%#v err=%v", contacts, err)
+	}
+	conversation, found, err = store.GetConversationByRoomID(ctx, existing.RoomID)
+	if err != nil || !found || conversation.Lifecycle != dirextalkdomain.ConversationLifecycleActive {
+		t.Fatalf("replayed contact projection did not activate conversation: conversation=%#v found=%v err=%v", conversation, found, err)
+	}
+}
+
+func TestDatabaseStoreCompareAndSwapMemberGenerationGuardsState(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	existing := memberRecord{
+		RoomID: "!channel:example.com", ChannelID: "channel-a", UserID: "@peer:example.com",
+		Membership: "rejected", RequestID: "request-a", JoinedAt: 10,
+	}
+	if err := store.UpsertMember(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	desired := existing
+	desired.Membership = "pending"
+	desired.RequestID = "request-b"
+	desired.JoinedAt = 20
+	if saved, err := store.CompareAndSwapMemberGeneration(ctx, desired, existing.RequestID, "pending"); err != nil || saved {
+		t.Fatalf("stale member state CAS = (%v, %v)", saved, err)
+	}
+	if saved, err := store.CompareAndSwapMemberGeneration(ctx, desired, existing.RequestID, existing.Membership); err != nil || !saved {
+		t.Fatalf("current member state CAS = (%v, %v)", saved, err)
+	}
+	got, found, err := store.LookupMember(ctx, existing.RoomID, existing.UserID)
+	if err != nil || !found || got.RequestID != desired.RequestID || got.JoinedAt != desired.JoinedAt || got.Membership != desired.Membership {
+		t.Fatalf("member after CAS = (%#v, %v, %v)", got, found, err)
+	}
+}
+
 func TestDatabaseStoreUpsertContactPersistsExplicitAvatarClearAcrossReopen(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

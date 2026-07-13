@@ -1,5 +1,21 @@
 # Dirextalk Message Server release notes
 
+## v1.0.3
+
+This release makes group joins, contact-request decisions, and channel join
+approvals recoverable and idempotent across request cancellation, response
+loss, process restart, and concurrent server instances. Matrix membership
+remains the final joined fact; ProductCore projections and callbacks now use
+durable operation leases and generation-aware compare-and-swap persistence.
+
+The ProductCore action names and existing success payloads remain compatible.
+Recovery responses add optional top-level `operation_id`, `status`,
+`current_room_id`, and structured `error_code` fields to HTTP and WebSocket
+results. Database schema version 2 adds durable operation recovery metadata,
+including base-generation fencing for cross-instance retries;
+schema version 1 remains readable, and upgrades require the normal retained
+backup.
+
 ## v1.0.2
 
 This release keeps the exact `v1.0.1` formal image as its stable upgrade

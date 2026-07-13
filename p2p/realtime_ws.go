@@ -580,6 +580,13 @@ func (s *Service) handleRealtimeWSRequest(ctx context.Context, record realtimeWS
 		response := realtimeWSResponseError(id, action, apiErr.Status, apiErr.Error)
 		if apiErr.Code != "" {
 			response["code"] = apiErr.Code
+			response["error_code"] = apiErr.Code
+		}
+		if apiErr.OperationID != "" {
+			response["operation_id"] = apiErr.OperationID
+		}
+		if apiErr.CurrentRoomID != "" {
+			response["current_room_id"] = apiErr.CurrentRoomID
 		}
 		return response
 	}

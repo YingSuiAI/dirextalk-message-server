@@ -32,6 +32,10 @@ type View struct {
 	Remark              string                            `json:"remark,omitempty"`
 	Operation           map[string]any                    `json:"operation,omitempty"`
 	Conversation        *dirextalkdomain.ConversationView `json:"conversation,omitempty"`
+	OperationID         string                            `json:"operation_id,omitempty"`
+	CurrentRoomID       string                            `json:"current_room_id,omitempty"`
+	ErrorCode           string                            `json:"error_code,omitempty"`
+	RequestID           string                            `json:"-"`
 }
 
 func ViewFromRecord(record dirextalkdomain.ContactRecord) View {
@@ -44,6 +48,7 @@ func ViewFromRecord(record dirextalkdomain.ContactRecord) View {
 		RoomID:              record.RoomID,
 		Status:              record.Status,
 		Remark:              record.Remark,
+		RequestID:           record.RequestID,
 	}
 }
 
@@ -57,6 +62,7 @@ func RecordFromView(view View) dirextalkdomain.ContactRecord {
 		RoomID:              view.RoomID,
 		Status:              view.Status,
 		Remark:              view.Remark,
+		RequestID:           view.RequestID,
 	}
 }
 
@@ -148,6 +154,26 @@ func (m *Module) LookupByPeer(ctx context.Context, peerMXID string) (dirextalkdo
 	return dirextalkdomain.ContactRecord{}, false, nil
 }
 
+func (m *Module) lookupDecisionContact(
+	ctx context.Context,
+	roomID,
+	peerMXID string,
+) (dirextalkdomain.ContactRecord, bool, error) {
+	var contact dirextalkdomain.ContactRecord
+	var found bool
+	var err error
+	if strings.TrimSpace(roomID) != "" {
+		contact, found, err = m.LookupByRoom(ctx, roomID)
+	}
+	if !found && strings.TrimSpace(peerMXID) != "" && err == nil {
+		contact, found, err = m.LookupByPeer(ctx, peerMXID)
+	}
+	if err != nil || !found || strings.TrimSpace(contact.RoomID) == "" {
+		return dirextalkdomain.ContactRecord{}, false, err
+	}
+	return contact, true, nil
+}
+
 func dedupeByPeer(contacts []dirextalkdomain.ContactRecord) []dirextalkdomain.ContactRecord {
 	if len(contacts) <= 1 {
 		return contacts
@@ -201,7 +227,7 @@ func statusRank(status string) int {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "accepted":
 		return 4
-	case "pending_inbound":
+	case "pending_inbound", "joining":
 		return 3
 	case "pending_outbound":
 		return 2
@@ -213,9 +239,20 @@ func statusRank(status string) int {
 }
 
 func (m *Module) viewWithOperation(ctx context.Context, action string, contact dirextalkdomain.ContactRecord) (View, *actionbase.Error) {
-	operation, conversation, err := m.conversation.Operation(ctx, action, contact.Status, contact.RoomID)
+	view, err := m.HydrateView(ctx, action, contact)
 	if err != nil {
 		return View{}, actionbase.InternalError(err)
+	}
+	return view, nil
+}
+
+// HydrateView adds the legacy operation and conversation presentation to one
+// already-persisted contact fact. It is read-only and is also used by durable
+// recovery responses that must retain the normal ProductCore success shape.
+func (m *Module) HydrateView(ctx context.Context, action string, contact dirextalkdomain.ContactRecord) (View, error) {
+	operation, conversation, err := m.conversation.Operation(ctx, action, contact.Status, contact.RoomID)
+	if err != nil {
+		return View{}, err
 	}
 	view := ViewFromRecord(contact)
 	view.Operation = operation

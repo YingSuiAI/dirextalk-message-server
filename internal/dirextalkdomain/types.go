@@ -39,6 +39,7 @@ type ContactRecord struct {
 	RoomID              string `json:"room_id"`
 	Status              string `json:"status"`
 	Remark              string `json:"remark,omitempty"`
+	RequestID           string `json:"-"`
 }
 
 type AgentConfig struct {
@@ -122,6 +123,7 @@ type MemberRecord struct {
 	Muted                bool   `json:"muted"`
 	JoinedAt             int64  `json:"joined_at"`
 	RequesterNodeBaseURL string `json:"-"`
+	RequestID            string `json:"-"`
 }
 
 type ReadMarker struct {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -177,6 +178,103 @@ func TestProjectJoinRequestStateToMemberProjection(t *testing.T) {
 	}
 	if member.Membership != "reject" {
 		t.Fatalf("expected rejected join request projection, got %#v", member)
+	}
+}
+
+func TestProjectJoinRequestStateFencesDelayedGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		initialMembership string
+		status            string
+		requestID         string
+		membership        string
+	}{
+		{name: "delayed approved", status: "approved", requestID: "request-a", membership: "pending"},
+		{name: "delayed rejected", status: "rejected", requestID: "request-a", membership: "pending"},
+		{name: "delayed invite", initialMembership: "invite", status: "approved", requestID: "request-a", membership: "invite"},
+		{name: "markerless invite", initialMembership: "invite", status: "rejected", membership: "invite"},
+		{name: "current approved", status: "approved", requestID: "request-b", membership: "invite"},
+		{name: "current rejected", status: "rejected", requestID: "request-b", membership: "reject"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			owner := test.NewUser(t)
+			requester := test.NewUser(t)
+			room := test.NewRoom(t, owner)
+			initialMembership := tc.initialMembership
+			if initialMembership == "" {
+				initialMembership = "pending"
+			}
+			if err := service.saveMember(context.Background(), memberRecord{
+				RoomID: room.ID, ChannelID: "channel-1", UserID: requester.ID,
+				Membership: initialMembership, Role: "member", RequestID: "request-b",
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			event := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, requester.ID, map[string]any{
+				"status": tc.status, "user_id": requester.ID, "channel_id": "channel-1", "request_id": tc.requestID,
+			})
+			if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			member, found, err := service.lookupMember(context.Background(), room.ID, requester.ID)
+			if err != nil || !found {
+				t.Fatalf("projected member = (%#v, %v, %v)", member, found, err)
+			}
+			if member.Membership != tc.membership || member.RequestID != "request-b" {
+				t.Fatalf("join request projection = %#v, want membership=%q request_id=request-b", member, tc.membership)
+			}
+		})
+	}
+}
+
+type joinRequestProjectionInsertRaceStore struct {
+	*p2pstorage.MemoryStore
+	roomID      string
+	userID      string
+	replacement memberRecord
+	armed       bool
+}
+
+func (s *joinRequestProjectionInsertRaceStore) LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error) {
+	member, found, err := s.MemoryStore.LookupMember(ctx, roomID, userID)
+	if err != nil || !s.armed || roomID != s.roomID || userID != s.userID || found {
+		return member, found, err
+	}
+	s.armed = false
+	if err := s.MemoryStore.UpsertMember(ctx, s.replacement); err != nil {
+		return memberRecord{}, false, err
+	}
+	return memberRecord{}, false, nil
+}
+
+func TestProjectJoinRequestStateInsertDoesNotOverwriteConcurrentGeneration(t *testing.T) {
+	store := &joinRequestProjectionInsertRaceStore{MemoryStore: p2pstorage.NewMemoryStore()}
+	service, err := NewServiceWithStore(context.Background(), Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := test.NewUser(t)
+	requester := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	store.roomID = room.ID
+	store.userID = requester.ID
+	store.replacement = memberRecord{
+		RoomID: room.ID, ChannelID: "channel-1", UserID: requester.ID,
+		Membership: "pending", Role: "member", RequestID: "request-b",
+	}
+	store.armed = true
+
+	event := trustedStateEvent(t, room.ID, owner.ID, DirextalkJoinRequestEventType, requester.ID, map[string]any{
+		"status": "approved", "user_id": requester.ID, "channel_id": "channel-1", "request_id": "request-a",
+	})
+	if err := service.ProjectRoomEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	member, found, err := service.lookupMember(context.Background(), room.ID, requester.ID)
+	if err != nil || !found || member.Membership != "pending" || member.RequestID != "request-b" {
+		t.Fatalf("concurrent generation was overwritten: member=%#v found=%v err=%v", member, found, err)
 	}
 }
 

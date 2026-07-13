@@ -139,10 +139,16 @@ func (r *Inviter) PerformInvite(
 		Type:     "m.room.member",
 	}
 
-	content := gomatrixserverlib.MemberContent{
-		Membership: spec.Invite,
-		Reason:     req.InviteInput.Reason,
-		IsDirect:   req.InviteInput.IsDirect,
+	content := struct {
+		gomatrixserverlib.MemberContent
+		PublicJoinRequestID string `json:"io.dirextalk.public_join_request_id,omitempty"`
+	}{
+		MemberContent: gomatrixserverlib.MemberContent{
+			Membership: spec.Invite,
+			Reason:     req.InviteInput.Reason,
+			IsDirect:   req.InviteInput.IsDirect,
+		},
+		PublicJoinRequestID: req.InviteInput.PublicJoinRequestID,
 	}
 
 	if err = proto.SetContent(content); err != nil {

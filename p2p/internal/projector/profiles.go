@@ -239,12 +239,33 @@ func (m *Module) projectJoinRequestState(ctx context.Context, event *types.Heade
 	if err != nil {
 		return err
 	}
-	member, valid := dirextalkprojection.JoinRequestMember(roomID, joinRequest.ChannelID, joinRequest.UserID, member, ok, joinRequest.Raw, m.eventTime(event))
+	expected := member
+	member, valid := dirextalkprojection.JoinRequestMember(
+		roomID, joinRequest.ChannelID, joinRequest.UserID,
+		member, ok, joinRequest.Status, joinRequest.RequestID, m.eventTime(event),
+	)
 	if !valid {
 		return nil
 	}
-	if err := m.dependencies.Members.Save(ctx, member); err != nil {
-		return err
+	if ok {
+		if member == expected {
+			return nil
+		}
+		saved, saveErr := m.dependencies.Members.SaveProjectionIfCurrent(ctx, member, expected)
+		if saveErr != nil {
+			return saveErr
+		}
+		if !saved {
+			return nil
+		}
+	} else {
+		saved, saveErr := m.dependencies.Members.SaveProjectionIfAbsent(ctx, member)
+		if saveErr != nil {
+			return saveErr
+		}
+		if !saved {
+			return nil
+		}
 	}
 	return m.appendEvent(ctx, dirextalkdomain.Event{
 		Type:      "channel.join_request.changed",

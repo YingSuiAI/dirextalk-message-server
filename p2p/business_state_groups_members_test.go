@@ -2,9 +2,11 @@ package p2p
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
@@ -374,8 +376,8 @@ func TestGroupCardJoinRequiresRecordedInvite(t *testing.T) {
 		"invite_event_id": "$invite",
 		"direct_room_id":  "!dm:remote.example",
 	})
-	if apiErr == nil || apiErr.Status != 403 {
-		t.Fatalf("expected forbidden card join without invite, got %#v", apiErr)
+	if apiErr == nil || apiErr.Status != http.StatusGone || apiErr.Code != "request_expired" {
+		t.Fatalf("expected stable expired card join error, got %#v", apiErr)
 	}
 }
 
@@ -557,12 +559,22 @@ func TestKickedGroupMemberRequiresFreshInvite(t *testing.T) {
 	}); apiErr == nil || apiErr.Status != 403 {
 		t.Fatalf("expected kicked group member direct rejoin to be rejected, got %#v", apiErr)
 	}
-	rejoined := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+	if result, apiErr := service.Handle(context.Background(), "groups.join", map[string]any{
 		"room_id":         group.RoomID,
 		"user_mxid":       "@kicked:remote.example",
 		"group_name":      group.Name,
-		"invite_event_id": "$fresh-invite",
+		"invite_event_id": "$old-card-event",
 		"direct_room_id":  "!direct:remote.example",
+	}); result != nil || apiErr == nil || apiErr.Status != http.StatusGone || apiErr.Code != actionbase.RequestExpiredCode {
+		t.Fatalf("old group card reauthorized removed member: result=%#v err=%#v", result, apiErr)
+	}
+	mustHandle[map[string]any](t, service, "groups.invite", map[string]any{
+		"room_id": group.RoomID, "user_mxid": "@kicked:remote.example",
+	})
+	rejoined := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id": group.RoomID, "user_mxid": "@kicked:remote.example",
+		"group_name": group.Name, "invite_event_id": "$direct-card-event",
+		"direct_room_id": "!direct:remote.example",
 	})
 	rejoinedMember := rejoined["member"].(memberRecord)
 	if rejoinedMember.UserID != "@kicked:remote.example" || rejoinedMember.Membership != "join" {

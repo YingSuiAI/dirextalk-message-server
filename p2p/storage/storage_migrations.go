@@ -644,6 +644,64 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: recoverable operations v35",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			statements := make([]string, 0, 5)
+			contactsExist, err := productTableExists(ctx, txn, "p2p_contacts")
+			if err != nil {
+				return err
+			}
+			if contactsExist {
+				statements = append(statements, `ALTER TABLE p2p_contacts ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT ''`)
+			}
+			membersExist, err := productTableExists(ctx, txn, "p2p_members")
+			if err != nil {
+				return err
+			}
+			if membersExist {
+				statements = append(statements, `ALTER TABLE p2p_members ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT ''`)
+			}
+			statements = append(statements,
+				`CREATE TABLE IF NOT EXISTS p2p_operations (
+					operation_id TEXT PRIMARY KEY NOT NULL,
+					action TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL DEFAULT '',
+					phase TEXT NOT NULL DEFAULT '',
+					room_id TEXT NOT NULL DEFAULT '',
+					current_room_id TEXT NOT NULL DEFAULT '',
+					user_id TEXT NOT NULL DEFAULT '',
+					peer_mxid TEXT NOT NULL DEFAULT '',
+					request_id TEXT NOT NULL DEFAULT '',
+					result_json TEXT NOT NULL DEFAULT '',
+					error_code TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL DEFAULT 0,
+					updated_at BIGINT NOT NULL DEFAULT 0
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_operations_status_updated_idx ON p2p_operations(status, updated_at)`,
+			)
+			return execMigrationStatements(ctx, txn, statements)
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: recoverable operation claims v36",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_operations ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0`,
+				`ALTER TABLE p2p_operations ADD COLUMN IF NOT EXISTS lease_owner TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_operations ADD COLUMN IF NOT EXISTS lease_until BIGINT NOT NULL DEFAULT 0`,
+				`CREATE INDEX IF NOT EXISTS p2p_operations_lease_idx ON p2p_operations(lease_until) WHERE lease_owner <> ''`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: operation base generations v37",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_operations ADD COLUMN IF NOT EXISTS base_request_id TEXT NOT NULL DEFAULT ''`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

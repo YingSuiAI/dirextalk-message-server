@@ -23,6 +23,24 @@ type recordingReadMarkerStore struct {
 	err      error
 }
 
+func TestRealtimeWSErrorIncludesStructuredRecoveryFields(t *testing.T) {
+	service := &Service{actions: map[string]actionHandler{
+		"test.recovery": func(context.Context, map[string]any) (any, *apiError) {
+			err := codedError(http.StatusGone, "request_expired", "request expired")
+			err.OperationID = "op_test"
+			err.CurrentRoomID = "!current:example.com"
+			return nil, err
+		},
+	}}
+	frame := service.handleRealtimeWSRequest(context.Background(), realtimeWSTicket{Role: "owner"}, map[string]any{
+		"id": "request-1", "action": "test.recovery", "params": map[string]any{},
+	})
+	if frame["ok"] != false || frame["code"] != "request_expired" || frame["error_code"] != "request_expired" ||
+		frame["operation_id"] != "op_test" || frame["current_room_id"] != "!current:example.com" {
+		t.Fatalf("WS recovery error envelope changed: %#v", frame)
+	}
+}
+
 func (s *recordingReadMarkerStore) SaveReadMarker(ctx context.Context, marker readMarker) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -325,7 +343,10 @@ func TestRealtimeWSClientCommandIsRemoved(t *testing.T) {
 
 func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 	registered := NewService(Config{ServerName: "example.com"}).actionHandlers()
-	service := &Service{actions: map[string]actionHandler{}}
+	service := &Service{
+		actions:            map[string]actionHandler{},
+		servicePortalState: servicePortalState{ownerMXID: "@owner:example.com"},
+	}
 	for action := range registered {
 		action := action
 		service.actions[action] = func(context.Context, map[string]any) (any, *apiError) {
@@ -334,11 +355,25 @@ func TestRealtimeWSRequestCoverageMatchesActionRegistry(t *testing.T) {
 	}
 	record := realtimeWSTicket{Role: "owner", UserID: "@owner:example.com"}
 	for action := range registered {
+		params := map[string]any{}
+		switch action {
+		case "channels.public.join_request":
+			params = map[string]any{
+				"room_id": "!channel:example.com",
+				"user_id": record.UserID,
+			}
+		case "channels.public.join_result":
+			params = map[string]any{
+				"room_id": "!channel:example.com",
+				"user_id": record.UserID,
+				"status":  "rejected",
+			}
+		}
 		frame := service.handleRealtimeWSRequest(context.Background(), record, map[string]any{
 			"type":   "client.request",
 			"id":     "req-" + strings.ReplaceAll(action, ".", "-"),
 			"action": action,
-			"params": map[string]any{},
+			"params": params,
 		})
 		if message := realtimeWSClientRequestBlockedMessage(action); message != "" {
 			if frame["ok"] != false ||

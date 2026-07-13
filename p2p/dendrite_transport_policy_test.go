@@ -3,9 +3,14 @@ package p2p
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
@@ -193,6 +198,43 @@ func TestDendriteTransportJoinRoomCarriesProfileContent(t *testing.T) {
 	}
 }
 
+func TestDendriteTransportJoinRoomLeavesIncompleteFederatedImportForRecovery(t *testing.T) {
+	owner := dendritetest.NewUser(t)
+	requester := dendritetest.NewUser(t)
+	room := dendritetest.NewRoom(t, owner)
+	rsAPI := &policyTransportRoomserver{
+		roomID:    room.ID,
+		state:     room.CurrentState(),
+		allowJoin: true,
+		memberships: map[string]map[string]string{
+			room.ID: {requester.ID: string(spec.Join)},
+		},
+		latestStateResponses: []roomserverAPI.QueryLatestEventsAndStateResponse{{RoomExists: false}},
+	}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := JoinRoomRequest{
+		RoomIDOrAlias: room.ID,
+		UserMXID:      requester.ID,
+		DisplayName:   "Requester",
+		AvatarURL:     "mxc://test/requester",
+		ServerNames:   []string{"remote.test"},
+	}
+
+	joined, err := transport.JoinRoom(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "federated join in progress") {
+		t.Fatalf("incomplete room result = %#v, err=%v", joined, err)
+	}
+	if len(rsAPI.purgedRooms) != 0 {
+		t.Fatalf("incomplete import was destructively purged: %#v", rsAPI.purgedRooms)
+	}
+	if len(rsAPI.joinRequests) != 1 {
+		t.Fatalf("PerformJoin calls = %d, want 1", len(rsAPI.joinRequests))
+	}
+	if rsAPI.latestStateQueries != 1 {
+		t.Fatalf("readiness queries = %d, want 1", rsAPI.latestStateQueries)
+	}
+}
+
 func TestDendriteTransportCreateRoomCarriesCreatorProfile(t *testing.T) {
 	rsAPI := &policyTransportRoomserver{}
 	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
@@ -227,6 +269,282 @@ func TestDendriteTransportCreateRoomCarriesCreatorProfile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyKeyReusesCommittedRoom(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{knownRooms: make(map[string]bool)}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_123",
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RoomID == "" || second.RoomID != first.RoomID || rsAPI.createRoomCalls != 1 {
+		t.Fatalf("idempotent create = first=%#v second=%#v calls=%d", first, second, rsAPI.createRoomCalls)
+	}
+	if len(rsAPI.purgedRooms) != 0 {
+		t.Fatalf("committed room was purged: %#v", rsAPI.purgedRooms)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyRepairsMissingInvite(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{knownRooms: make(map[string]bool), omitCreateInvites: true}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_partial_invite",
+		InviteMXIDs: []string{"@alice:remote.test"},
+		InitialState: []RoomStateEvent{{
+			Type: DirextalkRoomProfileEventType, StateKey: "", Content: map[string]any{"room_type": DirextalkRoomTypeDirect},
+		}},
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RoomID == "" || second.RoomID != first.RoomID || rsAPI.createRoomCalls != 1 || rsAPI.inviteCalls != 1 {
+		t.Fatalf("partial create recovery = first=%#v second=%#v createCalls=%d inviteCalls=%d", first, second, rsAPI.createRoomCalls, rsAPI.inviteCalls)
+	}
+	if got := rsAPI.memberships[first.RoomID]["@alice:remote.test"]; got != string(spec.Invite) {
+		t.Fatalf("missing invite was not repaired: membership=%q", got)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyReconcilesCommittedCreateError(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{
+		knownRooms: make(map[string]bool), omitCreateInvites: true,
+		createResponse: &util.JSONResponse{Code: http.StatusInternalServerError, JSON: map[string]any{"error": "response lost"}},
+	}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_lost_create_response",
+		InviteMXIDs: []string{"@alice:remote.test"},
+		InitialState: []RoomStateEvent{{
+			Type: DirextalkRoomProfileEventType, StateKey: "", Content: map[string]any{"room_type": DirextalkRoomTypeDirect},
+		}},
+	}
+
+	result, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RoomID == "" || rsAPI.createRoomCalls != 1 || rsAPI.inviteCalls != 1 {
+		t.Fatalf("committed create error was not reconciled: result=%#v createCalls=%d inviteCalls=%d", result, rsAPI.createRoomCalls, rsAPI.inviteCalls)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyRebuildsOwnedCreateOnlyRoom(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{
+		knownRooms:        make(map[string]bool),
+		omitCreateCreator: true,
+		createOnlyPurge:   true,
+		createResponse:    &util.JSONResponse{Code: http.StatusInternalServerError, JSON: map[string]any{"error": "creator input failed"}},
+	}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_missing_creator",
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err == nil || first.RoomID == "" || !strings.Contains(err.Error(), "creator is not joined") {
+		t.Fatalf("fault-injected create should expose a retryable partial room: result=%#v err=%v", first, err)
+	}
+	createEvent := mustPolicyTransportCreateEvent(t, first.RoomID, request.CreatorMXID, request.IdempotencyKey, rsAPI.createRoomRequest)
+	rsAPI.latestStateResponses = []roomserverAPI.QueryLatestEventsAndStateResponse{{
+		RoomExists:  true,
+		RoomVersion: gomatrixserverlib.RoomVersionV10,
+		LatestEvents: []string{
+			createEvent.EventID(),
+		},
+		StateEvents: []*types.HeaderedEvent{createEvent},
+	}}
+	rsAPI.omitCreateCreator = false
+	rsAPI.createResponse = nil
+
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatalf("expected create-only room to be rebuilt, got %v", err)
+	}
+	if second.RoomID != first.RoomID || rsAPI.createRoomCalls != 2 {
+		t.Fatalf("create-only recovery = first=%#v second=%#v createCalls=%d", first, second, rsAPI.createRoomCalls)
+	}
+	if len(rsAPI.createRoomIDs) != 2 || rsAPI.createRoomIDs[0] != first.RoomID || rsAPI.createRoomIDs[1] != first.RoomID {
+		t.Fatalf("rebuilt room IDs = %#v, want two calls for %q", rsAPI.createRoomIDs, first.RoomID)
+	}
+	if len(rsAPI.purgedRooms) != 1 || rsAPI.purgedRooms[0] != first.RoomID {
+		t.Fatalf("purged rooms = %#v, want [%q]", rsAPI.purgedRooms, first.RoomID)
+	}
+
+	third, err := transport.CreateRoom(context.Background(), request)
+	if err != nil || third.RoomID != first.RoomID || rsAPI.createRoomCalls != 2 || len(rsAPI.purgedRooms) != 1 {
+		t.Fatalf("rebuilt room did not become stable: result=%#v err=%v createCalls=%d purges=%#v", third, err, rsAPI.createRoomCalls, rsAPI.purgedRooms)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyDoesNotPurgeCreatorJoinLandingDuringRecovery(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{
+		knownRooms:        make(map[string]bool),
+		omitCreateCreator: true,
+		createResponse:    &util.JSONResponse{Code: http.StatusInternalServerError, JSON: map[string]any{"error": "creator input response lost"}},
+	}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_creator_join_in_flight",
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err == nil || first.RoomID == "" || !strings.Contains(err.Error(), "creator is not joined") {
+		t.Fatalf("fault-injected create should expose a retryable partial room: result=%#v err=%v", first, err)
+	}
+	createEvent := mustPolicyTransportCreateEvent(t, first.RoomID, request.CreatorMXID, request.IdempotencyKey, rsAPI.createRoomRequest)
+	rsAPI.latestStateResponses = []roomserverAPI.QueryLatestEventsAndStateResponse{{
+		RoomExists: true, RoomVersion: gomatrixserverlib.RoomVersionV10,
+		LatestEvents: []string{createEvent.EventID()}, StateEvents: []*types.HeaderedEvent{createEvent},
+	}}
+	rsAPI.beforeCreateOnlyPurge = func() {
+		rsAPI.memberships[first.RoomID][request.CreatorMXID] = string(spec.Join)
+	}
+	rsAPI.createResponse = nil
+
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err != nil || second.RoomID != first.RoomID {
+		t.Fatalf("creator join landing during recovery should reconcile the original room: result=%#v err=%v", second, err)
+	}
+	if len(rsAPI.purgedRooms) != 0 || rsAPI.createRoomCalls != 1 {
+		t.Fatalf("creator join landing during recovery was destroyed: createCalls=%d purges=%#v", rsAPI.createRoomCalls, rsAPI.purgedRooms)
+	}
+	if rsAPI.createOnlyPurgeCalls != 1 {
+		t.Fatalf("conditional recovery calls = %d, want 1", rsAPI.createOnlyPurgeCalls)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyDoesNotPurgeUnownedCreateOnlyRoom(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{knownRooms: make(map[string]bool), omitCreateCreator: true}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_unowned_collision",
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createEvent := mustPolicyTransportCreateEvent(t, first.RoomID, request.CreatorMXID, request.IdempotencyKey, rsAPI.createRoomRequest)
+	content := map[string]any{}
+	if err := json.Unmarshal(createEvent.Content(), &content); err != nil {
+		t.Fatal(err)
+	}
+	delete(content, "io.dirextalk.create_operation")
+	createEvent = mustPolicyTransportEvent(t, first.RoomID, request.CreatorMXID, spec.MRoomCreate, "", content, 1, nil, nil)
+	rsAPI.latestStateResponses = []roomserverAPI.QueryLatestEventsAndStateResponse{{
+		RoomExists: true, RoomVersion: gomatrixserverlib.RoomVersionV10,
+		LatestEvents: []string{createEvent.EventID()}, StateEvents: []*types.HeaderedEvent{createEvent},
+	}}
+
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err == nil || second.RoomID != first.RoomID || !strings.Contains(err.Error(), "creator is not joined") {
+		t.Fatalf("unowned room should remain an incomplete conflict: first=%#v second=%#v err=%v", first, second, err)
+	}
+	if rsAPI.createRoomCalls != 1 || len(rsAPI.purgedRooms) != 0 {
+		t.Fatalf("unowned room was mutated: createCalls=%d purges=%#v", rsAPI.createRoomCalls, rsAPI.purgedRooms)
+	}
+}
+
+func TestDendriteTransportCreateRoomIdempotencyDoesNotPurgeOwnedRoomWithOtherState(t *testing.T) {
+	rsAPI := &policyTransportRoomserver{knownRooms: make(map[string]bool), omitCreateCreator: true}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	request := CreateRoomRequest{
+		CreatorMXID: "@owner:test", Name: "Direct", Visibility: "private",
+		RoomType: DirextalkRoomTypeDirect, IsDirect: true, IdempotencyKey: "op_contact_partial_state",
+	}
+
+	first, err := transport.CreateRoom(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createEvent := mustPolicyTransportCreateEvent(t, first.RoomID, request.CreatorMXID, request.IdempotencyKey, rsAPI.createRoomRequest)
+	profileEvent := mustPolicyTransportEvent(t, first.RoomID, request.CreatorMXID, DirextalkRoomProfileEventType, "", map[string]any{
+		"room_type": DirextalkRoomTypeDirect,
+	}, 2, []any{createEvent.EventID()}, []any{createEvent.EventID()})
+	rsAPI.latestStateResponses = []roomserverAPI.QueryLatestEventsAndStateResponse{{
+		RoomExists: true, RoomVersion: gomatrixserverlib.RoomVersionV10,
+		LatestEvents: []string{profileEvent.EventID()}, StateEvents: []*types.HeaderedEvent{createEvent, profileEvent},
+	}}
+
+	second, err := transport.CreateRoom(context.Background(), request)
+	if err == nil || second.RoomID != first.RoomID || !strings.Contains(err.Error(), "creator is not joined") {
+		t.Fatalf("room with additional state should remain an incomplete conflict: first=%#v second=%#v err=%v", first, second, err)
+	}
+	if rsAPI.createRoomCalls != 1 || len(rsAPI.purgedRooms) != 0 {
+		t.Fatalf("room with additional state was mutated: createCalls=%d purges=%#v", rsAPI.createRoomCalls, rsAPI.purgedRooms)
+	}
+}
+
+func mustPolicyTransportCreateEvent(t *testing.T, roomID, creatorMXID, idempotencyKey string, request *roomserverAPI.PerformCreateRoomRequest) *types.HeaderedEvent {
+	t.Helper()
+	if request == nil {
+		t.Fatal("missing PerformCreateRoom request")
+	}
+	content := map[string]any{}
+	if len(request.CreationContent) > 0 {
+		if err := json.Unmarshal(request.CreationContent, &content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := sha256.Sum256([]byte(idempotencyKey))
+	wantMarker := hex.EncodeToString(digest[:])
+	if gotMarker, _ := content["io.dirextalk.create_operation"].(string); gotMarker != wantMarker {
+		t.Fatalf("deterministic create operation marker = %q, want %q", gotMarker, wantMarker)
+	}
+	content["creator"] = creatorMXID
+	content["room_version"] = request.RoomVersion
+	return mustPolicyTransportEvent(t, roomID, creatorMXID, spec.MRoomCreate, "", content, 1, nil, nil)
+}
+
+func mustPolicyTransportEvent(
+	t *testing.T,
+	roomID, senderID, eventType, stateKey string,
+	content map[string]any,
+	depth int64,
+	prevEvents, authEvents []any,
+) *types.HeaderedEvent {
+	t.Helper()
+	if prevEvents == nil {
+		prevEvents = []any{}
+	}
+	if authEvents == nil {
+		authEvents = []any{}
+	}
+	stateKeyCopy := stateKey
+	builder := gomatrixserverlib.MustGetRoomVersion(gomatrixserverlib.RoomVersionV10).NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
+		SenderID: senderID, RoomID: roomID, Type: eventType, StateKey: &stateKeyCopy, Depth: depth, PrevEvents: prevEvents,
+	})
+	builder.AuthEvents = authEvents
+	if err := builder.SetContent(content); err != nil {
+		t.Fatal(err)
+	}
+	event, err := builder.Build(time.Now(), spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &types.HeaderedEvent{PDU: event}
 }
 
 func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
@@ -306,10 +624,42 @@ type policyTransportRoomserver struct {
 	allowJoin             bool
 	joinContent           map[string]interface{}
 	createRoomRequest     *roomserverAPI.PerformCreateRoomRequest
+	createRoomCalls       int
+	createRoomIDs         []string
+	knownRooms            map[string]bool
+	memberships           map[string]map[string]string
+	statePresence         map[string]map[gomatrixserverlib.StateKeyTuple]bool
+	omitCreateCreator     bool
+	omitCreateInvites     bool
+	inviteCalls           int
+	createResponse        *util.JSONResponse
+	joinRequests          []roomserverAPI.PerformJoinRequest
+	purgedRooms           []string
+	latestStateResponses  []roomserverAPI.QueryLatestEventsAndStateResponse
+	latestStateQueries    int
+	createOnlyPurge       bool
+	createOnlyPurgeCalls  int
+	beforeCreateOnlyPurge func()
+}
+
+func (r *policyTransportRoomserver) QueryLatestEventsAndState(_ context.Context, _ *roomserverAPI.QueryLatestEventsAndStateRequest, res *roomserverAPI.QueryLatestEventsAndStateResponse) error {
+	responseIndex := r.latestStateQueries
+	r.latestStateQueries++
+	if responseIndex >= len(r.latestStateResponses) {
+		*res = roomserverAPI.QueryLatestEventsAndStateResponse{}
+		return nil
+	}
+	*res = r.latestStateResponses[responseIndex]
+	return nil
 }
 
 func (r *policyTransportRoomserver) QueryCurrentState(ctx context.Context, req *roomserverAPI.QueryCurrentStateRequest, res *roomserverAPI.QueryCurrentStateResponse) error {
 	res.StateEvents = map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{}
+	for _, tuple := range req.StateTuples {
+		if r.statePresence[req.RoomID][tuple] {
+			res.StateEvents[tuple] = &types.HeaderedEvent{}
+		}
+	}
 	for _, tuple := range req.StateTuples {
 		for _, event := range r.state {
 			if event.Type() == tuple.EventType && event.StateKey() != nil && *event.StateKey() == tuple.StateKey {
@@ -322,6 +672,12 @@ func (r *policyTransportRoomserver) QueryCurrentState(ctx context.Context, req *
 
 func (r *policyTransportRoomserver) QueryMembershipForUser(ctx context.Context, req *roomserverAPI.QueryMembershipForUserRequest, res *roomserverAPI.QueryMembershipForUserResponse) error {
 	res.RoomExists = true
+	if membership := r.memberships[req.RoomID][req.UserID.String()]; membership != "" {
+		res.HasBeenInRoom = membership == string(spec.Join) || membership == string(spec.Leave)
+		res.IsInRoom = membership == string(spec.Join)
+		res.Membership = membership
+		return nil
+	}
 	for _, event := range r.state {
 		if event.Type() == spec.MRoomMember && event.StateKey() != nil && *event.StateKey() == req.UserID.String() {
 			res.HasBeenInRoom = true
@@ -357,16 +713,43 @@ func (r *policyTransportRoomserver) SigningIdentityFor(ctx context.Context, room
 
 func (r *policyTransportRoomserver) PerformInvite(ctx context.Context, req *roomserverAPI.PerformInviteRequest) error {
 	r.inviteCalled = true
+	r.inviteCalls++
+	if r.memberships != nil {
+		roomID := req.InviteInput.RoomID.String()
+		if r.memberships[roomID] == nil {
+			r.memberships[roomID] = make(map[string]string)
+		}
+		r.memberships[roomID][req.InviteInput.Invitee.String()] = string(spec.Invite)
+		return nil
+	}
 	return fmt.Errorf("policy was not applied before invite")
 }
 
 func (r *policyTransportRoomserver) PerformJoin(ctx context.Context, req *roomserverAPI.PerformJoinRequest) (string, spec.ServerName, error) {
 	r.joinCalled = true
 	r.joinContent = req.Content
+	r.joinRequests = append(r.joinRequests, *req)
 	if r.allowJoin {
 		return req.RoomIDOrAlias, spec.ServerName("test"), nil
 	}
 	return "", "", fmt.Errorf("policy was not applied before join")
+}
+
+func (r *policyTransportRoomserver) PerformAdminPurgeRoom(_ context.Context, roomID string) error {
+	r.purgedRooms = append(r.purgedRooms, roomID)
+	return nil
+}
+
+func (r *policyTransportRoomserver) PerformAdminPurgeRoomIfCreateOnly(_ context.Context, req *roomserverAPI.PerformAdminPurgeCreateOnlyRoomRequest) (bool, error) {
+	r.createOnlyPurgeCalls++
+	if r.beforeCreateOnlyPurge != nil {
+		r.beforeCreateOnlyPurge()
+	}
+	if !r.createOnlyPurge {
+		return false, nil
+	}
+	r.purgedRooms = append(r.purgedRooms, req.RoomID)
+	return true, nil
 }
 
 func (r *policyTransportRoomserver) DefaultRoomVersion() gomatrixserverlib.RoomVersion {
@@ -375,5 +758,37 @@ func (r *policyTransportRoomserver) DefaultRoomVersion() gomatrixserverlib.RoomV
 
 func (r *policyTransportRoomserver) PerformCreateRoom(ctx context.Context, userID spec.UserID, roomID spec.RoomID, createRequest *roomserverAPI.PerformCreateRoomRequest) (string, *util.JSONResponse) {
 	r.createRoomRequest = createRequest
-	return roomID.String(), nil
+	r.createRoomCalls++
+	r.createRoomIDs = append(r.createRoomIDs, roomID.String())
+	if r.knownRooms != nil {
+		r.knownRooms[roomID.String()] = true
+	}
+	if r.memberships == nil {
+		r.memberships = make(map[string]map[string]string)
+	}
+	if r.memberships[roomID.String()] == nil {
+		r.memberships[roomID.String()] = make(map[string]string)
+	}
+	if !r.omitCreateCreator {
+		r.memberships[roomID.String()][userID.String()] = string(spec.Join)
+	}
+	if !r.omitCreateInvites {
+		for _, invitee := range createRequest.InvitedUsers {
+			r.memberships[roomID.String()][invitee] = string(spec.Invite)
+		}
+	}
+	if r.statePresence == nil {
+		r.statePresence = make(map[string]map[gomatrixserverlib.StateKeyTuple]bool)
+	}
+	if r.statePresence[roomID.String()] == nil {
+		r.statePresence[roomID.String()] = make(map[gomatrixserverlib.StateKeyTuple]bool)
+	}
+	for _, state := range createRequest.InitialState {
+		r.statePresence[roomID.String()][gomatrixserverlib.StateKeyTuple{EventType: state.Type, StateKey: state.StateKey}] = true
+	}
+	return roomID.String(), r.createResponse
+}
+
+func (r *policyTransportRoomserver) IsKnownRoom(_ context.Context, roomID spec.RoomID) (bool, error) {
+	return r.knownRooms != nil && r.knownRooms[roomID.String()], nil
 }

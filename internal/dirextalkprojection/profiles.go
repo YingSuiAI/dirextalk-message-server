@@ -95,9 +95,16 @@ func MemberPolicy(roomID, userID string, existing dirextalkdomain.MemberRecord, 
 	return member
 }
 
-func JoinRequestMember(roomID, channelID, userID string, existing dirextalkdomain.MemberRecord, ok bool, content map[string]any, now time.Time) (dirextalkdomain.MemberRecord, bool) {
+func JoinRequestMember(
+	roomID, channelID, userID string,
+	existing dirextalkdomain.MemberRecord,
+	ok bool,
+	status, requestID string,
+	now time.Time,
+) (dirextalkdomain.MemberRecord, bool) {
 	membership := ""
-	switch strings.ToLower(strings.TrimSpace(trimString(content["status"]))) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch status {
 	case "pending":
 		membership = "pending"
 	case "approved":
@@ -106,6 +113,13 @@ func JoinRequestMember(roomID, channelID, userID string, existing dirextalkdomai
 		membership = "reject"
 	default:
 		return dirextalkdomain.MemberRecord{}, false
+	}
+	requestID = strings.TrimSpace(requestID)
+	if ok && status == "approved" && preserveApprovedJoinRequestWorkflow(existing) {
+		return existing, true
+	}
+	if ok && preserveJoinRequestGeneration(existing, requestID) {
+		return existing, true
 	}
 	member := existing
 	if !ok {
@@ -119,7 +133,24 @@ func JoinRequestMember(roomID, channelID, userID string, existing dirextalkdomai
 	if member.JoinedAt == 0 {
 		member.JoinedAt = now.UnixMilli()
 	}
+	if requestID != "" {
+		member.RequestID = requestID
+	}
 	return member, true
+}
+
+func preserveApprovedJoinRequestWorkflow(existing dirextalkdomain.MemberRecord) bool {
+	switch strings.ToLower(strings.TrimSpace(existing.Membership)) {
+	case "approved", "joining", "join_failed", "join", "joined":
+		return true
+	default:
+		return false
+	}
+}
+
+func preserveJoinRequestGeneration(existing dirextalkdomain.MemberRecord, requestID string) bool {
+	requestID = strings.TrimSpace(requestID)
+	return strings.TrimSpace(existing.RequestID) != "" && strings.TrimSpace(existing.RequestID) != requestID
 }
 
 func ConversationKindFromRoomType(roomType string) dirextalkstate.RoomKind {

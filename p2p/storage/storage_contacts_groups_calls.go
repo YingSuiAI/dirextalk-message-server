@@ -8,8 +8,8 @@ import (
 func (s *DatabaseStore) UpsertContact(ctx context.Context, contact contactRecord) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO p2p_contacts (room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status, request_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT(peer_mxid) DO UPDATE SET
 				room_id = EXCLUDED.room_id,
 				peer_mxid = EXCLUDED.peer_mxid,
@@ -18,14 +18,102 @@ func (s *DatabaseStore) UpsertContact(ctx context.Context, contact contactRecord
 				avatar_url = EXCLUDED.avatar_url,
 				remark = EXCLUDED.remark,
 				domain = EXCLUDED.domain,
-				status = EXCLUDED.status
-		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.DisplayNameOverride, contact.AvatarURL, contact.Remark, contact.Domain, contact.Status)
+				status = EXCLUDED.status,
+				request_id = CASE
+					WHEN EXCLUDED.request_id <> '' THEN EXCLUDED.request_id
+					ELSE p2p_contacts.request_id
+				END
+		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.DisplayNameOverride, contact.AvatarURL, contact.Remark, contact.Domain, contact.Status, contact.RequestID)
 		return err
 	})
 }
 
+func (s *DatabaseStore) CompareAndSwapContact(
+	ctx context.Context,
+	contact contactRecord,
+	expected contactRecord,
+) (bool, error) {
+	updated := false
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			UPDATE p2p_contacts SET
+				room_id = $1, peer_mxid = $2, display_name = $3, display_name_override = $4,
+				avatar_url = $5, remark = $6, domain = $7, status = $8, request_id = $9
+			WHERE peer_mxid = $10 AND room_id = $11 AND request_id = $12
+				AND LOWER(BTRIM(status)) = LOWER(BTRIM($13))
+		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.DisplayNameOverride, contact.AvatarURL,
+			contact.Remark, contact.Domain, contact.Status, contact.RequestID, expected.PeerMXID,
+			expected.RoomID, expected.RequestID, expected.Status)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		updated = count == 1
+		return nil
+	})
+	return updated, err
+}
+
+// CompareAndSwapContactProjection commits a contact generation and its
+// direct-conversation projection atomically. It also preserves the historic
+// contact-over-group ownership rule for a Matrix room inside that transaction.
+func (s *DatabaseStore) CompareAndSwapContactProjection(
+	ctx context.Context,
+	contact contactRecord,
+	expected contactRecord,
+) (bool, error) {
+	conversation := normalizeConversationRecord(conversationFromContact(contact))
+	if err := validateConversationRecord(conversation); err != nil {
+		return false, err
+	}
+	updated := false
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		result, err := txn.ExecContext(ctx, `
+			UPDATE p2p_contacts SET
+				room_id = $1, peer_mxid = $2, display_name = $3, display_name_override = $4,
+				avatar_url = $5, remark = $6, domain = $7, status = $8, request_id = $9
+			WHERE peer_mxid = $10 AND room_id = $11 AND request_id = $12
+				AND LOWER(BTRIM(status)) = LOWER(BTRIM($13))
+		`, contact.RoomID, contact.PeerMXID, contact.DisplayName, contact.DisplayNameOverride, contact.AvatarURL,
+			contact.Remark, contact.Domain, contact.Status, contact.RequestID, expected.PeerMXID,
+			expected.RoomID, expected.RequestID, expected.Status)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil || count != 1 {
+			return err
+		}
+		if _, err = txn.ExecContext(ctx, `DELETE FROM p2p_groups WHERE room_id = $1`, contact.RoomID); err != nil {
+			return err
+		}
+		if _, err = txn.ExecContext(ctx, `
+			DELETE FROM p2p_conversations WHERE matrix_room_id = $1 AND kind <> $2
+		`, contact.RoomID, conversationKindDirect); err != nil {
+			return err
+		}
+		if contact.PeerMXID != "" {
+			if _, err = txn.ExecContext(ctx, `
+				DELETE FROM p2p_conversations
+				WHERE kind = $1 AND peer_mxid = $2 AND matrix_room_id <> $3
+			`, conversationKindDirect, contact.PeerMXID, contact.RoomID); err != nil {
+				return err
+			}
+		}
+		if err = upsertConversation(ctx, txn, conversation); err != nil {
+			return err
+		}
+		updated = true
+		return nil
+	})
+	return updated, err
+}
+
 func (s *DatabaseStore) ListContacts(ctx context.Context) ([]contactRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status FROM p2p_contacts ORDER BY display_name ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT room_id, peer_mxid, display_name, display_name_override, avatar_url, remark, domain, status, request_id FROM p2p_contacts ORDER BY display_name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +121,7 @@ func (s *DatabaseStore) ListContacts(ctx context.Context) ([]contactRecord, erro
 	var contacts []contactRecord
 	for rows.Next() {
 		var contact contactRecord
-		if err := rows.Scan(&contact.RoomID, &contact.PeerMXID, &contact.DisplayName, &contact.DisplayNameOverride, &contact.AvatarURL, &contact.Remark, &contact.Domain, &contact.Status); err != nil {
+		if err := rows.Scan(&contact.RoomID, &contact.PeerMXID, &contact.DisplayName, &contact.DisplayNameOverride, &contact.AvatarURL, &contact.Remark, &contact.Domain, &contact.Status, &contact.RequestID); err != nil {
 			return nil, err
 		}
 		contacts = append(contacts, contact)

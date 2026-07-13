@@ -408,6 +408,101 @@ func TestPurgeRoom(t *testing.T) {
 	})
 }
 
+func TestConditionalCreateOnlyPurgeIsSerializedBehindRoomInput(t *testing.T) {
+	const (
+		creatorMXID = "@owner:localhost"
+		markerKey   = "io.dirextalk.create_operation"
+		markerValue = "test-operation-fingerprint"
+	)
+	stateKey := ""
+	memberStateKey := creatorMXID
+
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		cfg, processCtx, closeDB := testrig.CreateConfig(t, dbType)
+		defer closeDB()
+		cm := sqlutil.NewConnectionManager(processCtx, cfg.Global.DatabaseOptions)
+		natsInstance := &jetstream.NATSInstance{}
+		caches := caching.NewRistrettoCache(128*1024*1024, time.Hour, caching.DisableMetrics)
+		rsAPI := roomserver.NewInternalAPI(processCtx, cfg, cm, natsInstance, caches, caching.DisableMetrics)
+		rsAPI.SetFederationAPI(nil, nil)
+		recoveryAPI, ok := rsAPI.(api.CreateOnlyRoomRecoveryAPI)
+		if !ok {
+			t.Fatal("roomserver does not expose create-only recovery")
+		}
+
+		for _, tc := range []struct {
+			name        string
+			roomID      string
+			queueJoin   bool
+			eventMarker string
+			wantPurged  bool
+		}{
+			{name: "queued creator join preserves room", roomID: "!create_recovery_joined:localhost", queueJoin: true, eventMarker: markerValue},
+			{name: "owned create-only residue is purged", roomID: "!create_recovery_partial:localhost", eventMarker: markerValue, wantPurged: true},
+			{name: "unowned create-only room is preserved", roomID: "!create_recovery_unowned:localhost", eventMarker: "different-operation"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				createEvent := mustCreateEvent(t, fledglingEvent{
+					Type: spec.MRoomCreate, StateKey: &stateKey, SenderID: creatorMXID,
+					RoomID: tc.roomID, Depth: 1, PrevEvents: []any{}, AuthEvents: []any{},
+					Content: map[string]any{
+						"creator": creatorMXID, "room_version": gomatrixserverlib.RoomVersionV9,
+						markerKey: tc.eventMarker,
+					},
+				})
+				events := []*types.HeaderedEvent{createEvent}
+				if tc.queueJoin {
+					joinEvent := mustCreateEvent(t, fledglingEvent{
+						Type: spec.MRoomMember, StateKey: &memberStateKey, SenderID: creatorMXID,
+						RoomID: tc.roomID, Depth: 2,
+						PrevEvents: []any{createEvent.EventID()}, AuthEvents: []any{createEvent.EventID()},
+						Content: map[string]any{"membership": spec.Join},
+					})
+					events = append(events, joinEvent)
+				}
+
+				inputs := make([]api.InputRoomEvent, 0, len(events))
+				for _, event := range events {
+					inputs = append(inputs, api.InputRoomEvent{
+						Kind: api.KindNew, Event: event, Origin: "localhost", SendAsServer: api.DoNotSendToOtherServers,
+					})
+				}
+				inputResponse := &api.InputRoomEventsResponse{}
+				rsAPI.InputRoomEvents(context.Background(), &api.InputRoomEventsRequest{
+					InputRoomEvents: inputs,
+					Asynchronous:    true,
+				}, inputResponse)
+				if err := inputResponse.Err(); err != nil {
+					t.Fatalf("queue room input: %v", err)
+				}
+
+				purged, err := recoveryAPI.PerformAdminPurgeRoomIfCreateOnly(context.Background(), &api.PerformAdminPurgeCreateOnlyRoomRequest{
+					RoomID: tc.roomID, CreatorMXID: creatorMXID,
+					CreateEventContentKey: markerKey, CreateEventContentValue: markerValue,
+				})
+				if err != nil {
+					t.Fatalf("conditional create-only purge: %v", err)
+				}
+				if purged != tc.wantPurged {
+					t.Fatalf("purged = %v, want %v", purged, tc.wantPurged)
+				}
+
+				roomID, err := spec.NewRoomID(tc.roomID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				known, err := rsAPI.IsKnownRoom(context.Background(), *roomID)
+				if err != nil {
+					t.Fatalf("query room existence: %v", err)
+				}
+				if known == tc.wantPurged {
+					t.Fatalf("known room = %v after purged=%v", known, purged)
+				}
+			})
+		}
+	})
+}
+
 type fledglingEvent struct {
 	Type       string
 	StateKey   *string

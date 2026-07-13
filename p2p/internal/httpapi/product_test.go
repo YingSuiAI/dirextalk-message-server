@@ -15,6 +15,24 @@ import (
 
 type productContextKey struct{}
 
+func TestWriteErrorKeepsCodeAndAddsRecoveryAliases(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	apiErr := actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "request expired")
+	apiErr.OperationID = "op_test"
+	apiErr.CurrentRoomID = "!current:example.com"
+
+	WriteError(recorder, apiErr)
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusGone || body["code"] != actionbase.RequestExpiredCode ||
+		body["error_code"] != actionbase.RequestExpiredCode || body["operation_id"] != "op_test" ||
+		body["current_room_id"] != "!current:example.com" {
+		t.Fatalf("recovery error envelope changed: status=%d body=%#v", recorder.Code, body)
+	}
+}
+
 type productPortStub struct {
 	actions        map[string]bool
 	authorized     bool

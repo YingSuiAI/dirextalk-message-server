@@ -117,7 +117,7 @@ func MemberPolicyState(member dirextalkdomain.MemberRecord) StateEvent {
 	}
 }
 
-func JoinRequestState(roomID, userID, status, reason string, at time.Time) StateEvent {
+func JoinRequestState(roomID, userID, status, reason, requestID string, at time.Time) StateEvent {
 	timestamp := at.UTC().Format(time.RFC3339Nano)
 	content := map[string]any{
 		"status":     strings.ToLower(strings.TrimSpace(status)),
@@ -128,6 +128,9 @@ func JoinRequestState(roomID, userID, status, reason string, at time.Time) State
 	}
 	if strings.TrimSpace(reason) != "" {
 		content["reason"] = strings.TrimSpace(reason)
+	}
+	if strings.TrimSpace(requestID) != "" {
+		content["request_id"] = strings.TrimSpace(requestID)
 	}
 	return StateEvent{
 		Type:     JoinRequestEventType,

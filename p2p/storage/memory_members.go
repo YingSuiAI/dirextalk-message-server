@@ -17,6 +17,35 @@ func (s *MemoryStore) UpsertMember(ctx context.Context, member memberRecord) err
 	return nil
 }
 
+func (s *MemoryStore) InsertMemberIfAbsent(_ context.Context, member memberRecord) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := memoryMemberKey(member.RoomID, member.UserID)
+	if _, exists := s.members[key]; exists {
+		return false, nil
+	}
+	s.members[key] = member
+	return true, nil
+}
+
+func (s *MemoryStore) CompareAndSwapMemberGeneration(
+	_ context.Context,
+	member memberRecord,
+	expectedRequestID,
+	expectedMembership string,
+) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := memoryMemberKey(member.RoomID, member.UserID)
+	current, found := s.members[key]
+	if !found || current.RequestID != expectedRequestID ||
+		(expectedMembership != "" && !strings.EqualFold(strings.TrimSpace(current.Membership), strings.TrimSpace(expectedMembership))) {
+		return false, nil
+	}
+	s.members[key] = member
+	return true, nil
+}
+
 func (s *MemoryStore) LookupMember(ctx context.Context, roomID, userID string) (memberRecord, bool, error) {
 	s.mu.RLock()
 	member, ok := s.members[memoryMemberKey(roomID, userID)]

@@ -14,7 +14,14 @@ func (s *Service) prepareMemberInvite(
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	return func(sendCtx context.Context, member memberRecord, params map[string]any, isDirect bool) *apiError {
+	return func(sendCtx context.Context, member *memberRecord, params map[string]any, isDirect bool) *apiError {
+		if member == nil {
+			return badRequest("member is required")
+		}
+		generation := trimString(params["rebuild_generation"])
+		if generation != "" && !membersmodule.ValidRebuildGeneration(generation) {
+			return badRequest("rebuild_generation is invalid")
+		}
 		if s.transport != nil {
 			inviteReq := InviteUserRequest{
 				RoomID:          member.RoomID,
@@ -28,9 +35,15 @@ func (s *Service) prepareMemberInvite(
 				if !isAlreadyJoinedRoomError(err) {
 					return transportWriteError(err)
 				}
-				if apiErr := s.reinviteAlreadyJoinedRoomMember(sendCtx, scope, member, params, inviteReq); apiErr != nil {
+				if apiErr := s.reinviteAlreadyJoinedRoomMember(sendCtx, scope, member, params, inviteReq, err); apiErr != nil {
 					return apiErr
 				}
+			}
+		}
+		if generation != "" {
+			member.RequestID = generation
+			if err := markRecoverableOperation(sendCtx, operationPhaseMatrixCommitted, member.RoomID); err != nil {
+				return recoverableOperationWriteError(sendCtx, err)
 			}
 		}
 		return nil
@@ -134,26 +147,21 @@ func (s *Service) ensureJoinedGroupRecord(ctx context.Context, member memberReco
 		}
 		return s.saveGroup(ctx, group)
 	}
-	changed := false
 	if name != "" && group.Name != name {
 		group.Name = name
-		changed = true
 	}
 	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" && group.AvatarURL != avatarURL {
 		group.AvatarURL = avatarURL
-		changed = true
 	}
 	if topic := trimString(params["topic"]); topic != "" && group.Topic != topic {
 		group.Topic = topic
-		changed = true
 	}
 	if group.MemberCount == 0 {
 		group.MemberCount = 1
-		changed = true
 	}
-	if !changed {
-		return nil
-	}
+	// Save also repairs the group conversation. Replaying a join after a
+	// partial group/conversation write must therefore not stop at an unchanged
+	// group projection.
 	return s.saveGroup(ctx, group)
 }
 

@@ -86,3 +86,17 @@ func TestSaveMemberSerializesMergeAndUpsertByMember(t *testing.T) {
 		t.Fatalf("concurrent remove/leave stored %#v, ok=%v err=%v", stored, ok, err)
 	}
 }
+
+func TestMergeMemberPersistenceStartsNewRequestGenerationAfterTerminalState(t *testing.T) {
+	member := memberRecord{Membership: "invite", JoinedAt: 200}
+	mergeMemberPersistence(&member, memberRecord{Membership: "rejected", JoinedAt: 100})
+	if member.JoinedAt != 200 {
+		t.Fatalf("new invitation generation kept stale timestamp: %#v", member)
+	}
+
+	replay := memberRecord{Membership: "joining", JoinedAt: 300}
+	mergeMemberPersistence(&replay, memberRecord{Membership: "pending", JoinedAt: 200})
+	if replay.JoinedAt != 200 {
+		t.Fatalf("same request generation changed timestamp: %#v", replay)
+	}
+}

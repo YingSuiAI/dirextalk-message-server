@@ -64,6 +64,7 @@ type JoinRequestContent struct {
 	ChannelID string
 	Status    string
 	Reason    string
+	RequestID string
 }
 
 func ParseRoomProfileContent(data []byte) (RoomProfileContent, error) {
@@ -166,6 +167,7 @@ func JoinRequestFromContent(content map[string]any, stateKey *string) JoinReques
 		ChannelID: trimAny(content["channel_id"]),
 		Status:    strings.ToLower(strings.TrimSpace(trimAny(content["status"]))),
 		Reason:    trimAny(content["reason"]),
+		RequestID: trimAny(content["request_id"]),
 	}
 }
 

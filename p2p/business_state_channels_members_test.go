@@ -91,7 +91,7 @@ func TestChannelJoinRequestPersistsPendingMemberAndResolves(t *testing.T) {
 	}
 }
 
-func TestChannelJoinRequestApproveCanRetryJoinFailedRemoteRequest(t *testing.T) {
+func TestChannelJoinRequestApproveKeepsUnconfirmedCallbackRecoverable(t *testing.T) {
 	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"temporary requester node failure"}`, http.StatusBadGateway)
 	}))
@@ -121,8 +121,8 @@ func TestChannelJoinRequestApproveCanRetryJoinFailedRemoteRequest(t *testing.T) 
 		"room_id":    ch.RoomID,
 		"user_mxid":  "@alice:remote.example",
 	})
-	if first["status"] != "join_failed" {
-		t.Fatalf("expected first approval to record join_failed, got %#v", first)
+	if first["status"] != "joining" || first["error_code"] != "join_result_unconfirmed" {
+		t.Fatalf("expected first approval to remain recoverable, got %#v", first)
 	}
 
 	second := mustHandle[map[string]any](t, service, "channels.join_request.approve", map[string]any{
@@ -130,12 +130,12 @@ func TestChannelJoinRequestApproveCanRetryJoinFailedRemoteRequest(t *testing.T) 
 		"room_id":    ch.RoomID,
 		"user_mxid":  "@alice:remote.example",
 	})
-	if second["status"] != "join_failed" {
+	if second["status"] != "joining" || second["error_code"] != "join_result_unconfirmed" {
 		t.Fatalf("expected retry approval to run instead of 404, got %#v", second)
 	}
 	member := second["member"].(memberRecord)
-	if member.Membership != "join_failed" || member.UserID != "@alice:remote.example" {
-		t.Fatalf("expected retry to preserve join_failed member, got %#v", member)
+	if member.Membership != "joining" || member.UserID != "@alice:remote.example" {
+		t.Fatalf("expected retry to preserve recoverable joining member, got %#v", member)
 	}
 }
 

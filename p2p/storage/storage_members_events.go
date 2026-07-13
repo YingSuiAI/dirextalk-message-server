@@ -79,8 +79,8 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_members (
-				room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+				room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url, request_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			ON CONFLICT(room_id, user_id) DO UPDATE SET
 				channel_id = EXCLUDED.channel_id,
 				display_name = EXCLUDED.display_name,
@@ -93,14 +93,79 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 					WHEN EXCLUDED.requester_node_base_url <> '' THEN EXCLUDED.requester_node_base_url
 					ELSE p2p_members.requester_node_base_url
 				END,
+				request_id = CASE
+					WHEN EXCLUDED.request_id <> '' THEN EXCLUDED.request_id
+					ELSE p2p_members.request_id
+				END,
 				joined_at = CASE
 					WHEN p2p_members.joined_at > 0 THEN p2p_members.joined_at
 					WHEN EXCLUDED.joined_at > 0 THEN EXCLUDED.joined_at
 					ELSE p2p_members.joined_at
 				END
-		`, member.RoomID, member.UserID, member.ChannelID, member.DisplayName, member.AvatarURL, member.Domain, member.Membership, member.Role, boolInt(member.Muted), member.JoinedAt, member.RequesterNodeBaseURL)
+		`, member.RoomID, member.UserID, member.ChannelID, member.DisplayName, member.AvatarURL, member.Domain, member.Membership, member.Role, boolInt(member.Muted), member.JoinedAt, member.RequesterNodeBaseURL, member.RequestID)
 		return err
 	})
+}
+
+func (s *DatabaseStore) InsertMemberIfAbsent(ctx context.Context, member memberRecord) (bool, error) {
+	inserted := false
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			INSERT INTO p2p_members (
+				room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url, request_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			ON CONFLICT(room_id, user_id) DO NOTHING
+		`, member.RoomID, member.UserID, member.ChannelID, member.DisplayName, member.AvatarURL, member.Domain,
+			member.Membership, member.Role, boolInt(member.Muted), member.JoinedAt, member.RequesterNodeBaseURL, member.RequestID)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		inserted = count == 1
+		return nil
+	})
+	return inserted, err
+}
+
+func (s *DatabaseStore) CompareAndSwapMemberGeneration(
+	ctx context.Context,
+	member memberRecord,
+	expectedRequestID,
+	expectedMembership string,
+) (bool, error) {
+	updated := false
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `
+			UPDATE p2p_members SET
+				channel_id = $1,
+				display_name = $2,
+				avatar_url = $3,
+				domain = $4,
+				membership = $5,
+				role = $6,
+				muted = $7,
+				joined_at = $8,
+				requester_node_base_url = $9,
+				request_id = $10
+			WHERE room_id = $11 AND user_id = $12 AND request_id = $13
+				AND ($14 = '' OR LOWER(BTRIM(membership)) = LOWER(BTRIM($14)))
+		`, member.ChannelID, member.DisplayName, member.AvatarURL, member.Domain, member.Membership,
+			member.Role, boolInt(member.Muted), member.JoinedAt, member.RequesterNodeBaseURL,
+			member.RequestID, member.RoomID, member.UserID, expectedRequestID, expectedMembership)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		updated = count == 1
+		return nil
+	})
+	return updated, err
 }
 
 func (s *DatabaseStore) ListMembers(ctx context.Context, roomID, channelID string) ([]memberRecord, error) {
@@ -122,7 +187,7 @@ func (s *DatabaseStore) ListMembers(ctx context.Context, roomID, channelID strin
 	for rows.Next() {
 		var member memberRecord
 		var muted int64
-		if err := rows.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL); err != nil {
+		if err := rows.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL, &member.RequestID); err != nil {
 			return nil, err
 		}
 		member.Muted = muted == 1
@@ -191,7 +256,7 @@ func (s *DatabaseStore) LookupMember(ctx context.Context, roomID, userID string)
 	row := s.db.QueryRowContext(ctx, listMembersSelect+` WHERE room_id = $1 AND user_id = $2`, roomID, userID)
 	var member memberRecord
 	var muted int64
-	if err := row.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL); err != nil {
+	if err := row.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL, &member.RequestID); err != nil {
 		if err == sql.ErrNoRows {
 			return memberRecord{}, false, nil
 		}
@@ -201,7 +266,7 @@ func (s *DatabaseStore) LookupMember(ctx context.Context, roomID, userID string)
 	return member, true, nil
 }
 
-const listMembersSelect = `SELECT room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url FROM p2p_members`
+const listMembersSelect = `SELECT room_id, user_id, channel_id, display_name, avatar_url, domain, membership, role, muted, joined_at, requester_node_base_url, request_id FROM p2p_members`
 const visibleMembersWhere = ` WHERE membership NOT IN ('leave', 'left', 'remove', 'removed', 'reject', 'rejected', 'ban', 'banned')`
 
 func scanMembers(rows *sql.Rows) ([]memberRecord, error) {
@@ -209,7 +274,7 @@ func scanMembers(rows *sql.Rows) ([]memberRecord, error) {
 	for rows.Next() {
 		var member memberRecord
 		var muted int64
-		if err := rows.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL); err != nil {
+		if err := rows.Scan(&member.RoomID, &member.UserID, &member.ChannelID, &member.DisplayName, &member.AvatarURL, &member.Domain, &member.Membership, &member.Role, &muted, &member.JoinedAt, &member.RequesterNodeBaseURL, &member.RequestID); err != nil {
 			return nil, err
 		}
 		member.Muted = muted == 1

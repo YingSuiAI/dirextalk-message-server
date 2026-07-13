@@ -48,21 +48,24 @@ type ConversationPort interface {
 	Operation(ctx context.Context, action, status, roomID string) (map[string]any, *dirextalkdomain.ConversationView, error)
 }
 
-// InviteSender performs one prepared Matrix invite. isDirect remains explicit
-// because grant-created channel invites always use the non-direct form.
-type InviteSender func(context.Context, dirextalkdomain.MemberRecord, map[string]any, bool) *actionbase.Error
+// InviteSender performs one prepared Matrix invite. It may restore Membership
+// to join when Matrix confirms that a repeated invite targets an existing
+// joined member. isDirect remains explicit because grant-created channel
+// invites always use the non-direct form.
+type InviteSender func(context.Context, *dirextalkdomain.MemberRecord, map[string]any, bool) *actionbase.Error
 
 type Config struct {
 	ResolveTarget            func(context.Context, map[string]any) (roomID, channelID string, err error)
 	NewMember                func(roomID, channelID, userID string) dirextalkdomain.MemberRecord
 	LookupMember             func(context.Context, string, string) (dirextalkdomain.MemberRecord, bool, error)
 	SaveMember               func(context.Context, dirextalkdomain.MemberRecord) error
+	SaveMemberGeneration     func(context.Context, dirextalkdomain.MemberRecord, string, string) (bool, error)
 	PublishPolicy            func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
 	Conversation             ConversationPort
 	OwnerMXID                func() string
 	KickMember               func(context.Context, string, string, string, string) *actionbase.Error
 	LeaveMember              func(context.Context, string, string) *actionbase.Error
-	PublishJoinRequest       func(context.Context, string, string, string, string) *actionbase.Error
+	PublishJoinRequest       func(context.Context, string, string, string, string, string) *actionbase.Error
 	CompleteJoinRequest      func(context.Context, bool, dirextalkdomain.MemberRecord, map[string]any) (map[string]any, *actionbase.Error)
 	LookupChannel            func(context.Context, string, string) (dirextalkdomain.Channel, bool, error)
 	RequireOwner             func(context.Context, string) *actionbase.Error
@@ -71,11 +74,13 @@ type Config struct {
 	ShareRoomMembers         func(context.Context, string) ([]dirextalkdomain.MemberRecord, error)
 	ChannelSnapshot          func(context.Context, string) dirextalkdomain.Channel
 	ApplyLocalProfile        func(*dirextalkdomain.MemberRecord)
+	MatrixJoined             func(context.Context, string, string) (bool, error)
 	JoinRetained             func(context.Context, string, *dirextalkdomain.MemberRecord, map[string]any) *actionbase.Error
 	SaveRetainedMetadata     func(context.Context, string, dirextalkdomain.MemberRecord, map[string]any) *actionbase.Error
 	ForwardPublicJoinRequest func(context.Context, map[string]any) (map[string]any, bool, *actionbase.Error)
 	EmitJoinRequestChanged   func(context.Context, dirextalkdomain.MemberRecord, string)
 	NewGrantID               func() string
+	NewRequestID             func() string
 	Now                      func() time.Time
 }
 

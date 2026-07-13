@@ -51,6 +51,13 @@ func WriteError(w http.ResponseWriter, err *actionbase.Error) {
 	value := map[string]string{"error": err.Error}
 	if err.Code != "" {
 		value["code"] = err.Code
+		value["error_code"] = err.Code
+	}
+	if err.OperationID != "" {
+		value["operation_id"] = err.OperationID
+	}
+	if err.CurrentRoomID != "" {
+		value["current_room_id"] = err.CurrentRoomID
 	}
 	WriteJSON(w, err.Status, value)
 }

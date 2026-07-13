@@ -44,14 +44,15 @@ func (t *DendriteTransport) InviteUser(ctx context.Context, req InviteUserReques
 	}
 	return t.rsAPI.PerformInvite(ctx, &roomserverAPI.PerformInviteRequest{
 		InviteInput: roomserverAPI.InviteInput{
-			RoomID:     *roomID,
-			Inviter:    *inviter,
-			Invitee:    *invitee,
-			Reason:     req.Reason,
-			IsDirect:   req.IsDirect,
-			KeyID:      t.keyID,
-			PrivateKey: t.privateKey,
-			EventTime:  time.Now(),
+			RoomID:              *roomID,
+			Inviter:             *inviter,
+			Invitee:             *invitee,
+			Reason:              req.Reason,
+			IsDirect:            req.IsDirect,
+			PublicJoinRequestID: req.PublicJoinRequestID,
+			KeyID:               t.keyID,
+			PrivateKey:          t.privateKey,
+			EventTime:           time.Now(),
 		},
 		InviteRoomState: inviteRoomState,
 		SendAsServer:    string(t.serverName),
@@ -114,19 +115,81 @@ func (t *DendriteTransport) JoinRoom(ctx context.Context, req JoinRoomRequest) (
 			serverNames = append(serverNames, spec.ServerName(strings.TrimSpace(serverName)))
 		}
 	}
-	roomID, joinedVia, err := t.rsAPI.PerformJoin(ctx, &roomserverAPI.PerformJoinRequest{
-		RoomIDOrAlias: req.RoomIDOrAlias,
-		UserID:        req.UserMXID,
-		Content:       joinRoomContent(req),
-		ServerNames:   serverNames,
-	})
+	performJoin := func() (string, spec.ServerName, error) {
+		return t.rsAPI.PerformJoin(ctx, &roomserverAPI.PerformJoinRequest{
+			RoomIDOrAlias: req.RoomIDOrAlias,
+			UserID:        req.UserMXID,
+			Content:       joinRoomContent(req),
+			ServerNames:   append([]spec.ServerName(nil), serverNames...),
+		})
+	}
+	roomID, joinedVia, err := performJoin()
 	if err != nil {
 		if directInvitePolicyErr != nil {
 			return JoinRoomResult{}, directInvitePolicyErr
 		}
 		return JoinRoomResult{}, err
 	}
+	if joinedVia != "" && (joinedVia != t.serverName || len(serverNames) > 0) {
+		ready, _, readyErr := t.joinedRoomReadiness(ctx, roomID, req.UserMXID)
+		if readyErr != nil {
+			return JoinRoomResult{}, fmt.Errorf("confirm joined room %s: %w", roomID, readyErr)
+		}
+		if !ready {
+			// A federation input batch can become visible after this read. A
+			// check followed by a destructive purge is not atomic with that input,
+			// so it could erase a room which has just finished importing. Preserve
+			// the partial state and surface an in-progress result for the durable
+			// ProductCore recovery path to reconcile.
+			return JoinRoomResult{}, fmt.Errorf("federated join in progress: local room %s is not ready", roomID)
+		}
+	}
 	return JoinRoomResult{RoomID: roomID, JoinedVia: string(joinedVia)}, nil
+}
+
+// JoinedRoomReady confirms that a local Matrix join is usable, not merely a
+// membership row left behind by a soft-failed federated state import.
+func (t *DendriteTransport) JoinedRoomReady(ctx context.Context, roomID, userMXID string) (bool, error) {
+	ready, _, err := t.joinedRoomReadiness(ctx, roomID, userMXID)
+	return ready, err
+}
+
+func (t *DendriteTransport) joinedRoomReadiness(ctx context.Context, roomID, userMXID string) (bool, bool, error) {
+	userID, err := spec.NewUserID(userMXID, true)
+	if err != nil {
+		return false, false, err
+	}
+	var latest roomserverAPI.QueryLatestEventsAndStateResponse
+	if err := t.rsAPI.QueryLatestEventsAndState(ctx, &roomserverAPI.QueryLatestEventsAndStateRequest{
+		RoomID: roomID,
+		StateToFetch: []gomatrixserverlib.StateKeyTuple{
+			{EventType: spec.MRoomCreate, StateKey: ""},
+		},
+	}, &latest); err != nil {
+		return false, false, err
+	}
+	if !latest.RoomExists || latest.RoomVersion == "" || len(latest.LatestEvents) == 0 {
+		return false, latest.RoomExists, nil
+	}
+	createReady := false
+	for _, event := range latest.StateEvents {
+		if event != nil && event.Type() == spec.MRoomCreate && event.StateKey() != nil && *event.StateKey() == "" {
+			createReady = true
+			break
+		}
+	}
+	if !createReady {
+		return false, true, nil
+	}
+	var membership roomserverAPI.QueryMembershipForUserResponse
+	if err := t.rsAPI.QueryMembershipForUser(ctx, &roomserverAPI.QueryMembershipForUserRequest{
+		RoomID: roomID,
+		UserID: *userID,
+	}, &membership); err != nil {
+		return false, true, err
+	}
+	return membership.RoomExists && membership.IsInRoom &&
+		strings.EqualFold(strings.TrimSpace(membership.Membership), string(spec.Join)), true, nil
 }
 
 func joinRoomContent(req JoinRoomRequest) map[string]interface{} {

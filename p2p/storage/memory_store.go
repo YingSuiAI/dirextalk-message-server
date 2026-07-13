@@ -3,6 +3,8 @@ package storage
 import (
 	"reflect"
 	"sync"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 )
 
 // MemoryStore is an in-process implementation of the P2P product-state store.
@@ -34,6 +36,7 @@ type MemoryStore struct {
 	pluginJobs    map[string]pluginJob
 	pluginSecrets map[string]map[string]pluginSecret
 	reports       map[string]reportRecord
+	operations    map[string]operations.Record
 }
 
 // NewMemoryStore returns an empty, concurrency-safe store. It deliberately has
@@ -58,6 +61,7 @@ func NewMemoryStore() *MemoryStore {
 		pluginJobs:    make(map[string]pluginJob),
 		pluginSecrets: make(map[string]map[string]pluginSecret),
 		reports:       make(map[string]reportRecord),
+		operations:    make(map[string]operations.Record),
 	}
 }
 

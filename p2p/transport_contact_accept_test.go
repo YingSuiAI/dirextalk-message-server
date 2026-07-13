@@ -85,6 +85,12 @@ func TestContactAcceptRetriesFederatedJoinInProgress(t *testing.T) {
 	}
 }
 
+func TestFederatedJoinInProgressClassifiesLocalReadiness(t *testing.T) {
+	if !isFederatedJoinInProgress(errors.New("federated join in progress: local room !dm:remote.example is not ready")) {
+		t.Fatal("local federation readiness result must enter durable join recovery")
+	}
+}
+
 func TestContactAcceptUsesDirectReactivationJoinWhenInviteIsGone(t *testing.T) {
 	transport := &directReactivationJoinTransport{}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
