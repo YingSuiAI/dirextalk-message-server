@@ -55,10 +55,6 @@ func jsonValue(value any) string {
 	return string(data)
 }
 
-func normalizedStringSlice(values []string) []string {
-	return actionbase.Strings(values)
-}
-
 func stringSliceParam(value any) []string {
 	return actionbase.Strings(value)
 }
@@ -103,14 +99,6 @@ func boolMapParam(value any) map[string]bool {
 
 func domainFromMXID(mxid string) string {
 	return dirextalkdomain.DomainFromMXID(mxid)
-}
-
-func localpartFromMXID(mxid string) string {
-	localpart := strings.TrimPrefix(strings.TrimSpace(mxid), "@")
-	if idx := strings.Index(localpart, ":"); idx >= 0 {
-		localpart = localpart[:idx]
-	}
-	return strings.TrimSpace(localpart)
 }
 
 func domainFromMatrixID(id, sigil string) string {

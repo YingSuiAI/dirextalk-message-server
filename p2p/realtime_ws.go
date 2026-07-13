@@ -462,7 +462,7 @@ func (s *Service) startRealtimeWSNativeAgentStream(ctx context.Context, wsConn *
 		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadRequest, "action is not a native agent stream action"))
 		return
 	}
-	if s.nativeAgentRunner == nil {
+	if s.agentModule == nil {
 		wsConn.send(realtimeWSNativeAgentStreamError(id, action, http.StatusBadGateway, "native agent runtime is not configured"))
 		return
 	}
@@ -475,7 +475,7 @@ func (s *Service) startRealtimeWSNativeAgentStream(ctx context.Context, wsConn *
 	go func() {
 		defer wsConn.finishStream(id)
 		doneSent := false
-		err := s.nativeAgentRunner.Stream(streamCtx, runnerAction, params, func(event nativeagent.Event) error {
+		err := s.agentModule.Stream(streamCtx, runnerAction, params, func(event nativeagent.Event) error {
 			eventName := strings.TrimSpace(event.Event)
 			if eventName == "" {
 				eventName = "message"

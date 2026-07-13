@@ -1,6 +1,19 @@
 package p2p
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
+)
+
+// NativeAgentRunner remains the public runtime injection boundary while the
+// default implementation and action ownership live in internal/agent.
+type NativeAgentRunner interface {
+	Apply(context.Context, string) error
+	Invoke(context.Context, string, map[string]any) (map[string]any, error)
+	Stream(context.Context, string, map[string]any, func(nativeagent.Event) error) error
+}
 
 func (s *Service) agentPassword() any {
 	s.mu.Lock()
@@ -107,4 +120,38 @@ func agentConfigToMap(cfg agentConfig) map[string]any {
 		"system_prompt":        cfg.SystemPrompt,
 		"mcp_blocked_room_ids": blockedRoomIDs,
 	}
+}
+
+// nativeAgentConfigStore adapts the account-scoped durable portal record to
+// the runtime's narrow configuration store.
+type nativeAgentConfigStore struct {
+	service *Service
+}
+
+func (s nativeAgentConfigStore) Load(context.Context) (map[string]any, bool, error) {
+	if s.service == nil {
+		return map[string]any{}, false, nil
+	}
+	s.service.mu.Lock()
+	defer s.service.mu.Unlock()
+	return agentConfigToNativeMap(s.service.agentConfig), true, nil
+}
+
+func (s nativeAgentConfigStore) Save(ctx context.Context, config map[string]any) error {
+	if s.service == nil {
+		return fmt.Errorf("native agent config store is unavailable")
+	}
+	ctx, finishOperation := s.service.beginAccountOperation(ctx)
+	defer finishOperation()
+	if s.service.accountIsDeprovisioned() {
+		return fmt.Errorf("account is deprovisioned")
+	}
+	s.service.mu.Lock()
+	s.service.agentConfig = agentConfigFromNativeMap(s.service.agentConfig, config)
+	state := s.service.portalStateLocked()
+	s.service.mu.Unlock()
+	if store := s.service.portalStore(); store != nil {
+		return store.SavePortal(ctx, state)
+	}
+	return nil
 }

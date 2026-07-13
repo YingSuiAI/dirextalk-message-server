@@ -111,7 +111,7 @@ func TestDeprovisionedAccountRejectsQueuedProductMCPAndProjectionWork(t *testing
 	if _, apiErr := service.Handle(context.Background(), "blocks.list", nil); apiErr == nil || apiErr.Status != http.StatusUnauthorized {
 		t.Fatalf("queued ProductCore action was not rejected after deprovision: %#v", apiErr)
 	}
-	if _, mcpErr := (p2pDirextalkMCPInvoker{service: service}).InvokeCapability(
+	if _, mcpErr := service.mcpModule.InvokeCapability(
 		context.Background(), dirextalkmcp.ActionContactsList, nil,
 	); mcpErr == nil || mcpErr.Status != http.StatusUnauthorized {
 		t.Fatalf("queued MCP invocation was not rejected after deprovision: %#v", mcpErr)

@@ -14,12 +14,14 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/pushrules"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
+	agentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agent"
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
+	mcpmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/mcp"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
@@ -94,7 +96,8 @@ type Service struct {
 	projectorStarted           bool
 	eventRetentionMaxRows      int64
 	eventRetentionPruneOnWrite bool
-	nativeAgentRunner          NativeAgentRunner
+	agentModule                *agentmodule.Module
+	mcpModule                  *mcpmodule.Module
 	mcpCapabilities            *dirextalkmcp.Service
 	releaseController          releasecontrol.Controller
 
@@ -723,15 +726,50 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		PublishEvent: service.appendP2PEvent,
 	})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
-	service.mcpCapabilities = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
-		Invoker:        p2pDirextalkMCPInvoker{service: service},
-		RoomAuthorizer: p2pDirextalkMCPRoomAuthorizer{service: service},
+	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
+		Conversations:  service.conversationModule,
+		Contacts:       service.contactsModule,
+		Channels:       service.channelsModule,
+		ChannelContent: service.channelContentModule,
+		Groups:         service.groupsModule,
+		Members:        service.store,
+		Social:         service.socialModule,
+		Matrix:         service.transport,
+	}, mcpmodule.Config{
+		Identity: func() mcpmodule.Identity {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return mcpmodule.Identity{
+				OwnerMXID:        service.ownerMXID,
+				OwnerProfile:     service.profile,
+				AgentMXID:        service.agentMXIDLocked(),
+				AgentDisplayName: service.agentDisplayNameLocked(),
+				AgentRoomID:      service.agentRoomID,
+				BlockedRoomIDs:   append([]string(nil), service.agentConfig.MCPBlockedRoomIDs...),
+			}
+		},
+		MessageReader: func() dirextalkmcp.MessageReader {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return service.matrixMessages
+		},
+		ProfileResolver: func() mcpmodule.ProfileResolver {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return service.matrixProfiles
+		},
+		BeginAccountOperation: service.beginAccountOperation,
+		AccountDeprovisioned:  service.accountIsDeprovisioned,
+		AgentRoomName:         agentRoomName,
+		Now:                   time.Now,
 	})
-	nativeAgentRunner := cfg.NativeAgentRunner
-	if nativeAgentRunner == nil {
-		nativeAgentRunner = newNativeAgentRuntime(service, cfg.NativeAgentDataDir)
-	}
-	service.nativeAgentRunner = nativeAgentRunner
+	service.mcpCapabilities = service.mcpModule.Service()
+	service.agentModule = agentmodule.New(agentmodule.Config{
+		Runner:  cfg.NativeAgentRunner,
+		DataDir: cfg.NativeAgentDataDir,
+		Store:   nativeAgentConfigStore{service: service},
+		MCP:     service.mcpCapabilities,
+	})
 	service.actions = service.actionHandlers()
 	if memoryStore, ok := store.(*p2pstorage.MemoryStore); ok {
 		service.mu.Lock()
@@ -745,28 +783,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 }
 
 func normalizeAgentConfig(cfg agentConfig) agentConfig {
-	empty := strings.TrimSpace(cfg.DisplayName) == "" &&
-		strings.TrimSpace(cfg.AvatarURL) == "" &&
-		cfg.ContextWindow == 0 &&
-		!cfg.Enabled &&
-		strings.TrimSpace(cfg.Model) == "" &&
-		strings.TrimSpace(cfg.SystemPrompt) == "" &&
-		len(cfg.MCPBlockedRoomIDs) == 0
-	if empty {
-		cfg.DisplayName = "Agent"
-		cfg.ContextWindow = 30
-		cfg.Enabled = true
-		return cfg
-	}
-	cfg.DisplayName = fallbackString(cfg.DisplayName, "Agent")
-	cfg.AvatarURL = strings.TrimSpace(cfg.AvatarURL)
-	if cfg.ContextWindow <= 0 {
-		cfg.ContextWindow = 30
-	}
-	cfg.Model = strings.TrimSpace(cfg.Model)
-	cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt)
-	cfg.MCPBlockedRoomIDs = normalizedStringSlice(cfg.MCPBlockedRoomIDs)
-	return cfg
+	return agentmodule.NormalizeConfig(cfg)
 }
 
 func (s *Service) AccessToken() string {

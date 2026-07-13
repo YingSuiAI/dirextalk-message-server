@@ -24,7 +24,8 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "profile", handlers: s.profileModule.Handlers()},
 		s.collectActionHandlerModule("sync", s.registerSyncActions),
 		{name: "conversations", handlers: s.conversationModule.Handlers()},
-		s.collectActionHandlerModule("agent", s.registerAgentActions),
+		s.collectActionHandlerModule("agent-cross-domain", s.registerAgentActions),
+		{name: "agent", handlers: s.agentModule.Handlers()},
 		{name: "plugins", handlers: s.pluginsModule.Handlers()},
 		{name: "contacts", handlers: s.contactsModule.Handlers()},
 		{name: "members", handlers: s.membersModule.Handlers()},
@@ -89,4 +90,11 @@ func (s *Service) registerPortalActions(actions map[string]actionHandler) {
 func (s *Service) registerSyncActions(actions map[string]actionHandler) {
 	actions["sync.bootstrap"] = s.syncBootstrapAction
 	actions["sync.read_marker"] = s.updateReadMarker
+}
+
+func (s *Service) registerAgentActions(actions map[string]actionHandler) {
+	actions["agent.password"] = s.agentPasswordAction
+	actions["agent.matrix_session.create"] = s.agentMatrixSession
+	actions["agent.config.get"] = s.getAgentConfigAction
+	actions["agent.config.update"] = s.updateAgentConfigAction
 }

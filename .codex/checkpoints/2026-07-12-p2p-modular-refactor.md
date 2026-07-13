@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `e185245` (`refactor: modularize reports plugins and consumer`)
+- Current published HEAD before this verified slice: `3fc44bb` (`refactor: modularize portal profile and release`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified portal/profile/release stage, then migrate the Agent/MCP adapters as the next grouped stage. Keep durable outbox/reconciliation changes separate from the structural refactor.
+- Commit and push the verified Agent/MCP stage. Next remove the write-only read-marker shadow state and redundant white-box/retired-action tests, then extract the event stream and projector as one grouped stage. Keep durable outbox/reconciliation changes separate from the structural refactor.
 
 ## Completed Verification
 
@@ -172,6 +172,9 @@
 - Portal password rotation and release reporting continue sharing the existing `matrixSessionMu`; one Service PortalState remains authoritative. Profile patch merge stays atomic under the Service mutex and preserves `Portal Save -> Matrix profile -> member Save/Matrix state` ordering. Account deletion now uses the release module's single controller/error owner and the portal module's non-secret tombstone writer.
 - Redundant initialized-state, removed-action, and HTTP-only WS negative assertions were deleted; the bootstrap transport test now covers the legacy `token` password alias. Stale HTTP/WS session and password/report concurrency tests remain.
 - The grouped stage gate ran once: `go test ./p2p/... -count=1` (root 89.943s, storage 40.669s), related domain/release/transport/policy tests, `go vet ./p2p/...`, production build, byte-identical 146-action contract generation, and `git diff --check` passed. A small post-gate test-only cleanup passed its five focused contracts. Independent engineering and contract audits found no P0-P2 issue.
+- The verified Agent/MCP stage moves Native Agent config mapping, legacy import, secret stripping, default runtime actions/tool bridge, and all nine P2P-backed MCP capabilities into cohesive `p2p/internal/agent` and `p2p/internal/mcp` modules. Root retains the public `NativeAgentRunner` named interface, account/Matrix session/config cross-domain flows, WS lifecycle, a thin MCP facade, and setup's Matrix history token callback.
+- Root `mcp_api.go`, `mcp_pagination.go`, `native_agent_runner.go`, and the 45-line one-action-per-line Agent registry are removed. The root production surface is 53 files / 7,362 lines; this stage removes 1,539 tracked lines while preserving all 146 ActionSpecs. Duplicate config sanitizer coverage and a private-field MCP replacement test moved to concise owning-module behavior tests.
+- The grouped stage gate ran once: `go test ./p2p/... -count=1` (root 85.591s, storage 35.167s), related domain/MCP/transport/policy tests, `go vet ./p2p/...`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, byte-identical 146-action contract generation, and `git diff --check` passed. Independent MCP and Agent engineering/contract audits found no P0-P2 issue; the Agent audit's type-identity note was closed by retaining the root named interface.
 
 ## Related Finding Outside This Structural Slice
 
