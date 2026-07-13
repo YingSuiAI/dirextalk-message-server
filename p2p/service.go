@@ -68,6 +68,8 @@ type Service struct {
 	mu                 sync.Mutex
 	matrixSessionMu    sync.Mutex
 	accountOperationMu sync.RWMutex
+	memberWritesMu     sync.Mutex
+	memberWrites       map[string]*memberWriteEntry
 
 	serverName                 string
 	homeserver                 string
@@ -641,18 +643,37 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			return contactStorageRecordFromContact(contact), ok, err
 		},
 	})
-	service.membersModule = membersmodule.New(serviceMemberListStore{service: service}, membersmodule.Config{
-		ResolveTarget:       service.memberTarget,
-		NewMember:           service.memberRecordFor,
-		LookupMember:        service.lookupMember,
-		SaveMember:          service.saveMember,
-		PublishPolicy:       service.publishMemberPolicyState,
-		Conversation:        service.conversationModule,
-		OwnerMXID:           service.memberOwnerMXID,
-		KickMember:          service.kickMember,
-		LeaveMember:         service.leaveMember,
-		PublishJoinRequest:  service.publishJoinRequestState,
-		CompleteJoinRequest: service.completeChannelJoinRequest,
+	service.membersModule = membersmodule.New(service.store, membersmodule.Config{
+		ResolveTarget:            service.memberTarget,
+		NewMember:                service.memberRecordFor,
+		LookupMember:             service.lookupMember,
+		SaveMember:               service.saveMember,
+		PublishPolicy:            service.publishMemberPolicyState,
+		Conversation:             service.conversationModule,
+		OwnerMXID:                service.memberOwnerMXID,
+		KickMember:               service.kickMember,
+		LeaveMember:              service.leaveMember,
+		PublishJoinRequest:       service.publishJoinRequestState,
+		CompleteJoinRequest:      service.completeChannelJoinRequest,
+		LookupChannel:            service.channelByIDOrRoom,
+		RequireOwner:             service.requireOwnerMember,
+		RejectBlocked:            service.rejectIfBlocked,
+		PrepareInvite:            service.prepareMemberInvite,
+		ShareRoomMembers:         service.shareRoomMembersForInviteGrant,
+		ChannelSnapshot:          service.channelSnapshot,
+		ApplyLocalProfile:        service.applyLocalOwnerMemberProfile,
+		JoinRetained:             service.joinAndProjectRetainedRoom,
+		SaveRetainedMetadata:     service.saveRetainedRoomInviteMetadata,
+		ForwardPublicJoinRequest: service.remoteChannelJoinRequest,
+		EmitJoinRequestChanged: func(ctx context.Context, member memberRecord, status string) {
+			_ = service.appendP2PEvent(ctx, p2pEvent{
+				Type:    "channel.join_request.changed",
+				RoomID:  member.RoomID,
+				Payload: map[string]any{"user_id": member.UserID, "status": status, "channel_id": member.ChannelID},
+			})
+		},
+		NewGrantID: func() string { return "grant_" + randomToken("channel_invite") },
+		Now:        time.Now,
 	})
 	service.callsModule = callsmodule.New(service.store, callsmodule.Config{
 		ServerName:   service.serverName,

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
-	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 )
 
 type memberStore interface {
@@ -19,33 +19,9 @@ type memberStore interface {
 	CountJoinedMembers(ctx context.Context, roomID, channelID string) (int64, error)
 }
 
-type serviceMemberListStore struct {
-	service *Service
-}
-
-func (a serviceMemberListStore) ListMembers(ctx context.Context, roomID, channelID string) ([]dirextalkdomain.MemberRecord, error) {
-	if a.service == nil {
-		return nil, errors.New("member list service is not configured")
-	}
-	if store := a.service.memberStore(); store != nil {
-		members, err := store.ListMembers(ctx, roomID, channelID)
-		if err == nil {
-			return members, nil
-		}
-	}
-	a.service.mu.Lock()
-	defer a.service.mu.Unlock()
-	members := make([]dirextalkdomain.MemberRecord, 0, len(a.service.members))
-	for _, member := range a.service.members {
-		if roomID != "" && member.RoomID != roomID {
-			continue
-		}
-		if channelID != "" && member.ChannelID != channelID {
-			continue
-		}
-		members = append(members, member)
-	}
-	return members, nil
+type memberWriteEntry struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func (s *Service) memberStore() memberStore {
@@ -56,38 +32,59 @@ func (s *Service) memberStore() memberStore {
 }
 
 func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
+	release := s.lockMemberWrite(member.RoomID, member.UserID)
+	defer release()
+
 	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
 	}
-	var stored memberRecord
-	var hasStored bool
 	store := s.memberStore()
-	if store != nil && member.RoomID != "" && member.UserID != "" {
-		var err error
-		stored, hasStored, err = store.LookupMember(ctx, member.RoomID, member.UserID)
+	if store == nil {
+		return errors.New("member store is not configured")
+	}
+	if member.RoomID != "" && member.UserID != "" {
+		stored, hasStored, err := store.LookupMember(ctx, member.RoomID, member.UserID)
 		if err != nil {
 			return err
 		}
-	}
-	s.mu.Lock()
-	if existing, ok := s.members[member.RoomID+"|"+member.UserID]; ok && existing.JoinedAt > 0 {
-		mergeMemberPersistence(&member, existing)
-	} else if hasStored {
-		mergeMemberPersistence(&member, stored)
-	}
-	s.members[member.RoomID+"|"+member.UserID] = member
-	s.mu.Unlock()
-	if store != nil {
-		if err := store.UpsertMember(ctx, member); err != nil {
-			return err
+		if hasStored {
+			mergeMemberPersistence(&member, stored)
 		}
-		if member.ChannelID == "" {
-			return s.refreshStoredGroupCounts(ctx, member.RoomID)
-		}
-		return s.refreshStoredChannelCounts(ctx, member.ChannelID)
 	}
-	return nil
+	if err := store.UpsertMember(ctx, member); err != nil {
+		return err
+	}
+	if member.ChannelID == "" {
+		return s.refreshStoredGroupCounts(ctx, member.RoomID)
+	}
+	return s.refreshStoredChannelCounts(ctx, member.ChannelID)
+}
+
+func (s *Service) lockMemberWrite(roomID, userID string) func() {
+	key := roomID + "\x00" + userID
+	s.memberWritesMu.Lock()
+	if s.memberWrites == nil {
+		s.memberWrites = make(map[string]*memberWriteEntry)
+	}
+	entry := s.memberWrites[key]
+	if entry == nil {
+		entry = &memberWriteEntry{}
+		s.memberWrites[key] = entry
+	}
+	entry.refs++
+	s.memberWritesMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		s.memberWritesMu.Lock()
+		entry.refs--
+		if entry.refs == 0 && s.memberWrites[key] == entry {
+			delete(s.memberWrites, key)
+		}
+		s.memberWritesMu.Unlock()
+	}
 }
 
 func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
@@ -186,21 +183,9 @@ func (s *Service) setProductMemberMute(ctx context.Context, roomID, channelID st
 }
 
 func (s *Service) membersForProduct(ctx context.Context, roomID, channelID string) ([]memberRecord, error) {
-	if store := s.memberStore(); store != nil {
-		return store.ListMembers(ctx, roomID, channelID)
+	store := s.memberStore()
+	if store == nil {
+		return nil, errors.New("member store is not configured")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	members := make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if roomID != "" && member.RoomID != roomID {
-			continue
-		}
-		if channelID != "" && member.ChannelID != channelID {
-			continue
-		}
-		members = append(members, member)
-	}
-	membersmodule.SortByJoinOrder(members)
-	return members, nil
+	return store.ListMembers(ctx, roomID, channelID)
 }

@@ -535,7 +535,7 @@ func TestStoredMemberRolesAndMutesSurviveReload(t *testing.T) {
 	}
 }
 
-func TestKickedGroupMemberCanRejoinWithFreshInviteButNotDirectly(t *testing.T) {
+func TestKickedGroupMemberRequiresFreshInvite(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
@@ -569,43 +569,6 @@ func TestKickedGroupMemberCanRejoinWithFreshInviteButNotDirectly(t *testing.T) {
 		t.Fatalf("expected fresh invite to let kicked group member rejoin, got %#v", rejoined)
 	}
 
-	if err := service.saveMember(context.Background(), memberRecord{
-		RoomID:     group.RoomID,
-		UserID:     "@projected-left:remote.example",
-		Domain:     "remote.example",
-		Membership: "leave",
-		Role:       "member",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	rejoinedAfterKickProjection := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
-		"room_id":         group.RoomID,
-		"user_mxid":       "@projected-left:remote.example",
-		"group_name":      group.Name,
-		"invite_event_id": "$fresh-invite-after-kick",
-		"direct_room_id":  "!direct:remote.example",
-	})
-	rejoinedAfterKickProjectionMember := rejoinedAfterKickProjection["member"].(memberRecord)
-	if rejoinedAfterKickProjectionMember.UserID != "@projected-left:remote.example" || rejoinedAfterKickProjectionMember.Membership != "join" {
-		t.Fatalf("expected fresh invite to let projected-left kicked group member rejoin, got %#v", rejoinedAfterKickProjection)
-	}
-
-	if err := service.saveMember(context.Background(), memberRecord{
-		RoomID:     group.RoomID,
-		UserID:     "@left:remote.example",
-		Domain:     "remote.example",
-		Membership: "leave",
-		Role:       "member",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	joined := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
-		"room_id":   group.RoomID,
-		"user_mxid": "@left:remote.example",
-	})
-	if joined["status"] != "ok" {
-		t.Fatalf("expected self-left group member to be able to rejoin, got %#v", joined)
-	}
 }
 
 func TestGroupMemberLeaveActionCanRejoin(t *testing.T) {
@@ -643,33 +606,6 @@ func TestGroupMemberLeaveActionCanRejoin(t *testing.T) {
 	member = joined["member"].(memberRecord)
 	if joined["status"] != "ok" || member.UserID != "@owner:remote.example" || member.Membership != "join" {
 		t.Fatalf("expected action-left group member to be able to rejoin, got %#v", joined)
-	}
-}
-
-func TestSaveMemberDoesNotDowngradeRemovedMembershipToLeave(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	bootstrapService(t, service)
-	removed := memberRecord{
-		RoomID:     "!room:example.com",
-		UserID:     "@alice:remote.example",
-		Domain:     "remote.example",
-		Membership: "remove",
-		Role:       "member",
-	}
-	if err := service.saveMember(context.Background(), removed); err != nil {
-		t.Fatal(err)
-	}
-	leave := removed
-	leave.Membership = "leave"
-	if err := service.saveMember(context.Background(), leave); err != nil {
-		t.Fatal(err)
-	}
-	got, ok, err := service.lookupMember(context.Background(), removed.RoomID, removed.UserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || got.Membership != "remove" {
-		t.Fatalf("expected removed membership to survive later leave projection, got %#v ok=%v", got, ok)
 	}
 }
 

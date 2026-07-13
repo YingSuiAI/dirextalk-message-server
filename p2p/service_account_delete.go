@@ -288,8 +288,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.posts = nil
 	s.comments = nil
 	s.reactions = map[string]reactionRecord{}
-	s.members = map[string]memberRecord{}
-	s.inviteGrants = map[string]channelInviteGrant{}
 	s.nextEventSeq = 0
 	s.realtimeWSTickets = map[string]realtimeWSTicket{}
 	resetter, _ := s.store.(interface{ ResetAccountState() })

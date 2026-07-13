@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 
@@ -150,35 +149,5 @@ func TestMemoryBackedMemberListHidesLegacyTombstones(t *testing.T) {
 	listed := result.(map[string]any)["members"].([]memberRecord)
 	if len(listed) != 1 || listed[0].UserID != "@joined:example.com" {
 		t.Fatalf("public member list exposed hidden records: %#v", listed)
-	}
-}
-
-type failingMemberListStore struct {
-	Store
-}
-
-func (failingMemberListStore) ListMembers(context.Context, string, string) ([]memberRecord, error) {
-	return nil, errors.New("member store unavailable")
-}
-
-func TestMemberListAdapterFallsBackToReadModelOnStoreFailure(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	service.store = failingMemberListStore{Store: service.store}
-	service.mu.Lock()
-	service.members["!room:example.com|@cached:example.com"] = memberRecord{
-		RoomID: "!room:example.com", UserID: "@cached:example.com", Membership: "join", Role: "legacy",
-	}
-	service.members["!other:example.com|@other:example.com"] = memberRecord{
-		RoomID: "!other:example.com", UserID: "@other:example.com", Membership: "join", Role: "member",
-	}
-	service.mu.Unlock()
-
-	result, apiErr := service.membersModule.List(context.Background(), map[string]any{"room_id": "!room:example.com"})
-	if apiErr != nil {
-		t.Fatal(apiErr)
-	}
-	members := result.(map[string]any)["members"].([]memberRecord)
-	if len(members) != 1 || members[0].UserID != "@cached:example.com" || members[0].Role != "member" {
-		t.Fatalf("fallback members = %#v", members)
 	}
 }

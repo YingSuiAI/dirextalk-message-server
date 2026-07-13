@@ -25,6 +25,14 @@ func (s *testStore) ListMembers(_ context.Context, roomID, channelID string) ([]
 	return append([]dirextalkdomain.MemberRecord(nil), s.records...), s.err
 }
 
+func (s *testStore) UpsertChannelInviteGrant(context.Context, dirextalkdomain.ChannelInviteGrant) error {
+	return nil
+}
+
+func (s *testStore) ListChannelInviteGrants(context.Context) ([]dirextalkdomain.ChannelInviteGrant, error) {
+	return nil, nil
+}
+
 func TestSharedMemberListHandlersReturnEmptyArrays(t *testing.T) {
 	module := New(&testStore{}, Config{})
 	handlers := module.Handlers()

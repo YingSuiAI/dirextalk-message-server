@@ -232,9 +232,11 @@ func TestChannelJoinRequestResolutionPreservesFinalStatusAndOrder(t *testing.T) 
 		wantState      string
 		wantCompletion string
 		wantStatus     string
+		wantError      int
 	}{
 		{name: "approve retry", action: actionChannelJoinRequestApprove, membership: " join_failed ", completeStatus: "joined", wantMember: "approved", wantState: "approved", wantCompletion: "true|approved", wantStatus: "joined"},
 		{name: "reject pending", action: actionChannelJoinRequestReject, membership: "pending", completeStatus: "reject", wantMember: "reject", wantState: "rejected", wantCompletion: "false|reject", wantStatus: "rejected"},
+		{name: "ordinary invite is not a join request", action: actionChannelJoinRequestApprove, membership: "invite", wantError: http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -245,6 +247,12 @@ func TestChannelJoinRequestResolutionPreservesFinalStatusAndOrder(t *testing.T) 
 			result, actionErr := h.module.Handlers()[tt.action](context.Background(), map[string]any{
 				"room_id": "!channel:example.com", "channel_id": "channel_1", "user_id": "@alice:example.com", "reason": " reviewed ",
 			})
+			if tt.wantError != 0 {
+				if result != nil || actionErr == nil || actionErr.Status != tt.wantError || len(h.order) != 0 {
+					t.Fatalf("guard = (%#v, %#v), order=%#v", result, actionErr, h.order)
+				}
+				return
+			}
 			if actionErr != nil {
 				t.Fatal(actionErr)
 			}

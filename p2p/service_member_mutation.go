@@ -59,13 +59,11 @@ func (s *Service) lookupMember(ctx context.Context, roomID, userID string) (memb
 	if roomID == "" || userID == "" {
 		return memberRecord{}, false, nil
 	}
-	if store := s.memberStore(); store != nil {
-		return store.LookupMember(ctx, roomID, userID)
+	store := s.memberStore()
+	if store == nil {
+		return memberRecord{}, false, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	member, ok := s.members[roomID+"|"+userID]
-	return member, ok, nil
+	return store.LookupMember(ctx, roomID, userID)
 }
 
 func (s *Service) requireOwnerMember(ctx context.Context, roomID string) *apiError {
@@ -107,15 +105,6 @@ func (s *Service) memberTarget(ctx context.Context, params map[string]any) (stri
 }
 
 func (s *Service) memberRecordFor(roomID, channelID, userID string) memberRecord {
-	s.mu.Lock()
-	if existing, ok := s.members[roomID+"|"+userID]; ok {
-		if channelID != "" {
-			existing.ChannelID = channelID
-		}
-		s.mu.Unlock()
-		return existing
-	}
-	s.mu.Unlock()
 	return memberRecord{
 		RoomID:      roomID,
 		ChannelID:   channelID,

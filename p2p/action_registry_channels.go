@@ -1,12 +1,7 @@
 package p2p
 
 func (s *Service) registerChannelActions(actions map[string]actionHandler) {
-	actions["channels.join"] = s.joinMemberAction("channel")
-	actions["channels.invite_grant.create"] = s.channelInviteGrantCreate
-	actions["channels.invite"] = s.inviteMembersAction("channel")
 	actions["channels.read_marker"] = s.updateReadMarker
-	actions["channels.public.join_request"] = s.channelJoinRequest
-	actions["channels.public.join_result"] = s.channelJoinResult
 	actions["channels.posts.list"] = s.channelPostsAction
 	actions["channels.posts.create"] = s.channelPost
 	actions["channels.posts.recall"] = s.recallChannelContentAction("channels.posts.recall")

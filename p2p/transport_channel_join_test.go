@@ -31,6 +31,10 @@ func TestChannelPublicJoinRequestPublishesApprovalStateWithoutInvite(t *testing.
 	if result["status"] != "approved" {
 		t.Fatalf("expected remote open channel request without callback to approve, got %#v", result)
 	}
+	member := result["member"].(memberRecord)
+	if member.UserID != "@alice:remote.example" || member.ChannelID != ch.ChannelID || member.Membership != "approved" {
+		t.Fatalf("expected approved member snapshot, got %#v", member)
+	}
 	if len(transport.inviteRequests) != 0 || len(transport.invites) != 0 {
 		t.Fatalf("public join request must not expose Matrix invite flow, got invites=%#v requests=%#v", transport.invites, transport.inviteRequests)
 	}

@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `9efd0c3` (`refactor: modularize channel core`)
+- Current published HEAD before this verified slice: `cccc0c6` (`refactor: move channel public lookup`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified channel-public stage, then modularize the shared group/channel invite, join, grant, and reactivation workflow behind narrow Matrix/remote ports. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified member-workflow stage, then migrate channel content, reactions, projection, backfill, and channel-specific MCP pagination into a cohesive `p2p/internal/channels.ContentModule`. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -156,6 +156,9 @@
 - Channel-core gates passed after removing the obsolete source scanner: module/member focused tests, the complete root `p2p` package (82.024s), the already-completed remaining `p2p/...` packages including storage (44.242s), related domain/state/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, Action registry/contract coverage, and `git diff --check`. Independent engineering and contract audits reported no P0–P3 finding.
 - The verified channel-public slice moves `channels.public.get`, `channels.public.search`, and `users.public_channels` into the existing channels module. Root now exposes only typed remote-HTTP and Matrix-room lookup adapters; Store/remote/Matrix fallback order, request-provided `remote_node_base_url`, public visibility hiding, member-count refresh, aliases, concrete slices, and response keys remain unchanged.
 - Channel-public gates intentionally reused the immediately preceding full channel-core run: focused local/remote/Matrix/auth/count/registry tests, module/root compile checks, production build, touched-file `gopls check`, unused/ineffassign/staticcheck, and `git diff --check` passed. Independent engineering and contract audits reported no P0–P3 finding.
+- The verified member-workflow slice moves `groups.invite/join`, `channels.invite/join`, `channels.invite_grant.create`, both public channel join callbacks, and `rooms.reactivate` into four cohesive files in the existing members module. Root retains Matrix invites/joins, remote HTTP callbacks, retained-room refresh/backfill, and event adapters. The legacy Service member/invite-grant shadow maps and Store-failure fallbacks are gone; all supported constructors use Store-backed state.
+- An independent review found a same-member lost-update regression after removing the shadow-map mutex. The final implementation uses a bounded reference-counted keyed lock across durable lookup/merge/upsert/count refresh, preserving removed-over-left, owner, JoinedAt, and requester-node merge rules without serializing different members. A controlled concurrency regression passes repeatedly and under `-race`.
+- Redundant negative member tests were removed or folded into stronger retained cases; the two Matrix 429 backfill tests now share one transient/persistent table. The stage gate ran once after the grouped work: `go test ./p2p/... -count=1` (root 82.116s, storage 34.657s), related domain/state/policy tests, focused race, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck plus members dupl/gocyclo, production build, byte-identical 146-action contract generation, and `git diff --check` passed. Engineering and contract audits reported no production finding; their only P3 was closed with one table row preserving the ordinary-invite approval guard.
 
 ## Related Finding Outside This Structural Slice
 

@@ -165,28 +165,6 @@ func firstMemberID(params map[string]any) string {
 	return values.FirstListString("user_ids", "user_mxids", "peer_mxids", "invitees")
 }
 
-func memberIDsFromParams(params map[string]any) []string {
-	seen := map[string]bool{}
-	var users []string
-	add := func(userID string) {
-		userID = strings.TrimSpace(userID)
-		if userID == "" || seen[userID] {
-			return
-		}
-		seen[userID] = true
-		users = append(users, userID)
-	}
-	for _, key := range []string{"user_id", "user_mxid", "peer_mxid", "mxid"} {
-		add(trimString(params[key]))
-	}
-	for _, key := range []string{"user_ids", "user_mxids", "peer_mxids", "invitees", "invite"} {
-		for _, userID := range stringSliceParam(params[key]) {
-			add(userID)
-		}
-	}
-	return users
-}
-
 func memberHidden(membership string) bool {
 	return dirextalkdomain.MemberHidden(membership)
 }

@@ -96,46 +96,6 @@ func (s *Service) kickAndInviteStaleJoinedRoomMember(ctx context.Context, member
 	return nil
 }
 
-func (s *Service) roomReactivate(ctx context.Context, params map[string]any) (any, *apiError) {
-	roomID := trimString(params["room_id"])
-	scope := strings.ToLower(trimString(params["room_type"]))
-	if scope == "" {
-		scope = strings.ToLower(trimString(params["scope"]))
-	}
-	if roomID == "" || (scope != "group" && scope != "channel") {
-		return nil, badRequest("room_id and room_type are required")
-	}
-	s.mu.Lock()
-	ownerMXID := s.ownerMXID
-	s.mu.Unlock()
-	userID := fallbackString(firstMemberID(params), ownerMXID)
-	if userID != ownerMXID {
-		return nil, statusError(http.StatusForbidden, "room reactivation user must be local owner")
-	}
-	channelID := trimString(params["channel_id"])
-	member := s.memberRecordFor(roomID, channelID, userID)
-	member.Membership = "invite"
-	if scope == "group" {
-		member.ChannelID = ""
-	}
-	applyMemberProfileParams(&member, params)
-	s.applyLocalOwnerMemberProfile(&member)
-	if err := s.saveMember(ctx, member); err != nil {
-		return nil, internalError(err)
-	}
-	if apiErr := s.saveRetainedRoomInviteMetadata(ctx, scope, member, params); apiErr != nil {
-		return nil, apiErr
-	}
-	result := map[string]any{"status": "invite", "room_id": member.RoomID, "member": member}
-	if scope == "channel" {
-		result["channel"] = s.channelSnapshot(ctx, member.ChannelID)
-	}
-	if err := s.attachConversationOperation(ctx, result, scope+"s.reactivate", "invite", member.RoomID); err != nil {
-		return nil, internalError(err)
-	}
-	return result, nil
-}
-
 func (s *Service) saveRetainedRoomInviteMetadata(ctx context.Context, scope string, member memberRecord, params map[string]any) *apiError {
 	switch scope {
 	case "group":

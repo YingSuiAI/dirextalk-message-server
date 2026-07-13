@@ -22,8 +22,6 @@ type serviceReadModelState struct {
 	posts         []channelPostRecord
 	comments      []channelCommentRecord
 	reactions     map[string]reactionRecord
-	members       map[string]memberRecord
-	inviteGrants  map[string]channelInviteGrant
 	plugins       map[string]pluginInstance
 	pluginJobs    map[string]pluginJob
 	pluginSecrets map[string]map[string]pluginSecret
@@ -43,8 +41,6 @@ func newServiceReadModelState() serviceReadModelState {
 	return serviceReadModelState{
 		readMarkers:   map[string]readMarker{},
 		reactions:     map[string]reactionRecord{},
-		members:       map[string]memberRecord{},
-		inviteGrants:  map[string]channelInviteGrant{},
 		plugins:       map[string]pluginInstance{},
 		pluginJobs:    map[string]pluginJob{},
 		pluginSecrets: map[string]map[string]pluginSecret{},

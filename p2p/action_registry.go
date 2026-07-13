@@ -25,16 +25,11 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		s.collectActionHandlerModule("agent", s.registerAgentActions),
 		s.collectActionHandlerModule("plugins", s.registerPluginActions),
 		{name: "contacts", handlers: s.contactsModule.Handlers()},
-		{name: "room-workflows", handlers: map[string]actionHandler{"rooms.reactivate": s.roomReactivate}},
 		{name: "members", handlers: s.membersModule.Handlers()},
 		{name: "blocks", handlers: s.blocksModule.Handlers()},
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
 		{name: "groups", handlers: s.groupsModule.Handlers()},
-		{name: "group-member-workflows", handlers: map[string]actionHandler{
-			"groups.invite": s.inviteMembersAction("group"),
-			"groups.join":   s.joinMemberAction("group"),
-		}},
 		{name: "channels", handlers: s.channelsModule.Handlers()},
 		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),
 		s.collectActionHandlerModule("reports", s.registerReportActions),
@@ -94,18 +89,6 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 
 func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	return s.updateAgentConfig(ctx, params)
-}
-
-func (s *Service) inviteMembersAction(roomKind string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.inviteMembers(ctx, roomKind, params)
-	}
-}
-
-func (s *Service) joinMemberAction(roomKind string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.joinMember(ctx, roomKind, params)
-	}
 }
 
 func (s *Service) channelPostsAction(ctx context.Context, params map[string]any) (any, *apiError) {

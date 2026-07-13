@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
@@ -93,18 +94,11 @@ func (s *Service) membersForUser(ctx context.Context, userID string) ([]memberRe
 	if userID == "" {
 		return nil, nil
 	}
-	if store := s.memberStore(); store != nil {
-		return store.ListMembersForUser(ctx, userID)
+	store := s.memberStore()
+	if store == nil {
+		return nil, errors.New("member store is not configured")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	filtered := make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if member.UserID == userID && !memberHidden(member.Membership) {
-			filtered = append(filtered, member)
-		}
-	}
-	return filtered, nil
+	return store.ListMembersForUser(ctx, userID)
 }
 
 func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {

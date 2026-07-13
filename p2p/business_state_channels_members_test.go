@@ -69,20 +69,6 @@ func TestChannelJoinRequestPersistsPendingMemberAndResolves(t *testing.T) {
 		t.Fatalf("expected remote approved request without callback to remain approved until requester node joins, got %#v", approved)
 	}
 
-	mustHandle[map[string]any](t, service, "channels.invite", map[string]any{
-		"channel_id":   ch.ChannelID,
-		"room_id":      ch.RoomID,
-		"user_mxid":    "@charlie:remote.example",
-		"display_name": "Charlie",
-	})
-	if _, apiErr := service.Handle(context.Background(), "channels.join_request.approve", map[string]any{
-		"channel_id": ch.ChannelID,
-		"room_id":    ch.RoomID,
-		"user_mxid":  "@charlie:remote.example",
-	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
-		t.Fatalf("expected join_request.approve to ignore ordinary Matrix invites, got %#v", apiErr)
-	}
-
 	mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
 		"channel_id": ch.ChannelID,
 		"room_id":    ch.RoomID,
@@ -235,37 +221,6 @@ func TestChannelJoinWithMatrixInviteDoesNotRequireLocalInviteGrant(t *testing.T)
 	}
 }
 
-func TestPublicOpenChannelJoinRequestApprovesUntilRequesterNodeJoins(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	bootstrapService(t, service)
-	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
-		"channel_id":  "open",
-		"room_id":     "!open:example.com",
-		"name":        "Open",
-		"visibility":  "public",
-		"join_policy": "open",
-	})
-
-	request := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
-		"channel_id":   ch.ChannelID,
-		"room_id":      ch.RoomID,
-		"user_mxid":    "@alice:remote.example",
-		"display_name": "Alice",
-	})
-	if request["status"] != "approved" {
-		t.Fatalf("expected remote open public channel request without callback to approve until requester node joins, got %#v", request)
-	}
-	member := request["member"].(memberRecord)
-	if member.Membership != "approved" || member.UserID != "@alice:remote.example" || member.ChannelID != ch.ChannelID {
-		t.Fatalf("expected approved member for open public channel without callback, got %#v", member)
-	}
-	members := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": ch.ChannelID})["members"].([]memberRecord)
-	alice := findMember(members, "@alice:remote.example")
-	if alice.Membership != "approved" || alice.DisplayName != "Alice" {
-		t.Fatalf("expected approved member to be visible as approved, got %#v in %#v", alice, members)
-	}
-}
-
 func TestPrivateChannelRejectsPublicJoinRequest(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
@@ -290,7 +245,7 @@ func TestPrivateChannelRejectsPublicJoinRequest(t *testing.T) {
 	}
 }
 
-func TestKickedChannelMemberJoinRequestRejectedButLeaverCanReapply(t *testing.T) {
+func TestKickedChannelMemberRequiresFreshInviteGrant(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
 	ch := mustHandle[channel](t, service, "channels.create", map[string]any{
@@ -353,46 +308,6 @@ func TestKickedChannelMemberJoinRequestRejectedButLeaverCanReapply(t *testing.T)
 		t.Fatalf("expected fresh channel invite grant to let kicked member rejoin, got %#v", joined)
 	}
 
-	if err := service.saveMember(context.Background(), memberRecord{
-		RoomID:     ch.RoomID,
-		ChannelID:  ch.ChannelID,
-		UserID:     "@projected-left:remote.example",
-		Domain:     "remote.example",
-		Membership: "leave",
-		Role:       "member",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	joinedAfterKickProjection := mustHandle[map[string]any](t, service, "channels.join", map[string]any{
-		"room_id":       ch.RoomID,
-		"channel_id":    ch.ChannelID,
-		"grant_id":      "fresh-grant-from-owner-node",
-		"share_room_id": shareRoomID,
-		"user_mxid":     "@projected-left:remote.example",
-	})
-	projectedLeftMember := joinedAfterKickProjection["member"].(memberRecord)
-	if projectedLeftMember.UserID != "@projected-left:remote.example" || projectedLeftMember.Membership != "join" || projectedLeftMember.ChannelID != ch.ChannelID {
-		t.Fatalf("expected fresh channel invite grant to let projected-left kicked member rejoin, got %#v", joinedAfterKickProjection)
-	}
-
-	if err := service.saveMember(context.Background(), memberRecord{
-		RoomID:     ch.RoomID,
-		ChannelID:  ch.ChannelID,
-		UserID:     "@left:remote.example",
-		Domain:     "remote.example",
-		Membership: "leave",
-		Role:       "member",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	pending := mustHandle[map[string]any](t, service, "channels.public.join_request", map[string]any{
-		"channel_id": ch.ChannelID,
-		"room_id":    ch.RoomID,
-		"user_mxid":  "@left:remote.example",
-	})
-	if pending["status"] != "pending" {
-		t.Fatalf("expected self-left member to be able to reapply, got %#v", pending)
-	}
 }
 
 func TestChannelMemberLeaveActionCanReapply(t *testing.T) {
