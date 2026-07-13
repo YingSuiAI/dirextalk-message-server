@@ -154,10 +154,6 @@ func (s *Service) channelSnapshot(ctx context.Context, channelID string) channel
 	return s.channelsModule.Snapshot(ctx, channelID)
 }
 
-func (s *Service) channelWithCurrentCounts(ctx context.Context, ch channel) (channel, error) {
-	return s.channelsModule.WithCurrentCounts(ctx, ch)
-}
-
 func (s *Service) refreshStoredChannelCounts(ctx context.Context, channelID string) error {
 	return s.channelsModule.RefreshCounts(ctx, channelID)
 }

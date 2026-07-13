@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 )
 
 type HTTPMatrixHistoryReader = matrixhistory.HTTPMessageReader

@@ -19,9 +19,6 @@ type servicePortalState struct {
 
 type serviceReadModelState struct {
 	readMarkers   map[string]readMarker
-	posts         []channelPostRecord
-	comments      []channelCommentRecord
-	reactions     map[string]reactionRecord
 	plugins       map[string]pluginInstance
 	pluginJobs    map[string]pluginJob
 	pluginSecrets map[string]map[string]pluginSecret
@@ -40,7 +37,6 @@ type serviceRealtimeState struct {
 func newServiceReadModelState() serviceReadModelState {
 	return serviceReadModelState{
 		readMarkers:   map[string]readMarker{},
-		reactions:     map[string]reactionRecord{},
 		plugins:       map[string]pluginInstance{},
 		pluginJobs:    map[string]pluginJob{},
 		pluginSecrets: map[string]map[string]pluginSecret{},

@@ -95,15 +95,16 @@ type Service struct {
 	releaseController          releasecontrol.Controller
 
 	servicePortalState
-	actions            map[string]actionHandler
-	blocksModule       *blocksmodule.Module
-	callsModule        *callsmodule.Module
-	channelsModule     *channelsmodule.Module
-	contactsModule     *contactsmodule.Module
-	conversationModule *conversationmodule.Module
-	groupsModule       *groupsmodule.Module
-	membersModule      *membersmodule.Module
-	socialModule       *socialmodule.Module
+	actions              map[string]actionHandler
+	blocksModule         *blocksmodule.Module
+	callsModule          *callsmodule.Module
+	channelsModule       *channelsmodule.Module
+	channelContentModule *channelsmodule.ContentModule
+	contactsModule       *contactsmodule.Module
+	conversationModule   *conversationmodule.Module
+	groupsModule         *groupsmodule.Module
+	membersModule        *membersmodule.Module
+	socialModule         *socialmodule.Module
 
 	serviceReadModelState
 	serviceEventState
@@ -127,14 +128,13 @@ type Store interface {
 	portalStore
 	readMarkerStore
 	channelStore
-	channelContentStore
+	channelsmodule.ContentStore
 	contactStore
 	channelInviteGrantStore
 	blockStore
 	groupStore
 	callStore
 	socialStore
-	reactionStore
 	memberStore
 	conversationStore
 	eventStore
@@ -589,6 +589,27 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		RemoteUserChannels: service.remoteUserPublicChannels,
 		IsMatrixRoomID:     matrixRoomIDQuery,
 	})
+	service.channelContentModule = channelsmodule.NewContent(
+		service.store,
+		service.channelsModule,
+		nil,
+		service.conversationModule,
+		channelsmodule.ContentConfig{
+			Owner: func() channelsmodule.ContentOwner {
+				service.mu.Lock()
+				defer service.mu.Unlock()
+				return channelsmodule.ContentOwner{MXID: service.ownerMXID, DisplayName: service.profile.DisplayName}
+			},
+			Matrix:   func() channelsmodule.MatrixContentPort { return service.transport },
+			Now:      time.Now,
+			NewToken: randomToken,
+			NewEventID: func(contentID string) string {
+				return "$" + contentID + ":" + service.serverName
+			},
+			AuthorizeRecall:   service.authorizeChannelContentRecall,
+			MapTransportError: transportWriteError,
+		},
+	)
 	service.groupsModule = groupsmodule.New(service.store, service.conversationModule, groupsmodule.Config{
 		CreateRoom: service.createGroupRoom,
 		SaveOwnerMember: func(ctx context.Context, roomID string) error {

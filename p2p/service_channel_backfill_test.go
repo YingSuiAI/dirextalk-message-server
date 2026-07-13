@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 func mustInvokeMCP[T any](t *testing.T, service *Service, action string, params map[string]any) T {

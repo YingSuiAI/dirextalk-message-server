@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/projection"
@@ -12,37 +13,12 @@ func (s *Service) removeProjectedEvent(ctx context.Context, eventID string) erro
 	if eventID == "" {
 		return nil
 	}
-	s.mu.Lock()
-	removed := false
-	posts := s.posts[:0]
-	for _, post := range s.posts {
-		if post.EventID != eventID {
-			posts = append(posts, post)
-		} else {
-			removed = true
-		}
+	if s.channelContentModule == nil {
+		return errors.New("channel content module is not configured")
 	}
-	s.posts = posts
-	comments := s.comments[:0]
-	for _, comment := range s.comments {
-		if comment.EventID != eventID {
-			comments = append(comments, comment)
-		} else {
-			removed = true
-		}
-	}
-	s.comments = comments
-	s.mu.Unlock()
-	if store := s.channelContentStore(); store != nil {
-		postRemoved, err := store.DeleteChannelPost(ctx, eventID)
-		if err != nil {
-			return err
-		}
-		commentRemoved, err := store.DeleteChannelComment(ctx, eventID)
-		if err != nil {
-			return err
-		}
-		removed = removed || postRemoved || commentRemoved
+	removed, err := s.channelContentModule.RemoveProjectedEvent(ctx, eventID)
+	if err != nil {
+		return err
 	}
 	if !removed {
 		return nil

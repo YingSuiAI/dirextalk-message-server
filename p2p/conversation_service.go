@@ -115,11 +115,3 @@ func (s *Service) getConversation(ctx context.Context, conversationID, roomID st
 func (s *Service) conversationView(ctx context.Context, record conversationRecord) (conversationView, error) {
 	return s.conversationModule.View(ctx, record)
 }
-
-func (s *Service) conversationOperation(ctx context.Context, action, status, roomID string) (map[string]any, *conversationView, error) {
-	return s.conversationModule.Operation(ctx, action, status, roomID)
-}
-
-func (s *Service) attachConversationOperation(ctx context.Context, result map[string]any, action, status, roomID string) error {
-	return s.conversationModule.AttachOperation(ctx, result, action, status, roomID)
-}

@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
@@ -28,91 +27,16 @@ func mcpFormatTime(ts int64) string {
 	return dirextalkmcp.FormatTime(ts)
 }
 
-func mcpPagePostRecords(records []channelPostRecord, page mcpMessagePage) ([]channelPostRecord, bool) {
-	return mcpPageRecords(records, page, func(record channelPostRecord) (int64, string) {
-		return record.OriginServerTS, record.PostID
-	})
-}
-
-func mcpPageCommentRecords(records []channelCommentRecord, page mcpMessagePage) ([]channelCommentRecord, bool) {
-	return mcpPageRecords(records, page, func(record channelCommentRecord) (int64, string) {
-		return record.OriginServerTS, record.CommentID
-	})
-}
-
-func mcpPageRecords[T any](records []T, page mcpMessagePage, key func(T) (int64, string)) ([]T, bool) {
-	filtered := make([]T, 0, len(records))
-	for _, record := range records {
-		ts, id := key(record)
-		if mcpPageIncludes(ts, id, page) {
-			filtered = append(filtered, record)
-		}
-	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		iTS, iID := key(filtered[i])
-		jTS, jID := key(filtered[j])
-		if iTS == jTS {
-			return iID > jID
-		}
-		return iTS > jTS
-	})
-	hasMore := len(filtered) > page.Limit
-	if hasMore {
-		filtered = filtered[:page.Limit]
-	}
-	return filtered, hasMore
-}
-
 func (s *Service) mcpChannelPostPage(ctx context.Context, channelID string, page mcpMessagePage) ([]channelPostRecord, bool, error) {
-	s.mu.Lock()
-	ownerMXID := s.ownerMXID
-	s.mu.Unlock()
-	if store := s.channelContentStore(); store != nil {
-		storedPosts, hasMore, err := store.ListChannelPostsPage(ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
-		if err != nil {
-			return nil, false, err
-		}
-		posts := channelPostRecordsFromStorage(storedPosts)
-		s.enrichChannelPosts(ctx, posts, ownerMXID)
-		return posts, hasMore, nil
-	}
-	s.mu.Lock()
-	posts := make([]channelPostRecord, 0, len(s.posts))
-	for _, post := range s.posts {
-		if channelID == "" || post.ChannelID == channelID {
-			posts = append(posts, post)
-		}
-	}
-	s.mu.Unlock()
-	s.enrichChannelPosts(ctx, posts, ownerMXID)
-	paged, hasMore := mcpPagePostRecords(posts, page)
-	return paged, hasMore, nil
+	return s.channelContentModule.PostPage(
+		ctx, channelID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit,
+	)
 }
 
 func (s *Service) mcpChannelCommentPage(ctx context.Context, postID string, page mcpMessagePage) ([]channelCommentRecord, bool, error) {
-	s.mu.Lock()
-	ownerMXID := s.ownerMXID
-	s.mu.Unlock()
-	if store := s.channelContentStore(); store != nil {
-		storedComments, hasMore, err := store.ListChannelCommentsPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
-		if err != nil {
-			return nil, false, err
-		}
-		comments := channelCommentRecordsFromStorage(storedComments)
-		s.enrichChannelComments(ctx, comments, ownerMXID)
-		return comments, hasMore, nil
-	}
-	s.mu.Lock()
-	comments := make([]channelCommentRecord, 0, len(s.comments))
-	for _, comment := range s.comments {
-		if postID == "" || comment.PostID == postID {
-			comments = append(comments, comment)
-		}
-	}
-	s.mu.Unlock()
-	s.enrichChannelComments(ctx, comments, ownerMXID)
-	paged, hasMore := mcpPageCommentRecords(comments, page)
-	return paged, hasMore, nil
+	return s.channelContentModule.CommentPage(
+		ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit,
+	)
 }
 
 func lastMCPMessageKey(messages []mcpMessageSummary) (int64, string) {

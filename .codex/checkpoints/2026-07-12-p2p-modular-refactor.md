@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `cccc0c6` (`refactor: move channel public lookup`)
+- Current published HEAD before this verified slice: `f1f1770` (`refactor: modularize member workflows`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified member-workflow stage, then migrate channel content, reactions, projection, backfill, and channel-specific MCP pagination into a cohesive `p2p/internal/channels.ContentModule`. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified channel-content stage, then migrate reports and plugin workflows before the remaining Agent/MCP, projector/consumer, portal/profile/release, and transport cleanup. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -159,6 +159,10 @@
 - The verified member-workflow slice moves `groups.invite/join`, `channels.invite/join`, `channels.invite_grant.create`, both public channel join callbacks, and `rooms.reactivate` into four cohesive files in the existing members module. Root retains Matrix invites/joins, remote HTTP callbacks, retained-room refresh/backfill, and event adapters. The legacy Service member/invite-grant shadow maps and Store-failure fallbacks are gone; all supported constructors use Store-backed state.
 - An independent review found a same-member lost-update regression after removing the shadow-map mutex. The final implementation uses a bounded reference-counted keyed lock across durable lookup/merge/upsert/count refresh, preserving removed-over-left, owner, JoinedAt, and requester-node merge rules without serializing different members. A controlled concurrency regression passes repeatedly and under `-race`.
 - Redundant negative member tests were removed or folded into stronger retained cases; the two Matrix 429 backfill tests now share one transient/persistent table. The stage gate ran once after the grouped work: `go test ./p2p/... -count=1` (root 82.116s, storage 34.657s), related domain/state/policy tests, focused race, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck plus members dupl/gocyclo, production build, byte-identical 146-action contract generation, and `git diff --check` passed. Engineering and contract audits reported no production finding; their only P3 was closed with one table row preserving the ordinary-invite approval guard.
+- The verified channel-content slice adds a three-file `p2p/internal/channels.ContentModule` (336/358/478 lines) owning all ten post/comment/reaction actions, public response DTOs, Store-only enrichment and keyset pagination, Matrix send/redact orchestration, projector primitives, and redaction. Root retains only HeaderedEvent/history conversion, ordinary conversation activity, projected-event notification, and a 24-line transportless recall authorization adapter.
+- Service post/comment/reaction shadow state, 925 lines of root content logic, duplicate durable converters/tests, root projector upserts, and MCP in-memory pagination are removed. The pure `p2p/matrixhistory` facade and duplicate reader test are deleted after all six callers moved to `internal/dirextalkmatrix`. Repeated comment validation, post/comment redaction failure, and post/chat backfill tests are table-driven without dropping their unique behavior checks.
+- Focused verification caught and fixed a dynamic-transport compatibility regression by adding a per-operation Matrix port provider; existing runtime/test transport replacement and policy-error mapping are preserved. The stage gate then passed once: `go test ./p2p/... -count=1` (root 79.921s, storage 32.417s), related domain/matrix/transport/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck plus content-module dupl/gocyclo, production build, byte-identical 146-action contract generation, and `git diff --check`.
+- Independent engineering and contract audits found no production issue. Their only P3 coverage note was closed with one concise durable-record round-trip test proving post/comment fields survive while request-scoped reaction, operation, and conversation enrichment is not persisted; the focused module test and root compile check passed.
 
 ## Related Finding Outside This Structural Slice
 

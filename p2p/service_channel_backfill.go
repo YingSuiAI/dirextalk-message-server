@@ -7,7 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 )
 
 const maxChannelContentBackfillEvents = 5000
@@ -69,31 +70,35 @@ func (s *Service) backfillJoinedChannelContent(ctx context.Context, roomID, chan
 		if trimString(event.Content["channel_id"]) == "" && channelID != "" {
 			event.Content["channel_id"] = channelID
 		}
-		meta := eventProjectionMeta{
+		projectionEvent := channelsmodule.ProjectionEvent{
 			RoomID:         event.RoomID,
 			EventID:        event.EventID,
 			SenderMXID:     event.Sender,
 			OriginServerTS: event.OriginServerTS,
+			Content:        event.Content,
+			Body:           trimString(event.Content["body"]),
+			MessageType:    fallbackString(trimString(event.Content["client_type"]), trimString(event.Content["msgtype"])),
 		}
-		body := trimString(event.Content["body"])
-		msgType := fallbackString(trimString(event.Content["client_type"]), trimString(event.Content["msgtype"]))
-		if msgType == "" {
-			msgType = "text"
+		if projectionEvent.MessageType == "" {
+			projectionEvent.MessageType = "text"
+		}
+		if s.channelContentModule == nil {
+			return errors.New("channel content module is not configured")
 		}
 		switch event.Type {
 		case "m.room.message":
 			switch trimString(event.Content["p2p_kind"]) {
 			case "channel_post":
-				if err := s.projectChannelPostContent(ctx, meta, event.Content, body, msgType); err != nil {
+				if err := s.channelContentModule.ProjectPost(ctx, projectionEvent); err != nil {
 					return err
 				}
 			case "channel_comment":
-				if err := s.projectChannelCommentContent(ctx, meta, event.Content, body, msgType); err != nil {
+				if err := s.channelContentModule.ProjectComment(ctx, projectionEvent); err != nil {
 					return err
 				}
 			}
 		case "m.reaction":
-			if err := s.projectReactionContent(ctx, meta, event.Content); err != nil {
+			if err := s.channelContentModule.ProjectReaction(ctx, projectionEvent); err != nil {
 				return err
 			}
 		}

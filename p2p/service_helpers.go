@@ -86,41 +86,6 @@ func channelJoinServerNames(value any, roomID string) []string {
 	return nil
 }
 
-func jsonArrayStringParam(value any) (string, error) {
-	switch v := value.(type) {
-	case nil:
-		return "[]", nil
-	case string:
-		text := strings.TrimSpace(v)
-		if text == "" {
-			return "[]", nil
-		}
-		var items []any
-		if err := json.Unmarshal([]byte(text), &items); err != nil {
-			return "", err
-		}
-		raw, err := json.Marshal(items)
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
-	default:
-		raw, err := json.Marshal(v)
-		if err != nil {
-			return "", err
-		}
-		var items []any
-		if err = json.Unmarshal(raw, &items); err != nil {
-			return "", err
-		}
-		normalized, err := json.Marshal(items)
-		if err != nil {
-			return "", err
-		}
-		return string(normalized), nil
-	}
-}
-
 func boolParam(value any) bool {
 	return actionbase.Bool(value)
 }
@@ -199,10 +164,6 @@ func contactPendingInbound(status string) bool {
 	return strings.EqualFold(strings.TrimSpace(status), "pending_inbound")
 }
 
-func reactionKey(targetType, targetID, reaction, userID string) string {
-	return targetType + "|" + targetID + "|" + reaction + "|" + userID
-}
-
 func randomToken(prefix string) string {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
@@ -243,22 +204,6 @@ func fallbackString(value, fallback string) string {
 		return strings.TrimSpace(value)
 	}
 	return fallback
-}
-
-func matrixMessageType(messageType string, media bool) string {
-	if !media {
-		return "m.text"
-	}
-	switch strings.TrimSpace(messageType) {
-	case "image", "m.image":
-		return "m.image"
-	case "video", "m.video":
-		return "m.video"
-	case "audio", "m.audio":
-		return "m.audio"
-	default:
-		return "m.file"
-	}
 }
 
 func defaultPortalPassword() string {

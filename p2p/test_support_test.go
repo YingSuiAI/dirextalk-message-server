@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/gorilla/mux"
 )
 
@@ -43,33 +44,34 @@ func mustListP2PEvents(t *testing.T, service *Service) []p2pEvent {
 
 func mustInsertChannelPost(t *testing.T, service *Service, post channelPostRecord) {
 	t.Helper()
-	store := service.channelContentStore()
-	if store == nil {
-		t.Fatal("channel content store is unavailable")
+	record := dirextalkdomain.ChannelPostRecord{
+		PostID: post.PostID, ChannelID: post.ChannelID, RoomID: post.RoomID,
+		EventID: post.EventID, AuthorMXID: post.AuthorMXID, AuthorName: post.AuthorName,
+		Body: post.Body, MessageType: post.MessageType, MediaJSON: post.MediaJSON,
+		OriginServerTS: post.OriginServerTS, CommentCount: post.CommentCount,
 	}
-	if err := store.InsertChannelPost(context.Background(), channelPostStorageRecordFromPost(post)); err != nil {
+	if err := service.store.InsertChannelPost(context.Background(), record); err != nil {
 		t.Fatalf("insert channel post %q: %v", post.PostID, err)
 	}
 }
 
 func mustInsertChannelComment(t *testing.T, service *Service, comment channelCommentRecord) {
 	t.Helper()
-	store := service.channelContentStore()
-	if store == nil {
-		t.Fatal("channel content store is unavailable")
+	record := dirextalkdomain.ChannelCommentRecord{
+		CommentID: comment.CommentID, PostID: comment.PostID, ChannelID: comment.ChannelID,
+		EventID: comment.EventID, AuthorMXID: comment.AuthorMXID, AuthorName: comment.AuthorName,
+		Body: comment.Body, MessageType: comment.MessageType, MediaJSON: comment.MediaJSON,
+		ReplyToCommentID: comment.ReplyToCommentID, ReplyToAuthorMXID: comment.ReplyToAuthorMXID,
+		MentionsJSON: comment.MentionsJSON, OriginServerTS: comment.OriginServerTS,
 	}
-	if err := store.InsertChannelComment(context.Background(), channelCommentStorageRecordFromComment(comment)); err != nil {
+	if err := service.store.InsertChannelComment(context.Background(), record); err != nil {
 		t.Fatalf("insert channel comment %q: %v", comment.CommentID, err)
 	}
 }
 
 func mustUpsertReaction(t *testing.T, service *Service, reaction reactionRecord) {
 	t.Helper()
-	store := service.reactionStore()
-	if store == nil {
-		t.Fatal("reaction store is unavailable")
-	}
-	if err := store.UpsertReaction(context.Background(), reaction); err != nil {
+	if err := service.store.UpsertReaction(context.Background(), reaction); err != nil {
 		t.Fatalf("upsert reaction for %q: %v", reaction.TargetID, err)
 	}
 }

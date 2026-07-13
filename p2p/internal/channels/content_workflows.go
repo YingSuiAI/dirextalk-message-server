@@ -1,0 +1,478 @@
+package channels
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+)
+
+func (m *ContentModule) CreatePost(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	now := m.now()
+	channelID := fallback(params.String("channel_id"), "channel")
+	postID := "post_" + m.token("post")
+	owner := m.owner()
+	roomID, actionErr := m.roomIDForChannel(ctx, channelID, params.String("room_id"))
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	body := fallback(params.String("body"), params.String("content"))
+	messageType := fallback(params.String("message_type"), "text")
+	mediaJSON, media, err := mediaPayload(params.Raw("media_json"))
+	if err != nil {
+		return nil, actionbase.BadRequest("media_json is invalid")
+	}
+	eventID := m.eventID(postID)
+	originServerTS := now.UnixMilli()
+	if matrix := m.matrixPort(); matrix != nil && roomID != "" {
+		content := channelMessageContent("channel_post", body, messageType, mediaJSON, media)
+		content["channel_id"] = channelID
+		content["post_id"] = postID
+		result, err := matrix.SendMessage(ctx, dirextalktransport.SendMessageRequest{
+			SenderMXID: owner.MXID, RoomID: roomID, MessageType: messageType,
+			Timestamp: now, Content: content,
+		})
+		if err != nil {
+			return nil, m.transportError(err)
+		}
+		eventID = result.EventID
+		originServerTS = result.OriginServerTS
+	}
+	post := Post{
+		PostID: postID, ChannelID: channelID, RoomID: roomID, EventID: eventID,
+		AuthorMXID: owner.MXID, AuthorName: owner.DisplayName, Body: body,
+		MessageType: messageType, MediaJSON: mediaJSON, OriginServerTS: originServerTS,
+	}
+	if m.store == nil {
+		return nil, actionbase.InternalError(errors.New("channel content store is not configured"))
+	}
+	if err := m.store.InsertChannelPost(ctx, postRecord(post)); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if err := m.attachPostOperation(ctx, &post, actionPostsCreate, "ok", roomID); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	return post, nil
+}
+
+func (m *ContentModule) Posts(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	channelID := actionbase.Params(raw).String("channel_id")
+	if m.store == nil {
+		return map[string]any{"posts": []Post{}}, nil
+	}
+	records, err := m.store.ListChannelPosts(ctx, channelID)
+	if err != nil {
+		return map[string]any{"posts": []Post{}}, nil
+	}
+	posts := PostsFromRecords(records)
+	m.EnrichPosts(ctx, posts, m.owner().MXID)
+	return map[string]any{"posts": posts}, nil
+}
+
+func (m *ContentModule) PostPage(ctx context.Context, channelID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]Post, bool, error) {
+	if m.store == nil {
+		return nil, false, errors.New("channel content store is not configured")
+	}
+	records, hasMore, err := m.store.ListChannelPostsPage(ctx, channelID, fromTS, snapshotTS, cursorTS, cursorID, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	posts := PostsFromRecords(records)
+	m.EnrichPosts(ctx, posts, m.owner().MXID)
+	return posts, hasMore, nil
+}
+
+func (m *ContentModule) CreateComment(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	now := m.now()
+	commentID := "comment_" + m.token("comment")
+	owner := m.owner()
+	channelID := params.String("channel_id")
+	postID := params.String("post_id")
+	if postID == "" {
+		return nil, actionbase.BadRequest("post_id is required")
+	}
+	if _, ok, err := m.PostByID(ctx, postID, channelID); err != nil {
+		return nil, actionbase.InternalError(err)
+	} else if !ok {
+		return nil, actionbase.StatusError(http.StatusNotFound, "post not found")
+	}
+	body := fallback(params.String("body"), params.String("content"))
+	messageType := fallback(params.String("message_type"), "text")
+	mediaJSON, media, err := mediaPayload(params.Raw("media_json"))
+	if err != nil {
+		return nil, actionbase.BadRequest("media_json is invalid")
+	}
+	replyToCommentID := params.String("reply_to_comment_id")
+	replyToAuthorMXID := params.String("reply_to_author_mxid")
+	mentionsJSON, err := jsonArray(params.Raw("mentions"))
+	if err != nil {
+		return nil, actionbase.BadRequest("mentions is invalid")
+	}
+	if _, ok := raw["mentions"]; !ok {
+		mentionsJSON, err = jsonArray(params.Raw("mentions_json"))
+		if err != nil {
+			return nil, actionbase.BadRequest("mentions_json is invalid")
+		}
+	}
+	eventID := m.eventID(commentID)
+	originServerTS := now.UnixMilli()
+	roomID, actionErr := m.roomIDForChannel(ctx, channelID, params.String("room_id"))
+	if actionErr != nil {
+		return nil, actionErr
+	}
+	if matrix := m.matrixPort(); matrix != nil && roomID != "" {
+		content := channelMessageContent("channel_comment", body, messageType, mediaJSON, media)
+		content["channel_id"] = channelID
+		content["post_id"] = postID
+		content["comment_id"] = commentID
+		content["reply_to_comment_id"] = replyToCommentID
+		content["reply_to_author_mxid"] = replyToAuthorMXID
+		content["mentions_json"] = mentionsJSON
+		result, err := matrix.SendMessage(ctx, dirextalktransport.SendMessageRequest{
+			SenderMXID: owner.MXID, RoomID: roomID, MessageType: messageType,
+			Timestamp: now, Content: content,
+		})
+		if err != nil {
+			return nil, m.transportError(err)
+		}
+		eventID = result.EventID
+		originServerTS = result.OriginServerTS
+	}
+	comment := Comment{
+		CommentID: commentID, PostID: postID, ChannelID: channelID, EventID: eventID,
+		AuthorMXID: owner.MXID, AuthorName: owner.DisplayName, Body: body,
+		MessageType: messageType, MediaJSON: mediaJSON, ReplyToCommentID: replyToCommentID,
+		ReplyToAuthorMXID: replyToAuthorMXID, MentionsJSON: mentionsJSON,
+		OriginServerTS: originServerTS,
+	}
+	if m.store == nil {
+		return nil, actionbase.InternalError(errors.New("channel content store is not configured"))
+	}
+	if err := m.store.InsertChannelComment(ctx, commentRecord(comment)); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if err := m.attachCommentOperation(ctx, &comment, actionCommentsCreate, "ok", roomID); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	return comment, nil
+}
+
+func (m *ContentModule) Comments(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	postID := actionbase.Params(raw).String("post_id")
+	if m.store == nil {
+		return map[string]any{"comments": []Comment{}}, nil
+	}
+	records, err := m.store.ListChannelComments(ctx, postID)
+	if err != nil {
+		return map[string]any{"comments": []Comment{}}, nil
+	}
+	comments := CommentsFromRecords(records)
+	m.EnrichComments(ctx, comments, m.owner().MXID)
+	return map[string]any{"comments": comments}, nil
+}
+
+func (m *ContentModule) CommentPage(ctx context.Context, postID string, fromTS, snapshotTS, cursorTS int64, cursorID string, limit int) ([]Comment, bool, error) {
+	if m.store == nil {
+		return nil, false, errors.New("channel content store is not configured")
+	}
+	records, hasMore, err := m.store.ListChannelCommentsPage(ctx, postID, fromTS, snapshotTS, cursorTS, cursorID, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	comments := CommentsFromRecords(records)
+	m.EnrichComments(ctx, comments, m.owner().MXID)
+	return comments, hasMore, nil
+}
+
+func (m *ContentModule) MyComments(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	channelID := params.String("channel_id")
+	postID := params.String("post_id")
+	ownerMXID := m.owner().MXID
+	if m.store == nil {
+		return map[string]any{"comments": []Comment{}}, nil
+	}
+	records, err := m.store.ListChannelComments(ctx, postID)
+	if err != nil {
+		return map[string]any{"comments": []Comment{}}, nil
+	}
+	comments := CommentsFromRecords(records)
+	filtered := make([]Comment, 0, len(comments))
+	for _, comment := range comments {
+		if comment.AuthorMXID != ownerMXID || channelID != "" && comment.ChannelID != channelID {
+			continue
+		}
+		filtered = append(filtered, comment)
+	}
+	return map[string]any{"comments": filtered}, nil
+}
+
+func (m *ContentModule) recall(action string) actionbase.Handler {
+	return func(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+		return m.Recall(ctx, action, raw)
+	}
+}
+
+func (m *ContentModule) Recall(ctx context.Context, action string, raw map[string]any) (any, *actionbase.Error) {
+	params := actionbase.Params(raw)
+	if action == actionPostsRecall {
+		postID := params.String("post_id")
+		if postID == "" {
+			return nil, actionbase.BadRequest("post_id is required")
+		}
+		post, ok, err := m.PostByID(ctx, postID, params.String("channel_id"))
+		if err != nil {
+			return nil, m.transportError(err)
+		}
+		if !ok {
+			return nil, actionbase.StatusError(http.StatusNotFound, "post not found")
+		}
+		if actionErr := m.authorizeRecall(ctx, post.RoomID, post.AuthorMXID); actionErr != nil {
+			return nil, actionErr
+		}
+		if err := m.redact(ctx, post.RoomID, post.EventID, params.String("reason")); err != nil {
+			return nil, m.transportError(err)
+		}
+		if m.store == nil {
+			return nil, actionbase.InternalError(errors.New("channel content store is not configured"))
+		}
+		if _, err := m.store.DeleteChannelPost(ctx, postID); err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		return m.mutationResult(ctx, action, post.RoomID)
+	}
+
+	commentID := params.String("comment_id")
+	if commentID == "" {
+		return nil, actionbase.BadRequest("comment_id is required")
+	}
+	comment, ok, err := m.CommentByID(ctx, commentID, params.String("post_id"))
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if !ok {
+		return nil, actionbase.StatusError(http.StatusNotFound, "comment not found")
+	}
+	roomID, err := m.RoomIDForComment(ctx, comment, params.String("room_id"))
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if actionErr := m.authorizeRecall(ctx, roomID, comment.AuthorMXID); actionErr != nil {
+		return nil, actionErr
+	}
+	if err := m.redact(ctx, roomID, comment.EventID, params.String("reason")); err != nil {
+		return nil, m.transportError(err)
+	}
+	if m.store == nil {
+		return nil, actionbase.InternalError(errors.New("channel content store is not configured"))
+	}
+	if _, err := m.store.DeleteChannelComment(ctx, commentID); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	return m.mutationResult(ctx, action, roomID)
+}
+
+func (m *ContentModule) authorizeRecall(ctx context.Context, roomID, authorMXID string) *actionbase.Error {
+	if m.matrixPort() != nil || m.config.AuthorizeRecall == nil {
+		return nil
+	}
+	return m.config.AuthorizeRecall(ctx, roomID, authorMXID)
+}
+
+func (m *ContentModule) redact(ctx context.Context, roomID, eventID, reason string) error {
+	matrix := m.matrixPort()
+	if matrix == nil || roomID == "" || eventID == "" {
+		return nil
+	}
+	_, err := matrix.RedactEvent(ctx, dirextalktransport.RedactEventRequest{
+		RoomID: roomID, EventID: eventID, SenderMXID: m.owner().MXID,
+		Reason: reason, Timestamp: m.now(),
+	})
+	return err
+}
+
+func (m *ContentModule) mutationResult(ctx context.Context, action, roomID string) (any, *actionbase.Error) {
+	result := map[string]any{"status": "ok"}
+	if m.conversation == nil {
+		return nil, actionbase.InternalError(errors.New("channel content conversation port is not configured"))
+	}
+	if err := m.conversation.AttachOperation(ctx, result, action, "ok", roomID); err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	return result, nil
+}
+
+func (m *ContentModule) attachPostOperation(ctx context.Context, post *Post, action, status, roomID string) error {
+	if m.conversation == nil {
+		return errors.New("channel content conversation port is not configured")
+	}
+	operation, conversation, err := m.conversation.Operation(ctx, action, status, roomID)
+	if err != nil {
+		return err
+	}
+	post.Operation, post.Conversation = operation, conversation
+	return nil
+}
+
+func (m *ContentModule) attachCommentOperation(ctx context.Context, comment *Comment, action, status, roomID string) error {
+	if m.conversation == nil {
+		return errors.New("channel content conversation port is not configured")
+	}
+	operation, conversation, err := m.conversation.Operation(ctx, action, status, roomID)
+	if err != nil {
+		return err
+	}
+	comment.Operation, comment.Conversation = operation, conversation
+	return nil
+}
+
+func (m *ContentModule) PostByID(ctx context.Context, postID, channelID string) (Post, bool, error) {
+	if m.store == nil {
+		return Post{}, false, errors.New("channel content store is not configured")
+	}
+	record, ok, err := m.store.GetChannelPostByID(ctx, postID, channelID)
+	return postFromRecord(record), ok, err
+}
+
+func (m *ContentModule) PostByEventID(ctx context.Context, eventID, channelID string) (Post, bool, error) {
+	if strings.TrimSpace(eventID) == "" {
+		return Post{}, false, nil
+	}
+	if m.store == nil {
+		return Post{}, false, errors.New("channel content store is not configured")
+	}
+	record, ok, err := m.store.GetChannelPostByEventID(ctx, strings.TrimSpace(eventID), channelID)
+	return postFromRecord(record), ok, err
+}
+
+func (m *ContentModule) CommentByID(ctx context.Context, commentID, postID string) (Comment, bool, error) {
+	if m.store == nil {
+		return Comment{}, false, errors.New("channel content store is not configured")
+	}
+	record, ok, err := m.store.GetChannelCommentByID(ctx, commentID, postID)
+	return commentFromRecord(record), ok, err
+}
+
+func (m *ContentModule) CommentByEventID(ctx context.Context, eventID, channelID string) (Comment, bool, error) {
+	if strings.TrimSpace(eventID) == "" {
+		return Comment{}, false, nil
+	}
+	if m.store == nil {
+		return Comment{}, false, errors.New("channel content store is not configured")
+	}
+	record, ok, err := m.store.GetChannelCommentByEventID(ctx, strings.TrimSpace(eventID), channelID)
+	return commentFromRecord(record), ok, err
+}
+
+func (m *ContentModule) ReactionTargetByEventID(ctx context.Context, eventID, channelID string) (targetType, targetID, postID, commentID, resolvedChannelID string, err error) {
+	if comment, ok, lookupErr := m.CommentByEventID(ctx, eventID, channelID); lookupErr != nil {
+		return "", "", "", "", "", lookupErr
+	} else if ok {
+		return "comment", comment.CommentID, comment.PostID, comment.CommentID, comment.ChannelID, nil
+	}
+	if post, ok, lookupErr := m.PostByEventID(ctx, eventID, channelID); lookupErr != nil {
+		return "", "", "", "", "", lookupErr
+	} else if ok {
+		return "post", post.PostID, post.PostID, "", post.ChannelID, nil
+	}
+	return "", "", "", "", "", nil
+}
+
+func (m *ContentModule) RoomIDForComment(ctx context.Context, comment Comment, fallbackRoomID string) (string, error) {
+	if fallbackRoomID = strings.TrimSpace(fallbackRoomID); fallbackRoomID != "" {
+		return fallbackRoomID, nil
+	}
+	if comment.PostID != "" {
+		post, ok, err := m.PostByID(ctx, comment.PostID, comment.ChannelID)
+		if err != nil {
+			return "", err
+		}
+		if ok && post.RoomID != "" {
+			return post.RoomID, nil
+		}
+	}
+	if comment.ChannelID != "" && m.channels != nil {
+		channel, ok, err := m.channels.ByIDOrRoom(ctx, comment.ChannelID, "")
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return channel.RoomID, nil
+		}
+	}
+	return "", nil
+}
+
+func PostsFromRecords(records []dirextalkdomain.ChannelPostRecord) []Post {
+	if len(records) == 0 {
+		return []Post{}
+	}
+	posts := make([]Post, 0, len(records))
+	for _, record := range records {
+		posts = append(posts, postFromRecord(record))
+	}
+	return posts
+}
+
+func CommentsFromRecords(records []dirextalkdomain.ChannelCommentRecord) []Comment {
+	if len(records) == 0 {
+		return []Comment{}
+	}
+	comments := make([]Comment, 0, len(records))
+	for _, record := range records {
+		comments = append(comments, commentFromRecord(record))
+	}
+	return comments
+}
+
+func channelMessageContent(kind, body, messageType, mediaJSON string, media map[string]any) map[string]any {
+	content := map[string]any{
+		"msgtype": matrixMessageType(messageType, mediaMessageType(messageType) || len(media) > 0),
+		"body":    body, "p2p_kind": kind, "client_type": messageType,
+	}
+	if mediaJSON != "" {
+		content["media_json"] = mediaJSON
+	}
+	for key, value := range media {
+		if key == "body" || key == "msgtype" || key == "p2p_kind" || key == "client_type" || key == "media_json" {
+			continue
+		}
+		if key == "mxc" && content["url"] == nil {
+			content["url"] = value
+			continue
+		}
+		content[key] = value
+	}
+	return content
+}
+
+func mediaMessageType(messageType string) bool {
+	switch strings.TrimSpace(messageType) {
+	case "image", "m.image", "video", "m.video", "audio", "m.audio", "file", "m.file":
+		return true
+	default:
+		return false
+	}
+}
+
+func matrixMessageType(messageType string, media bool) string {
+	if !media {
+		return "m.text"
+	}
+	switch strings.TrimSpace(messageType) {
+	case "image", "m.image":
+		return "m.image"
+	case "video", "m.video":
+		return "m.video"
+	case "audio", "m.audio":
+		return "m.audio"
+	default:
+		return "m.file"
+	}
+}

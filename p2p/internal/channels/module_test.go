@@ -178,3 +178,25 @@ func TestDissolvePublishesBeforeDelete(t *testing.T) {
 		t.Fatalf("dissolve order = %v, want %v", events, want)
 	}
 }
+
+func TestContentRecordConversionsExcludeResponseOnlyFields(t *testing.T) {
+	conversation := &dirextalkdomain.ConversationView{}
+
+	post := postFromRecord(postRecord(Post{
+		PostID: "post", ChannelID: "channel", CommentCount: 2,
+		ReactionCount: 3, ReactedByMe: true,
+		Operation: map[string]any{"action": "test"}, Conversation: conversation,
+	}))
+	if post.PostID != "post" || post.ChannelID != "channel" || post.CommentCount != 2 || post.ReactionCount != 0 || post.ReactedByMe || post.Operation != nil || post.Conversation != nil {
+		t.Fatalf("post round trip = %#v", post)
+	}
+
+	comment := commentFromRecord(commentRecord(Comment{
+		CommentID: "comment", PostID: "post", MentionsJSON: `["@user:example.com"]`,
+		ReactionCount: 3, ReactedByMe: true,
+		Operation: map[string]any{"action": "test"}, Conversation: conversation,
+	}))
+	if comment.CommentID != "comment" || comment.PostID != "post" || comment.MentionsJSON != `["@user:example.com"]` || comment.ReactionCount != 0 || comment.ReactedByMe || comment.Operation != nil || comment.Conversation != nil {
+		t.Fatalf("comment round trip = %#v", comment)
+	}
+}

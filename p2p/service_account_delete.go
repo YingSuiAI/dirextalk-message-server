@@ -285,9 +285,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.agentConfig = agentConfig{}
 	s.clientBuild = clientBuild{}
 	s.readMarkers = map[string]readMarker{}
-	s.posts = nil
-	s.comments = nil
-	s.reactions = map[string]reactionRecord{}
 	s.nextEventSeq = 0
 	s.realtimeWSTickets = map[string]realtimeWSTicket{}
 	resetter, _ := s.store.(interface{ ResetAccountState() })

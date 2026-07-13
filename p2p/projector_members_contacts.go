@@ -3,10 +3,11 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
-	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
@@ -15,68 +16,16 @@ func (s *Service) projectReaction(ctx context.Context, event *types.HeaderedEven
 	if err := json.Unmarshal(event.Content(), &content); err != nil {
 		return err
 	}
-	return s.projectReactionContent(ctx, eventProjectionMeta{
+	if s.channelContentModule == nil {
+		return errors.New("channel content module is not configured")
+	}
+	return s.channelContentModule.ProjectReaction(ctx, channelsmodule.ProjectionEvent{
 		RoomID:         event.RoomID().String(),
 		EventID:        event.EventID(),
 		SenderMXID:     string(event.SenderID()),
 		OriginServerTS: int64(event.OriginServerTS()),
-	}, content)
-}
-
-func (s *Service) projectReactionContent(ctx context.Context, meta eventProjectionMeta, content map[string]any) error {
-	relatesTo, _ := content["m.relates_to"].(map[string]any)
-	reactionName := trimString(relatesTo["key"])
-	if reactionName == "" {
-		reactionName = fallbackString(trimString(content["reaction"]), "like")
-	}
-	channelID := trimString(content["channel_id"])
-	postID := trimString(content["post_id"])
-	commentID := trimString(content["comment_id"])
-	targetType := "post"
-	targetID := postID
-	if commentID != "" {
-		targetType = "comment"
-		targetID = commentID
-	}
-	if targetID == "" {
-		relatedEventID := trimString(relatesTo["event_id"])
-		resolvedTargetType, resolvedTargetID, resolvedPostID, resolvedCommentID, resolvedChannelID, err := s.channelReactionTargetByEventID(ctx, relatedEventID, channelID)
-		if err != nil {
-			return err
-		}
-		if resolvedTargetID != "" {
-			targetType = resolvedTargetType
-			targetID = resolvedTargetID
-			postID = resolvedPostID
-			commentID = resolvedCommentID
-			channelID = fallbackString(channelID, resolvedChannelID)
-		} else {
-			targetID = relatedEventID
-		}
-	}
-	if targetID == "" {
-		return nil
-	}
-	active := true
-	if _, ok := content["active"]; ok {
-		active = boolParam(content["active"])
-	}
-	createdAt := time.Now().UTC()
-	if meta.OriginServerTS > 0 {
-		createdAt = time.UnixMilli(meta.OriginServerTS).UTC()
-	}
-	record := reactionRecord{
-		TargetType: targetType,
-		TargetID:   targetID,
-		ChannelID:  channelID,
-		PostID:     postID,
-		CommentID:  commentID,
-		Reaction:   reactionName,
-		UserID:     meta.SenderMXID,
-		Active:     active,
-		CreatedAt:  createdAt.Format(time.RFC3339Nano),
-	}
-	return s.saveReaction(ctx, record)
+		Content:        content,
+	})
 }
 
 //nolint:gocyclo // Member projection accepts Matrix, direct-contact, group, and channel membership state.

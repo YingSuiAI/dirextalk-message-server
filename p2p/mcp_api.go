@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/matrixhistory"
 )
 
 type mcpRoomSummary = dirextalkmcp.RoomSummary
@@ -731,7 +731,7 @@ func (s *Service) mcpChannelCommentsList(ctx context.Context, params map[string]
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	post, ok, err := s.channelPostByID(ctx, postID, "")
+	post, ok, err := s.channelContentModule.PostByID(ctx, postID, "")
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -766,7 +766,7 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 	if msg == "" {
 		return nil, badRequest("msg is required")
 	}
-	post, ok, err := s.channelPostByID(ctx, postID, "")
+	post, ok, err := s.channelContentModule.PostByID(ctx, postID, "")
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -776,7 +776,7 @@ func (s *Service) mcpChannelCommentCreate(ctx context.Context, params map[string
 	if apiErr := s.requireMCPRoomAllowed(post.RoomID); apiErr != nil {
 		return nil, apiErr
 	}
-	commentAny, apiErr := s.channelComment(ctx, map[string]any{
+	commentAny, apiErr := s.channelContentModule.CreateComment(ctx, map[string]any{
 		"channel_id":   post.ChannelID,
 		"room_id":      post.RoomID,
 		"post_id":      postID,

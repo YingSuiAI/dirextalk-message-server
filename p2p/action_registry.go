@@ -31,6 +31,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "calls", handlers: s.callsModule.Handlers()},
 		{name: "groups", handlers: s.groupsModule.Handlers()},
 		{name: "channels", handlers: s.channelsModule.Handlers()},
+		{name: "channel-content", handlers: s.channelContentModule.Handlers()},
 		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),
 		s.collectActionHandlerModule("reports", s.registerReportActions),
 	}
@@ -89,32 +90,4 @@ func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *a
 
 func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
 	return s.updateAgentConfig(ctx, params)
-}
-
-func (s *Service) channelPostsAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.channelPosts(ctx, params), nil
-}
-
-func (s *Service) recallChannelContentAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.recallChannelContent(ctx, action, params)
-	}
-}
-
-func (s *Service) channelCommentsAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.channelComments(ctx, params), nil
-}
-
-func (s *Service) channelReactionAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.channelReaction(ctx, action, params)
-	}
-}
-
-func (s *Service) myChannelCommentsAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.myChannelComments(ctx, params), nil
-}
-
-func (s *Service) myReactionsAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.myReactions(ctx), nil
 }

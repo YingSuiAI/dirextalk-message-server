@@ -3,18 +3,13 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
-
-type eventProjectionMeta struct {
-	RoomID         string
-	EventID        string
-	SenderMXID     string
-	OriginServerTS int64
-}
 
 func (s *Service) projectMessage(ctx context.Context, event *types.HeaderedEvent) error {
 	content := map[string]any{}
@@ -98,111 +93,31 @@ func conversationActivityPreview(body, msgType string) string {
 }
 
 func (s *Service) projectChannelPost(ctx context.Context, event *types.HeaderedEvent, content map[string]any, body, msgType string) error {
-	return s.projectChannelPostContent(ctx, eventProjectionMeta{
+	if s.channelContentModule == nil {
+		return errors.New("channel content module is not configured")
+	}
+	return s.channelContentModule.ProjectPost(ctx, channelsmodule.ProjectionEvent{
 		RoomID:         event.RoomID().String(),
 		EventID:        event.EventID(),
 		SenderMXID:     string(event.SenderID()),
 		OriginServerTS: int64(event.OriginServerTS()),
-	}, content, body, msgType)
-}
-
-func (s *Service) projectChannelPostContent(ctx context.Context, meta eventProjectionMeta, content map[string]any, body, msgType string) error {
-	postID := trimString(content["post_id"])
-	if postID == "" {
-		postID = "post_" + strings.TrimPrefix(meta.EventID, "$")
-	}
-	post := channelPostRecord{
-		PostID:         postID,
-		ChannelID:      trimString(content["channel_id"]),
-		RoomID:         meta.RoomID,
-		EventID:        meta.EventID,
-		AuthorMXID:     meta.SenderMXID,
-		AuthorName:     trimString(content["sender_name"]),
+		Content:        content,
 		Body:           body,
 		MessageType:    msgType,
-		MediaJSON:      trimString(content["media_json"]),
-		OriginServerTS: meta.OriginServerTS,
-		CommentCount:   0,
-	}
-	s.mu.Lock()
-	upserted := false
-	for i := range s.posts {
-		if s.posts[i].PostID == post.PostID {
-			s.posts[i] = post
-			upserted = true
-			break
-		}
-	}
-	if !upserted {
-		s.posts = append(s.posts, post)
-	}
-	s.mu.Unlock()
-	if store := s.channelContentStore(); store != nil {
-		return store.InsertChannelPost(ctx, channelPostStorageRecordFromPost(post))
-	}
-	return nil
+	})
 }
 
 func (s *Service) projectChannelComment(ctx context.Context, event *types.HeaderedEvent, content map[string]any, body, msgType string) error {
-	return s.projectChannelCommentContent(ctx, eventProjectionMeta{
+	if s.channelContentModule == nil {
+		return errors.New("channel content module is not configured")
+	}
+	return s.channelContentModule.ProjectComment(ctx, channelsmodule.ProjectionEvent{
 		RoomID:         event.RoomID().String(),
 		EventID:        event.EventID(),
 		SenderMXID:     string(event.SenderID()),
 		OriginServerTS: int64(event.OriginServerTS()),
-	}, content, body, msgType)
-}
-
-func (s *Service) projectChannelCommentContent(ctx context.Context, meta eventProjectionMeta, content map[string]any, body, msgType string) error {
-	commentID := trimString(content["comment_id"])
-	if commentID == "" {
-		commentID = "comment_" + strings.TrimPrefix(meta.EventID, "$")
-	}
-	mentionsJSON := "[]"
-	if rawMentionsJSON, ok := content["mentions_json"]; ok {
-		var err error
-		mentionsJSON, err = jsonArrayStringParam(rawMentionsJSON)
-		if err != nil {
-			mentionsJSON = "[]"
-		}
-	} else if rawMentions, ok := content["mentions"]; ok {
-		var err error
-		mentionsJSON, err = jsonArrayStringParam(rawMentions)
-		if err != nil {
-			mentionsJSON = "[]"
-		}
-	}
-	comment := channelCommentRecord{
-		CommentID:         commentID,
-		PostID:            trimString(content["post_id"]),
-		ChannelID:         trimString(content["channel_id"]),
-		EventID:           meta.EventID,
-		AuthorMXID:        meta.SenderMXID,
-		AuthorName:        trimString(content["sender_name"]),
-		Body:              body,
-		MessageType:       msgType,
-		MediaJSON:         trimString(content["media_json"]),
-		ReplyToCommentID:  trimString(content["reply_to_comment_id"]),
-		ReplyToAuthorMXID: trimString(content["reply_to_author_mxid"]),
-		MentionsJSON:      mentionsJSON,
-		OriginServerTS:    meta.OriginServerTS,
-		ReactionCount:     0,
-		ReactedByMe:       false,
-	}
-	s.mu.Lock()
-	upserted := false
-	for i := range s.comments {
-		if s.comments[i].CommentID == comment.CommentID {
-			s.comments[i] = comment
-			upserted = true
-			break
-		}
-	}
-	if !upserted {
-		s.comments = append(s.comments, comment)
-	}
-	s.mu.Unlock()
-	if store := s.channelContentStore(); store != nil {
-		return store.InsertChannelComment(ctx, channelCommentStorageRecordFromComment(comment))
-	}
-	return nil
+		Content:        content,
+		Body:           body,
+		MessageType:    msgType,
+	})
 }

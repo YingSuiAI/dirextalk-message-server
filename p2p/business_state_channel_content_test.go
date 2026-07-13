@@ -241,32 +241,27 @@ func TestPublicChannelReadsRefreshMemberCountFromMembership(t *testing.T) {
 func TestChannelCommentCreateRequiresExistingPost(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
-
-	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
-		"channel_id": "ch",
-		"body":       "orphan",
-	}); apiErr == nil || apiErr.Status != http.StatusBadRequest {
-		t.Fatalf("expected missing post_id to return 400, got %#v", apiErr)
-	}
-	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
-		"channel_id": "ch",
-		"post_id":    "post_missing",
-		"body":       "orphan",
-	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
-		t.Fatalf("expected unknown post to return 404, got %#v", apiErr)
-	}
-
 	post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
 		"channel_id": "ch",
 		"body":       "post",
 	})
-	if _, apiErr := service.Handle(context.Background(), "channels.comments.create", map[string]any{
-		"channel_id": "other",
-		"post_id":    post.PostID,
-		"body":       "wrong channel",
-	}); apiErr == nil || apiErr.Status != http.StatusNotFound {
-		t.Fatalf("expected wrong channel post lookup to return 404, got %#v", apiErr)
+
+	for _, tc := range []struct {
+		name       string
+		params     map[string]any
+		wantStatus int
+	}{
+		{name: "missing post ID", params: map[string]any{"channel_id": "ch", "body": "orphan"}, wantStatus: http.StatusBadRequest},
+		{name: "unknown post", params: map[string]any{"channel_id": "ch", "post_id": "post_missing", "body": "orphan"}, wantStatus: http.StatusNotFound},
+		{name: "wrong channel", params: map[string]any{"channel_id": "other", "post_id": post.PostID, "body": "orphan"}, wantStatus: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, apiErr := service.Handle(context.Background(), "channels.comments.create", tc.params); apiErr == nil || apiErr.Status != tc.wantStatus {
+				t.Fatalf("expected status %d, got %#v", tc.wantStatus, apiErr)
+			}
+		})
 	}
+
 	comment := mustHandle[channelCommentRecord](t, service, "channels.comments.create", map[string]any{
 		"channel_id": "ch",
 		"post_id":    post.PostID,
