@@ -30,7 +30,11 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "blocks", handlers: s.blocksModule.Handlers()},
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
-		s.collectActionHandlerModule("groups", s.registerGroupActions),
+		{name: "groups", handlers: s.groupsModule.Handlers()},
+		{name: "group-member-workflows", handlers: map[string]actionHandler{
+			"groups.invite": s.inviteMembersAction("group"),
+			"groups.join":   s.joinMemberAction("group"),
+		}},
 		s.collectActionHandlerModule("channels", s.registerChannelActions),
 		s.collectActionHandlerModule("reports", s.registerReportActions),
 	}
@@ -100,16 +104,6 @@ func (s *Service) inviteMembersAction(roomKind string) actionHandler {
 func (s *Service) joinMemberAction(roomKind string) actionHandler {
 	return func(ctx context.Context, params map[string]any) (any, *apiError) {
 		return s.joinMember(ctx, roomKind, params)
-	}
-}
-
-func (s *Service) groupListAction(ctx context.Context, _ map[string]any) (any, *apiError) {
-	return s.groupList(ctx), nil
-}
-
-func (s *Service) groupPolicyMutationAction(action string) actionHandler {
-	return func(ctx context.Context, params map[string]any) (any, *apiError) {
-		return s.groupPolicyMutation(ctx, action, params)
 	}
 }
 

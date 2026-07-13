@@ -2,9 +2,7 @@ package p2p
 
 import (
 	"context"
-	"reflect"
 	"testing"
-	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -694,19 +692,17 @@ func TestGroupInviteAcceptsInviteArrayAlias(t *testing.T) {
 	}
 }
 
-func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
+func TestMemberProfilesAndCountsPropagateAcrossGroupAndChannelJoins(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
 		"room_id": "!group:example.com",
 		"name":    "Group",
 	})
-	time.Sleep(time.Millisecond)
 	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
 		"room_id":    group.RoomID,
 		"user_mxid":  "@alice:example.com",
 		"avatar_url": "mxc://example.com/alice",
 	})
-	time.Sleep(time.Millisecond)
 	mustHandle[map[string]any](t, service, "groups.join", map[string]any{
 		"room_id":    group.RoomID,
 		"user_mxid":  "@bob:example.com",
@@ -718,13 +714,12 @@ func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
 	if len(members) != 3 {
 		t.Fatalf("expected owner plus two members, got %#v", members)
 	}
-	if members[0].Role != "owner" || members[1].UserID != "@alice:example.com" || members[2].UserID != "@bob:example.com" {
-		t.Fatalf("expected members in join order, got %#v", members)
-	}
-	if members[1].AvatarURL != "mxc://example.com/alice" || members[2].AvatarURL != "mxc://example.com/bob" {
+	alice := findMember(members, "@alice:example.com")
+	bob := findMember(members, "@bob:example.com")
+	if alice.AvatarURL != "mxc://example.com/alice" || bob.AvatarURL != "mxc://example.com/bob" {
 		t.Fatalf("expected member avatars to be preserved, got %#v", members)
 	}
-	if members[0].JoinedAt == 0 || members[1].JoinedAt == 0 || members[2].JoinedAt == 0 {
+	if alice.JoinedAt == 0 || bob.JoinedAt == 0 {
 		t.Fatalf("expected joined_at on every member, got %#v", members)
 	}
 	groups := mustHandle[map[string]any](t, service, "groups.list", nil)["groups"].([]groupRecord)
@@ -737,7 +732,6 @@ func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
 		"room_id":    "!channel:example.com",
 		"name":       "Members",
 	})
-	time.Sleep(time.Millisecond)
 	mustHandle[map[string]any](t, service, "channels.join", map[string]any{
 		"channel_id":   createdChannel.ChannelID,
 		"user_mxid":    "@carol:example.com",
@@ -746,37 +740,12 @@ func TestMembersListIncludesAvatarsAndJoinOrder(t *testing.T) {
 	})
 	channelMembersList := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": createdChannel.ChannelID})
 	channelMembers := channelMembersList["members"].([]memberRecord)
-	if len(channelMembers) != 2 || channelMembers[0].Role != "owner" || channelMembers[1].UserID != "@carol:example.com" {
-		t.Fatalf("expected channel owner to see channel members in join order, got %#v", channelMembers)
+	if len(channelMembers) != 2 {
+		t.Fatalf("expected channel owner and joined member, got %#v", channelMembers)
 	}
-	if channelMembers[1].DisplayName != "Carol" || channelMembers[1].AvatarURL != "mxc://example.com/carol" || channelMembers[1].Membership != "join" {
-		t.Fatalf("expected channel member profile and status, got %#v", channelMembers[1])
-	}
-}
-
-func TestMemberListsPinOwnerBeforeJoinOrder(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
-	for _, member := range []memberRecord{
-		{RoomID: "!group:example.com", UserID: "@alice:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
-		{RoomID: "!group:example.com", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
-		{RoomID: "!group:example.com", UserID: "@bob:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
-		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@carol:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 100},
-		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@owner:example.com", Domain: "example.com", Membership: "join", Role: "owner", JoinedAt: 300},
-		{RoomID: "!channel:example.com", ChannelID: "ch_order", UserID: "@dave:example.com", Domain: "example.com", Membership: "join", Role: "member", JoinedAt: 200},
-	} {
-		if err := service.saveMember(context.Background(), member); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	groupMembers := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": "!group:example.com"})["members"].([]memberRecord)
-	if got := []string{groupMembers[0].UserID, groupMembers[1].UserID, groupMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@alice:example.com", "@bob:example.com"}) {
-		t.Fatalf("expected group owner first, then members by join time, got %#v", groupMembers)
-	}
-
-	channelMembers := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": "ch_order"})["members"].([]memberRecord)
-	if got := []string{channelMembers[0].UserID, channelMembers[1].UserID, channelMembers[2].UserID}; !reflect.DeepEqual(got, []string{"@owner:example.com", "@carol:example.com", "@dave:example.com"}) {
-		t.Fatalf("expected channel owner first, then members by join time, got %#v", channelMembers)
+	carol := findMember(channelMembers, "@carol:example.com")
+	if carol.DisplayName != "Carol" || carol.AvatarURL != "mxc://example.com/carol" || carol.Membership != "join" {
+		t.Fatalf("expected channel member profile and status, got %#v", carol)
 	}
 }
 

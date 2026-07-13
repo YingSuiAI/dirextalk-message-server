@@ -5,7 +5,7 @@
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-refactor`
 - Base: `main` / `origin/main` at `a9cab7c1dba00caa43e24c3aa4b267b6c9de575d`
-- Current published HEAD before this verified slice: `830d530` (`refactor: consolidate member lifecycle tests`)
+- Current published HEAD before this verified slice: `f849d7f` (`refactor: move channel join request resolution`)
 
 ## Outcome And Boundaries
 
@@ -31,7 +31,7 @@
 
 ## Current Next Action
 
-- Commit and push the verified channel join-request stage, then extract the cohesive group invite/join workflow while leaving remote/Matrix adapters at the root boundary. Keep durable `contact.requested` compensation as separate later work.
+- Commit and push the verified groups stage, then extract the cohesive channel lifecycle/profile module while keeping shared group/channel invite/join and remote reactivation as one workflow. Keep durable `contact.requested` compensation as separate later work.
 
 ## Completed Verification
 
@@ -148,6 +148,9 @@
 - Published `830d530`: redundant fake-port tests were reduced and five leave/remove/invite-reject actions moved into the members module in one verified stage.
 - The verified channel join-request stage moves `channels.join_request.approve/reject` status gating, first persistence, native Matrix join-request state publication, completion dispatch, and final conversation operation into the existing members mutation file. The root keeps one narrow completion adapter for local/remote Matrix and HTTP work; no production file was added.
 - Join-request focused coverage passed once for the members module plus local, retry, channel-refresh, remote approval, Matrix join, and Action registry root paths. Touched-file gopls and `git diff --check` passed, and the single combined review found no P0-P3 behavior, contract, partial-commit, or dependency-boundary issue. The immediately preceding grouped stage already passed the full P2P/build/lint gate, so it was not repeated for this adjacent slice.
+- The verified groups stage moves `groups.create/update/list/dissolve/mute/unmute/invite_policy.update`, public View conversion, durable group persistence, and conversation orchestration into two cohesive `p2p/internal/groups` production files. The root retains only shared room creation, Matrix state, member-policy adapters, and thin cross-domain Save/Delete/Get facades; `groups.invite/join` deliberately remain in the one shared group/channel workflow.
+- Group state now has one Store path: the root `Service.groups` shadow map, group-specific fallback/list filtering, duplicate storage converters, and obsolete group registry file are removed. Redundant owner-order coverage and four separate group operation tests were consolidated, removing another 124 test lines before the module's focused workflow/order coverage.
+- Groups stage gates passed once: focused group/registry/Matrix/operation tests, `go test ./p2p/... -count=1` (root 75.318s, storage 30.803s), related domain/state/policy tests, `go vet`, touched-file `gopls check`, unused/ineffassign/staticcheck, production build, Action contract artifact coverage, and `git diff --check`. Independent engineering and contract audits reported no P0-P3 finding.
 
 ## Related Finding Outside This Structural Slice
 

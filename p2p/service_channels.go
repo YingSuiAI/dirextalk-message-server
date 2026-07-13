@@ -668,22 +668,3 @@ func (s *Service) refreshChannelCountsLocked(channelID string) {
 	ch.MemberCount, ch.PendingJoinCount = dirextalkprojection.ProductMemberCounts(members)
 	s.channels[channelID] = ch
 }
-
-func (s *Service) refreshGroupCountsLocked(roomID string) {
-	roomID = strings.TrimSpace(roomID)
-	if roomID == "" {
-		return
-	}
-	group, ok := s.groups[roomID]
-	if !ok {
-		return
-	}
-	members := make([]memberRecord, 0, len(s.members))
-	for _, member := range s.members {
-		if member.ChannelID == "" && member.RoomID == roomID {
-			members = append(members, member)
-		}
-	}
-	group.MemberCount, _ = dirextalkprojection.ProductMemberCounts(members)
-	s.groups[roomID] = group
-}

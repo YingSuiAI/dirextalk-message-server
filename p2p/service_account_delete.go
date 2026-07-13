@@ -236,7 +236,7 @@ func (s *Service) leaveOrDissolveAccountRooms(ctx context.Context, summary *acco
 			continue
 		}
 		if productOwnerRole(member.Role) {
-			if _, apiErr := s.dissolveGroup(ctx, map[string]any{"room_id": group.RoomID}); apiErr != nil {
+			if _, apiErr := s.groupsModule.Dissolve(ctx, map[string]any{"room_id": group.RoomID}); apiErr != nil {
 				return apiErr
 			}
 			summary.GroupsDissolved++
@@ -288,7 +288,6 @@ func (s *Service) clearAccountStateAfterDeprovision() {
 	s.channels = map[string]channel{}
 	s.posts = nil
 	s.comments = nil
-	s.groups = map[string]groupRecord{}
 	s.reactions = map[string]reactionRecord{}
 	s.members = map[string]memberRecord{}
 	s.inviteGrants = map[string]channelInviteGrant{}

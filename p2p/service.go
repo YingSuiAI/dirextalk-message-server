@@ -19,6 +19,7 @@ import (
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
+	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
@@ -96,6 +97,7 @@ type Service struct {
 	callsModule        *callsmodule.Module
 	contactsModule     *contactsmodule.Module
 	conversationModule *conversationmodule.Module
+	groupsModule       *groupsmodule.Module
 	membersModule      *membersmodule.Module
 	socialModule       *socialmodule.Module
 
@@ -140,6 +142,7 @@ type socialStore = socialmodule.Store
 type callStore = callsmodule.Store
 type blockStore = blocksmodule.Store
 type contactStore = contactsmodule.Store
+type groupStore = groupsmodule.Store
 
 type portalState = domain.PortalState
 type ownerProfile = domain.OwnerProfile
@@ -565,6 +568,16 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		serviceRealtimeState:  newServiceRealtimeState(realtimeSessions),
 	}
 	service.conversationModule = conversationmodule.New(service.store, serviceConversationHydrator{service: service})
+	service.groupsModule = groupsmodule.New(service.store, service.conversationModule, groupsmodule.Config{
+		CreateRoom: service.createGroupRoom,
+		SaveOwnerMember: func(ctx context.Context, roomID string) error {
+			return service.saveOwnerMember(ctx, roomID, "")
+		},
+		PublishState:  service.publishGroupState,
+		SetMemberMute: service.setGroupMemberMute,
+		RequireOwner:  service.requireOwnerMember,
+		OwnerMXID:     service.memberOwnerMXID,
+	})
 	var joinDirectRoom contactsmodule.DirectRoomJoiner
 	if service.transport != nil {
 		joinDirectRoom = service.joinContactDirectRoomTransport

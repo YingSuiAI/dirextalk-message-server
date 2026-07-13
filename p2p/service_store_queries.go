@@ -6,20 +6,7 @@ import (
 )
 
 func (s *Service) listGroups(ctx context.Context) ([]groupRecord, error) {
-	if store := s.groupStore(); store != nil {
-		groups, err := store.ListGroups(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return groupRecordsFromStorage(groups), nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	groups := make([]groupRecord, 0, len(s.groups))
-	for _, group := range s.groups {
-		groups = append(groups, group)
-	}
-	return groups, nil
+	return s.groupsModule.List(ctx)
 }
 
 func (s *Service) listChannels(ctx context.Context) ([]channel, error) {
@@ -33,35 +20,6 @@ func (s *Service) listChannels(ctx context.Context) ([]channel, error) {
 		channels = append(channels, ch)
 	}
 	return channels, nil
-}
-
-func (s *Service) joinedGroupsForOwner(ctx context.Context, groups []groupRecord) ([]groupRecord, error) {
-	if len(groups) == 0 {
-		return groups, nil
-	}
-	s.mu.Lock()
-	ownerMXID := s.ownerMXID
-	s.mu.Unlock()
-	if strings.TrimSpace(ownerMXID) == "" {
-		return []groupRecord{}, nil
-	}
-	members, err := s.membersForUser(ctx, ownerMXID)
-	if err != nil {
-		return nil, err
-	}
-	joinedByRoom := make(map[string]bool, len(members))
-	for _, member := range members {
-		if member.ChannelID == "" && strings.EqualFold(strings.TrimSpace(member.Membership), "join") {
-			joinedByRoom[member.RoomID] = true
-		}
-	}
-	visible := make([]groupRecord, 0, len(groups))
-	for _, group := range groups {
-		if joinedByRoom[group.RoomID] {
-			visible = append(visible, group)
-		}
-	}
-	return visible, nil
 }
 
 func (s *Service) joinedChannelsForOwner(ctx context.Context, channels []channel) ([]channel, error) {

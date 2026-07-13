@@ -156,180 +156,114 @@ func TestChannelPostCommentAndReactionReturnConversationOperation(t *testing.T) 
 	})
 }
 
-func TestGroupJoinReturnsConversationOperation(t *testing.T) {
-	ctx := context.Background()
-	service := NewService(Config{ServerName: "example.com"})
-
-	got, apiErr := service.Handle(ctx, "groups.join", map[string]any{
-		"room_id":    "!remote-group:example.com",
-		"group_name": "Remote Group",
-	})
-	if apiErr != nil {
-		t.Fatal(apiErr)
-	}
-	result := got.(map[string]any)
-	operation := result["operation"].(map[string]any)
-	if operation["action"] != "groups.join" || operation["status"] != "ok" || operation["room_id"] != "!remote-group:example.com" {
-		t.Fatalf("unexpected group join operation: %#v", operation)
-	}
-	conversation := result["conversation"].(conversationView)
-	assertConversationFacts(t, conversation, map[string]any{
-		"matrix_room_id":   "!remote-group:example.com",
-		"kind":             "group",
-		"title":            "Remote Group",
-		"membership":       "join",
-		"role":             "member",
-		"hydration_state":  "ready",
-		"projection_state": "ready",
-	})
-	assertConversationCapabilities(t, conversation, map[string]bool{
-		"open":           true,
-		"send":           true,
-		"invite":         false,
-		"manage_members": false,
-		"rename":         false,
-		"remove_members": false,
-		"leave":          true,
-		"delete":         false,
-	})
-}
-
-func TestGroupCreateReturnsConversationOperation(t *testing.T) {
-	ctx := context.Background()
-	service := NewService(Config{ServerName: "example.com"})
-
-	got, apiErr := service.Handle(ctx, "groups.create", map[string]any{
-		"room_id": "!created-group:example.com",
-		"name":    "Created Group",
-	})
-	if apiErr != nil {
-		t.Fatal(apiErr)
-	}
-	raw, err := json.Marshal(got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result map[string]any
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatal(err)
-	}
-	operation, ok := result["operation"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing operation in groups.create response: %#v", result)
-	}
-	if operation["action"] != "groups.create" || operation["status"] != "ok" || operation["room_id"] != "!created-group:example.com" {
-		t.Fatalf("unexpected group create operation: %#v", operation)
-	}
-	conversation, ok := result["conversation"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing conversation in groups.create response: %#v", result)
-	}
-	if conversation["matrix_room_id"] != "!created-group:example.com" ||
-		conversation["kind"] != "group" ||
-		conversation["title"] != "Created Group" ||
-		conversation["membership"] != "join" ||
-		conversation["role"] != "owner" {
-		t.Fatalf("unexpected group create conversation: %#v", conversation)
-	}
-	capabilities, ok := conversation["capabilities"].(map[string]any)
-	if !ok ||
-		capabilities["open"] != true ||
-		capabilities["send"] != true ||
-		capabilities["send_media"] != true ||
-		capabilities["call"] != true ||
-		capabilities["invite"] != true ||
-		capabilities["manage_members"] != true ||
-		capabilities["rename"] != true ||
-		capabilities["remove_members"] != true ||
-		capabilities["leave"] != true ||
-		capabilities["delete"] != true {
-		t.Fatalf("unexpected group create capabilities: %#v", conversation["capabilities"])
-	}
-}
-
-func TestGroupInviteReturnsConversationOperation(t *testing.T) {
-	ctx := context.Background()
-	service := NewService(Config{ServerName: "example.com"})
-	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
-		"room_id": "!invite-group:example.com",
-		"name":    "Invite Group",
-	})
-
-	got, apiErr := service.Handle(ctx, "groups.invite", map[string]any{
-		"room_id": group.RoomID,
-		"user_id": "@alice:example.com",
-	})
-	if apiErr != nil {
-		t.Fatal(apiErr)
-	}
-	result := got.(map[string]any)
-	operation := result["operation"].(map[string]any)
-	if operation["action"] != "groups.invite" || operation["status"] != "ok" || operation["room_id"] != group.RoomID {
-		t.Fatalf("unexpected group invite operation: %#v", operation)
-	}
-	conversation := result["conversation"].(conversationView)
-	assertConversationFacts(t, conversation, map[string]any{
-		"matrix_room_id":   group.RoomID,
-		"kind":             "group",
-		"title":            "Invite Group",
-		"membership":       "join",
-		"role":             "owner",
-		"hydration_state":  "ready",
-		"projection_state": "ready",
-	})
-}
-
-func TestGroupInviteRejectReturnsConversationOperation(t *testing.T) {
-	ctx := context.Background()
-	service := NewService(Config{ServerName: "example.com"})
-	group := groupRecord{
-		RoomID:       "!remote-invite:remote.example",
-		Name:         "Remote Invite",
-		InvitePolicy: "member",
-	}
-	if err := service.saveGroup(ctx, group); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.saveMember(ctx, memberRecord{
-		RoomID:     group.RoomID,
-		UserID:     "@owner:example.com",
-		Domain:     "example.com",
-		Membership: "invite",
-		Role:       "member",
-	}); err != nil {
-		t.Fatal(err)
+func TestGroupActionsReturnConversationOperations(t *testing.T) {
+	tests := []struct {
+		name         string
+		action       string
+		status       string
+		roomID       string
+		prepare      func(*testing.T, *Service) map[string]any
+		facts        map[string]any
+		capabilities map[string]bool
+	}{
+		{
+			name:   "create",
+			action: "groups.create",
+			status: "ok",
+			roomID: "!created-group:example.com",
+			prepare: func(_ *testing.T, _ *Service) map[string]any {
+				return map[string]any{"room_id": "!created-group:example.com", "name": "Created Group"}
+			},
+			facts: map[string]any{
+				"matrix_room_id": "!created-group:example.com", "kind": "group", "title": "Created Group",
+				"membership": "join", "role": "owner",
+			},
+			capabilities: map[string]bool{
+				"open": true, "send": true, "send_media": true, "call": true, "invite": true,
+				"manage_members": true, "rename": true, "remove_members": true, "leave": true, "delete": true,
+			},
+		},
+		{
+			name:   "join",
+			action: "groups.join",
+			status: "ok",
+			roomID: "!remote-group:example.com",
+			prepare: func(_ *testing.T, _ *Service) map[string]any {
+				return map[string]any{"room_id": "!remote-group:example.com", "group_name": "Remote Group"}
+			},
+			facts: map[string]any{
+				"matrix_room_id": "!remote-group:example.com", "kind": "group", "title": "Remote Group",
+				"membership": "join", "role": "member", "hydration_state": "ready", "projection_state": "ready",
+			},
+			capabilities: map[string]bool{
+				"open": true, "send": true, "invite": false, "manage_members": false,
+				"rename": false, "remove_members": false, "leave": true, "delete": false,
+			},
+		},
+		{
+			name:   "invite",
+			action: "groups.invite",
+			status: "ok",
+			roomID: "!invite-group:example.com",
+			prepare: func(t *testing.T, service *Service) map[string]any {
+				group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+					"room_id": "!invite-group:example.com", "name": "Invite Group",
+				})
+				return map[string]any{"room_id": group.RoomID, "user_id": "@alice:example.com"}
+			},
+			facts: map[string]any{
+				"matrix_room_id": "!invite-group:example.com", "kind": "group", "title": "Invite Group",
+				"membership": "join", "role": "owner", "hydration_state": "ready", "projection_state": "ready",
+			},
+		},
+		{
+			name:   "invite reject",
+			action: "groups.invite.reject",
+			status: "rejected",
+			roomID: "!remote-invite:remote.example",
+			prepare: func(t *testing.T, service *Service) map[string]any {
+				ctx := context.Background()
+				group := groupRecord{RoomID: "!remote-invite:remote.example", Name: "Remote Invite", InvitePolicy: "member"}
+				if err := service.saveGroup(ctx, group); err != nil {
+					t.Fatal(err)
+				}
+				if err := service.saveMember(ctx, memberRecord{
+					RoomID: group.RoomID, UserID: "@owner:example.com", Domain: "example.com", Membership: "invite", Role: "member",
+				}); err != nil {
+					t.Fatal(err)
+				}
+				return map[string]any{"room_id": group.RoomID}
+			},
+			facts: map[string]any{
+				"matrix_room_id": "!remote-invite:remote.example", "kind": "group", "title": "Remote Invite",
+				"hydration_state": "pending", "hydration_reason": "owner_membership_missing", "projection_state": "ready",
+			},
+			capabilities: map[string]bool{
+				"open": false, "send": false, "send_media": false, "call": false, "invite": false,
+				"manage_members": false, "rename": false, "remove_members": false, "leave": false, "delete": false,
+			},
+		},
 	}
 
-	got, apiErr := service.Handle(ctx, "groups.invite.reject", map[string]any{"room_id": group.RoomID})
-	if apiErr != nil {
-		t.Fatal(apiErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			got, apiErr := service.Handle(context.Background(), tt.action, tt.prepare(t, service))
+			if apiErr != nil {
+				t.Fatal(apiErr)
+			}
+			result := structPayload(t, got)
+			operation, ok := result["operation"].(map[string]any)
+			if !ok || operation["action"] != tt.action || operation["status"] != tt.status || operation["room_id"] != tt.roomID {
+				t.Fatalf("unexpected %s operation: %#v", tt.action, operation)
+			}
+			conversation := conversationViewPayload(t, result["conversation"])
+			assertConversationFacts(t, conversation, tt.facts)
+			if tt.capabilities != nil {
+				assertConversationCapabilities(t, conversation, tt.capabilities)
+			}
+		})
 	}
-	result := got.(map[string]any)
-	operation := result["operation"].(map[string]any)
-	if operation["action"] != "groups.invite.reject" || operation["status"] != "rejected" || operation["room_id"] != group.RoomID {
-		t.Fatalf("unexpected group invite reject operation: %#v", operation)
-	}
-	conversation := result["conversation"].(conversationView)
-	assertConversationFacts(t, conversation, map[string]any{
-		"matrix_room_id":   group.RoomID,
-		"kind":             "group",
-		"title":            "Remote Invite",
-		"hydration_state":  "pending",
-		"hydration_reason": "owner_membership_missing",
-		"projection_state": "ready",
-	})
-	assertConversationCapabilities(t, conversation, map[string]bool{
-		"open":           false,
-		"send":           false,
-		"send_media":     false,
-		"call":           false,
-		"invite":         false,
-		"manage_members": false,
-		"rename":         false,
-		"remove_members": false,
-		"leave":          false,
-		"delete":         false,
-	})
 }
 
 func TestChannelJoinReturnsConversationOperation(t *testing.T) {
@@ -488,6 +422,19 @@ func assertChannelMutationOperation(t *testing.T, record any, action, roomID str
 func conversationPayload(t *testing.T, view conversationView) map[string]any {
 	t.Helper()
 	return structPayload(t, view)
+}
+
+func conversationViewPayload(t *testing.T, value any) conversationView {
+	t.Helper()
+	var view conversationView
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &view); err != nil {
+		t.Fatal(err)
+	}
+	return view
 }
 
 func structPayload(t *testing.T, value any) map[string]any {

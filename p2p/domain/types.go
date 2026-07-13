@@ -4,6 +4,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkplugin"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
+	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 )
 
 type PortalState = dirextalkdomain.PortalState
@@ -63,17 +64,7 @@ type ContactRecord = contactsmodule.View
 
 type BlockRecord = dirextalkdomain.BlockRecord
 
-type GroupRecord struct {
-	RoomID       string            `json:"room_id"`
-	Name         string            `json:"name"`
-	Topic        string            `json:"topic"`
-	AvatarURL    string            `json:"avatar_url"`
-	MemberCount  int64             `json:"member_count"`
-	InvitePolicy string            `json:"invite_policy"`
-	Muted        bool              `json:"muted"`
-	Operation    map[string]any    `json:"operation,omitempty"`
-	Conversation *ConversationView `json:"conversation,omitempty"`
-}
+type GroupRecord = groupsmodule.View
 
 type CallRecord = dirextalkdomain.CallRecord
 type FavoriteRecord = dirextalkdomain.FavoriteRecord

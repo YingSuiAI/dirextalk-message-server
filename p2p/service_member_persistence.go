@@ -77,9 +77,7 @@ func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
 		mergeMemberPersistence(&member, stored)
 	}
 	s.members[member.RoomID+"|"+member.UserID] = member
-	if member.ChannelID == "" {
-		s.refreshGroupCountsLocked(member.RoomID)
-	} else {
+	if member.ChannelID != "" {
 		s.refreshChannelCountsLocked(member.ChannelID)
 	}
 	s.mu.Unlock()

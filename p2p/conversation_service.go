@@ -5,6 +5,7 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
+	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
 )
 
 type conversationKind = dirextalkdomain.ConversationKind
@@ -65,15 +66,7 @@ func (h serviceConversationHydrator) GroupByRoom(ctx context.Context, roomID str
 }
 
 func durableGroupRecord(group groupRecord) dirextalkdomain.GroupRecord {
-	return dirextalkdomain.GroupRecord{
-		RoomID:       group.RoomID,
-		Name:         group.Name,
-		Topic:        group.Topic,
-		AvatarURL:    group.AvatarURL,
-		MemberCount:  group.MemberCount,
-		InvitePolicy: group.InvitePolicy,
-		Muted:        group.Muted,
-	}
+	return groupsmodule.RecordFromView(group)
 }
 
 func (h serviceConversationHydrator) ChannelByRoom(ctx context.Context, roomID string) (dirextalkdomain.Channel, bool, error) {
@@ -111,10 +104,6 @@ func (s *Service) saveConversation(ctx context.Context, record conversationRecor
 	return s.conversationModule.Save(ctx, record)
 }
 
-func (s *Service) deleteStoredConversationKind(ctx context.Context, roomID string, kind conversationKind) error {
-	return s.conversationModule.DeleteKindByRoom(ctx, roomID, kind)
-}
-
 func (s *Service) listConversations(ctx context.Context) ([]conversationRecord, error) {
 	return s.conversationModule.ListRecords(ctx)
 }
@@ -133,27 +122,6 @@ func (s *Service) conversationOperation(ctx context.Context, action, status, roo
 
 func (s *Service) attachConversationOperation(ctx context.Context, result map[string]any, action, status, roomID string) error {
 	return s.conversationModule.AttachOperation(ctx, result, action, status, roomID)
-}
-
-func (s *Service) attachContactConversationOperation(ctx context.Context, contact *contactRecord, action, status string) error {
-	if contact == nil {
-		return nil
-	}
-	result := map[string]any{}
-	if err := s.attachConversationOperation(ctx, result, action, status, contact.RoomID); err != nil {
-		return err
-	}
-	if operation, ok := result["operation"].(map[string]any); ok {
-		contact.Operation = operation
-	}
-	if conversation, ok := result["conversation"].(conversationView); ok {
-		contact.Conversation = &conversation
-	}
-	return nil
-}
-
-func conversationFromGroup(group groupRecord) conversationRecord {
-	return dirextalkdomain.ConversationFromGroup(durableGroupRecord(group))
 }
 
 func conversationFromChannel(ch channel) conversationRecord {

@@ -117,34 +117,22 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	agentRoomID := s.agentRoomID
 	systemRoomID := s.systemRoomID
 	s.mu.Unlock()
-	var groups []groupRecord
+	visibleGroups, err := s.groupsModule.ListJoined(ctx, userID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	groups := visibleGroups
 	var channels []channel
-	var visibleGroups []groupRecord
 	var visibleChannels []channel
-	groupStore := s.groupStore()
 	channelStore := s.channelStore()
-	if groupStore != nil && channelStore != nil {
-		storedGroups, err := groupStore.ListJoinedGroupsForUser(ctx, userID)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		visibleGroups = groupRecordsFromStorage(storedGroups)
+	if channelStore != nil {
 		visibleChannels, err = channelStore.ListJoinedChannelsForUser(ctx, userID)
 		if err != nil {
 			return nil, internalError(err)
 		}
-		groups = visibleGroups
 		channels = visibleChannels
 	} else {
-		groups, err = s.listGroups(ctx)
-		if err != nil {
-			return nil, internalError(err)
-		}
 		channels, err = s.listChannels(ctx)
-		if err != nil {
-			return nil, internalError(err)
-		}
-		visibleGroups, err = s.joinedGroupsForOwner(ctx, groups)
 		if err != nil {
 			return nil, internalError(err)
 		}
@@ -157,7 +145,7 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	if err != nil {
 		return nil, internalError(err)
 	}
-	if groupStore != nil && hasPendingGroupInvite(members) {
+	if hasPendingGroupInvite(members) {
 		groups, err = s.listGroups(ctx)
 		if err != nil {
 			return nil, internalError(err)
