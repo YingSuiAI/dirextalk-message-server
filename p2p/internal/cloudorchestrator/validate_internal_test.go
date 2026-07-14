@@ -25,3 +25,12 @@ func TestRecipeV1RejectsSignedOrCredentialBearingSourceURL(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want credential-bearing source rejection", err)
 	}
 }
+
+func TestCanonicalCBORRejectsNativeFloatingPointValues(t *testing.T) {
+	_, err := canonicalCBOR(struct {
+		Value float64 `json:"value"`
+	}{Value: 1})
+	if err == nil || !strings.Contains(err.Error(), "floating-point") {
+		t.Fatalf("canonicalCBOR() error = %v, want floating-point rejection", err)
+	}
+}

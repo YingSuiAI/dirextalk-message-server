@@ -5,10 +5,10 @@ import "time"
 // SchemaVersionV1 is written into every persisted or signed V1 contract.
 const SchemaVersionV1 = "cloud-orchestrator/v1"
 
-// HashAlgorithmCanonicalJSONSHA256 identifies the current plan/recipe/quote
-// digest encoding. It is deliberately not named CBOR: this repository has no
-// deterministic-CBOR dependency at this stage.
-const HashAlgorithmCanonicalJSONSHA256 = "canonical-json-sha256"
+// HashAlgorithmDeterministicCBORSHA256 identifies the RFC 8949 Core
+// Deterministic CBOR encoding used by V1 plan/recipe/quote digests and
+// approval payloads.
+const HashAlgorithmDeterministicCBORSHA256 = "deterministic-cbor-sha256"
 
 type PlanStatus string
 

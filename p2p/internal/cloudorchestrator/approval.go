@@ -49,9 +49,10 @@ func NewApprovalV1(plan PlanV1, approvalID, challengeID, signerKeyID string, exp
 	return approval, nil
 }
 
-// SigningPayload returns canonical JSON that excludes ApprovalV1.Signature and
-// includes every approval-sensitive field. It is safe to transfer to the
-// client for inspection and signing because it never includes secret values.
+// SigningPayload returns deterministic-CBOR bytes that exclude
+// ApprovalV1.Signature and include every approval-sensitive field. It is safe
+// to transfer to the client for inspection and signing because it never
+// includes secret values.
 func (a ApprovalV1) SigningPayload() ([]byte, error) {
 	if err := a.Validate(); err != nil {
 		return nil, err
@@ -60,7 +61,7 @@ func (a ApprovalV1) SigningPayload() ([]byte, error) {
 	payload := approvalSigningPayloadV1{
 		SchemaVersion:     normalized.SchemaVersion,
 		PayloadVersion:    "approval-signing-payload/v1",
-		HashAlgorithm:     HashAlgorithmCanonicalJSONSHA256,
+		HashAlgorithm:     HashAlgorithmDeterministicCBORSHA256,
 		ApprovalID:        normalized.ApprovalID,
 		ChallengeID:       normalized.ChallengeID,
 		SignerKeyID:       normalized.SignerKeyID,
@@ -78,7 +79,7 @@ func (a ApprovalV1) SigningPayload() ([]byte, error) {
 		IntegrationScope:  normalized.IntegrationScope,
 		ExpiresAt:         normalized.ExpiresAt,
 	}
-	return canonicalJSON(payload)
+	return canonicalCBOR(payload)
 }
 
 // Sign returns a copy with a base64url Ed25519 signature. The caller retains

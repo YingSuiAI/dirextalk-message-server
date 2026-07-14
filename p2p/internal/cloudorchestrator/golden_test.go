@@ -1,18 +1,21 @@
 package cloudorchestrator_test
 
 import (
+	"encoding/base64"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
+	"github.com/fxamacker/cbor/v2"
 )
 
-func TestV1CanonicalPlanAndApprovalGoldenVectors(t *testing.T) {
+func TestV1DeterministicCBORPlanAndApprovalGoldenVectors(t *testing.T) {
 	now := time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
 	plan := validPlan(t, now)
-	canonicalPlan, err := plan.CanonicalPlanJSON()
+	canonicalPlan, err := plan.CanonicalPlanCBOR()
 	if err != nil {
-		t.Fatalf("CanonicalPlanJSON() error = %v", err)
+		t.Fatalf("CanonicalPlanCBOR() error = %v", err)
 	}
 	planHash, err := plan.Hash()
 	if err != nil {
@@ -27,10 +30,34 @@ func TestV1CanonicalPlanAndApprovalGoldenVectors(t *testing.T) {
 		t.Fatalf("SigningPayload() error = %v", err)
 	}
 
-	const wantPlanCanonical = `{"cloud_connection_id":"connection-1","hash_algorithm":"canonical-json-sha256","integration_scope":[{"kind":"mcp","name":"mcp"},{"kind":"web","name":"web-ui"}],"network_scope":{"authentication_required":false,"entry_point":"none","public_ingress":false,"tls_required":false},"plan_id":"plan-1","quote":{"candidate_id":"recommended","digest":"sha256:f5b25116b89b7f6728974726f31883af4afa1afed8a6bb8fc2ee09159dbee238","quote_id":"quote-1","valid_until":"2026-07-14T10:15:00Z"},"recipe":{"digest":"sha256:ef1abbaba7ed4b6522353f5e151d82b89d61ad59eec63a79d59e0da2ebf65008","maturity":"experimental","recipe_id":"recipe-knowledge-node-1"},"resource_scope":{"architecture":"amd64","availability_zones":["us-east-1a","us-east-1b"],"disk_gib":80,"instance_type":"m7i.xlarge","memory_mib":16384,"purchase_option":"on_demand","region":"us-east-1","vcpu":4},"revision":7,"schema_version":"cloud-orchestrator/v1","secret_scope":[{"delivery":"file","purpose":"source-access","secret_ref":"secret_ref:github-app"},{"delivery":"file","purpose":"model-access","secret_ref":"secret_ref:model-token"}]}`
-	const wantPlanHash = "sha256:cea50ec3d30ce086a885e41aabedd10301a397e6da7bb0dc9f9faec196bff18a"
-	const wantApprovalPayload = `{"approval_id":"approval-1","challenge_id":"challenge-1","cloud_connection_id":"connection-1","expires_at":"2026-07-14T10:10:00Z","hash_algorithm":"canonical-json-sha256","integration_scope":[{"kind":"mcp","name":"mcp"},{"kind":"web","name":"web-ui"}],"network_scope":{"authentication_required":false,"entry_point":"none","public_ingress":false,"tls_required":false},"payload_version":"approval-signing-payload/v1","plan_hash":"sha256:cea50ec3d30ce086a885e41aabedd10301a397e6da7bb0dc9f9faec196bff18a","plan_id":"plan-1","plan_revision":7,"quote_digest":"sha256:f5b25116b89b7f6728974726f31883af4afa1afed8a6bb8fc2ee09159dbee238","quote_id":"quote-1","quote_valid_until":"2026-07-14T10:15:00Z","recipe_digest":"sha256:ef1abbaba7ed4b6522353f5e151d82b89d61ad59eec63a79d59e0da2ebf65008","resource_scope":{"architecture":"amd64","availability_zones":["us-east-1a","us-east-1b"],"disk_gib":80,"instance_type":"m7i.xlarge","memory_mib":16384,"purchase_option":"on_demand","region":"us-east-1","vcpu":4},"schema_version":"cloud-orchestrator/v1","secret_scope":[{"delivery":"file","purpose":"source-access","secret_ref":"secret_ref:github-app"},{"delivery":"file","purpose":"model-access","secret_ref":"secret_ref:model-token"}],"signer_key_id":"owner-device-1"}`
-	if string(canonicalPlan) != wantPlanCanonical || planHash != wantPlanHash || string(payload) != wantApprovalPayload {
-		t.Fatalf("update V1 golden vectors:\nplan canonical: %s\nplan hash: %s\napproval payload: %s", canonicalPlan, planHash, payload)
+	const wantPlanCBORBase64 = "q2VxdW90ZaRmZGlnZXN0eEdzaGEyNTY6ZGZkNzYxYWU1Mjc4NTE3ZmFkZWJkMzkwMjM5MWQzOTgxZWI3NDdiMjczNmYzMzA1MTdlNDUzNTIwNmIxZTcyNGhxdW90ZV9pZGdxdW90ZS0xa3ZhbGlkX3VudGlsdDIwMjYtMDctMTRUMTA6MTU6MDBabGNhbmRpZGF0ZV9pZGtyZWNvbW1lbmRlZGZyZWNpcGWjZmRpZ2VzdHhHc2hhMjU2OjQ2NTljODMzOTFhYTY3ZmZmMjY0ZTBiODQwYzM4M2ZlYjMyN2RkNzVkMDY2Zjg0NDU1ODg0MDJkZDcxYTk2MDZobWF0dXJpdHlsZXhwZXJpbWVudGFsaXJlY2lwZV9pZHdyZWNpcGUta25vd2xlZGdlLW5vZGUtMWdwbGFuX2lkZnBsYW4tMWhyZXZpc2lvbgdsc2VjcmV0X3Njb3BlgqNncHVycG9zZW1zb3VyY2UtYWNjZXNzaGRlbGl2ZXJ5ZGZpbGVqc2VjcmV0X3JlZnVzZWNyZXRfcmVmOmdpdGh1Yi1hcHCjZ3B1cnBvc2VsbW9kZWwtYWNjZXNzaGRlbGl2ZXJ5ZGZpbGVqc2VjcmV0X3JlZnZzZWNyZXRfcmVmOm1vZGVsLXRva2VubW5ldHdvcmtfc2NvcGWka2VudHJ5X3BvaW50ZG5vbmVsdGxzX3JlcXVpcmVk9G5wdWJsaWNfaW5ncmVzc/R3YXV0aGVudGljYXRpb25fcmVxdWlyZWT0bmhhc2hfYWxnb3JpdGhteBlkZXRlcm1pbmlzdGljLWNib3Itc2hhMjU2bnJlc291cmNlX3Njb3BlqGR2Y3B1BGZyZWdpb25pdXMtZWFzdC0xaGRpc2tfZ2liGFBqbWVtb3J5X21pYhlAAGxhcmNoaXRlY3R1cmVlYW1kNjRtaW5zdGFuY2VfdHlwZWptN2kueGxhcmdlb3B1cmNoYXNlX29wdGlvbmlvbl9kZW1hbmRyYXZhaWxhYmlsaXR5X3pvbmVzgmp1cy1lYXN0LTFhanVzLWVhc3QtMWJuc2NoZW1hX3ZlcnNpb251Y2xvdWQtb3JjaGVzdHJhdG9yL3YxcWludGVncmF0aW9uX3Njb3BlgqJka2luZGNtY3BkbmFtZWNtY3CiZGtpbmRjd2ViZG5hbWVmd2ViLXVpc2Nsb3VkX2Nvbm5lY3Rpb25faWRsY29ubmVjdGlvbi0x"
+	const wantPlanHash = "sha256:cf121c7475ef21fb0b78a091934942a5ef420aa2bea960eeefcb43d5424426a2"
+	const wantApprovalPayloadBase64 = "s2dwbGFuX2lkZnBsYW4tMWhxdW90ZV9pZGdxdW90ZS0xaXBsYW5faGFzaHhHc2hhMjU2OmNmMTIxYzc0NzVlZjIxZmIwYjc4YTA5MTkzNDk0MmE1ZWY0MjBhYTJiZWE5NjBlZWVmY2I0M2Q1NDI0NDI2YTJqZXhwaXJlc19hdHQyMDI2LTA3LTE0VDEwOjEwOjAwWmthcHByb3ZhbF9pZGphcHByb3ZhbC0xbGNoYWxsZW5nZV9pZGtjaGFsbGVuZ2UtMWxxdW90ZV9kaWdlc3R4R3NoYTI1NjpkZmQ3NjFhZTUyNzg1MTdmYWRlYmQzOTAyMzkxZDM5ODFlYjc0N2IyNzM2ZjMzMDUxN2U0NTM1MjA2YjFlNzI0bHNlY3JldF9zY29wZYKjZ3B1cnBvc2Vtc291cmNlLWFjY2Vzc2hkZWxpdmVyeWRmaWxlanNlY3JldF9yZWZ1c2VjcmV0X3JlZjpnaXRodWItYXBwo2dwdXJwb3NlbG1vZGVsLWFjY2Vzc2hkZWxpdmVyeWRmaWxlanNlY3JldF9yZWZ2c2VjcmV0X3JlZjptb2RlbC10b2tlbm1uZXR3b3JrX3Njb3BlpGtlbnRyeV9wb2ludGRub25lbHRsc19yZXF1aXJlZPRucHVibGljX2luZ3Jlc3P0d2F1dGhlbnRpY2F0aW9uX3JlcXVpcmVk9G1wbGFuX3JldmlzaW9uB21yZWNpcGVfZGlnZXN0eEdzaGEyNTY6NDY1OWM4MzM5MWFhNjdmZmYyNjRlMGI4NDBjMzgzZmViMzI3ZGQ3NWQwNjZmODQ0NTU4ODQwMmRkNzFhOTYwNm1zaWduZXJfa2V5X2lkbm93bmVyLWRldmljZS0xbmhhc2hfYWxnb3JpdGhteBlkZXRlcm1pbmlzdGljLWNib3Itc2hhMjU2bnJlc291cmNlX3Njb3BlqGR2Y3B1BGZyZWdpb25pdXMtZWFzdC0xaGRpc2tfZ2liGFBqbWVtb3J5X21pYhlAAGxhcmNoaXRlY3R1cmVlYW1kNjRtaW5zdGFuY2VfdHlwZWptN2kueGxhcmdlb3B1cmNoYXNlX29wdGlvbmlvbl9kZW1hbmRyYXZhaWxhYmlsaXR5X3pvbmVzgmp1cy1lYXN0LTFhanVzLWVhc3QtMWJuc2NoZW1hX3ZlcnNpb251Y2xvdWQtb3JjaGVzdHJhdG9yL3Yxb3BheWxvYWRfdmVyc2lvbngbYXBwcm92YWwtc2lnbmluZy1wYXlsb2FkL3YxcWludGVncmF0aW9uX3Njb3BlgqJka2luZGNtY3BkbmFtZWNtY3CiZGtpbmRjd2ViZG5hbWVmd2ViLXVpcXF1b3RlX3ZhbGlkX3VudGlsdDIwMjYtMDctMTRUMTA6MTU6MDBac2Nsb3VkX2Nvbm5lY3Rpb25faWRsY29ubmVjdGlvbi0x"
+	if base64.RawStdEncoding.EncodeToString(canonicalPlan) != wantPlanCBORBase64 || planHash != wantPlanHash || base64.RawStdEncoding.EncodeToString(payload) != wantApprovalPayloadBase64 {
+		t.Fatalf("update V1 deterministic-CBOR golden vectors:\nplan cbor base64: %s\nplan hash: %s\napproval payload cbor base64: %s", base64.RawStdEncoding.EncodeToString(canonicalPlan), planHash, base64.RawStdEncoding.EncodeToString(payload))
+	}
+}
+
+func TestPlanV1CBORUsesJSONFieldNamesAndPreservesUnsignedIntegers(t *testing.T) {
+	now := time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
+	plan := validPlan(t, now)
+	plan.Revision = math.MaxUint64
+	encoded, err := plan.CanonicalPlanCBOR()
+	if err != nil {
+		t.Fatalf("CanonicalPlanCBOR() error = %v", err)
+	}
+	var decoded map[string]any
+	if err := cbor.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("cbor.Unmarshal() error = %v", err)
+	}
+	if _, found := decoded["cloud_connection_id"]; !found {
+		t.Fatalf("decoded CBOR has no JSON-tagged cloud_connection_id key: %#v", decoded)
+	}
+	if _, found := decoded["CloudConnectionID"]; found {
+		t.Fatalf("decoded CBOR leaked Go field name: %#v", decoded)
+	}
+	revision, ok := decoded["revision"].(uint64)
+	if !ok || revision != math.MaxUint64 {
+		t.Fatalf("revision = %#v (%T), want uint64(%d)", decoded["revision"], decoded["revision"], uint64(math.MaxUint64))
 	}
 }

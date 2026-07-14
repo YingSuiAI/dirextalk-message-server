@@ -27,21 +27,24 @@ channel or AWS KMS/Secrets Manager policy.
 
 ## Hash format
 
-The current V1 hash is **canonical JSON plus SHA-256**, identified by
-`canonical-json-sha256` and rendered as `sha256:<lowercase-hex>`. It reuses the
-already pinned Matrix canonical-JSON implementation in this repository. It is
-not deterministic CBOR and must not be advertised as one.
+The current V1 hash is **RFC 8949 Core Deterministic CBOR plus SHA-256**,
+identified by `deterministic-cbor-sha256` and rendered as
+`sha256:<lowercase-hex>`. It uses the official
+`github.com/fxamacker/cbor/v2` `CoreDetEncOptions()` implementation.
+
+Before CBOR encoding, the contract is marshalled through a JSON-compatible
+tree using its JSON tags. This makes `snake_case` field names the wire names
+for Go and Dart alike; JSON numbers are retained as signed/unsigned integers,
+never converted through `float64`. CBOR is the only input to any digest or
+approval signature. JSON, if produced by a future display API, is not a hash
+or signing format.
 
 `PlanV1.Hash` excludes mutable status/execution projection fields and covers
 the immutable approval surface instead. Set-like scope lists are copied and
 sorted before encoding, so equivalent ordering cannot change a hash or
-signature. `RecipeV1.Digest` and `QuoteV1.Digest` use the same canonical JSON
-format for their respective full content.
+signature. `RecipeV1.Digest` and `QuoteV1.Digest` use the same deterministic
+CBOR format for their respective full content.
 
-If a later release adopts deterministic CBOR, it must introduce a new schema
-version and hash algorithm identifier; a CBOR digest must never be compared to
-or accepted as this V1 hash.
-
-`golden_test.go` pins a representative V1 plan JSON, hash, and approval
-payload to make a Go/Dart implementation mismatch visible before a wire
-contract is enabled.
+`golden_test.go` pins representative V1 CBOR (base64), hash, and approval
+payload vectors to make a Go/Dart implementation mismatch visible before a
+wire contract is enabled.

@@ -18,6 +18,7 @@ require (
 	github.com/eino-contrib/jsonschema v1.0.3
 	github.com/eyedeekay/goSam v0.32.54
 	github.com/eyedeekay/onramp v0.33.8
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/getsentry/sentry-go v0.14.0
 	github.com/gologme/log v1.3.0
 	github.com/google/go-cmp v0.7.0
@@ -148,6 +149,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect

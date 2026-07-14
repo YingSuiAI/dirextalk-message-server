@@ -1,62 +1,68 @@
 package cloudorchestrator
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
+	"strconv"
+	"strings"
+	"time"
 
-	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/fxamacker/cbor/v2"
 )
 
-// CanonicalRecipeJSON emits the current canonical-JSON representation used
-// for recipe digests. It is not deterministic CBOR.
-func (r RecipeV1) CanonicalRecipeJSON() ([]byte, error) {
+// CanonicalRecipeCBOR emits RFC 8949 Core Deterministic CBOR for recipe
+// digests. JSON tags are first converted to a JSON-compatible map so the
+// cross-language field names remain snake_case rather than Go field names.
+func (r RecipeV1) CanonicalRecipeCBOR() ([]byte, error) {
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
-	return canonicalJSON(normalizeRecipe(r))
+	return canonicalCBOR(normalizeRecipe(r))
 }
 
 // Digest returns a content digest over the complete de-secretsed recipe.
 func (r RecipeV1) Digest() (string, error) {
-	canonical, err := r.CanonicalRecipeJSON()
+	canonical, err := r.CanonicalRecipeCBOR()
 	if err != nil {
 		return "", err
 	}
-	return digestCanonicalJSON(canonical), nil
+	return digestCanonicalCBOR(canonical), nil
 }
 
-// CanonicalQuoteJSON emits the current canonical-JSON representation used for
-// quote digests. It is not deterministic CBOR.
-func (q QuoteV1) CanonicalQuoteJSON() ([]byte, error) {
+// CanonicalQuoteCBOR emits RFC 8949 Core Deterministic CBOR for quote
+// digests. JSON tags are retained as the canonical cross-language names.
+func (q QuoteV1) CanonicalQuoteCBOR() ([]byte, error) {
 	if err := q.Validate(); err != nil {
 		return nil, err
 	}
-	return canonicalJSON(normalizeQuote(q))
+	return canonicalCBOR(normalizeQuote(q))
 }
 
 // Digest returns a content digest over the full price estimate and validity.
 func (q QuoteV1) Digest() (string, error) {
-	canonical, err := q.CanonicalQuoteJSON()
+	canonical, err := q.CanonicalQuoteCBOR()
 	if err != nil {
 		return "", err
 	}
-	return digestCanonicalJSON(canonical), nil
+	return digestCanonicalCBOR(canonical), nil
 }
 
-// CanonicalPlanJSON emits exactly the immutable approval surface. It omits
-// mutable execution/status projections because they must not change the
-// signed purchase decision.
-func (p PlanV1) CanonicalPlanJSON() ([]byte, error) {
+// CanonicalPlanCBOR emits exactly the immutable approval surface using RFC
+// 8949 Core Deterministic CBOR. It omits mutable status/execution projections
+// because they must not change the signed purchase decision.
+func (p PlanV1) CanonicalPlanCBOR() ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
 	normalized := normalizePlan(p)
 	document := planHashDocumentV1{
 		SchemaVersion:     normalized.SchemaVersion,
-		HashAlgorithm:     HashAlgorithmCanonicalJSONSHA256,
+		HashAlgorithm:     HashAlgorithmDeterministicCBORSHA256,
 		PlanID:            normalized.PlanID,
 		Revision:          normalized.Revision,
 		CloudConnectionID: normalized.CloudConnectionID,
@@ -67,18 +73,16 @@ func (p PlanV1) CanonicalPlanJSON() ([]byte, error) {
 		SecretScope:       normalized.SecretScope,
 		IntegrationScope:  normalized.IntegrationScope,
 	}
-	return canonicalJSON(document)
+	return canonicalCBOR(document)
 }
 
-// Hash returns the canonical-JSON SHA-256 digest used for V1 approvals. The
-// prefix makes it impossible to confuse this implementation with the planned
-// deterministic-CBOR hash format in a later contract version.
+// Hash returns the deterministic-CBOR SHA-256 digest used for V1 approvals.
 func (p PlanV1) Hash() (string, error) {
-	canonical, err := p.CanonicalPlanJSON()
+	canonical, err := p.CanonicalPlanCBOR()
 	if err != nil {
 		return "", err
 	}
-	return digestCanonicalJSON(canonical), nil
+	return digestCanonicalCBOR(canonical), nil
 }
 
 type planHashDocumentV1 struct {
@@ -95,19 +99,129 @@ type planHashDocumentV1 struct {
 	IntegrationScope  []IntegrationScopeV1 `json:"integration_scope"`
 }
 
-func canonicalJSON(value any) ([]byte, error) {
+// canonicalCBOR makes JSON tags the wire schema first, then encodes the
+// resulting value with RFC 8949 Core Deterministic CBOR. Decoding JSON with
+// UseNumber and converting only integer JSON numbers avoids a float64 round
+// trip for revisions, prices, ports, and resource sizes.
+func canonicalCBOR(value any) ([]byte, error) {
+	if err := rejectNativeFloatingPointValues(reflect.ValueOf(value)); err != nil {
+		return nil, err
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("marshal canonical document: %w", err)
+		return nil, fmt.Errorf("marshal JSON-compatible CBOR document: %w", err)
 	}
-	canonical, err := gomatrixserverlib.CanonicalJSON(encoded)
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var jsonCompatible any
+	if err := decoder.Decode(&jsonCompatible); err != nil {
+		return nil, fmt.Errorf("decode JSON-compatible CBOR document: %w", err)
+	}
+	jsonCompatible, err = convertJSONCompatibleCBOR(jsonCompatible)
 	if err != nil {
-		return nil, fmt.Errorf("canonicalize JSON document: %w", err)
+		return nil, err
+	}
+	mode, err := cbor.CoreDetEncOptions().EncMode()
+	if err != nil {
+		return nil, fmt.Errorf("configure core deterministic CBOR: %w", err)
+	}
+	canonical, err := mode.Marshal(jsonCompatible)
+	if err != nil {
+		return nil, fmt.Errorf("encode core deterministic CBOR: %w", err)
 	}
 	return canonical, nil
 }
 
-func digestCanonicalJSON(canonical []byte) string {
+var timeValueType = reflect.TypeOf(time.Time{})
+
+// rejectNativeFloatingPointValues prevents an integer-looking float such as
+// float64(1) from becoming JSON integer 1 before UseNumber sees it. The V1
+// contracts deliberately model all numeric values as integer types.
+func rejectNativeFloatingPointValues(value reflect.Value) error {
+	if !value.IsValid() || value.Type() == timeValueType {
+		return nil
+	}
+	switch value.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return fmt.Errorf("floating-point values are not permitted in deterministic CBOR contracts")
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			return nil
+		}
+		return rejectNativeFloatingPointValues(value.Elem())
+	case reflect.Struct:
+		for index := 0; index < value.NumField(); index++ {
+			field := value.Type().Field(index)
+			if field.PkgPath != "" { // encoding/json ignores unexported fields.
+				continue
+			}
+			if err := rejectNativeFloatingPointValues(value.Field(index)); err != nil {
+				return err
+			}
+		}
+	case reflect.Array, reflect.Slice:
+		for index := 0; index < value.Len(); index++ {
+			if err := rejectNativeFloatingPointValues(value.Index(index)); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		iter := value.MapRange()
+		for iter.Next() {
+			if err := rejectNativeFloatingPointValues(iter.Key()); err != nil {
+				return err
+			}
+			if err := rejectNativeFloatingPointValues(iter.Value()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func convertJSONCompatibleCBOR(value any) (any, error) {
+	switch typed := value.(type) {
+	case nil, bool, string:
+		return typed, nil
+	case json.Number:
+		encoded := typed.String()
+		if strings.ContainsAny(encoded, ".eE") {
+			return nil, fmt.Errorf("JSON-compatible CBOR documents must not contain float values: %q", encoded)
+		}
+		if signed, err := strconv.ParseInt(encoded, 10, 64); err == nil {
+			return signed, nil
+		}
+		unsigned, err := strconv.ParseUint(encoded, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("JSON-compatible CBOR integer %q is invalid: %w", encoded, err)
+		}
+		return unsigned, nil
+	case []any:
+		converted := make([]any, len(typed))
+		for index, item := range typed {
+			value, err := convertJSONCompatibleCBOR(item)
+			if err != nil {
+				return nil, err
+			}
+			converted[index] = value
+		}
+		return converted, nil
+	case map[string]any:
+		converted := make(map[string]any, len(typed))
+		for key, item := range typed {
+			value, err := convertJSONCompatibleCBOR(item)
+			if err != nil {
+				return nil, err
+			}
+			converted[key] = value
+		}
+		return converted, nil
+	default:
+		return nil, fmt.Errorf("unsupported JSON-compatible CBOR type %T", value)
+	}
+}
+
+func digestCanonicalCBOR(canonical []byte) string {
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
