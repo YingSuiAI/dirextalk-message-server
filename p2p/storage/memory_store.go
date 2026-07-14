@@ -18,38 +18,40 @@ type MemoryStore struct {
 	portal    *portalState
 	readMarks map[string]readMarker
 
-	conversations    map[string]conversationRecord
-	channels         map[string]channel
-	inviteGrants     map[string]channelInviteGrant
-	posts            []channelPostRecord
-	comments         []channelCommentRecord
-	contacts         map[string]contactRecord
-	blocks           map[string]blockRecord
-	groups           map[string]groupRecord
-	calls            map[string]callRecord
-	favorites        map[int64]favoriteRecord
-	follows          map[string]followRecord
-	reactions        map[string]reactionRecord
-	members          map[string]memberRecord
-	events           []p2pEvent
-	eventSeq         map[int64]struct{}
-	eventDedupe      map[string]int64
-	plugins          map[string]pluginInstance
-	pluginJobs       map[string]pluginJob
-	pluginSecrets    map[string]map[string]pluginSecret
-	reports          map[string]reportRecord
-	operations       map[string]operations.Record
-	cloudGoals       map[string]cloudmodule.Goal
-	cloudPlans       map[string]cloudmodule.Plan
-	cloudJobs        map[string]cloudmodule.Job
-	cloudIdem        map[string]string
-	cloudConnections map[string]cloudmodule.Connection
-	cloudDeployments map[string]cloudmodule.Deployment
-	cloudServices    map[string]cloudmodule.Service
-	cloudRecipes     map[string]cloudmodule.Recipe
-	cloudAlerts      map[string]cloudmodule.Alert
-	cloudEvents      []cloudmodule.Event
-	cloudOutbox      map[string]cloudmodule.OutboxEntry
+	conversations                map[string]conversationRecord
+	channels                     map[string]channel
+	inviteGrants                 map[string]channelInviteGrant
+	posts                        []channelPostRecord
+	comments                     []channelCommentRecord
+	contacts                     map[string]contactRecord
+	blocks                       map[string]blockRecord
+	groups                       map[string]groupRecord
+	calls                        map[string]callRecord
+	favorites                    map[int64]favoriteRecord
+	follows                      map[string]followRecord
+	reactions                    map[string]reactionRecord
+	members                      map[string]memberRecord
+	events                       []p2pEvent
+	eventSeq                     map[int64]struct{}
+	eventDedupe                  map[string]int64
+	plugins                      map[string]pluginInstance
+	pluginJobs                   map[string]pluginJob
+	pluginSecrets                map[string]map[string]pluginSecret
+	reports                      map[string]reportRecord
+	operations                   map[string]operations.Record
+	cloudGoals                   map[string]cloudmodule.Goal
+	cloudPlans                   map[string]cloudmodule.Plan
+	cloudJobs                    map[string]cloudmodule.Job
+	cloudIdem                    map[string]string
+	cloudConnectionBootstraps    map[string]cloudmodule.ConnectionBootstrap
+	cloudConnectionBootstrapIdem map[string]string
+	cloudConnections             map[string]cloudmodule.Connection
+	cloudDeployments             map[string]cloudmodule.Deployment
+	cloudServices                map[string]cloudmodule.Service
+	cloudRecipes                 map[string]cloudmodule.Recipe
+	cloudAlerts                  map[string]cloudmodule.Alert
+	cloudEvents                  []cloudmodule.Event
+	cloudOutbox                  map[string]cloudmodule.OutboxEntry
 
 	legacyAgentInvocations           map[legacyAgentInvocationKey]legacygateway.InvocationRecord
 	legacyAgentInvocationEvents      map[string]legacyAgentInvocationKey
@@ -83,6 +85,8 @@ func NewMemoryStore() *MemoryStore {
 		cloudPlans:                       make(map[string]cloudmodule.Plan),
 		cloudJobs:                        make(map[string]cloudmodule.Job),
 		cloudIdem:                        make(map[string]string),
+		cloudConnectionBootstraps:        make(map[string]cloudmodule.ConnectionBootstrap),
+		cloudConnectionBootstrapIdem:     make(map[string]string),
 		cloudConnections:                 make(map[string]cloudmodule.Connection),
 		cloudDeployments:                 make(map[string]cloudmodule.Deployment),
 		cloudServices:                    make(map[string]cloudmodule.Service),

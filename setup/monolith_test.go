@@ -73,3 +73,26 @@ func TestP2PEventRetentionInvalidEnvDisablesPruning(t *testing.T) {
 		t.Fatalf("expected invalid prune flag to disable pruning")
 	}
 }
+
+func TestP2PCloudConnectionStackConfigFromEnv(t *testing.T) {
+	t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL", "https://artifacts.example.invalid/connection-stack-v2/template.json")
+	t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	t.Setenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID", "node-key-1")
+	t.Setenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64", "public-key-material")
+	t.Setenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS", "900")
+
+	config := p2pCloudConnectionStackConfigFromEnv()
+	if config.TemplateURL != "https://artifacts.example.invalid/connection-stack-v2/template.json" ||
+		config.TemplateDigest != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
+		config.SourceTreeDigest != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
+		config.NodeKeyID != "node-key-1" || config.NodePublicKeySPKIBase64 != "public-key-material" ||
+		config.RolePlanTTL.Seconds() != 900 {
+		t.Fatalf("connection Stack config = %#v", config)
+	}
+
+	t.Setenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS", "0")
+	if config := p2pCloudConnectionStackConfigFromEnv(); config.RolePlanTTL != 0 {
+		t.Fatalf("invalid role-plan TTL must fail closed: %#v", config)
+	}
+}

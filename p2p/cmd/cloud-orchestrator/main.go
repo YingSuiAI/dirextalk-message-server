@@ -101,7 +101,7 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "process one research pass and one available quote pass")
+	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, and quote pass")
 	flags.StringVar(&config.researcherURL, "researcher-url", config.researcherURL, "exact HTTPS private researcher endpoint")
 	flags.StringVar(&config.workerID, "worker-id", config.workerID, "non-secret worker identifier")
 	flags.DurationVar(&config.pollInterval, "poll-interval", config.pollInterval, "idle polling interval")
@@ -236,14 +236,17 @@ func run(ctx context.Context, config commandConfig) error {
 	quoteRunner := runtime.NewQuoteRunner(store, quoteTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
+	registrationRunner := runtime.NewConnectionRegistrationRunner(store, quoteTransport, runtime.Config{
+		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
+	})
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, quoteRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, quoteRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -267,12 +270,13 @@ type iterationRunner interface {
 }
 
 // runIteration gives each independent outbox exactly one chance per poll. A
-// failed research attempt must not starve a previously durable read-only quote
-// request; both errors are returned to keep the next retry backoff intact.
-func runIteration(ctx context.Context, researchRunner, quoteRunner iterationRunner) (bool, error) {
+// failed research or Stack registration must not starve a previously durable
+// read-only quote request; all errors are returned for the next retry backoff.
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
+	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
-	return researched || quoted, errors.Join(researchErr, quoteErr)
+	return researched || registered || quoted, errors.Join(researchErr, registrationErr, quoteErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

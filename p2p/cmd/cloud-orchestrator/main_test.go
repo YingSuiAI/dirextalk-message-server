@@ -94,17 +94,19 @@ func TestReadNodeSigningKeyRejectsWrongMaterial(t *testing.T) {
 	}
 }
 
-func TestRunIterationStillAttemptsQuoteAfterResearchFailure(t *testing.T) {
+func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	researchFailure := errors.New("research unavailable")
+	registrationFailure := errors.New("connection registration unavailable")
 	quoteFailure := errors.New("quote unavailable")
 	research := &recordingIterationRunner{processed: true, err: researchFailure}
+	registration := &recordingIterationRunner{processed: true, err: registrationFailure}
 	quote := &recordingIterationRunner{processed: true, err: quoteFailure}
-	processed, err := runIteration(t.Context(), research, quote)
-	if !processed || research.calls != 1 || quote.calls != 1 {
-		t.Fatalf("iteration = processed:%v research_calls:%d quote_calls:%d", processed, research.calls, quote.calls)
+	processed, err := runIteration(t.Context(), research, registration, quote)
+	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 {
+		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d", processed, research.calls, registration.calls, quote.calls)
 	}
-	if !errors.Is(err, researchFailure) || !errors.Is(err, quoteFailure) {
-		t.Fatalf("iteration error = %v, want both runner failures", err)
+	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) {
+		t.Fatalf("iteration error = %v, want all runner failures", err)
 	}
 }
 

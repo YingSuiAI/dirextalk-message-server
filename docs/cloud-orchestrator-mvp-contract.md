@@ -24,13 +24,14 @@ AWS SDK integration in the message-server process.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated
   database role, uses a private mTLS research endpoint, and makes only the
-  fixed HTTPS Connection Stack V2 `quote.request` call. It has no Matrix
-  config, model key, AWS SDK, Docker socket, or migration capability. Its
-  mounted Ed25519 node key signs an exact durable quote envelope but is never
-  persisted or sent to the Message Server. It is intentionally not part of the
-  default compose stack until its private researcher, node-key mount, Connection
-  Stack registration, and least-privilege database role are deployed. It does
-  not yet ship a Worker or AWS mutation executor.
+  fixed HTTPS Connection Stack V2 `quote.request` and
+  `connection.registration.verify` calls. It has no Matrix config, model key,
+  AWS SDK, Docker socket, or migration capability. Its mounted Ed25519 node key
+  signs exact durable envelopes but is never persisted or sent to the Message
+  Server. It is intentionally not part of the default compose stack until its
+  private researcher, node-key mount, Connection Stack registration, and
+  least-privilege database role are deployed. It does not yet ship a Worker or
+  AWS mutation executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -43,7 +44,43 @@ AWS SDK integration in the message-server process.
   record, connection account data, secret reference, pairing data, or service
   secret.
 
-## Current first vertical slice
+## Current implemented control-plane slices
+
+`cloud.connections.role_plan` creates a private, short-lived
+`awaiting_stack` bootstrap and returns an owner-only CloudFormation handoff.
+The handoff contains the immutable template and complete source-tree digests,
+template URL, deterministic stack name, requested Region, and the
+Orchestrator/device **public** signing
+identities. It neither accepts AWS credentials nor creates a public Connection
+record. The Flutter approval private key must remain in system secure storage.
+The Message Server enables this action only when its public Stack identity is
+complete: `P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL`,
+`P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST`,
+`P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST`,
+`P2P_CLOUD_CONNECTION_NODE_KEY_ID`, and
+`P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64`. The source-tree digest
+binds the local SAM source used by the non-root deploy helper to the reviewed
+release rather than trusting a template file alone.
+
+After the owner deploys that stack in their AWS account,
+`cloud.connections.registration.complete` accepts only the exact Broker command
+URL and Stack ARN plus a UUID idempotency key and expected revision. The server
+persists these private candidate facts, creates a standalone
+`connection_registration` Job, and queues signed verification. The completion
+response, websocket events, MCP, list/get projections, and audit events omit
+the endpoint and Stack ARN; the submitted stack is not visible as an active
+Connection yet.
+
+The registration runner persists one exact
+`connection.registration.verify` envelope before its first Broker request and
+replays it after indeterminate failures. Only the Broker's exact
+`expired_command` result allocates a new counter. The Broker must attest the
+same bootstrap, Connection ID, account, Region, Stack ARN, node key/generation,
+command ID, request digest, and exact API Gateway command URL. A fenced
+transaction then writes the private Broker metadata and one public active
+Connection, emits a de-secretsed `cloud.connection.changed` projection, and
+finishes the registration Job. Any mismatch fails closed and leaves no active
+Connection.
 
 `cloud.goals.create` durably creates a private Goal, a Plan in `researching`,
 and a separate `research_queued` Job/Step (`queued` / `pending`). It creates
@@ -89,12 +126,13 @@ session tokens, pairing URLs, QR payloads, service secrets, Broker endpoint,
 signed envelope, receipt, or node-key identity.
 
 The implementation persists recipes, verified quotes, quote command receipts,
-jobs and job steps, plus goals, plans, connections, deployments, services,
-alerts, Cloud audit events, private research/quote outbox records, and
+private connection bootstraps and registration command receipts, jobs and job
+steps, plus goals, plans, connections, deployments, services, alerts, Cloud
+audit events, private research/quote/registration outbox records, and
 projection outbox records. An approval Plan version is deliberately absent
-until its separate device-signed confirmation transition exists.
-Connection/Deployment/Service writers are deliberately not part of the
-message-server owner action surface.
+until its separate device-signed confirmation transition exists. Deployment and
+Service writers are deliberately not part of the message-server owner action
+surface.
 
 ## ProductCore actions
 
@@ -110,7 +148,48 @@ Cloud mutation.
 | `cloud.{connections,plans,deployments,services,recipes}.list/get` | typed owner-only projection reads; only `cloud.plans.get` may attach a de-secretsed quote detail | HTTP + WS request |
 | `cloud.events.list` | de-secretsed durable Cloud audit events; `limit` is 1–200 | HTTP + WS request |
 | `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request | HTTP-only |
-| `cloud.connections.role_plan`, `cloud.plans.approve`, `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until the independent control plane is installed | HTTP-only |
+| `cloud.connections.role_plan` | creates/replays a short-lived private Stack bootstrap and returns a safe CloudFormation Role Plan | HTTP-only |
+| `cloud.connections.registration.complete` | records Stack outputs as a private pending verification and returns its safe Job binding; it cannot activate a Connection directly | HTTP-only |
+| `cloud.plans.approve`, `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until their independent control-plane transitions are installed | HTTP-only |
+
+`cloud.connections.role_plan` accepts exactly:
+
+```json
+{
+  "provider": "aws",
+  "region": "ap-northeast-1",
+  "device_approval_key_id": "device-key-id",
+  "device_approval_public_key_spki_base64": "Ed25519-SPKI-base64",
+  "idempotency_key": "UUID"
+}
+```
+
+It returns a `role_plan` with `bootstrap_id`, `cloud_connection_id`, expiration,
+template URL/digest, complete source-tree digest, stack name, and public
+CloudFormation parameters. The server rejects an unavailable/invalid stack
+identity, non-AWS provider,
+invalid Region or Ed25519 SPKI, non-UUID idempotency key, and a conflicting
+idempotency replay. It never returns a node private key, AWS credential,
+Broker endpoint, Stack ARN, or service secret.
+
+`cloud.connections.registration.complete` accepts exactly:
+
+```json
+{
+  "bootstrap_id": "cloud_bootstrap_…",
+  "expected_revision": 1,
+  "idempotency_key": "UUID",
+  "broker_command_url": "https://abcdefghij.execute-api.ap-northeast-1.amazonaws.com/prod/v2/commands",
+  "stack_arn": "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/dirextalk-example/…"
+}
+```
+
+The server validates the regional API Gateway URL and same-Region
+CloudFormation ARN before durable storage, then returns only
+`bootstrap_id`, `cloud_connection_id`, status/revision, and `job_id`. It uses
+the expected revision and completion idempotency digest to reject stale or
+conflicting completion attempts. A role-plan expiry is terminal for that
+bootstrap; the owner must request a new Role Plan.
 
 `cloud.goals.create` accepts exactly:
 
@@ -212,8 +291,9 @@ research endpoint is `CLOUD_ORCHESTRATOR_RESEARCHER_URL` and must be exact
 HTTPS `/v2/cloud-research` with no user info, query, fragment, or redirects.
 It also reads exactly one PKCS#8 Ed25519 node signing key from the regular
 mounted file named by `CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE`. The key is
-used only to sign the fixed Connection Stack V2 `quote.request` envelope;
-there is no generic AWS request path.
+used only to sign the fixed Connection Stack V2 `quote.request` and
+`connection.registration.verify` envelopes; there is no generic AWS request
+path.
 
 It also requires a dedicated mounted mTLS CA, client certificate, client key,
 and expected server name (`CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE`,
@@ -225,9 +305,10 @@ match the configured name.
 
 The exact V2 Broker client independently rejects proxies, redirects, non-HTTPS
 or non-`/v2/commands` endpoints, TLS below 1.2, unexpected JSON, oversized
-responses, response/receipt mismatches, and any returned quote that is not
-bound to the persisted signature-base `request_sha256`. It accepts no action
-other than `quote.request`.
+responses, response/receipt mismatches, and any returned quote/registration
+attestation that is not bound to the persisted signature-base `request_sha256`.
+It accepts no action other than `quote.request` and
+`connection.registration.verify`.
 
 `p2p/cmd/cloud-researcher` is the corresponding independently deployable,
 non-root private model boundary. It listens only with TLS 1.3 mutual
@@ -271,12 +352,14 @@ Public ingress remains a separate plan and confirmation.
 
 ## Explicitly not enabled yet
 
-The current slice does not upload credentials, deploy a Connection Stack,
-approve a plan, create an EC2 instance, install a service, expose a network
-endpoint, or destroy a resource. Once a separately registered Connection Stack
-is available it can obtain only a read-only quote; it does not execute AWS
-mutations. It ships independently buildable research/quote processes and their
-private event relay, but does not yet deploy a researcher endpoint, Worker AMI,
-Broker executor, or AWS integration test. Those transitions must be implemented
-through the typed Connection Stack/Broker path; neither the Eino Agent tool,
-external MCP, nor the message-server gains arbitrary AWS access.
+The current slice does not upload credentials, deploy a Connection Stack on the
+owner's behalf, approve a plan, create an EC2 instance, install a service,
+expose a network endpoint, or destroy a resource. It can issue a reviewed
+CloudFormation handoff and verify a user-deployed Stack, but an active
+Connection can obtain only a read-only quote; it does not execute AWS
+mutations. It ships independently buildable research/quote/registration
+processes and their private event relay, but does not yet deploy a researcher
+endpoint, Worker AMI, Broker executor, or AWS integration test. Those
+transitions must be implemented through the typed Connection Stack/Broker path;
+neither the Eino Agent tool, external MCP, nor the message-server gains
+arbitrary AWS access.

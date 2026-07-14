@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
 	"github.com/YingSuiAI/dirextalk-message-server/clientapi"
@@ -93,6 +94,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
 		PushRules:                       m.UserAPI,
 		ReleaseController:               releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
+		CloudConnectionStack:            p2pCloudConnectionStackConfigFromEnv(),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
@@ -207,4 +209,29 @@ func p2pEventRetentionPruneOnWriteFromEnv() bool {
 		return false
 	}
 	return parsed
+}
+
+// p2pCloudConnectionStackConfigFromEnv reads only public Connection Stack
+// identity. The corresponding Ed25519 private key is intentionally not an
+// environment value and is loaded solely by the independent Orchestrator from
+// a mounted file. Incomplete or malformed values are fail-closed later by the
+// Cloud role-plan action, leaving that action unavailable instead of guessing.
+func p2pCloudConnectionStackConfigFromEnv() p2p.CloudConnectionStackConfig {
+	ttl := 15 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS")); raw != "" {
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || seconds <= 0 || seconds > int64((24*time.Hour).Seconds()) {
+			ttl = 0
+		} else {
+			ttl = time.Duration(seconds) * time.Second
+		}
+	}
+	return p2p.CloudConnectionStackConfig{
+		TemplateURL:             strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL")),
+		TemplateDigest:          strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST")),
+		SourceTreeDigest:        strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST")),
+		NodeKeyID:               strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID")),
+		NodePublicKeySPKIBase64: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64")),
+		RolePlanTTL:             ttl,
+	}
 }

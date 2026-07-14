@@ -230,6 +230,18 @@ type jobProjectionPayload struct {
 	UpdatedAt       int64  `json:"updated_at"`
 }
 
+type connectionProjectionPayload struct {
+	ConnectionID string `json:"cloud_connection_id"`
+	Provider     string `json:"provider"`
+	AccountID    string `json:"account_id"`
+	Region       string `json:"region"`
+	Mode         string `json:"mode"`
+	Status       string `json:"status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
 func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 	switch eventType {
 	case "cloud.goal.changed":
@@ -261,6 +273,16 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 			"job_id": value.JobID, "plan_id": value.PlanID, "deployment_id": value.DeploymentID, "kind": value.Kind,
 			"execution_status": value.ExecutionStatus, "outcome_status": value.OutcomeStatus,
 			"checkpoint": value.Checkpoint, "error_code": value.ErrorCode, "revision": value.Revision,
+			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		}, nil
+	case "cloud.connection.changed":
+		var value connectionProjectionPayload
+		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validConnectionProjection(value) {
+			return nil, errors.New("invalid cloud connection projection")
+		}
+		return map[string]any{
+			"cloud_connection_id": value.ConnectionID, "provider": value.Provider, "account_id": value.AccountID,
+			"region": value.Region, "mode": value.Mode, "status": value.Status, "revision": value.Revision,
 			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
 		}, nil
 	default:
@@ -295,12 +317,26 @@ func validPlanProjection(value planProjectionPayload) bool {
 }
 
 func validJobProjection(value jobProjectionPayload) bool {
-	return validProjectionIdentifier(value.JobID) && validProjectionIdentifier(value.PlanID) && validOptionalProjectionIdentifier(value.DeploymentID) &&
-		allowedProjectionValue(value.Kind, "research", "quote", "provision", "install", "verify", "destroy") &&
+	planBindingValid := validProjectionIdentifier(value.PlanID)
+	if value.Kind == "connection_registration" {
+		// A Connection Stack verification happens before any deployment Plan
+		// exists. It can be projected as progress, but must not invent a Plan or
+		// Deployment identity just to fit the generic job view.
+		planBindingValid = value.PlanID == "" && value.DeploymentID == ""
+	}
+	return validProjectionIdentifier(value.JobID) && planBindingValid && validOptionalProjectionIdentifier(value.DeploymentID) &&
+		allowedProjectionValue(value.Kind, "research", "quote", "provision", "install", "verify", "destroy", "connection_registration") &&
 		allowedProjectionValue(value.ExecutionStatus, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
 		allowedProjectionValue(value.OutcomeStatus, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		validVisibleProjectionText(value.Checkpoint, 128, true) && validProjectionErrorCode(value.ErrorCode) &&
 		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
+}
+
+func validConnectionProjection(value connectionProjectionPayload) bool {
+	return validProjectionIdentifier(value.ConnectionID) && value.Provider == "aws" &&
+		validVisibleProjectionText(value.AccountID, 12, false) && validVisibleProjectionText(value.Region, 32, false) &&
+		value.Mode == "connection_stack_v2" && value.Status == "active" && value.Revision > 0 &&
+		value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
 }
 
 func validOptionalProjectionIdentifier(value string) bool {

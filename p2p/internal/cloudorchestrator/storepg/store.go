@@ -358,7 +358,7 @@ func transitionQuoteJob(ctx context.Context, tx *sql.Tx, claim runtime.QuoteClai
 }
 
 func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, kind, stepID string, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
-	if jobID == "" || planID == "" || kind == "" || stepID == "" {
+	if jobID == "" || kind == "" || stepID == "" || (kind == "connection_registration" && planID != "") || (kind != "connection_registration" && planID == "") {
 		return cloudmodule.Job{}, errors.New("cloud job identity is invalid")
 	}
 	transition.errorCode = durableErrorCode(transition.errorCode, "")

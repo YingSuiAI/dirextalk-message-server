@@ -21,9 +21,27 @@ const (
 	PlanStatusSuperseded            = "superseded"
 	GoalStatusResearching           = "researching"
 	OutboxKindResearchGoalRequested = "cloud.goal.research.requested"
+	// OutboxKindConnectionRegistrationRequested is private control-plane work.
+	// It is never delivered to ProductCore directly: the independent
+	// Orchestrator must first prove the signed Broker endpoint before a public
+	// Connection record can become active.
+	OutboxKindConnectionRegistrationRequested = "cloud.connection.registration.requested"
+
+	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
+	ConnectionBootstrapVerificationQueued = "verification_queued"
+	ConnectionBootstrapVerifying          = "verifying"
+	ConnectionBootstrapActive             = "active"
+	ConnectionBootstrapVerificationFailed = "verification_failed"
+	ConnectionBootstrapExpired            = "expired"
 )
 
-var ErrIdempotencyConflict = errors.New("cloud idempotency key was reused with a different request")
+var (
+	ErrIdempotencyConflict             = errors.New("cloud idempotency key was reused with a different request")
+	ErrConnectionBootstrapConflict     = errors.New("cloud connection bootstrap conflicts with the requested revision")
+	ErrConnectionBootstrapExpired      = errors.New("cloud connection bootstrap has expired")
+	ErrConnectionBootstrapInvalid      = errors.New("cloud connection bootstrap is not in a completable state")
+	ErrConnectionBootstrapInputInvalid = errors.New("cloud connection bootstrap registration input is invalid")
+)
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted
 // from every realtime/event projection; it is only delivered to the isolated
@@ -119,6 +137,109 @@ type Connection struct {
 	Revision     int64  `json:"revision"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// ConnectionStackConfig is non-secret deployment configuration injected into
+// the ProductCore process. The Node signing private key deliberately lives
+// only in the independent Cloud Orchestrator process; this facade receives
+// only its public identity for the CloudFormation role plan.
+type ConnectionStackConfig struct {
+	TemplateURL             string
+	TemplateDigest          string
+	SourceTreeDigest        string
+	NodeKeyID               string
+	NodePublicKeySPKIBase64 string
+	RolePlanTTL             time.Duration
+}
+
+// ConnectionBootstrap is private durable onboarding state. Candidate endpoint
+// and Stack ARN fields must never appear in ProductCore projections, MCP, or
+// realtime events. They are read only by the independently deployed
+// Orchestrator while it verifies the fixed Broker command.
+type ConnectionBootstrap struct {
+	BootstrapID                       string
+	OwnerMXID                         string
+	ConnectionID                      string
+	Provider                          string
+	RequestedRegion                   string
+	TemplateURL                       string
+	TemplateDigest                    string
+	SourceTreeDigest                  string
+	StackName                         string
+	NodeKeyID                         string
+	NodePublicKeySPKIBase64           string
+	DeviceApprovalKeyID               string
+	DeviceApprovalPublicKeySPKIBase64 string
+	CandidateBrokerURL                string
+	StackARN                          string
+	Status                            string
+	Revision                          int64
+	IdempotencyHash                   string
+	RequestDigest                     string
+	CompletionIdempotencyHash         string
+	CompletionRequestDigest           string
+	JobID                             string
+	NextNodeCounter                   int64
+	ExpiresAt                         int64
+	CreatedAt                         int64
+	UpdatedAt                         int64
+}
+
+// ConnectionRolePlan is the owner-only, short-lived CloudFormation handoff.
+// It intentionally contains public keys and an immutable template digest, but
+// no AWS credential, Broker endpoint, stack ARN, private key, or service
+// secret. It is returned only from HTTP role-plan creation, not via realtime.
+type ConnectionRolePlan struct {
+	BootstrapID          string            `json:"bootstrap_id"`
+	CloudConnectionID    string            `json:"cloud_connection_id"`
+	Provider             string            `json:"provider"`
+	Region               string            `json:"region"`
+	Status               string            `json:"status"`
+	Revision             int64             `json:"revision"`
+	ExpiresAt            int64             `json:"expires_at"`
+	TemplateURL          string            `json:"template_url"`
+	TemplateDigest       string            `json:"template_digest"`
+	SourceTreeDigest     string            `json:"source_tree_digest"`
+	StackName            string            `json:"stack_name"`
+	CloudFormationParams map[string]string `json:"cloudformation_parameters"`
+}
+
+// ConnectionRegistration is the safe response after a user submits only Stack
+// outputs. It deliberately omits the endpoint and Stack ARN while the
+// Orchestrator validates them with the signed Broker.
+type ConnectionRegistration struct {
+	BootstrapID       string `json:"bootstrap_id"`
+	CloudConnectionID string `json:"cloud_connection_id"`
+	Status            string `json:"status"`
+	Revision          int64  `json:"revision"`
+	JobID             string `json:"job_id,omitempty"`
+}
+
+type CreateConnectionBootstrapRequest struct {
+	Bootstrap ConnectionBootstrap
+}
+
+type CreateConnectionBootstrapResult struct {
+	Bootstrap ConnectionBootstrap
+	Created   bool
+}
+
+type CompleteConnectionBootstrapRequest struct {
+	OwnerMXID        string
+	BootstrapID      string
+	ExpectedRevision int64
+	IdempotencyHash  string
+	RequestDigest    string
+	BrokerCommandURL string
+	StackARN         string
+	Job              Job
+	Event            Event
+	Outbox           OutboxEntry
+}
+
+type CompleteConnectionBootstrapResult struct {
+	Bootstrap ConnectionBootstrap
+	Created   bool
 }
 
 // Deployment tracks execution independently from resource and service state.
@@ -257,6 +378,8 @@ type CreateGoalResult struct {
 // this façade does not receive AWS credentials or an AWS API client.
 type Store interface {
 	CreateCloudGoal(context.Context, CreateGoalRequest) (CreateGoalResult, error)
+	CreateCloudConnectionBootstrap(context.Context, CreateConnectionBootstrapRequest) (CreateConnectionBootstrapResult, error)
+	CompleteCloudConnectionBootstrap(context.Context, CompleteConnectionBootstrapRequest) (CompleteConnectionBootstrapResult, error)
 	ListCloudGoals(context.Context) ([]Goal, error)
 	ListCloudPlans(context.Context) ([]Plan, error)
 	GetCloudPlan(context.Context, string) (Plan, bool, error)

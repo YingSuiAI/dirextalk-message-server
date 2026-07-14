@@ -53,6 +53,23 @@ type Config struct {
 	NativeAgentRunner               NativeAgentRunner
 	NativeAgentDataDir              string
 	ReleaseController               releasecontrol.Controller
+	// CloudConnectionStack is public configuration for the owner-only
+	// CloudFormation role-plan handoff. It contains a template identity and
+	// Node public key only; the Ed25519 private key remains mounted solely in
+	// the independent cloud-orchestrator process.
+	CloudConnectionStack CloudConnectionStackConfig
+}
+
+// CloudConnectionStackConfig is the public p2p configuration shape for the
+// owner-only Connection Stack role-plan. It contains public key material only;
+// the Cloud Orchestrator receives the matching private key from a mounted file.
+type CloudConnectionStackConfig struct {
+	TemplateURL             string
+	TemplateDigest          string
+	SourceTreeDigest        string
+	NodeKeyID               string
+	NodePublicKeySPKIBase64 string
+	RolePlanTTL             time.Duration
 }
 
 const (
@@ -774,6 +791,11 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 		Publish: func(ctx context.Context, eventType, cloudEventID string, payload map[string]any) error {
 			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, DedupeKey: "cloud-event:" + cloudEventID, Payload: payload})
+		},
+		ConnectionStack: cloudmodule.ConnectionStackConfig{
+			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,
+			NodeKeyID: cfg.CloudConnectionStack.NodeKeyID, NodePublicKeySPKIBase64: cfg.CloudConnectionStack.NodePublicKeySPKIBase64,
+			RolePlanTTL: cfg.CloudConnectionStack.RolePlanTTL,
 		},
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{

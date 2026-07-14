@@ -18,40 +18,46 @@ import (
 )
 
 const (
-	actionBootstrap                = "cloud.bootstrap"
-	actionConnectionsList          = "cloud.connections.list"
-	actionConnectionsGet           = "cloud.connections.get"
-	actionPlansList                = "cloud.plans.list"
-	actionPlansGet                 = "cloud.plans.get"
-	actionDeploymentsList          = "cloud.deployments.list"
-	actionDeploymentsGet           = "cloud.deployments.get"
-	actionServicesList             = "cloud.services.list"
-	actionServicesGet              = "cloud.services.get"
-	actionRecipesList              = "cloud.recipes.list"
-	actionRecipesGet               = "cloud.recipes.get"
-	actionEventsList               = "cloud.events.list"
-	actionGoalsCreate              = "cloud.goals.create"
-	actionConnectionsRolePlan      = "cloud.connections.role_plan"
-	actionPlansApprove             = "cloud.plans.approve"
-	actionDeploymentsPairingResume = "cloud.deployments.pairing.resume"
-	actionServicesOperationPlan    = "cloud.services.operation.plan"
-	actionServicesOperationApprove = "cloud.services.operation.approve"
-	actionServicesDestroyPlan      = "cloud.services.destroy.plan"
-	actionServicesDestroyApprove   = "cloud.services.destroy.approve"
-	cloudUnavailableCode           = "cloud_orchestrator_unavailable"
-	cloudIdempotencyInvalidCode    = "cloud_idempotency_key_invalid"
-	cloudGoalInvalidCode           = "cloud_goal_invalid"
-	cloudConnectionIDInvalidCode   = "cloud_connection_id_invalid"
-	cloudConnectionRequiredCode    = "cloud_connection_required"
-	cloudInvalidParamsCode         = "cloud_invalid_params"
-	cloudIdempotencyConflictCode   = "cloud_idempotency_conflict"
+	actionBootstrap                       = "cloud.bootstrap"
+	actionConnectionsList                 = "cloud.connections.list"
+	actionConnectionsGet                  = "cloud.connections.get"
+	actionPlansList                       = "cloud.plans.list"
+	actionPlansGet                        = "cloud.plans.get"
+	actionDeploymentsList                 = "cloud.deployments.list"
+	actionDeploymentsGet                  = "cloud.deployments.get"
+	actionServicesList                    = "cloud.services.list"
+	actionServicesGet                     = "cloud.services.get"
+	actionRecipesList                     = "cloud.recipes.list"
+	actionRecipesGet                      = "cloud.recipes.get"
+	actionEventsList                      = "cloud.events.list"
+	actionGoalsCreate                     = "cloud.goals.create"
+	actionConnectionsRolePlan             = "cloud.connections.role_plan"
+	actionConnectionsRegistrationComplete = "cloud.connections.registration.complete"
+	actionPlansApprove                    = "cloud.plans.approve"
+	actionDeploymentsPairingResume        = "cloud.deployments.pairing.resume"
+	actionServicesOperationPlan           = "cloud.services.operation.plan"
+	actionServicesOperationApprove        = "cloud.services.operation.approve"
+	actionServicesDestroyPlan             = "cloud.services.destroy.plan"
+	actionServicesDestroyApprove          = "cloud.services.destroy.approve"
+	cloudUnavailableCode                  = "cloud_orchestrator_unavailable"
+	cloudIdempotencyInvalidCode           = "cloud_idempotency_key_invalid"
+	cloudGoalInvalidCode                  = "cloud_goal_invalid"
+	cloudConnectionIDInvalidCode          = "cloud_connection_id_invalid"
+	cloudConnectionRequiredCode           = "cloud_connection_required"
+	cloudInvalidParamsCode                = "cloud_invalid_params"
+	cloudIdempotencyConflictCode          = "cloud_idempotency_conflict"
+	cloudConnectionStackUnavailableCode   = "cloud_connection_stack_unavailable"
+	cloudConnectionBootstrapInvalidCode   = "cloud_connection_bootstrap_invalid"
+	cloudConnectionBootstrapExpiredCode   = "cloud_connection_bootstrap_expired"
+	cloudConnectionBootstrapConflictCode  = "cloud_connection_bootstrap_conflict"
 )
 
 type Config struct {
-	OwnerMXID func() string
-	Now       func() time.Time
-	NewID     func(kind string) string
-	Publish   func(context.Context, string, string, map[string]any) error
+	OwnerMXID       func() string
+	Now             func() time.Time
+	NewID           func(kind string) string
+	Publish         func(context.Context, string, string, map[string]any) error
+	ConnectionStack ConnectionStackConfig
 }
 
 type Module struct {
@@ -65,27 +71,161 @@ func New(store Store, cfg Config) *Module {
 
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionBootstrap:                m.bootstrap,
-		actionConnectionsList:          m.connectionsList,
-		actionConnectionsGet:           m.connectionsGet,
-		actionPlansList:                m.plansList,
-		actionPlansGet:                 m.plansGet,
-		actionDeploymentsList:          m.deploymentsList,
-		actionDeploymentsGet:           m.deploymentsGet,
-		actionServicesList:             m.servicesList,
-		actionServicesGet:              m.servicesGet,
-		actionRecipesList:              m.recipesList,
-		actionRecipesGet:               m.recipesGet,
-		actionEventsList:               m.eventsList,
-		actionGoalsCreate:              m.createGoal,
-		actionConnectionsRolePlan:      m.unavailableWrite,
-		actionPlansApprove:             m.unavailableWrite,
-		actionDeploymentsPairingResume: m.unavailableWrite,
-		actionServicesOperationPlan:    m.unavailableWrite,
-		actionServicesOperationApprove: m.unavailableWrite,
-		actionServicesDestroyPlan:      m.unavailableWrite,
-		actionServicesDestroyApprove:   m.unavailableWrite,
+		actionBootstrap:                       m.bootstrap,
+		actionConnectionsList:                 m.connectionsList,
+		actionConnectionsGet:                  m.connectionsGet,
+		actionPlansList:                       m.plansList,
+		actionPlansGet:                        m.plansGet,
+		actionDeploymentsList:                 m.deploymentsList,
+		actionDeploymentsGet:                  m.deploymentsGet,
+		actionServicesList:                    m.servicesList,
+		actionServicesGet:                     m.servicesGet,
+		actionRecipesList:                     m.recipesList,
+		actionRecipesGet:                      m.recipesGet,
+		actionEventsList:                      m.eventsList,
+		actionGoalsCreate:                     m.createGoal,
+		actionConnectionsRolePlan:             m.createConnectionRolePlan,
+		actionConnectionsRegistrationComplete: m.completeConnectionRegistration,
+		actionPlansApprove:                    m.unavailableWrite,
+		actionDeploymentsPairingResume:        m.unavailableWrite,
+		actionServicesOperationPlan:           m.unavailableWrite,
+		actionServicesOperationApprove:        m.unavailableWrite,
+		actionServicesDestroyPlan:             m.unavailableWrite,
+		actionServicesDestroyApprove:          m.unavailableWrite,
 	}
+}
+
+// createConnectionRolePlan creates a short-lived, immutable CloudFormation
+// handoff. It does not call AWS, receive AWS credentials, contact a Broker, or
+// create a public Connection record. The device key is public-key material
+// only; the Flutter private approval key never crosses this boundary.
+func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "provider", "region", "device_approval_key_id", "device_approval_public_key_spki_base64", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	stackConfig := m.cfg.ConnectionStack
+	if err := ValidateConnectionStackConfig(stackConfig); err != nil {
+		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionStackUnavailableCode, "cloud connection stack is not configured")
+	}
+	values := actionbase.Params(params)
+	provider := values.String("provider")
+	region := values.String("region")
+	deviceKeyID := values.String("device_approval_key_id")
+	devicePublicKey := values.String("device_approval_public_key_spki_base64")
+	idempotencyKey := values.String("idempotency_key")
+	if provider != "aws" || !cloudRegionPattern.MatchString(region) || !cloudKeyIDPattern.MatchString(deviceKeyID) ||
+		ContainsSensitiveGoalMaterial(deviceKeyID) || validateEd25519SPKIBase64(devicePublicKey) != nil || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection role plan is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UnixMilli()
+	bootstrapID := m.newID("connection_bootstrap")
+	connectionID := m.newID("connection")
+	bootstrap := ConnectionBootstrap{
+		BootstrapID: bootstrapID, OwnerMXID: ownerMXID, ConnectionID: connectionID, Provider: provider,
+		RequestedRegion: region, TemplateURL: stackConfig.TemplateURL, TemplateDigest: stackConfig.TemplateDigest, SourceTreeDigest: stackConfig.SourceTreeDigest,
+		StackName: connectionStackName(connectionID), NodeKeyID: stackConfig.NodeKeyID,
+		NodePublicKeySPKIBase64: stackConfig.NodePublicKeySPKIBase64, DeviceApprovalKeyID: deviceKeyID,
+		DeviceApprovalPublicKeySPKIBase64: devicePublicKey, Status: ConnectionBootstrapAwaitingStack,
+		Revision: 1, IdempotencyHash: digest(idempotencyKey),
+		RequestDigest: connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey),
+		ExpiresAt:     now + stackConfig.RolePlanTTL.Milliseconds(), CreatedAt: now, UpdatedAt: now,
+	}
+	if err := validateConnectionBootstrap(bootstrap); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection role plan is invalid")
+	}
+	created, err := m.store.CreateCloudConnectionBootstrap(ctx, CreateConnectionBootstrapRequest{Bootstrap: bootstrap})
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			return nil, actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud connection role plan")
+		}
+		return nil, actionbase.InternalError(err)
+	}
+	return map[string]any{"role_plan": created.Bootstrap.RolePlan()}, nil
+}
+
+// completeConnectionRegistration records a user-returned Stack output as a
+// pending verification request. It intentionally cannot activate a connection
+// or directly request the candidate endpoint: the mounted-key Orchestrator
+// must submit the fixed signed Broker attestation first.
+func (m *Module) completeConnectionRegistration(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "bootstrap_id", "expected_revision", "idempotency_key", "broker_command_url", "stack_arn"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	bootstrapID := values.String("bootstrap_id")
+	idempotencyKey := values.String("idempotency_key")
+	brokerCommandURL := values.String("broker_command_url")
+	stackARN := values.String("stack_arn")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(bootstrapID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) ||
+		ContainsSensitiveGoalMaterial(brokerCommandURL) || ContainsSensitiveGoalMaterial(stackARN) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection registration is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	// The Store repeats these facts while holding the bootstrap row lock. This
+	// initial validation keeps malformed client values out of durable state.
+	// Region is deliberately checked by Store after it reads the immutable plan.
+	if len(brokerCommandURL) == 0 || len(stackARN) == 0 {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection registration is invalid")
+	}
+	now := m.now().UnixMilli()
+	job := Job{
+		JobID: m.newID("connection_registration"), Kind: "connection_registration", Execution: "queued", Outcome: "pending",
+		Checkpoint: "connection_verification_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	event := Event{
+		EventID: m.newID("event"), Type: "cloud.job.changed", AggregateType: "job", AggregateID: job.JobID,
+		Revision: job.Revision, SummaryJSON: mustJSON(jobPayload(job)), CreatedAt: now,
+	}
+	payload, marshalErr := json.Marshal(map[string]string{"bootstrap_id": bootstrapID})
+	if marshalErr != nil {
+		return nil, actionbase.InternalError(marshalErr)
+	}
+	completed, err := m.store.CompleteCloudConnectionBootstrap(ctx, CompleteConnectionBootstrapRequest{
+		OwnerMXID: ownerMXID, BootstrapID: bootstrapID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: connectionBootstrapCompletionDigest(bootstrapID, brokerCommandURL, stackARN),
+		BrokerCommandURL: brokerCommandURL, StackARN: stackARN, Job: job, Event: event,
+		Outbox: OutboxEntry{OutboxID: m.newID("outbox"), Kind: OutboxKindConnectionRegistrationRequested, AggregateType: "connection_bootstrap", AggregateID: bootstrapID, PayloadJSON: string(payload), CreatedAt: now},
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrIdempotencyConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud connection registration")
+		case errors.Is(err, ErrConnectionBootstrapExpired):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudConnectionBootstrapExpiredCode, "cloud connection role plan has expired")
+		case errors.Is(err, ErrConnectionBootstrapConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudConnectionBootstrapConflictCode, "cloud connection registration revision conflicts with the current role plan")
+		case errors.Is(err, ErrConnectionBootstrapInputInvalid):
+			return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection registration is invalid")
+		case errors.Is(err, ErrConnectionBootstrapInvalid):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudConnectionBootstrapInvalidCode, "cloud connection registration is not in a completable state")
+		default:
+			return nil, actionbase.InternalError(err)
+		}
+	}
+	if completed.Created {
+		m.publish(ctx, event.Type, event.EventID, jobPayload(job))
+	}
+	return map[string]any{"registration": completed.Bootstrap.Registration()}, nil
 }
 
 // CreateResearchGoal is the only Native Agent-facing entrypoint. It keeps the
@@ -466,6 +606,13 @@ func (m *Module) now() time.Time {
 		return m.cfg.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (m *Module) ownerMXID() string {
+	if m != nil && m.cfg.OwnerMXID != nil {
+		return strings.TrimSpace(m.cfg.OwnerMXID())
+	}
+	return ""
 }
 
 func (m *Module) newID(kind string) string {

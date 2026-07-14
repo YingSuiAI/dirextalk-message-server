@@ -28,6 +28,15 @@ const cloudJobColumns = `
 	checkpoint, error_code, revision, created_at, updated_at
 `
 
+const cloudConnectionBootstrapColumns = `
+	bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
+	template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
+	device_approval_key_id, device_approval_public_key_spki_base64,
+	candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
+	completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
+	expires_at, created_at, updated_at
+`
+
 var errCloudQuoteDisplayInvalid = errors.New("cloud quote display record is invalid")
 
 // cloudQuoteDisplay is the only persisted JSON shape that may be projected to
@@ -156,6 +165,165 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 			return err
 		}
 		result = cloudmodule.CreateGoalResult{Goal: goal, Plan: plan, Created: true}
+		return nil
+	})
+	return result, err
+}
+
+func (s *DatabaseStore) CreateCloudConnectionBootstrap(ctx context.Context, request cloudmodule.CreateConnectionBootstrapRequest) (cloudmodule.CreateConnectionBootstrapResult, error) {
+	result := cloudmodule.CreateConnectionBootstrapResult{}
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		bootstrap := request.Bootstrap
+		var inserted string
+		err := txn.QueryRowContext(ctx, `
+			INSERT INTO p2p_cloud_connection_bootstraps (
+				bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
+				template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
+				device_approval_key_id, device_approval_public_key_spki_base64,
+				candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
+				completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
+				expires_at, created_at, updated_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', '', $14, $15, $16, $17, '', '', '', 0, $18, $19, $19
+			)
+			ON CONFLICT (owner_mxid, idempotency_hash) DO NOTHING
+			RETURNING bootstrap_id
+		`, bootstrap.BootstrapID, bootstrap.OwnerMXID, bootstrap.ConnectionID, bootstrap.Provider, bootstrap.RequestedRegion,
+			bootstrap.TemplateURL, bootstrap.TemplateDigest, bootstrap.SourceTreeDigest, bootstrap.StackName, bootstrap.NodeKeyID, bootstrap.NodePublicKeySPKIBase64,
+			bootstrap.DeviceApprovalKeyID, bootstrap.DeviceApprovalPublicKeySPKIBase64, bootstrap.Status, bootstrap.Revision,
+			bootstrap.IdempotencyHash, bootstrap.RequestDigest, bootstrap.ExpiresAt, bootstrap.CreatedAt).Scan(&inserted)
+		switch {
+		case err == nil:
+			result = cloudmodule.CreateConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}
+			return nil
+		case errors.Is(err, sql.ErrNoRows):
+			row := txn.QueryRowContext(ctx, `SELECT `+cloudConnectionBootstrapColumns+`
+				FROM p2p_cloud_connection_bootstraps WHERE owner_mxid = $1 AND idempotency_hash = $2`, bootstrap.OwnerMXID, bootstrap.IdempotencyHash)
+			var existing cloudmodule.ConnectionBootstrap
+			if err := scanCloudConnectionBootstrap(row, &existing); err != nil {
+				return err
+			}
+			if existing.RequestDigest != bootstrap.RequestDigest {
+				return cloudmodule.ErrIdempotencyConflict
+			}
+			result = cloudmodule.CreateConnectionBootstrapResult{Bootstrap: existing}
+			return nil
+		default:
+			return err
+		}
+	})
+	return result, err
+}
+
+func (s *DatabaseStore) CompleteCloudConnectionBootstrap(ctx context.Context, request cloudmodule.CompleteConnectionBootstrapRequest) (cloudmodule.CompleteConnectionBootstrapResult, error) {
+	result := cloudmodule.CompleteConnectionBootstrapResult{}
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		row := txn.QueryRowContext(ctx, `SELECT `+cloudConnectionBootstrapColumns+`
+			FROM p2p_cloud_connection_bootstraps WHERE bootstrap_id = $1 AND owner_mxid = $2 FOR UPDATE`, request.BootstrapID, request.OwnerMXID)
+		var bootstrap cloudmodule.ConnectionBootstrap
+		if err := scanCloudConnectionBootstrap(row, &bootstrap); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return cloudmodule.ErrConnectionBootstrapInvalid
+			}
+			return err
+		}
+		if bootstrap.CompletionIdempotencyHash != "" {
+			if bootstrap.CompletionIdempotencyHash != request.IdempotencyHash || bootstrap.CompletionRequestDigest != request.RequestDigest {
+				return cloudmodule.ErrIdempotencyConflict
+			}
+			result = cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap}
+			return nil
+		}
+		if bootstrap.Revision != request.ExpectedRevision {
+			return cloudmodule.ErrConnectionBootstrapConflict
+		}
+		now := request.Job.CreatedAt
+		if now <= 0 {
+			return cloudmodule.ErrConnectionBootstrapInvalid
+		}
+		if now >= bootstrap.ExpiresAt {
+			updated, err := txn.ExecContext(ctx, `
+				UPDATE p2p_cloud_connection_bootstraps
+				SET status = 'expired', revision = revision + 1, updated_at = $1
+				WHERE bootstrap_id = $2 AND revision = $3 AND status = 'awaiting_stack'
+			`, now, bootstrap.BootstrapID, bootstrap.Revision)
+			if err != nil {
+				return err
+			}
+			if err := requireCloudBootstrapMutation(updated); err != nil {
+				return err
+			}
+			return cloudmodule.ErrConnectionBootstrapExpired
+		}
+		if bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+			return cloudmodule.ErrConnectionBootstrapInvalid
+		}
+		if err := cloudmodule.ValidateConnectionRegistrationEndpoint(request.BrokerCommandURL, bootstrap.RequestedRegion); err != nil {
+			return cloudmodule.ErrConnectionBootstrapInputInvalid
+		}
+		if err := cloudmodule.ValidateConnectionRegistrationStackARN(request.StackARN, bootstrap.RequestedRegion); err != nil {
+			return cloudmodule.ErrConnectionBootstrapInputInvalid
+		}
+		job := request.Job
+		if job.JobID == "" || job.PlanID != "" || job.DeploymentID != "" || job.Kind != "connection_registration" || job.Execution != "queued" || job.Outcome != "pending" || job.Checkpoint != "connection_verification_queued" || job.Revision != 1 || job.CreatedAt != now || job.UpdatedAt != now ||
+			request.Event.Type != "cloud.job.changed" || request.Event.AggregateType != "job" || request.Event.AggregateID != job.JobID || request.Event.Revision != job.Revision || request.Event.CreatedAt != now || request.Outbox.Kind != cloudmodule.OutboxKindConnectionRegistrationRequested || request.Outbox.AggregateType != "connection_bootstrap" || request.Outbox.AggregateID != bootstrap.BootstrapID || request.Outbox.CreatedAt != now {
+			return cloudmodule.ErrConnectionBootstrapInvalid
+		}
+		updated, err := txn.ExecContext(ctx, `
+			UPDATE p2p_cloud_connection_bootstraps
+			SET candidate_broker_url = $1, stack_arn = $2, status = 'verification_queued',
+				revision = revision + 1, completion_idempotency_hash = $3, completion_request_digest = $4,
+				job_id = $5, updated_at = $6
+			WHERE bootstrap_id = $7 AND revision = $8 AND status = 'awaiting_stack'
+		`, request.BrokerCommandURL, request.StackARN, request.IdempotencyHash, request.RequestDigest, job.JobID, now, bootstrap.BootstrapID, bootstrap.Revision)
+		if err != nil {
+			return err
+		}
+		if err := requireCloudBootstrapMutation(updated); err != nil {
+			return err
+		}
+		if _, err := txn.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_jobs (
+				job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
+				checkpoint, error_code, revision, created_at, updated_at
+			) VALUES ($1, '', '', 'connection_registration', 'queued', 'pending', 'connection_verification_queued', '', 1, $2, $2)
+		`, job.JobID, now); err != nil {
+			return err
+		}
+		if _, err := txn.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_job_steps (
+				job_id, step_id, status, summary, checkpoint, error_code, revision, created_at, updated_at
+			) VALUES ($1, 'connection_registration', 'queued', 'The submitted AWS Connection Stack is waiting for signed Broker verification.', 'connection_verification_queued', '', 1, $2, $2)
+		`, job.JobID, now); err != nil {
+			return err
+		}
+		if _, err := txn.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_events (event_id, type, aggregate_type, aggregate_id, revision, summary_json, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, request.Event.EventID, request.Event.Type, request.Event.AggregateType, request.Event.AggregateID, request.Event.Revision, request.Event.SummaryJSON, now); err != nil {
+			return err
+		}
+		if _, err := txn.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_projection_outbox (projection_id, cloud_event_id, type, payload_json, available_at, created_at)
+			VALUES ($1, $2, $3, $4, $5, $5)
+		`, cloudProjectionID(request.Event.EventID), request.Event.EventID, request.Event.Type, request.Event.SummaryJSON, now); err != nil {
+			return err
+		}
+		if _, err := txn.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_outbox (outbox_id, kind, aggregate_type, aggregate_id, payload_json, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, request.Outbox.OutboxID, request.Outbox.Kind, request.Outbox.AggregateType, request.Outbox.AggregateID, request.Outbox.PayloadJSON, now); err != nil {
+			return err
+		}
+		bootstrap.CandidateBrokerURL = request.BrokerCommandURL
+		bootstrap.StackARN = request.StackARN
+		bootstrap.Status = cloudmodule.ConnectionBootstrapVerificationQueued
+		bootstrap.Revision++
+		bootstrap.CompletionIdempotencyHash = request.IdempotencyHash
+		bootstrap.CompletionRequestDigest = request.RequestDigest
+		bootstrap.JobID = job.JobID
+		bootstrap.UpdatedAt = now
+		result = cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}
 		return nil
 	})
 	return result, err
@@ -631,6 +799,28 @@ func scanCloudJob(row cloudScanner, item *cloudmodule.Job) error {
 
 func scanCloudConnection(row cloudScanner, item *cloudmodule.Connection) error {
 	return row.Scan(&item.ConnectionID, &item.Provider, &item.AccountID, &item.Region, &item.Mode, &item.Status, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
+}
+
+func scanCloudConnectionBootstrap(row cloudScanner, item *cloudmodule.ConnectionBootstrap) error {
+	return row.Scan(
+		&item.BootstrapID, &item.OwnerMXID, &item.ConnectionID, &item.Provider, &item.RequestedRegion,
+		&item.TemplateURL, &item.TemplateDigest, &item.SourceTreeDigest, &item.StackName, &item.NodeKeyID, &item.NodePublicKeySPKIBase64,
+		&item.DeviceApprovalKeyID, &item.DeviceApprovalPublicKeySPKIBase64,
+		&item.CandidateBrokerURL, &item.StackARN, &item.Status, &item.Revision, &item.IdempotencyHash, &item.RequestDigest,
+		&item.CompletionIdempotencyHash, &item.CompletionRequestDigest, &item.JobID, &item.NextNodeCounter,
+		&item.ExpiresAt, &item.CreatedAt, &item.UpdatedAt,
+	)
+}
+
+func requireCloudBootstrapMutation(result sql.Result) error {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return cloudmodule.ErrConnectionBootstrapConflict
+	}
+	return nil
 }
 
 func scanCloudDeployment(row cloudScanner, item *cloudmodule.Deployment) error {

@@ -21,6 +21,7 @@ import (
 const commandLifetime = 4 * time.Minute
 
 var _ runtime.QuoteTransport = (*Transport)(nil)
+var _ runtime.ConnectionRegistrationTransport = (*Transport)(nil)
 
 // Transport keeps the mounted node key in process memory only. The key is
 // never serialized, returned, or written to PostgreSQL.
@@ -109,6 +110,77 @@ func (t *Transport) RequestQuote(ctx context.Context, endpoint string, command r
 	return runtimeQuote(result)
 }
 
+// BuildConnectionRegistrationCommand signs the one fixed attestation command
+// that can activate a pending Connection Stack. It has no provider mutation,
+// approval, credential, or arbitrary action surface.
+func (t *Transport) BuildConnectionRegistrationCommand(command runtime.ConnectionRegistrationCommand, request runtime.ConnectionRegistrationRequest) (runtime.SignedConnectionRegistrationCommand, error) {
+	if t == nil || len(t.privateKey) != ed25519.PrivateKeySize {
+		return runtime.SignedConnectionRegistrationCommand{}, errors.New("cloud broker node signing key is unavailable")
+	}
+	if err := request.Validate(); err != nil {
+		return runtime.SignedConnectionRegistrationCommand{}, errors.New("invalid connection registration request")
+	}
+	digest, err := request.Digest()
+	if err != nil || command.RequestDigest != digest || command.CommandID == "" || command.ConnectionID == "" || command.BootstrapID != request.BootstrapID ||
+		command.NodeKeyID == "" || command.ExpectedGeneration <= 0 || command.NodeCounter <= 0 {
+		return runtime.SignedConnectionRegistrationCommand{}, errors.New("connection registration command does not bind the request")
+	}
+	issuedAt := t.now().UTC().Truncate(time.Millisecond)
+	expiresAt := issuedAt.Add(commandLifetime)
+	brokerCommand, err := broker.NewRegistrationCommand(broker.RegistrationCommandInput{
+		ConnectionID:       command.ConnectionID,
+		CommandID:          command.CommandID,
+		NodeKeyID:          command.NodeKeyID,
+		ExpectedGeneration: command.ExpectedGeneration,
+		NodeCounter:        command.NodeCounter,
+		IssuedAt:           issuedAt,
+		ExpiresAt:          expiresAt,
+		Request:            registrationRequest(request),
+		PrivateKey:         t.privateKey,
+	})
+	if err != nil {
+		return runtime.SignedConnectionRegistrationCommand{}, fmt.Errorf("sign connection registration command: %w", err)
+	}
+	payload, err := base64.StdEncoding.DecodeString(brokerCommand.PayloadB64)
+	if err != nil {
+		return runtime.SignedConnectionRegistrationCommand{}, errors.New("signed connection registration payload is invalid")
+	}
+	envelope, err := json.Marshal(brokerCommand)
+	if err != nil {
+		return runtime.SignedConnectionRegistrationCommand{}, errors.New("signed connection registration envelope is invalid")
+	}
+	return runtime.SignedConnectionRegistrationCommand{
+		EnvelopeJSON:  string(envelope),
+		PayloadJSON:   string(payload),
+		PayloadSHA256: brokerCommand.PayloadSHA256,
+		RequestSHA256: brokerCommand.RequestSHA256(),
+		IssuedAt:      issuedAt,
+		ExpiresAt:     expiresAt,
+	}, nil
+}
+
+// RequestConnectionRegistration re-parses the exact persisted registration
+// envelope before any network use. This preserves one signed counter and
+// payload across indeterminate retries.
+func (t *Transport) RequestConnectionRegistration(ctx context.Context, endpoint string, command runtime.ConnectionRegistrationCommand, signed runtime.SignedConnectionRegistrationCommand, request runtime.ConnectionRegistrationRequest) (runtime.BrokerRegistration, error) {
+	brokerCommand, err := broker.ParseRegistrationCommand([]byte(signed.EnvelopeJSON))
+	if err != nil {
+		return runtime.BrokerRegistration{}, errors.New("persisted connection registration envelope is invalid")
+	}
+	if err := registrationCommandMatches(command, signed, brokerCommand, request); err != nil {
+		return runtime.BrokerRegistration{}, err
+	}
+	client, err := broker.NewClient(broker.ClientOptions{Endpoint: strings.TrimSpace(endpoint)})
+	if err != nil {
+		return runtime.BrokerRegistration{}, errors.New("cloud broker endpoint is invalid")
+	}
+	result, err := client.SubmitRegistration(ctx, brokerCommand)
+	if err != nil {
+		return runtime.BrokerRegistration{}, classifyRegistrationBrokerError(err)
+	}
+	return runtimeRegistration(result)
+}
+
 func brokerRequest(request cloudcontracts.QuoteRequestV1, digest string) broker.QuoteRequest {
 	candidates := make([]broker.QuoteCandidate, len(request.Candidates))
 	for index, candidate := range request.Candidates {
@@ -122,6 +194,14 @@ func brokerRequest(request cloudcontracts.QuoteRequestV1, digest string) broker.
 		PlanDigest:     digest,
 		Region:         request.Region,
 		Candidates:     candidates,
+	}
+}
+
+func registrationRequest(request runtime.ConnectionRegistrationRequest) broker.RegistrationRequest {
+	return broker.RegistrationRequest{
+		BootstrapID:     request.BootstrapID,
+		RequestedRegion: request.RequestedRegion,
+		StackARN:        request.StackARN,
 	}
 }
 
@@ -144,6 +224,29 @@ func commandMatches(command runtime.QuoteCommand, signed runtime.SignedQuoteComm
 	payload, err := base64.StdEncoding.DecodeString(actual.PayloadB64)
 	if err != nil || string(payload) != signed.PayloadJSON {
 		return errors.New("persisted quote envelope payload is invalid")
+	}
+	return nil
+}
+
+func registrationCommandMatches(command runtime.ConnectionRegistrationCommand, signed runtime.SignedConnectionRegistrationCommand, actual broker.RegistrationCommand, request runtime.ConnectionRegistrationRequest) error {
+	digest, err := request.Digest()
+	if err != nil || command.RequestDigest != digest || command.BootstrapID != request.BootstrapID {
+		return errors.New("persisted connection registration envelope does not bind the request")
+	}
+	if err := actual.ValidateBinding(broker.RegistrationCommandBinding{
+		ConnectionID: command.ConnectionID, CommandID: command.CommandID, NodeKeyID: command.NodeKeyID,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter,
+		IssuedAt: signed.IssuedAt, ExpiresAt: signed.ExpiresAt, Request: registrationRequest(request),
+	}); err != nil {
+		return errors.New("persisted connection registration envelope does not bind the command")
+	}
+	if actual.PayloadSHA256 != signed.PayloadSHA256 || actual.RequestSHA256() != signed.RequestSHA256 ||
+		(command.RequestSHA256 != "" && actual.RequestSHA256() != command.RequestSHA256) {
+		return errors.New("persisted connection registration envelope does not bind the command")
+	}
+	payload, err := base64.StdEncoding.DecodeString(actual.PayloadB64)
+	if err != nil || string(payload) != signed.PayloadJSON {
+		return errors.New("persisted connection registration envelope payload is invalid")
 	}
 	return nil
 }
@@ -180,6 +283,27 @@ func runtimeQuote(result broker.QuoteResult) (runtime.BrokerQuote, error) {
 	}, nil
 }
 
+func runtimeRegistration(result broker.RegistrationResult) (runtime.BrokerRegistration, error) {
+	receipt, err := json.Marshal(result.Receipt)
+	if err != nil {
+		return runtime.BrokerRegistration{}, errors.New("broker connection registration receipt cannot be encoded")
+	}
+	return runtime.BrokerRegistration{
+		Schema:               result.Registration.Schema,
+		BootstrapID:          result.Registration.BootstrapID,
+		ConnectionID:         result.Registration.ConnectionID,
+		AccountID:            result.Registration.AccountID,
+		Region:               result.Registration.Region,
+		BrokerCommandURL:     result.Registration.BrokerCommandURL,
+		NodeKeyID:            result.Registration.NodeKeyID,
+		ConnectionGeneration: result.Registration.ConnectionGeneration,
+		StackARN:             result.Registration.StackARN,
+		CommandID:            result.Registration.CommandID,
+		RequestSHA256:        result.Registration.RequestSHA256,
+		ReceiptJSON:          string(receipt),
+	}, nil
+}
+
 func classifyBrokerError(err error) error {
 	var brokerError *broker.Error
 	if !errors.As(err, &brokerError) {
@@ -196,6 +320,27 @@ func classifyBrokerError(err error) error {
 		return runtime.QuoteRetryable("broker_timeout", err)
 	case "broker_unavailable", "broker_request_unavailable", "broker_response_unavailable":
 		return runtime.QuoteRetryable("broker_unavailable", err)
+	default:
+		return err
+	}
+}
+
+func classifyRegistrationBrokerError(err error) error {
+	var brokerError *broker.Error
+	if !errors.As(err, &brokerError) {
+		return runtime.ConnectionRegistrationRetryable("broker_unavailable", err)
+	}
+	if brokerError.Code == "expired_command" {
+		return runtime.ConnectionRegistrationCommandExpired(err)
+	}
+	if brokerError.StatusCode == 429 || brokerError.StatusCode >= 500 {
+		return runtime.ConnectionRegistrationRetryable("broker_unavailable", err)
+	}
+	switch brokerError.Code {
+	case "broker_timeout":
+		return runtime.ConnectionRegistrationRetryable("broker_timeout", err)
+	case "broker_unavailable", "broker_request_unavailable", "broker_response_unavailable":
+		return runtime.ConnectionRegistrationRetryable("broker_unavailable", err)
 	default:
 		return err
 	}

@@ -1012,6 +1012,77 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud connection stack registration v42",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// Bootstrap records remain private control-plane state until the
+				// independent Orchestrator verifies the signed Broker. In
+				// particular, candidate_broker_url and stack_arn never become a
+				// ProductCore Connection projection.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_connection_bootstraps (
+					bootstrap_id TEXT PRIMARY KEY NOT NULL,
+					owner_mxid TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL UNIQUE,
+					provider TEXT NOT NULL CHECK (provider = 'aws'),
+					requested_region TEXT NOT NULL,
+					template_url TEXT NOT NULL,
+					template_digest TEXT NOT NULL,
+					source_tree_digest TEXT NOT NULL,
+					stack_name TEXT NOT NULL,
+					node_key_id TEXT NOT NULL,
+					node_public_key_spki_base64 TEXT NOT NULL,
+					device_approval_key_id TEXT NOT NULL,
+					device_approval_public_key_spki_base64 TEXT NOT NULL,
+					candidate_broker_url TEXT NOT NULL DEFAULT '',
+					stack_arn TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL CHECK (status IN ('awaiting_stack', 'verification_queued', 'verifying', 'active', 'verification_failed', 'expired')),
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					idempotency_hash TEXT NOT NULL,
+					request_digest TEXT NOT NULL,
+					completion_idempotency_hash TEXT NOT NULL DEFAULT '',
+					completion_request_digest TEXT NOT NULL DEFAULT '',
+					job_id TEXT NOT NULL DEFAULT '',
+					next_node_counter BIGINT NOT NULL DEFAULT 0 CHECK (next_node_counter >= 0),
+					expires_at BIGINT NOT NULL,
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (owner_mxid, idempotency_hash)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_connection_bootstraps_status_expiry_idx
+					ON p2p_cloud_connection_bootstraps(status, expires_at, updated_at DESC)`,
+				// A registration command is persisted before its first network
+				// attempt. It has its own counter source because no active Broker
+				// row exists until the verification transaction succeeds.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_connection_registration_commands (
+					command_id TEXT PRIMARY KEY NOT NULL,
+					bootstrap_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK (command_attempt > 0),
+					action TEXT NOT NULL CHECK (action = 'connection.registration.verify'),
+					node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK (expected_generation > 0),
+					node_counter BIGINT NOT NULL CHECK (node_counter > 0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '',
+					request_sha256 TEXT NOT NULL DEFAULT '',
+					signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0,
+					expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK (state IN ('allocated', 'signed', 'indeterminate', 'accepted', 'expired', 'failed')),
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+					last_error_code TEXT NOT NULL DEFAULT '',
+					receipt_json TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (cloud_connection_id, node_counter),
+					UNIQUE (bootstrap_id, command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_connection_registration_commands_state_idx
+					ON p2p_cloud_connection_registration_commands(bootstrap_id, state, updated_at DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

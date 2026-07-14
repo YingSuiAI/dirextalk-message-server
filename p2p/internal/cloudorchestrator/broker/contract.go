@@ -22,10 +22,15 @@ const (
 	CommandSignatureSchema = "dirextalk.aws.command-signature/v2"
 	// QuoteSchema is the only quote schema accepted by this package.
 	QuoteSchema = "dirextalk.aws.quote/v1"
+	// RegistrationSchema is the stack-derived connection attestation schema.
+	RegistrationSchema = "dirextalk.aws.connection-registration/v1"
 	// ReceiptSchema is the durable receipt schema emitted by Connection Stack V2.
 	ReceiptSchema = "dirextalk.aws.command-receipt/v2"
-	// QuoteAction is intentionally the only supported broker action here.
+	// QuoteAction is the fixed read-only broker quote action.
 	QuoteAction = "quote.request"
+	// RegistrationAction is the fixed broker action that proves a Connection
+	// Stack belongs to the exact pending bootstrap. It is not an AWS API proxy.
+	RegistrationAction = "connection.registration.verify"
 
 	// QuoteValidity is fixed by the Connection Stack quote contract.
 	QuoteValidity = 15 * time.Minute
@@ -41,6 +46,7 @@ const (
 var (
 	idPattern               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`)
 	keyIDPattern            = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	accountIDPattern        = regexp.MustCompile(`^\d{12}$`)
 	sha256Pattern           = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	namedSHA256Pattern      = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	regionPattern           = regexp.MustCompile(`^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9]$`)
@@ -48,6 +54,7 @@ var (
 	instanceTypePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,63}$`)
 	itemPattern             = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,63}$`)
 	canonicalInstantPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
+	stackARNPattern         = regexp.MustCompile(`^arn:(?:aws|aws-cn|aws-us-gov):cloudformation:((?:af|ap|ca|cn|eu|il|me|mx|sa|us)(?:-gov)?-[a-z]+-[0-9]):(\d{12}):stack/[A-Za-z][-A-Za-z0-9]{0,127}/[A-Za-z0-9-]{8,128}$`)
 
 	quoteIncludedItems   = []string{"ec2_linux_ondemand"}
 	quoteUnincludedItems = []string{
@@ -85,8 +92,14 @@ var (
 		"purchase_option",
 		"estimated_disk_gib",
 	}
-	quoteResultFields = []string{"status", "receipt", "quote"}
-	receiptFields     = []string{
+	registrationRequestFields = []string{
+		"bootstrap_id",
+		"requested_region",
+		"stack_arn",
+	}
+	quoteResultFields        = []string{"status", "receipt", "quote"}
+	registrationResultFields = []string{"status", "receipt", "registration"}
+	receiptFields            = []string{
 		"schema",
 		"disposition",
 		"connection_id",
@@ -96,6 +109,29 @@ var (
 		"request_sha256",
 		"action",
 		"quote",
+	}
+	registrationReceiptFields = []string{
+		"schema",
+		"disposition",
+		"connection_id",
+		"expected_generation",
+		"node_counter",
+		"command_id",
+		"request_sha256",
+		"action",
+	}
+	registrationFields = []string{
+		"schema",
+		"bootstrap_id",
+		"connection_id",
+		"account_id",
+		"region",
+		"broker_command_url",
+		"node_key_id",
+		"connection_generation",
+		"stack_arn",
+		"command_id",
+		"request_sha256",
 	}
 	quoteFields = []string{
 		"schema",
@@ -170,6 +206,16 @@ type QuoteRequest struct {
 	Candidates     []QuoteCandidate `json:"candidates"`
 }
 
+// RegistrationRequest is the exact, non-secret payload carried by a
+// connection.registration.verify command. It binds one pending bootstrap to
+// the Region and CloudFormation stack the user created; it cannot express an
+// arbitrary AWS operation.
+type RegistrationRequest struct {
+	BootstrapID     string `json:"bootstrap_id"`
+	RequestedRegion string `json:"requested_region"`
+	StackARN        string `json:"stack_arn"`
+}
+
 // QuoteCommandInput contains only the data required to create a signed
 // read-only quote command. PrivateKey must be the orchestrator-mounted node
 // key; it is neither retained by QuoteCommand nor sent on the network.
@@ -185,9 +231,43 @@ type QuoteCommandInput struct {
 	PrivateKey         ed25519.PrivateKey
 }
 
+// RegistrationCommandInput contains only the data required to create a signed
+// Connection Stack registration verification command. PrivateKey must be the
+// orchestrator-mounted node key; it is neither retained nor sent on the
+// network.
+type RegistrationCommandInput struct {
+	ConnectionID       string
+	CommandID          string
+	NodeKeyID          string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	IssuedAt           time.Time
+	ExpiresAt          time.Time
+	Request            RegistrationRequest
+	PrivateKey         ed25519.PrivateKey
+}
+
 // QuoteCommand is the exact JSON envelope accepted by Connection Stack V2.
 // There are deliberately no generic action, approval, or credential fields.
 type QuoteCommand struct {
+	Schema             string `json:"schema"`
+	ConnectionID       string `json:"connection_id"`
+	CommandID          string `json:"command_id"`
+	NodeKeyID          string `json:"node_key_id"`
+	IssuedAt           string `json:"issued_at"`
+	ExpiresAt          string `json:"expires_at"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	NodeCounter        int64  `json:"node_counter"`
+	Action             string `json:"action"`
+	PayloadB64         string `json:"payload_b64"`
+	PayloadSHA256      string `json:"payload_sha256"`
+	SignatureB64       string `json:"signature_b64"`
+}
+
+// RegistrationCommand is the exact JSON envelope accepted by Connection Stack
+// V2 for connection.registration.verify. Its action is fixed by Validate and
+// no generic action, approval, or credential field exists on this type.
+type RegistrationCommand struct {
 	Schema             string `json:"schema"`
 	ConnectionID       string `json:"connection_id"`
 	CommandID          string `json:"command_id"`
@@ -217,6 +297,19 @@ type QuoteCommandBinding struct {
 	Request            QuoteRequest
 }
 
+// RegistrationCommandBinding is the immutable identity a persisted
+// registration verification command must preserve during retries.
+type RegistrationCommandBinding struct {
+	ConnectionID       string
+	CommandID          string
+	NodeKeyID          string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	IssuedAt           time.Time
+	ExpiresAt          time.Time
+	Request            RegistrationRequest
+}
+
 // Receipt is the durable broker response proof. Quote is required only for
 // quote.request and is intentionally the sole result extension accepted here.
 type Receipt struct {
@@ -229,6 +322,36 @@ type Receipt struct {
 	RequestSHA256      string `json:"request_sha256"`
 	Action             string `json:"action"`
 	Quote              *Quote `json:"quote"`
+}
+
+// RegistrationReceipt is the action-neutral durable receipt returned for a
+// registration verification command. Unlike quote receipts it has no result
+// extension; the stack attestation is carried only in RegistrationResult.
+type RegistrationReceipt struct {
+	Schema             string `json:"schema"`
+	Disposition        string `json:"disposition"`
+	ConnectionID       string `json:"connection_id"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	NodeCounter        int64  `json:"node_counter"`
+	CommandID          string `json:"command_id"`
+	RequestSHA256      string `json:"request_sha256"`
+	Action             string `json:"action"`
+}
+
+// Registration is the strict stack-derived connection attestation returned by
+// the Broker after it validates a signed registration request.
+type Registration struct {
+	Schema               string `json:"schema"`
+	BootstrapID          string `json:"bootstrap_id"`
+	ConnectionID         string `json:"connection_id"`
+	AccountID            string `json:"account_id"`
+	Region               string `json:"region"`
+	BrokerCommandURL     string `json:"broker_command_url"`
+	NodeKeyID            string `json:"node_key_id"`
+	ConnectionGeneration int64  `json:"connection_generation"`
+	StackARN             string `json:"stack_arn"`
+	CommandID            string `json:"command_id"`
+	RequestSHA256        string `json:"request_sha256"`
 }
 
 // QuotedCandidate is a quote candidate bound to the original signed request.
@@ -271,6 +394,14 @@ type QuoteResult struct {
 	Quote   Quote   `json:"quote"`
 }
 
+// RegistrationResult is the only successful HTTP response accepted for a
+// connection.registration.verify command.
+type RegistrationResult struct {
+	Status       string              `json:"status"`
+	Receipt      RegistrationReceipt `json:"receipt"`
+	Registration Registration        `json:"registration"`
+}
+
 // NewQuoteCommand returns a canonical Connection Stack V2 quote.request
 // envelope. It does not call the network and never persists the private key.
 func NewQuoteCommand(input QuoteCommandInput) (QuoteCommand, error) {
@@ -309,12 +440,58 @@ func NewQuoteCommand(input QuoteCommandInput) (QuoteCommand, error) {
 	return command, nil
 }
 
+// NewRegistrationCommand returns a canonical Connection Stack V2
+// connection.registration.verify envelope. It never calls the network and
+// never persists the private node key.
+func NewRegistrationCommand(input RegistrationCommandInput) (RegistrationCommand, error) {
+	if len(input.PrivateKey) != ed25519.PrivateKeySize {
+		return RegistrationCommand{}, newError("invalid_node_private_key", nil)
+	}
+	if err := validateRegistrationRequest(input.Request); err != nil {
+		return RegistrationCommand{}, err
+	}
+	issuedAt := canonicalInstant(input.IssuedAt)
+	expiresAt := canonicalInstant(input.ExpiresAt)
+	payload, err := json.Marshal(input.Request)
+	if err != nil {
+		return RegistrationCommand{}, newError("invalid_registration_request", err)
+	}
+	command := RegistrationCommand{
+		Schema:             CommandSchema,
+		ConnectionID:       input.ConnectionID,
+		CommandID:          input.CommandID,
+		NodeKeyID:          input.NodeKeyID,
+		IssuedAt:           issuedAt,
+		ExpiresAt:          expiresAt,
+		ExpectedGeneration: input.ExpectedGeneration,
+		NodeCounter:        input.NodeCounter,
+		Action:             RegistrationAction,
+		PayloadB64:         base64.StdEncoding.EncodeToString(payload),
+		PayloadSHA256:      sha256Hex(payload),
+	}
+	if err := validateRegistrationCommand(command, false); err != nil {
+		return RegistrationCommand{}, err
+	}
+	command.SignatureB64 = base64.StdEncoding.EncodeToString(ed25519.Sign(input.PrivateKey, []byte(command.SignatureBase())))
+	if err := command.Validate(); err != nil {
+		return RegistrationCommand{}, err
+	}
+	return command, nil
+}
+
 // Validate validates a persisted/replayed envelope without requiring a private
 // key. Expired envelopes are valid here because the Connection Stack may return
 // their durable idempotent receipt; it alone decides whether a new receipt can
 // be issued.
 func (command QuoteCommand) Validate() error {
 	return validateQuoteCommand(command, true)
+}
+
+// Validate validates a persisted/replayed registration verification envelope
+// without requiring a private key. Expired envelopes remain valid here because
+// the Connection Stack can return its durable idempotent receipt.
+func (command RegistrationCommand) Validate() error {
+	return validateRegistrationCommand(command, true)
 }
 
 // ValidateBinding confirms a strict, persisted command still represents one
@@ -345,10 +522,51 @@ func (command QuoteCommand) ValidateBinding(binding QuoteCommandBinding) error {
 	return nil
 }
 
+// ValidateBinding confirms a strict, persisted registration command still
+// represents the one pending bootstrap it was authorized to verify.
+func (command RegistrationCommand) ValidateBinding(binding RegistrationCommandBinding) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	if binding.IssuedAt.IsZero() || binding.ExpiresAt.IsZero() || !binding.ExpiresAt.After(binding.IssuedAt) ||
+		command.ConnectionID != binding.ConnectionID || command.CommandID != binding.CommandID || command.NodeKeyID != binding.NodeKeyID ||
+		command.ExpectedGeneration != binding.ExpectedGeneration || command.NodeCounter != binding.NodeCounter ||
+		command.IssuedAt != canonicalInstant(binding.IssuedAt) || command.ExpiresAt != canonicalInstant(binding.ExpiresAt) {
+		return newError("invalid_command", nil)
+	}
+	if err := validateRegistrationRequest(binding.Request); err != nil {
+		return err
+	}
+	request, err := command.RegistrationRequest()
+	if err != nil {
+		return err
+	}
+	if request != binding.Request {
+		return newError("invalid_registration_request", nil)
+	}
+	return nil
+}
+
 // VerifySignature verifies the command against an explicit node public key.
 // The HTTP client does not need this for replay, but callers can use it when
 // loading an envelope from an untrusted boundary.
 func (command QuoteCommand) VerifySignature(publicKey ed25519.PublicKey) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	if len(publicKey) != ed25519.PublicKeySize {
+		return newError("invalid_node_public_key", nil)
+	}
+	signature, _ := base64.StdEncoding.DecodeString(command.SignatureB64)
+	if !ed25519.Verify(publicKey, []byte(command.SignatureBase()), signature) {
+		return newError("invalid_node_signature", nil)
+	}
+	return nil
+}
+
+// VerifySignature verifies a registration command against the registered node
+// public key. The HTTP client does not need it for a durable replay.
+func (command RegistrationCommand) VerifySignature(publicKey ed25519.PublicKey) error {
 	if err := command.Validate(); err != nil {
 		return err
 	}
@@ -395,9 +613,48 @@ func (command QuoteCommand) SignatureBase() string {
 	)
 }
 
+// SignatureBase exactly mirrors buildNodeSignatureBase in the Connection Stack
+// V2 JavaScript contract. Registration verification carries no approval
+// material, so all three approval lines remain empty.
+func (command RegistrationCommand) SignatureBase() string {
+	return fmt.Sprintf(
+		"%s\n"+
+			"schema=%s\n"+
+			"connection_id=%s\n"+
+			"command_id=%s\n"+
+			"node_key_id=%s\n"+
+			"issued_at=%s\n"+
+			"expires_at=%s\n"+
+			"expected_generation=%d\n"+
+			"node_counter=%d\n"+
+			"action=%s\n"+
+			"payload_sha256=%s\n"+
+			"approval_binding_sha256=\n"+
+			"approval_challenge_id=\n"+
+			"approval_signature_sha256=\n",
+		CommandSignatureSchema,
+		command.Schema,
+		command.ConnectionID,
+		command.CommandID,
+		command.NodeKeyID,
+		command.IssuedAt,
+		command.ExpiresAt,
+		command.ExpectedGeneration,
+		command.NodeCounter,
+		command.Action,
+		command.PayloadSHA256,
+	)
+}
+
 // RequestSHA256 is the durable request identity calculated by the Connection
 // Stack from the signature base, not from the HTTP body.
 func (command QuoteCommand) RequestSHA256() string {
+	return sha256Hex([]byte(command.SignatureBase()))
+}
+
+// RequestSHA256 is the durable identity used by the Connection Stack for a
+// registration verification command.
+func (command RegistrationCommand) RequestSHA256() string {
 	return sha256Hex([]byte(command.SignatureBase()))
 }
 
@@ -417,6 +674,23 @@ func (command QuoteCommand) QuoteRequest() (QuoteRequest, error) {
 	return request, nil
 }
 
+// RegistrationRequest returns the strictly decoded, exact registration
+// verification payload bound into this command.
+func (command RegistrationCommand) RegistrationRequest() (RegistrationRequest, error) {
+	if err := command.Validate(); err != nil {
+		return RegistrationRequest{}, err
+	}
+	payload, _ := base64.StdEncoding.DecodeString(command.PayloadB64)
+	request, err := decodeRegistrationRequestJSON(payload)
+	if err != nil {
+		return RegistrationRequest{}, newError("invalid_payload", err)
+	}
+	if err := validateRegistrationRequest(request); err != nil {
+		return RegistrationRequest{}, err
+	}
+	return request, nil
+}
+
 // ParseQuoteCommand strictly parses an exact persisted V2 quote envelope. It
 // rejects unknown, duplicate, differently cased, and action-incompatible
 // fields before callers replay the durable command bytes.
@@ -430,6 +704,23 @@ func ParseQuoteCommand(raw []byte) (QuoteCommand, error) {
 	}
 	if err := command.Validate(); err != nil {
 		return QuoteCommand{}, err
+	}
+	return command, nil
+}
+
+// ParseRegistrationCommand strictly parses an exact persisted V2
+// connection.registration.verify envelope. It rejects unknown, duplicate,
+// differently cased, and action-incompatible fields before a durable replay.
+func ParseRegistrationCommand(raw []byte) (RegistrationCommand, error) {
+	if _, err := exactJSONObject(raw, commandFields); err != nil {
+		return RegistrationCommand{}, newError("invalid_command", err)
+	}
+	var command RegistrationCommand
+	if err := decodeStrictJSON(raw, &command); err != nil {
+		return RegistrationCommand{}, newError("invalid_command", err)
+	}
+	if err := command.Validate(); err != nil {
+		return RegistrationCommand{}, err
 	}
 	return command, nil
 }
@@ -461,6 +752,35 @@ func ValidateQuoteResult(command QuoteCommand, result QuoteResult) error {
 	}
 	if !quotesEqual(result.Quote, *result.Receipt.Quote) {
 		return newError("quote_receipt_mismatch", nil)
+	}
+	return nil
+}
+
+// ValidateRegistrationResult validates the complete public registration
+// response before a stack-derived broker endpoint can be persisted. Every
+// attested field is bound to the exact signed command and its payload.
+func ValidateRegistrationResult(command RegistrationCommand, result RegistrationResult) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	if result.Status != "connection_registered" && result.Status != "idempotent" {
+		return newError("invalid_broker_status", nil)
+	}
+	if err := validateRegistrationReceipt(command, result.Receipt); err != nil {
+		return err
+	}
+	if result.Status == "connection_registered" && result.Receipt.Disposition != "committed" {
+		return newError("invalid_registration_receipt", nil)
+	}
+	if result.Status == "idempotent" && result.Receipt.Disposition != "idempotent" {
+		return newError("invalid_registration_receipt", nil)
+	}
+	request, err := command.RegistrationRequest()
+	if err != nil {
+		return err
+	}
+	if err := validateRegistration(command, request, result.Registration); err != nil {
+		return err
 	}
 	return nil
 }
@@ -507,6 +827,48 @@ func validateQuoteCommand(command QuoteCommand, requireSignature bool) error {
 	return nil
 }
 
+func validateRegistrationCommand(command RegistrationCommand, requireSignature bool) error {
+	if command.Schema != CommandSchema || !idPattern.MatchString(command.ConnectionID) || !idPattern.MatchString(command.CommandID) || !keyIDPattern.MatchString(command.NodeKeyID) || command.Action != RegistrationAction {
+		return newError("invalid_command", nil)
+	}
+	if !safePositive(command.ExpectedGeneration) || !safeNonnegative(command.NodeCounter) {
+		return newError("invalid_command", nil)
+	}
+	issuedAt, err := parseCanonicalInstant(command.IssuedAt)
+	if err != nil {
+		return newError("invalid_command", err)
+	}
+	expiresAt, err := parseCanonicalInstant(command.ExpiresAt)
+	if err != nil || !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > maxCommandLifetime {
+		return newError("invalid_command", err)
+	}
+	if !sha256Pattern.MatchString(command.PayloadSHA256) {
+		return newError("invalid_command", nil)
+	}
+	payload, err := decodeCanonicalBase64(command.PayloadB64)
+	if err != nil || len(payload) > maxPayloadBytes || sha256Hex(payload) != command.PayloadSHA256 {
+		return newError("invalid_payload", err)
+	}
+	request, err := decodeRegistrationRequestJSON(payload)
+	if err != nil {
+		return newError("invalid_payload", err)
+	}
+	if err := validateRegistrationRequest(request); err != nil {
+		return err
+	}
+	canonicalPayload, err := json.Marshal(request)
+	if err != nil || !bytes.Equal(payload, canonicalPayload) {
+		return newError("noncanonical_payload", err)
+	}
+	if requireSignature {
+		signature, err := decodeCanonicalBase64(command.SignatureB64)
+		if err != nil || len(signature) != ed25519.SignatureSize {
+			return newError("invalid_command", err)
+		}
+	}
+	return nil
+}
+
 func validateQuoteRequest(request QuoteRequest) error {
 	if !idPattern.MatchString(request.QuoteRequestID) || !namedSHA256Pattern.MatchString(request.PlanDigest) || !regionPattern.MatchString(request.Region) {
 		return newError("invalid_quote_request", nil)
@@ -532,6 +894,17 @@ func validateQuoteRequest(request QuoteRequest) error {
 	return nil
 }
 
+func validateRegistrationRequest(request RegistrationRequest) error {
+	if !idPattern.MatchString(request.BootstrapID) || !regionPattern.MatchString(request.RequestedRegion) {
+		return newError("invalid_registration_request", nil)
+	}
+	region, _, ok := parseStackARN(request.StackARN)
+	if !ok || region != request.RequestedRegion {
+		return newError("invalid_registration_request", nil)
+	}
+	return nil
+}
+
 func sameQuoteRequest(left, right QuoteRequest) bool {
 	if left.QuoteRequestID != right.QuoteRequestID || left.PlanDigest != right.PlanDigest || left.Region != right.Region || len(left.Candidates) != len(right.Candidates) {
 		return false
@@ -551,6 +924,28 @@ func validateReceipt(command QuoteCommand, receipt Receipt) error {
 	}
 	if receipt.Quote == nil {
 		return newError("missing_quote_receipt", nil)
+	}
+	return nil
+}
+
+func validateRegistrationReceipt(command RegistrationCommand, receipt RegistrationReceipt) error {
+	if receipt.Schema != ReceiptSchema || (receipt.Disposition != "committed" && receipt.Disposition != "idempotent") || receipt.ConnectionID != command.ConnectionID || receipt.ExpectedGeneration != command.ExpectedGeneration || receipt.NodeCounter != command.NodeCounter || receipt.CommandID != command.CommandID || receipt.RequestSHA256 != command.RequestSHA256() || receipt.Action != RegistrationAction {
+		return newError("invalid_registration_receipt", nil)
+	}
+	return nil
+}
+
+func validateRegistration(command RegistrationCommand, request RegistrationRequest, registration Registration) error {
+	if registration.Schema != RegistrationSchema || !idPattern.MatchString(registration.BootstrapID) || !idPattern.MatchString(registration.ConnectionID) || !accountIDPattern.MatchString(registration.AccountID) || !regionPattern.MatchString(registration.Region) || !keyIDPattern.MatchString(registration.NodeKeyID) || !safePositive(registration.ConnectionGeneration) || !idPattern.MatchString(registration.CommandID) || !sha256Pattern.MatchString(registration.RequestSHA256) {
+		return newError("invalid_registration", nil)
+	}
+	endpoint, err := parseBrokerEndpoint(registration.BrokerCommandURL)
+	if err != nil || endpoint.String() != registration.BrokerCommandURL {
+		return newError("invalid_registration", err)
+	}
+	stackRegion, stackAccountID, stackARNValid := parseStackARN(registration.StackARN)
+	if !stackARNValid || stackRegion != registration.Region || stackAccountID != registration.AccountID || registration.BootstrapID != request.BootstrapID || registration.ConnectionID != command.ConnectionID || registration.Region != request.RequestedRegion || registration.NodeKeyID != command.NodeKeyID || registration.ConnectionGeneration != command.ExpectedGeneration || registration.StackARN != request.StackARN || registration.CommandID != command.CommandID || registration.RequestSHA256 != command.RequestSHA256() {
+		return newError("invalid_registration", nil)
 	}
 	return nil
 }
@@ -602,6 +997,14 @@ func parseCanonicalInstant(value string) (time.Time, error) {
 	return parsed, nil
 }
 
+func parseStackARN(value string) (region, accountID string, ok bool) {
+	matches := stackARNPattern.FindStringSubmatch(value)
+	if len(matches) != 3 {
+		return "", "", false
+	}
+	return matches[1], matches[2], true
+}
+
 func decodeCanonicalBase64(value string) ([]byte, error) {
 	if value == "" || len(value)%4 != 0 {
 		return nil, errors.New("invalid canonical base64")
@@ -642,6 +1045,17 @@ func decodeQuoteRequestJSON(raw []byte) (QuoteRequest, error) {
 	return request, nil
 }
 
+func decodeRegistrationRequestJSON(raw []byte) (RegistrationRequest, error) {
+	if err := validateRegistrationRequestJSONShape(raw); err != nil {
+		return RegistrationRequest{}, err
+	}
+	var request RegistrationRequest
+	if err := decodeStrictJSON(raw, &request); err != nil {
+		return RegistrationRequest{}, err
+	}
+	return request, nil
+}
+
 func decodeQuoteResultJSON(raw []byte) (QuoteResult, error) {
 	if err := validateQuoteResultJSONShape(raw); err != nil {
 		return QuoteResult{}, err
@@ -649,6 +1063,17 @@ func decodeQuoteResultJSON(raw []byte) (QuoteResult, error) {
 	var result QuoteResult
 	if err := decodeStrictJSON(raw, &result); err != nil {
 		return QuoteResult{}, err
+	}
+	return result, nil
+}
+
+func decodeRegistrationResultJSON(raw []byte) (RegistrationResult, error) {
+	if err := validateRegistrationResultJSONShape(raw); err != nil {
+		return RegistrationResult{}, err
+	}
+	var result RegistrationResult
+	if err := decodeStrictJSON(raw, &result); err != nil {
+		return RegistrationResult{}, err
 	}
 	return result, nil
 }
@@ -670,6 +1095,11 @@ func validateQuoteRequestJSONShape(raw []byte) error {
 	return nil
 }
 
+func validateRegistrationRequestJSONShape(raw []byte) error {
+	_, err := exactJSONObject(raw, registrationRequestFields)
+	return err
+}
+
 func validateQuoteResultJSONShape(raw []byte) error {
 	object, err := exactJSONObject(raw, quoteResultFields)
 	if err != nil {
@@ -683,6 +1113,18 @@ func validateQuoteResultJSONShape(raw []byte) error {
 		return err
 	}
 	return validateQuoteJSONShape(object["quote"])
+}
+
+func validateRegistrationResultJSONShape(raw []byte) error {
+	object, err := exactJSONObject(raw, registrationResultFields)
+	if err != nil {
+		return err
+	}
+	if _, err := exactJSONObject(object["receipt"], registrationReceiptFields); err != nil {
+		return err
+	}
+	_, err = exactJSONObject(object["registration"], registrationFields)
+	return err
 }
 
 func validateQuoteJSONShape(raw []byte) error {

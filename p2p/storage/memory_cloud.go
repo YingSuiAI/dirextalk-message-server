@@ -31,6 +31,76 @@ func (s *MemoryStore) CreateCloudGoal(_ context.Context, request cloudmodule.Cre
 	return cloudmodule.CreateGoalResult{Goal: request.Goal, Plan: request.Plan, Created: true}, nil
 }
 
+func (s *MemoryStore) CreateCloudConnectionBootstrap(_ context.Context, request cloudmodule.CreateConnectionBootstrapRequest) (cloudmodule.CreateConnectionBootstrapResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bootstrap := request.Bootstrap
+	idempotencyKey := bootstrap.OwnerMXID + "\x00" + bootstrap.IdempotencyHash
+	if bootstrapID, ok := s.cloudConnectionBootstrapIdem[idempotencyKey]; ok {
+		existing := s.cloudConnectionBootstraps[bootstrapID]
+		if existing.RequestDigest != bootstrap.RequestDigest {
+			return cloudmodule.CreateConnectionBootstrapResult{}, cloudmodule.ErrIdempotencyConflict
+		}
+		return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: existing}, nil
+	}
+	if _, exists := s.cloudConnectionBootstraps[bootstrap.BootstrapID]; exists {
+		return cloudmodule.CreateConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+	s.cloudConnectionBootstrapIdem[idempotencyKey] = bootstrap.BootstrapID
+	return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
+func (s *MemoryStore) CompleteCloudConnectionBootstrap(_ context.Context, request cloudmodule.CompleteConnectionBootstrapRequest) (cloudmodule.CompleteConnectionBootstrapResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bootstrap, found := s.cloudConnectionBootstraps[request.BootstrapID]
+	if !found || bootstrap.OwnerMXID != request.OwnerMXID {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if bootstrap.CompletionIdempotencyHash != "" {
+		if bootstrap.CompletionIdempotencyHash != request.IdempotencyHash || bootstrap.CompletionRequestDigest != request.RequestDigest {
+			return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrIdempotencyConflict
+		}
+		return cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap}, nil
+	}
+	if bootstrap.Revision != request.ExpectedRevision {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	if request.Job.CreatedAt >= bootstrap.ExpiresAt {
+		bootstrap.Status = cloudmodule.ConnectionBootstrapExpired
+		bootstrap.Revision++
+		bootstrap.UpdatedAt = request.Job.CreatedAt
+		s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapExpired
+	}
+	if bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if err := cloudmodule.ValidateConnectionRegistrationEndpoint(request.BrokerCommandURL, bootstrap.RequestedRegion); err != nil {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInputInvalid
+	}
+	if err := cloudmodule.ValidateConnectionRegistrationStackARN(request.StackARN, bootstrap.RequestedRegion); err != nil {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInputInvalid
+	}
+	if request.Job.JobID == "" || request.Job.Kind != "connection_registration" || request.Job.PlanID != "" || request.Job.Execution != "queued" || request.Job.Outcome != "pending" || request.Job.Checkpoint != "connection_verification_queued" || request.Job.Revision != 1 || request.Event.Type != "cloud.job.changed" || request.Outbox.Kind != cloudmodule.OutboxKindConnectionRegistrationRequested {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	bootstrap.CandidateBrokerURL = request.BrokerCommandURL
+	bootstrap.StackARN = request.StackARN
+	bootstrap.Status = cloudmodule.ConnectionBootstrapVerificationQueued
+	bootstrap.Revision++
+	bootstrap.CompletionIdempotencyHash = request.IdempotencyHash
+	bootstrap.CompletionRequestDigest = request.RequestDigest
+	bootstrap.JobID = request.Job.JobID
+	bootstrap.UpdatedAt = request.Job.CreatedAt
+	s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+	s.cloudJobs[request.Job.JobID] = request.Job
+	s.cloudEvents = append(s.cloudEvents, request.Event)
+	s.cloudOutbox[request.Outbox.OutboxID] = request.Outbox
+	return cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
 func (s *MemoryStore) ListCloudGoals(_ context.Context) ([]cloudmodule.Goal, error) {
 	s.mu.RLock()
 	items := make([]cloudmodule.Goal, 0, len(s.cloudGoals))

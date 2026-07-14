@@ -2,6 +2,38 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 User-Owned Connection Stack Registration
+
+`cloud.connections.role_plan` is now an owner HTTP-only action. It accepts an
+AWS Region, a Flutter device approval Ed25519 public key/key ID, and a UUID
+idempotency key, then returns a short-lived safe CloudFormation Role Plan. The
+plan exposes only its bootstrap/Connection IDs, template URL/digest, complete
+source-tree digest, deterministic stack name, requested Region, expiration, and public node/device
+key parameters. It neither accepts AWS credentials nor creates an active Cloud
+Connection.
+
+After the owner deploys the Stack in their AWS account,
+`cloud.connections.registration.complete` is the second owner HTTP-only action.
+It accepts the bootstrap ID, expected revision, UUID idempotency key, the exact
+regional Broker API Gateway command URL, and the same-Region CloudFormation
+Stack ARN. These two output values remain private control-plane material: the
+response and all ProductCore/MCP/realtime/audit projections return only a safe
+registration status/revision and Job ID. The action creates a standalone
+`connection_registration` Job but does not activate a Connection.
+
+The independent `cloud-orchestrator` persists and signs exactly one fixed
+`connection.registration.verify` command before its first HTTPS request. It
+replays that envelope after ambiguous failure and allocates a new counter only
+after an exact Broker `expired_command` result. Broker proof must bind the
+bootstrap, Connection ID, account, Region, Stack ARN, API endpoint, node
+key/generation, command ID, and request digest. Only a fenced successful proof
+atomically creates the public active Connection and safe
+`cloud.connection.changed` projection; invalid or mismatched proof fails closed.
+
+This remains an onboarding/attestation boundary only. It does not upload AWS
+keys, create EC2/EBS/network resources, open ingress, approve spend, install a
+Worker, or expose an AWS mutation action to Agent, MCP, or the Message Server.
+
 ## 2026-07-14 Cloud Research Draft And Signed Read-Only Quote
 
 The private researcher result is now deliberately narrower: it returns only an
