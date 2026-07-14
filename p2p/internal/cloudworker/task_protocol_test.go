@@ -113,6 +113,13 @@ func TestWorkerTaskProtocolRejectsArbitraryExecutionMaterial(t *testing.T) {
 			}
 		})
 	}
+
+	// Recipe execution has its own isolated task schema. The non-root
+	// cloud-worker must continue to reject it even after the sealed Recipe
+	// executor contract exists in a sibling package.
+	if _, err := ParseWorkerTask([]byte(`{"schema":"dirextalk.recipe-execution-task/v1","task_id":"recipe-task-1","execution_id":"execution-worker-1","deployment_id":"deployment-v2-001","task_kind":"recipe_execution","recipe_execution_manifest_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","input_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","checkpoint_sequence":["artifact_verified"],"last_checkpoint":"","attempt":1,"last_sequence":0}`), manifest); err == nil {
+		t.Fatal("ParseWorkerTask() accepted a sealed recipe executor task")
+	}
 }
 
 func TestTaskClaimResponseRequiresCurrentLeaseAndTaskShape(t *testing.T) {

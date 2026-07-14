@@ -13,14 +13,15 @@ import (
 )
 
 var (
-	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	digestPattern     = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	currencyPattern   = regexp.MustCompile(`^[A-Z]{3}$`)
-	awsRegionPattern  = regexp.MustCompile(`^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9]$`)
-	secretRefPattern  = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
-	volumeRefPattern  = regexp.MustCompile(`^volume_ref:[A-Za-z0-9._/-]{1,120}$`)
-	dataRefPattern    = regexp.MustCompile(`^data_ref:[A-Za-z0-9._/-]{1,120}$`)
-	secretPatterns    = []*regexp.Regexp{
+	identifierPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	digestPattern         = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	currencyPattern       = regexp.MustCompile(`^[A-Z]{3}$`)
+	awsRegionPattern      = regexp.MustCompile(`^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9]$`)
+	secretRefPattern      = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
+	volumeRefPattern      = regexp.MustCompile(`^volume_ref:[A-Za-z0-9._/-]{1,120}$`)
+	dataRefPattern        = regexp.MustCompile(`^data_ref:[A-Za-z0-9._/-]{1,120}$`)
+	checkpointCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,95}$`)
+	secretPatterns        = []*regexp.Regexp{
 		regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`),
 		regexp.MustCompile(`(?i)aws_secret_access_key\s*[:=]`),
 		regexp.MustCompile(`-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----`),
@@ -518,7 +519,10 @@ func validateCheckpointSequence(values []string) error {
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		if err := validateIdentifier("checkpoint", value); err != nil {
+		if !checkpointCodePattern.MatchString(value) {
+			return errors.New("checkpoint must be a safe lowercase code")
+		}
+		if err := rejectSecretMaterial("checkpoint", value); err != nil {
 			return err
 		}
 		if _, found := seen[value]; found {

@@ -141,8 +141,26 @@ type Result struct {
 
 // Execute validates the sealed scope, resolves the exact compiled artifact,
 // resumes at its durable checkpoint, and requires the driver to record the
-// terminal checkpoint before reporting success.
+// terminal checkpoint before reporting success. It is the local coordinator
+// primitive used by tests and trusted fixed-AMI integration code; a delivered
+// Recipe task must use ExecuteTask so the transport binding is checked first.
 func (executor Executor) Execute(ctx context.Context, manifest cloudorchestrator.RecipeExecutionManifestV1) (Result, error) {
+	return executor.execute(ctx, manifest, nil)
+}
+
+// ExecuteTask is the execution entry point for a delivered Recipe task. It
+// rejects a task whose manifest or durable resume checkpoint differs from the
+// trusted local state before it can call an ActionDriver. It still does not
+// perform artifact delivery, secret retrieval, process execution, or cloud
+// control; those remain dependencies of a later isolated executor.
+func (executor Executor) ExecuteTask(ctx context.Context, task TaskV1, manifest cloudorchestrator.RecipeExecutionManifestV1) (Result, error) {
+	if err := task.ValidateForManifest(manifest); err != nil {
+		return Result{}, err
+	}
+	return executor.execute(ctx, manifest, &task)
+}
+
+func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator.RecipeExecutionManifestV1, task *TaskV1) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -179,6 +197,9 @@ func (executor Executor) Execute(ctx context.Context, manifest cloudorchestrator
 	}
 	if err := validateCheckpointState(state, binding, manifest.CheckpointSequence); err != nil {
 		return Result{}, err
+	}
+	if task != nil && state.Checkpoint != task.LastCheckpoint {
+		return Result{}, ErrTaskCheckpointBinding
 	}
 	resumed := state.Index >= 0
 	result := resultForState(binding, state, resumed)

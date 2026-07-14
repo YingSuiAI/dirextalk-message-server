@@ -34,7 +34,7 @@ func TestRecipeExecutionManifestBindsSealedExecutionScope(t *testing.T) {
 		{name: "root boundary", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) { value.RootRequired = !value.RootRequired }},
 		{name: "timeout", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) { value.TimeoutSeconds++ }},
 		{name: "checkpoint sequence", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
-			value.CheckpointSequence = []string{"artifact-verified", "install-complete", "service-ready"}
+			value.CheckpointSequence = []string{"artifact_verified", "install_complete", "service_ready"}
 		}},
 		{name: "volume slots", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
 			value.VolumeSlots[0].VolumeRef = "volume_ref:data-b"
@@ -94,7 +94,10 @@ func TestRecipeExecutionManifestRejectsUnsafeMaterialAndUnboundPlan(t *testing.T
 		{name: "oversized timeout", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) { value.TimeoutSeconds = 24*60*60 + 1 }},
 		{name: "empty checkpoints", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) { value.CheckpointSequence = nil }},
 		{name: "duplicate checkpoints", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
-			value.CheckpointSequence = []string{"artifact-verified", "artifact-verified"}
+			value.CheckpointSequence = []string{"artifact_verified", "artifact_verified"}
+		}},
+		{name: "unsafe checkpoint code", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
+			value.CheckpointSequence = []string{"artifact-verified", "install_complete"}
 		}},
 		{name: "URL-shaped volume reference", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
 			value.VolumeSlots[0].VolumeRef = "https://worker.invalid/volume"
@@ -174,7 +177,7 @@ func TestRecipeExecutionManifestCanonicalizesUnorderedSlotsButNotCheckpointOrder
 	}
 
 	reorderedCheckpoints := manifest
-	reorderedCheckpoints.CheckpointSequence = []string{"install-complete", "artifact-verified", "health-verified"}
+	reorderedCheckpoints.CheckpointSequence = []string{"install_complete", "artifact_verified", "health_verified"}
 	digest, err = reorderedCheckpoints.Digest()
 	if err != nil {
 		t.Fatalf("reordered checkpoint Digest() error = %v", err)
@@ -204,7 +207,7 @@ func validRecipeExecutionManifest(t *testing.T) cloudorchestrator.RecipeExecutio
 		ActionID:                     "install-service",
 		RootRequired:                 true,
 		TimeoutSeconds:               1800,
-		CheckpointSequence:           []string{"artifact-verified", "install-complete", "health-verified"},
+		CheckpointSequence:           []string{"artifact_verified", "install_complete", "health_verified"},
 		VolumeSlots: []cloudorchestrator.VolumeSlotV1{
 			{SlotID: "data", VolumeRef: "volume_ref:data-a", ReadOnly: false},
 			{SlotID: "models", VolumeRef: "volume_ref:models-a", ReadOnly: true},

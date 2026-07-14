@@ -19,20 +19,20 @@ func TestExecutorResumesMonotonicallyAndNeverReplaysCompletedAction(t *testing.T
 	binding := recipeexec.Binding{ExecutionID: manifest.ExecutionID, ManifestDigest: manifestDigest}
 	store := &memoryStore{state: recipeexec.CheckpointState{
 		Binding:    binding,
-		Checkpoint: "install-complete",
+		Checkpoint: "install_complete",
 		Index:      1,
 	}}
 	driver := &fakeDriver{run: func(_ context.Context, request recipeexec.ActionRequest, checkpoints recipeexec.CheckpointReporter) error {
 		if request.Binding != binding {
 			t.Fatalf("request binding = %#v, want %#v", request.Binding, binding)
 		}
-		if request.ResumeAfter != "install-complete" {
-			t.Fatalf("ResumeAfter = %q, want install-complete", request.ResumeAfter)
+		if request.ResumeAfter != "install_complete" {
+			t.Fatalf("ResumeAfter = %q, want install_complete", request.ResumeAfter)
 		}
 		if request.Artifact.ArtifactDigest != manifest.ArtifactDigest || request.ActionID != manifest.ActionID {
 			t.Fatalf("driver received an unbound action request: %#v", request)
 		}
-		return checkpoints.Checkpoint(context.Background(), "health-verified")
+		return checkpoints.Checkpoint(context.Background(), "health_verified")
 	}}
 	executor := recipeexec.Executor{
 		Resolver: fakeResolver{bundle: recipeexec.Bundle{ArtifactDigest: manifest.ArtifactDigest, ActionIDs: []string{manifest.ActionID}}},
@@ -44,7 +44,7 @@ func TestExecutorResumesMonotonicallyAndNeverReplaysCompletedAction(t *testing.T
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !result.Completed || result.LastCheckpoint != "health-verified" || !result.Resumed {
+	if !result.Completed || result.LastCheckpoint != "health_verified" || !result.Resumed {
 		t.Fatalf("Execute() result = %#v, want completed resumed health checkpoint", result)
 	}
 	if driver.calls != 1 || store.advances != 1 {
@@ -104,7 +104,7 @@ func TestExecutorAdvancesTheExactDeclaredCheckpointSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !result.Completed || result.LastCheckpoint != "health-verified" || result.Resumed {
+	if !result.Completed || result.LastCheckpoint != "health_verified" || result.Resumed {
 		t.Fatalf("Execute() result = %#v, want a fresh completed execution", result)
 	}
 	if store.advances != len(manifest.CheckpointSequence) {
@@ -120,7 +120,7 @@ func TestExecutorRejectsSkippedCheckpoint(t *testing.T) {
 	}
 	store := &memoryStore{state: recipeexec.InitialCheckpointState(recipeexec.Binding{ExecutionID: manifest.ExecutionID, ManifestDigest: manifestDigest})}
 	driver := &fakeDriver{run: func(_ context.Context, _ recipeexec.ActionRequest, checkpoints recipeexec.CheckpointReporter) error {
-		return checkpoints.Checkpoint(context.Background(), "health-verified")
+		return checkpoints.Checkpoint(context.Background(), "health_verified")
 	}}
 	executor := recipeexec.Executor{
 		Resolver: fakeResolver{bundle: recipeexec.Bundle{ArtifactDigest: manifest.ArtifactDigest, ActionIDs: []string{manifest.ActionID}}},
@@ -148,7 +148,7 @@ func TestExecutorDoesNotPersistCheckpointAfterExecutionContextCanceled(t *testin
 	defer cancel()
 	driver := &fakeDriver{run: func(_ context.Context, _ recipeexec.ActionRequest, checkpoints recipeexec.CheckpointReporter) error {
 		cancel()
-		return checkpoints.Checkpoint(context.Background(), "artifact-verified")
+		return checkpoints.Checkpoint(context.Background(), "artifact_verified")
 	}}
 	executor := recipeexec.Executor{
 		Resolver: fakeResolver{bundle: recipeexec.Bundle{ArtifactDigest: manifest.ArtifactDigest, ActionIDs: []string{manifest.ActionID}}},
@@ -178,7 +178,7 @@ func TestExecutorSerializesConcurrentCheckpointReports(t *testing.T) {
 		for index := 0; index < 2; index++ {
 			go func() {
 				<-start
-				results <- checkpoints.Checkpoint(context.Background(), "artifact-verified")
+				results <- checkpoints.Checkpoint(context.Background(), "artifact_verified")
 			}()
 		}
 		close(start)
@@ -206,7 +206,7 @@ func TestExecutorSerializesConcurrentCheckpointReports(t *testing.T) {
 	if !errors.Is(err, recipeexec.ErrExecutionIncomplete) {
 		t.Fatalf("Execute() error = %v, want ErrExecutionIncomplete", err)
 	}
-	if store.advances != 1 || store.state.Checkpoint != "artifact-verified" {
+	if store.advances != 1 || store.state.Checkpoint != "artifact_verified" {
 		t.Fatalf("concurrent reports advanced state incorrectly: advances=%d state=%#v", store.advances, store.state)
 	}
 }
@@ -309,7 +309,7 @@ func validManifest() cloudorchestrator.RecipeExecutionManifestV1 {
 		ActionID:                     "install-service",
 		RootRequired:                 true,
 		TimeoutSeconds:               60,
-		CheckpointSequence:           []string{"artifact-verified", "install-complete", "health-verified"},
+		CheckpointSequence:           []string{"artifact_verified", "install_complete", "health_verified"},
 		VolumeSlots:                  []cloudorchestrator.VolumeSlotV1{{SlotID: "data", VolumeRef: "volume_ref:data-a"}},
 		DataSlots:                    []cloudorchestrator.DataSlotV1{{SlotID: "dataset", DataRef: "data_ref:dataset-a", ReadOnly: true}},
 		SecretSlots:                  []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: "secret_ref:model-token-a"}},

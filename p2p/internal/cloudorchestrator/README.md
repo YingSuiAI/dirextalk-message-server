@@ -23,6 +23,12 @@ MCP server.
   the sole pre-executor Worker task. They bind only immutable deployment/plan
   references and opaque digests; they cannot carry a command, URL, secret,
   image, or AWS action.
+- `RecipeExecutionManifestV1` seals a later compiled Recipe scope. Its paired
+  `cloudworker/recipeexec.TaskV1`/`EventV1` transport contract binds only the
+  manifest digest, opaque input digest, declared checkpoint order, and resume
+  cursor. It is a separate schema from the non-root `execution_probe` task;
+  it has no active Stack route, approval consumer, artifact-delivery path, or
+  root executor in this stage.
 
 No type exposes a secret value. A secret field is accepted only as an opaque
 `secret_ref:<identifier>` reference. The validators reject common credential

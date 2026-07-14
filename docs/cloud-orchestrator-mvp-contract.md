@@ -77,10 +77,19 @@ AWS SDK integration in the message-server process.
   requires a trusted compiled-artifact resolver, a CAS checkpoint store, and
   an idempotent action driver; it rejects artifact mismatches, stale manifest
   checkpoints, skipped/replayed checkpoints, and successful returns without a
-  terminal checkpoint. It is deliberately not wired into `cloud-worker`, the
-  task broker, the Connection Stack, or a root executor yet. Consequently it
-  cannot deploy OpenClaw, a knowledge-base node, a website, a model, or any
-  other service, and it provides no new API or AWS mutation path.
+  terminal checkpoint. Its separate `dirextalk.recipe-execution-task/v1` and
+  event schema add an exact manifest-digest/deployment/execution binding,
+  opaque input digest, ordered safe checkpoint sequence, durable resume cursor,
+  lease-fenced event sequence, and terminal-state rule. The task parser rejects
+  duplicate or unknown JSON fields, command/URL/output material, unsafe codes,
+  and checkpoint-order substitution; the existing non-root `cloud-worker`
+  parser continues to reject this new schema. `Executor.ExecuteTask` further
+  refuses to invoke an action driver unless the sealed manifest and durable
+  checkpoint match the delivered task. This remains deliberately unwired to
+  the current Worker task broker, the Connection Stack, a fresh execution
+  approval, artifact delivery, or a root executor. Consequently it cannot
+  deploy OpenClaw, a knowledge-base node, a website, a model, or any other
+  service, and it provides no new API or AWS mutation path.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
