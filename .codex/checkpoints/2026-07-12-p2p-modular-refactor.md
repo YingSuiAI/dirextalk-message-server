@@ -1,6 +1,6 @@
 # P2P Modular Refactor Checkpoint
 
-- Status: in_progress
+- Status: complete
 - Updated: 2026-07-14 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/p2p-modular-realtime-ws`
@@ -36,6 +36,7 @@
 - The migration preserves v1.0.3 WS recovery fields at the top-level error envelope (`code`, `error_code`, `operation_id`, `current_room_id`), ticket single-use/failed-upgrade behavior, account-delete ticket invalidation, Gorilla mount behavior, and existing List-then-Waiter / stream-ID-reuse semantics.
 - Agent account workflow migration is committed as `a6e2981` (`refactor: modularize agent account actions`): `p2p/internal/agent` now owns `agent.password`, `agent.matrix_session.create`, `agent.config.get`, and `agent.config.update`; root retains a narrow lock/Matrix/persistence/status adapter. All four ActionSpecs, JSON shapes (including unconfigured-session `access_token: null`), auth, transports, persistence order, and account-operation fencing are unchanged.
 - Follow-up `da9a221` merges the now-adjacent Native Agent config facade into `service_agent_api.go` and removes `service_agent_config_native.go`; it is a zero-behavior file-count reduction verified by the focused Agent/root contract set.
+- Final residual cleanup `07e8cd5` removes the unused root response-close facade and the test-only Dendrite room-version facade. The remote request owns its response close directly, while the test calls the Dendrite owning package directly.
 - The old stash `stash@{0}` / `1cc53d87589caf2a4f03f152f2ca6234ceedf408` remains untouched. It is incomplete and predates v1.0.3; do not apply or drop it.
 - The remaining root flows are intentionally cross-domain or recovery-sensitive (`sync.bootstrap`, account deprovision, direct-room reactivation, and v1.0.3 join recovery). Do not migrate them mechanically; assess only as standalone behavior work.
 
@@ -52,6 +53,12 @@
 - Passed once at the stage boundary: `go test ./p2p/... -count=1` (root 87.243s; storage 37.524s), `go test ./internal/httputil ./setup -count=1`, and `go build ./cmd/dirextalk-message-server`.
 - Passed: touched-file `gofmt`/`gopls check`, `go vet ./p2p/...`, `golangci-lint` (`unused`, `ineffassign`, `staticcheck`), exact Action contract artifact coverage through `p2p/serviceapi`, and `git diff --check`.
 - Independent engineering and contract audit reported no P0-P2. It verified ActionSpecs/auth/transport, `access_token` null compatibility, secret non-exposure, Service mutex/persistence/offline ordering, session serialization, and account-deletion fencing. The generated `dirextalk-message-server.exe` was removed before commit.
+- Final structural boundary passed: `go test ./p2p/... -count=1` (root 86.260s; storage 37.203s) and `go build ./cmd/dirextalk-message-server`; the generated executable was removed and the worktree was clean.
+
+## Final Structural Boundary
+
+- A final root-file ownership audit found no remaining low-risk business workflow to migrate. `service_operation_recovery.go`, room reactivation, account deletion, join/invite/member persistence, remote public routing, and sync/bootstrap remain root-owned because they coordinate multiple modules or preserve the released v1.0.3 recovery state machines.
+- The structural modular-refactor objective is complete. Follow-up work on durable outboxes, cross-process coordination, replay sequencing, or merging product projections with Matrix facts is behavior/storage work and must be scoped separately.
 
 ## Completed Verification
 
