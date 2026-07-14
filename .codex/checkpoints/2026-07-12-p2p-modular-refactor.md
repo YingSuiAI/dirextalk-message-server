@@ -60,6 +60,13 @@
 - A final root-file ownership audit found no remaining low-risk business workflow to migrate. `service_operation_recovery.go`, room reactivation, account deletion, join/invite/member persistence, remote public routing, and sync/bootstrap remain root-owned because they coordinate multiple modules or preserve the released v1.0.3 recovery state machines.
 - The structural modular-refactor objective is complete. Follow-up work on durable outboxes, cross-process coordination, replay sequencing, or merging product projections with Matrix facts is behavior/storage work and must be scoped separately.
 
+## Follow-up Ownership Cleanup (2026-07-14)
+
+- User requested one additional safe migration pass after the structural boundary. `826cc14` moves only the generic durable-operation CAS/lease tracker into `p2p/internal/operations`; root recovery and room-reactivation code retain their contexts, error mapping, state machines, and 90-second lease policy.
+- The same commit exports the existing members profile merge helper and removes the byte-for-byte-equivalent root duplicate used by remote public channel joins. No ActionSpecs, HTTP/WS/MCP envelope, Matrix behavior, migration, or generated contract changed.
+- Focused recovery, cross-instance join/approval, remote-callback, member helper, and tracker tests passed; the stage gate passed: `go test ./p2p/... -count=1` (root 93.512s; storage 43.354s), `go test ./internal/httputil ./setup -count=1`, `go build ./cmd/dirextalk-message-server`, selected `-race` coverage, `gopls check`, `go vet ./p2p/...`, unused/ineffassign/staticcheck lint, byte-identical contract generation, and `git diff --check`.
+- An independent engineering and contract audit reported no P0-P3 finding. The root audit still identifies no further mechanical migration safe to perform without changing behavior; remaining work belongs to separately scoped durability/reconciliation or Matrix-authority design changes.
+
 ## Completed Verification
 
 - Mechanical cleanup removed confirmed unused private wrappers and redundant removed-action tests; Store/record contract tests and shared test support were consolidated without changing runtime contracts.
