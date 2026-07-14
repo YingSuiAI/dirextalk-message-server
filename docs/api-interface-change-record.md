@@ -1,6 +1,50 @@
 # API Interface Change Record
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
+
+## 2026-07-14 Cloud Orchestrator Control-Plane Foundation
+
+Added the owner-only `cloud.*` ProductCore namespace. The read projection
+actions are `cloud.bootstrap`, `cloud.connections.list/get`,
+`cloud.plans.list/get`, `cloud.deployments.list/get`,
+`cloud.services.list/get`, `cloud.recipes.list/get`, and
+`cloud.events.list`; they allow owner HTTP fallback and ready realtime
+`client.request`. `cloud.goals.create`, `cloud.connections.role_plan`,
+`cloud.plans.approve`, `cloud.deployments.pairing.resume`,
+`cloud.services.operation.plan/approve`, and
+`cloud.services.destroy.plan/approve` are owner HTTP-only. ProductCore
+`cloud.*` actions are never available to `agent_token`, `POST /mcp`, or
+realtime `client.request`. `/mcp` only registers the separately named,
+de-secretsed read tools `dirextalk_cloud_workloads_list`,
+`dirextalk_cloud_workloads_get`, and `dirextalk_cloud_status`; it never
+registers a Cloud mutation or secret tool.
+
+The implemented first transition is `cloud.goals.create`. It accepts a UUID
+`idempotency_key`, a 1–12,000-character `goal`, and an optional existing
+`cloud_connection_id`. It atomically persists a private Goal and a Plan in
+`researching`, a de-secretsed Cloud audit event pair, and an outbox request for
+the independently deployed Cloud Orchestrator. Repeating the same UUID and
+same intent returns the original Goal/Plan; using that UUID for a different
+intent returns `409 cloud_idempotency_conflict`. The raw idempotency key and
+goal prompt are not in realtime events. The full contract and boundaries are
+in `docs/cloud-orchestrator-mvp-contract.md`.
+
+High-risk actions are intentionally declared but currently return
+`503 cloud_orchestrator_unavailable`; they do not create AWS resources. The
+Message Server does not accept AWS credentials or contain an AWS SDK/CLI path.
+Future approval must bind a deterministic-CBOR plan hash, quote, connection,
+recipe, resource/network/secret/integration scopes, expected revision, expiry,
+and device signature before it can enqueue a typed Broker command.
+
+The server-side Eino Native Agent now owns a private built-in Cloud Deployment
+Planner skill and its `native_agent_cloud_deployment_plan` tool. It calls only
+the narrow research-goal port and derives an internal UUID scoped to one Agent
+chat to replay a model retry without deduplicating a later explicit task; it
+is not a Codex workspace Skill, cannot call AWS or approve a plan, and is not
+listed by external MCP. Its child runtime uses an isolated home and rejects
+direct or common wrapped AWS CLI invocation. Both it and the owner HTTP action reject
+credential-shaped goal content before any database/event/outbox write; a goal
+may use a `secret_ref` placeholder only.
 
 ## 2026-07-13 Join And Decision Recovery Contract
 

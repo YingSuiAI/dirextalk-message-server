@@ -81,6 +81,84 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 	if !mcpToolsContain(tools, "dirextalk_messages_list") {
 		t.Fatalf("expected dirextalk_messages_list in tools/list, got %#v", tools)
 	}
+	allowedCloudTools := map[string]bool{
+		"dirextalk_cloud_workloads_list": true,
+		"dirextalk_cloud_workloads_get":  true,
+		"dirextalk_cloud_status":         true,
+	}
+	for _, tool := range tools {
+		item, ok := tool.(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected MCP tool shape: %#v", tool)
+		}
+		name, _ := item["name"].(string)
+		if strings.Contains(strings.ToLower(name), "cloud") && !allowedCloudTools[name] {
+			t.Fatalf("public MCP must expose only read-only Cloud tools, got %#v", item)
+		}
+	}
+	for name := range allowedCloudTools {
+		if !mcpToolsContain(tools, name) {
+			t.Fatalf("expected read-only Cloud MCP tool %q, got %#v", name, tools)
+		}
+	}
+}
+
+func TestMCPHTTPCloudToolsAreReadOnlyAndDoNotExposeGoalPrompts(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	goal := "Deploy a private knowledge node with internal source constraints."
+	create := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "cloud.goals.create",
+		"params": map[string]any{
+			"goal":            goal,
+			"idempotency_key": "bdf0ee8d-9ec2-4f4b-9bbd-a00000000001",
+		},
+	})
+	create.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	createRecorder := httptest.NewRecorder()
+	router.ServeHTTP(createRecorder, create)
+	if createRecorder.Code != http.StatusOK {
+		t.Fatalf("create cloud goal = %d body=%s", createRecorder.Code, createRecorder.Body.String())
+	}
+	created := decodeJSONMap(t, createRecorder.Body.String())
+	goalID := created["goal"].(map[string]any)["goal_id"].(string)
+	planID := created["plan"].(map[string]any)["plan_id"].(string)
+
+	for _, toolCall := range []map[string]any{
+		{"name": "dirextalk_cloud_status", "arguments": map[string]any{}},
+		{"name": "dirextalk_cloud_workloads_list", "arguments": map[string]any{"kind": "plan"}},
+		{"name": "dirextalk_cloud_workloads_get", "arguments": map[string]any{"kind": "plan", "id": planID}},
+	} {
+		req := jsonRequest(t, "/mcp", map[string]any{
+			"jsonrpc": "2.0", "id": toolCall["name"], "method": "tools/call", "params": toolCall,
+		})
+		req.Header.Set("Authorization", "Bearer "+service.AgentToken())
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("MCP %s = %d body=%s", toolCall["name"], recorder.Code, recorder.Body.String())
+		}
+		result := jsonRPCResult(t, recorder)
+		if result["isError"] == true || strings.Contains(recorder.Body.String(), goal) {
+			t.Fatalf("MCP %s must return a de-secretsed Cloud projection, got %#v", toolCall["name"], result)
+		}
+	}
+
+	for _, arguments := range []map[string]any{
+		{"kind": "goal", "id": goalID},
+		{"kind": "goal"},
+	} {
+		req := jsonRequest(t, "/mcp", map[string]any{
+			"jsonrpc": "2.0", "id": "cloud-goal-denied", "method": "tools/call",
+			"params": map[string]any{"name": "dirextalk_cloud_workloads_get", "arguments": arguments},
+		})
+		req.Header.Set("Authorization", "Bearer "+service.AgentToken())
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusOK || !jsonRPCResult(t, recorder)["isError"].(bool) || strings.Contains(recorder.Body.String(), goal) {
+			t.Fatalf("MCP must reject Goal projection access, status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
 }
 
 func TestMCPHTTPToolsCallInvokesUnifiedService(t *testing.T) {

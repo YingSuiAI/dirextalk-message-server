@@ -68,6 +68,7 @@ func enableNativeAgentManagementTools(enabled map[string]bool, availableTools []
 func nativeAgentManagementTool(name string) bool {
 	name = strings.TrimSpace(name)
 	return name == "native_agent_runtime_inspect" ||
+		name == nativeAgentCloudDeploymentPlanTool ||
 		strings.HasPrefix(name, "native_agent_skills_") ||
 		strings.HasPrefix(name, "native_agent_mcp_servers_")
 }
@@ -142,6 +143,7 @@ func nativeToolAlias(value string) string {
 
 func (r *Runtime) availableTools() []Tool {
 	tools := append([]Tool{}, r.tools...)
+	tools = append(tools, r.cloudPlanningTools()...)
 	tools = append(tools, r.managementTools()...)
 	return tools
 }

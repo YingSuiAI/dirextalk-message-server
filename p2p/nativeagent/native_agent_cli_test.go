@@ -108,6 +108,19 @@ func TestRuntimeInstallCommandFallsBackToShWhenBashMissing(t *testing.T) {
 	}
 }
 
+func TestRuntimeShellUsesWindowsCommandProcessorBeforeWSLBash(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command processor selection only")
+	}
+	shell, args := runtimeShell("echo native-agent")
+	if !strings.EqualFold(filepath.Base(shell), "cmd.exe") {
+		t.Fatalf("Windows runtime shell = %q, want cmd.exe before a possible WSL bash launcher", shell)
+	}
+	if len(args) != 4 || args[0] != "/d" || args[1] != "/s" || args[2] != "/c" || args[3] != "echo native-agent" {
+		t.Fatalf("Windows runtime shell arguments = %#v", args)
+	}
+}
+
 func TestRuntimeInstallCommandFailureReturnsError(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}})
 	_, err := runtime.Invoke(context.Background(), "agent.runtime.install", map[string]any{
@@ -152,4 +165,11 @@ func runtimeTestFailingInstallCommand() string {
 		return "echo failed 1>&2 && exit /b 9"
 	}
 	return "printf failed >&2; exit 9"
+}
+
+func runtimeTestShellCommand(output string) string {
+	if runtime.GOOS == "windows" {
+		return "echo " + output
+	}
+	return "printf " + output
 }

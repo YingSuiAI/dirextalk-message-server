@@ -8,10 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// The Native Agent has no Cloud control-plane authority. Reject common shell
+// wrappers too, not only a command whose first token is `aws`. This is a
+// defense-in-depth guard for the generic runtime; the Cloud Planner itself
+// has no shell/AWS tool at all.
+var awsCLIShellCommandPattern = regexp.MustCompile(`(?i)(?:^|[\s;&|()'"])(?:[^\s;&|()'"]+[\\/])?aws(?:\.exe)?(?:[\s;&|()'"]|$)`)
 
 func (r *Runtime) runtimeInstall(ctx context.Context, params map[string]any) (map[string]any, error) {
 	if err := r.ensureDataDirs(); err != nil {
@@ -62,6 +69,9 @@ func (r *Runtime) runtimeWhich(ctx context.Context, params map[string]any) (map[
 	if command == "" {
 		return nil, fmt.Errorf("command is required")
 	}
+	if isAWSCLIExecutable(command) {
+		return nil, fmt.Errorf("AWS CLI execution is not available in the Native Agent runtime")
+	}
 	path, err := exec.LookPath(command)
 	if err != nil {
 		path, err = lookPathInPATH(command, runtimePATH(r.dataDir))
@@ -79,6 +89,9 @@ func (r *Runtime) runtimeRun(ctx context.Context, params map[string]any) (map[st
 	}
 	if command == "" {
 		return nil, fmt.Errorf("command is required")
+	}
+	if isAWSCLIExecutable(command) {
+		return nil, fmt.Errorf("AWS CLI execution is not available in the Native Agent runtime")
 	}
 	if !filepath.IsAbs(command) && !strings.Contains(command, string(os.PathSeparator)) {
 		if resolved, err := lookPathInPATH(command, runtimePATH(r.dataDir)); err == nil {
@@ -122,6 +135,9 @@ func (r *Runtime) runtimeRun(ctx context.Context, params map[string]any) (map[st
 }
 
 func (r *Runtime) runShell(ctx context.Context, command string, timeout time.Duration) (map[string]any, error) {
+	if awsCLIShellCommandPattern.MatchString(command) {
+		return nil, fmt.Errorf("AWS CLI execution is not available in the Native Agent runtime")
+	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	shell, shellArgs := runtimeShell(command)
@@ -151,17 +167,21 @@ func (r *Runtime) runShell(ctx context.Context, command string, timeout time.Dur
 }
 
 func runtimeShell(command string) (string, []string) {
-	if bash, err := exec.LookPath("bash"); err == nil {
-		return bash, []string{"-lc", command}
-	}
-	if sh, err := exec.LookPath("sh"); err == nil {
-		return sh, []string{"-c", command}
-	}
+	// On Windows, System32\\bash.exe is commonly the WSL launcher rather than
+	// a POSIX shell. Prefer the documented command processor so native runtime
+	// install commands have stable Windows semantics and cannot block waiting
+	// for WSL initialization.
 	if runtime.GOOS == "windows" {
 		if comspec := strings.TrimSpace(os.Getenv("COMSPEC")); comspec != "" {
 			return comspec, []string{"/d", "/s", "/c", command}
 		}
 		return "cmd.exe", []string{"/d", "/s", "/c", command}
+	}
+	if bash, err := exec.LookPath("bash"); err == nil {
+		return bash, []string{"-lc", command}
+	}
+	if sh, err := exec.LookPath("sh"); err == nil {
+		return sh, []string{"-c", command}
 	}
 	return "sh", []string{"-c", command}
 }
@@ -175,7 +195,13 @@ func runtimePATH(dataDir string) string {
 }
 
 func runtimeEnv(dataDir string) []string {
+	runtimeHome := filepath.Join(dataDir, "runtime", "home")
 	env := []string{"PATH=" + runtimePATH(dataDir)}
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+runtimeHome)
+	} else {
+		env = append(env, "HOME="+runtimeHome)
+	}
 	for _, key := range runtimeEnvPassthroughKeys() {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			env = append(env, key+"="+value)
@@ -194,10 +220,14 @@ func runtimeEnvPassthroughKeys() []string {
 			"PATHEXT",
 			"TEMP",
 			"TMP",
-			"USERPROFILE",
 		}
 	}
-	return []string{"HOME", "TMPDIR", "TEMP", "TMP"}
+	return []string{"TMPDIR", "TEMP", "TMP"}
+}
+
+func isAWSCLIExecutable(command string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	return base == "aws" || base == "aws.exe"
 }
 
 func lookPathInPATH(command, pathValue string) (string, error) {

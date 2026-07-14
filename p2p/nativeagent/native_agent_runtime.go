@@ -17,15 +17,23 @@ const (
 )
 
 type Config struct {
-	DataDir    string
-	Store      ConfigStore
-	Tools      []Tool
-	HTTPClient *http.Client
+	DataDir      string
+	Store        ConfigStore
+	Tools        []Tool
+	CloudPlanner CloudPlanner
+	HTTPClient   *http.Client
 }
 
 type ConfigStore interface {
 	Load(ctx context.Context) (map[string]any, bool, error)
 	Save(ctx context.Context, config map[string]any) error
+}
+
+// CloudPlanner is the narrow Eino-Agent-to-control-plane boundary. It can
+// persist a research-only goal, but deliberately has no AWS credential,
+// pricing, approval, provision, network, or destroy method.
+type CloudPlanner interface {
+	CreateResearchGoal(context.Context, string, string, string) (map[string]any, error)
 }
 
 type Event struct {
@@ -34,10 +42,11 @@ type Event struct {
 }
 
 type Runtime struct {
-	store   ConfigStore
-	dataDir string
-	client  *http.Client
-	tools   []Tool
+	store        ConfigStore
+	dataDir      string
+	client       *http.Client
+	tools        []Tool
+	cloudPlanner CloudPlanner
 }
 
 func New(config Config) *Runtime {
@@ -53,10 +62,11 @@ func New(config Config) *Runtime {
 		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
 	}
 	return &Runtime{
-		store:   config.Store,
-		dataDir: filepath.Clean(dataDir),
-		client:  client,
-		tools:   append([]Tool{}, config.Tools...),
+		store:        config.Store,
+		dataDir:      filepath.Clean(dataDir),
+		client:       client,
+		tools:        append([]Tool{}, config.Tools...),
+		cloudPlanner: config.CloudPlanner,
 	}
 }
 
@@ -184,6 +194,7 @@ func (r *Runtime) ensureDataDirs() error {
 		filepath.Join(r.dataDir, "mcp"),
 		filepath.Join(r.dataDir, "runtime"),
 		filepath.Join(r.dataDir, "runtime", "bin"),
+		filepath.Join(r.dataDir, "runtime", "home"),
 	} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -198,15 +209,16 @@ func (r *Runtime) runtimeInspect(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{
-		"ok":            true,
-		"native":        true,
-		"framework":     "eino",
-		"configured":    exists,
-		"data_dir":      r.dataDir,
-		"skills":        configList(config, "skills"),
-		"mcp_servers":   configList(config, "mcp_servers"),
-		"runtime_tools": configList(config, "runtime_tools"),
-		"time":          time.Now().UTC().Format(time.RFC3339),
+		"ok":              true,
+		"native":          true,
+		"framework":       "eino",
+		"configured":      exists,
+		"data_dir":        r.dataDir,
+		"skills":          configList(config, "skills"),
+		"built_in_skills": r.builtInSkills(),
+		"mcp_servers":     configList(config, "mcp_servers"),
+		"runtime_tools":   configList(config, "runtime_tools"),
+		"time":            time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 

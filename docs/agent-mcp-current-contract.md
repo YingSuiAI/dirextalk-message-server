@@ -10,6 +10,7 @@ This document is the backend-owned current contract for Dirextalk Agent state, N
 - The endpoint validates `Origin`. `GET /mcp` returns method not allowed while server-to-client streaming is unused.
 - Fixed `mcp.*` body actions are removed from `/_p2p/query` and `/_p2p/command`. Any `mcp.*` action identifiers that remain in backend packages are internal capability identifiers, not callable product actions.
 - `POST /mcp` and Native Agent built-in Dirextalk tools share the backend `internal/dirextalkmcp` registry, schemas, pagination, room authorization, DTOs, and invocation service. Room IDs in `mcp_blocked_room_ids` are filtered from discovery and rejected on direct access.
+- The only Cloud MCP capabilities are read-only `dirextalk_cloud_workloads_list`, `dirextalk_cloud_workloads_get`, and `dirextalk_cloud_status`. They return whitelisted Plan/Deployment/Service summaries and alert metadata; they never return Goal prompts, Plan narratives, outbox data, account metadata, credential/secret references, pairing data, or service secrets. No Cloud create, approval, networking, operation, or destroy tool is registered.
 
 ## Agent Room Status
 
@@ -23,6 +24,7 @@ This document is the backend-owned current contract for Dirextalk Agent state, N
 - Native Agent is owned by `dirextalk-message-server`. The backend owns native `agent.*` actions, `client.native_agent_stream` / `server.native_agent_stream.*` frames, model-provider request handling, skills, external MCP client wiring, runtime CLI tools, orchestration, built-in Dirextalk tools, native config storage, and sanitized migration from the former hidden Agent plugin config.
 - Native Agent is not installed, enabled, configured, or invoked through `plugins.*`. Backend `plugins.*` actions remain for non-Agent plugins.
 - Model API keys are request-scoped inputs. The message server must not persist, return, or inject them into plugin or runtime environment state.
+- The server-side Eino Native Agent includes a built-in Cloud Deployment Planner skill and its `native_agent_cloud_deployment_plan` tool for an explicit cloud-workload request. It writes only a durable `researching` Goal through the narrow Cloud control-plane port, rejects credential-shaped text, and cannot approve spend, call AWS, open ingress, operate a deployment, or destroy resources. Its runtime gets an isolated home and rejects direct or common wrapped AWS CLI invocation. It is not a Codex workspace Skill and it is not an external MCP tool.
 
 ## Consumer Boundaries
 

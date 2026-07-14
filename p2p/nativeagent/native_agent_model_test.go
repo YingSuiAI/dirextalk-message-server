@@ -97,6 +97,53 @@ func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
 	}
 }
 
+func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
+	var requestCount int
+	var sawResearchResult bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			if message["role"] == "tool" && strings.Contains(trimString(message["content"]), "cloud_plan_1") {
+				sawResearchResult = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_cloud_plan","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\",\"cloud_connection_id\":\"connection-1\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已创建研究计划，等待独立报价和设备确认。"}}]}`))
+	}))
+	defer server.Close()
+
+	planner := &recordingCloudPlanner{}
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}, CloudPlanner: planner})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "部署一个私有知识库节点",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawResearchResult || planner.calls != 1 || planner.connectionID != "connection-1" {
+		t.Fatalf("expected Eino cloud planning loop, requestCount=%d sawResearchResult=%v planner=%#v", requestCount, sawResearchResult, planner)
+	}
+	if result["text"] != "已创建研究计划，等待独立报价和设备确认。" || !traceHasStep(result["steps"].([]map[string]any), "tool_call", nativeAgentCloudDeploymentPlanTool) {
+		t.Fatalf("cloud planner agent result = %#v", result)
+	}
+}
+
 func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 	var requestCount int
 	var sawRuntimeOutput bool
@@ -151,6 +198,7 @@ func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 func TestModelLoopCanCallBuiltInRuntimeShellTool(t *testing.T) {
 	var requestCount int
 	var sawShellOutput bool
+	shellCommand := runtimeTestShellCommand("shell-eino")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		var payload map[string]any
@@ -166,7 +214,7 @@ func TestModelLoopCanCallBuiltInRuntimeShellTool(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount == 1 {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_shell","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"printf shell-eino\"}"}}]}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_shell","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"` + shellCommand + `\"}"}}]}}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Shell 已执行并返回结果。"}}]}`))
@@ -230,7 +278,7 @@ func TestRuntimeShellEinoToolRunsCommand(t *testing.T) {
 		if !ok {
 			t.Fatalf("runtime__shell is not invokable")
 		}
-		result, err := invokable.InvokableRun(context.Background(), `{"command":"printf shell-direct"}`)
+		result, err := invokable.InvokableRun(context.Background(), `{"command":"`+runtimeTestShellCommand("shell-direct")+`"}`)
 		if err != nil {
 			t.Fatalf("run runtime shell tool: %v", err)
 		}
@@ -246,6 +294,7 @@ func TestModelLoopHonorsConfiguredMaxToolCalls(t *testing.T) {
 	const shellCalls = 8
 	var requestCount int
 	var observedShellResults int
+	shellCommandPrefix := runtimeTestShellCommand("shell-loop-")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		var payload map[string]any
@@ -262,7 +311,7 @@ func TestModelLoopHonorsConfiguredMaxToolCalls(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount <= shellCalls {
 			callID := "call_shell_" + string(rune('0'+requestCount))
-			body := `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"` + callID + `","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"printf shell-loop-` + callID + `\"}"}}]}}]}`
+			body := `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"` + callID + `","type":"function","function":{"name":"runtime__shell","arguments":"{\"command\":\"` + shellCommandPrefix + callID + `\"}"}}]}}]}`
 			_, _ = w.Write([]byte(body))
 			return
 		}

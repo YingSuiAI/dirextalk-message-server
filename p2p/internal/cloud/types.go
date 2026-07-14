@@ -1,0 +1,209 @@
+// Package cloud owns the ProductCore facade's durable cloud-control records.
+//
+// It deliberately contains no AWS SDK client. Cloud mutations are represented
+// as durable outbox entries for the separately deployed Cloud Orchestrator.
+package cloud
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+)
+
+const (
+	PlanStatusResearching           = "researching"
+	PlanStatusQuoting               = "quoting"
+	PlanStatusReadyForConfirmation  = "ready_for_confirmation"
+	PlanStatusApproved              = "approved"
+	PlanStatusExpired               = "expired"
+	PlanStatusSuperseded            = "superseded"
+	GoalStatusResearching           = "researching"
+	OutboxKindResearchGoalRequested = "cloud.goal.research.requested"
+)
+
+var ErrIdempotencyConflict = errors.New("cloud idempotency key was reused with a different request")
+
+// Goal is the private, durable user intent. Prompt is intentionally omitted
+// from every realtime/event projection; it is only delivered to the isolated
+// orchestrator through the private outbox payload.
+type Goal struct {
+	GoalID          string
+	OwnerMXID       string
+	Prompt          string
+	ConnectionID    string
+	PlanID          string
+	Status          string
+	IdempotencyHash string
+	RequestDigest   string
+	Revision        int64
+	CreatedAt       int64
+	UpdatedAt       int64
+}
+
+type GoalSummary struct {
+	GoalID       string `json:"goal_id"`
+	PlanID       string `json:"plan_id"`
+	ConnectionID string `json:"cloud_connection_id,omitempty"`
+	Status       string `json:"status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+func (g Goal) Summary() GoalSummary {
+	return GoalSummary{
+		GoalID: g.GoalID, PlanID: g.PlanID, ConnectionID: g.ConnectionID,
+		Status: g.Status, Revision: g.Revision, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
+	}
+}
+
+// Plan is a de-secretsed planning artifact. PlanHash is intentionally blank
+// until the external planner supplies a deterministic-CBOR digest; approval
+// handlers will not accept a plan without it.
+type Plan struct {
+	PlanID       string `json:"plan_id"`
+	GoalID       string `json:"goal_id"`
+	ConnectionID string `json:"cloud_connection_id,omitempty"`
+	Status       string `json:"status"`
+	Title        string `json:"title,omitempty"`
+	Summary      string `json:"summary,omitempty"`
+	RecipeDigest string `json:"recipe_digest,omitempty"`
+	QuoteID      string `json:"quote_id,omitempty"`
+	PlanHash     string `json:"plan_hash,omitempty"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+type Connection struct {
+	ConnectionID string `json:"cloud_connection_id"`
+	Provider     string `json:"provider"`
+	AccountID    string `json:"account_id,omitempty"`
+	Region       string `json:"region,omitempty"`
+	Mode         string `json:"mode"`
+	Status       string `json:"status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// Deployment tracks execution independently from resource and service state.
+type Deployment struct {
+	DeploymentID string `json:"deployment_id"`
+	PlanID       string `json:"plan_id"`
+	ConnectionID string `json:"cloud_connection_id"`
+	Execution    string `json:"execution_status"`
+	Outcome      string `json:"outcome_status"`
+	Resource     string `json:"resource_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// Service is intentionally separate from Deployment so a failed integration
+// cannot turn an otherwise running service into a failed cloud resource.
+type Service struct {
+	ServiceID    string `json:"service_id"`
+	DeploymentID string `json:"deployment_id"`
+	RecipeID     string `json:"recipe_id,omitempty"`
+	Name         string `json:"name"`
+	Status       string `json:"service_status"`
+	Integration  string `json:"integration_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+type Recipe struct {
+	RecipeID  string `json:"recipe_id"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Digest    string `json:"digest"`
+	Maturity  string `json:"maturity"`
+	Revision  int64  `json:"revision"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type Alert struct {
+	AlertID      string `json:"alert_id"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+	ServiceID    string `json:"service_id,omitempty"`
+	Severity     string `json:"severity"`
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	Acknowledged bool   `json:"acknowledged"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// Event is the durable Cloud Orchestrator audit stream. It is not the
+// ProductCore websocket sequence; revisions are aggregate-local and survive
+// node process restarts.
+type Event struct {
+	EventID       string         `json:"event_id"`
+	Type          string         `json:"type"`
+	AggregateType string         `json:"aggregate_type"`
+	AggregateID   string         `json:"aggregate_id"`
+	Revision      int64          `json:"revision"`
+	Summary       map[string]any `json:"summary"`
+	SummaryJSON   string         `json:"-"`
+	CreatedAt     int64          `json:"created_at"`
+}
+
+// HydrateSummary makes the persisted de-secretsed summary available to the
+// owner-only history endpoint. Corrupt historical rows degrade to an empty
+// summary rather than exposing raw JSON or failing an entire status refresh.
+func (e *Event) HydrateSummary() {
+	if e == nil || e.Summary != nil {
+		return
+	}
+	e.Summary = map[string]any{}
+	_ = json.Unmarshal([]byte(e.SummaryJSON), &e.Summary)
+	if e.Summary == nil {
+		e.Summary = map[string]any{}
+	}
+}
+
+type OutboxEntry struct {
+	OutboxID      string
+	Kind          string
+	AggregateType string
+	AggregateID   string
+	PayloadJSON   string
+	CreatedAt     int64
+}
+
+type CreateGoalRequest struct {
+	Goal   Goal
+	Plan   Plan
+	Events []Event
+	Outbox OutboxEntry
+}
+
+type CreateGoalResult struct {
+	Goal    Goal
+	Plan    Plan
+	Created bool
+}
+
+// Store is the only durable boundary used by the ProductCore cloud facade.
+// The separate orchestrator can receive a narrower implementation/role later;
+// this façade does not receive AWS credentials or an AWS API client.
+type Store interface {
+	CreateCloudGoal(context.Context, CreateGoalRequest) (CreateGoalResult, error)
+	ListCloudGoals(context.Context) ([]Goal, error)
+	ListCloudPlans(context.Context) ([]Plan, error)
+	GetCloudPlan(context.Context, string) (Plan, bool, error)
+	ListCloudConnections(context.Context) ([]Connection, error)
+	GetCloudConnection(context.Context, string) (Connection, bool, error)
+	ListCloudDeployments(context.Context) ([]Deployment, error)
+	GetCloudDeployment(context.Context, string) (Deployment, bool, error)
+	ListCloudServices(context.Context) ([]Service, error)
+	GetCloudService(context.Context, string) (Service, bool, error)
+	ListCloudRecipes(context.Context) ([]Recipe, error)
+	GetCloudRecipe(context.Context, string) (Recipe, bool, error)
+	ListCloudAlerts(context.Context) ([]Alert, error)
+	ListCloudEvents(context.Context, int) ([]Event, error)
+}

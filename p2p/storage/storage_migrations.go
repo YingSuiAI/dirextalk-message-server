@@ -745,6 +745,127 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud orchestrator control plane v39",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_goals (
+					goal_id TEXT PRIMARY KEY NOT NULL,
+					owner_mxid TEXT NOT NULL,
+					prompt TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL DEFAULT '',
+					plan_id TEXT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('researching', 'planned', 'canceled')),
+					idempotency_hash TEXT NOT NULL,
+					request_digest TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (owner_mxid, idempotency_hash)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_goals_owner_updated_idx ON p2p_cloud_goals(owner_mxid, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_plans (
+					plan_id TEXT PRIMARY KEY NOT NULL,
+					goal_id TEXT NOT NULL UNIQUE,
+					cloud_connection_id TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL CHECK (status IN ('researching', 'quoting', 'ready_for_confirmation', 'approved', 'expired', 'superseded')),
+					title TEXT NOT NULL DEFAULT '',
+					summary TEXT NOT NULL DEFAULT '',
+					recipe_digest TEXT NOT NULL DEFAULT '',
+					quote_id TEXT NOT NULL DEFAULT '',
+					plan_hash TEXT NOT NULL DEFAULT '',
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_plans_status_updated_idx ON p2p_cloud_plans(status, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_connections (
+					cloud_connection_id TEXT PRIMARY KEY NOT NULL,
+					provider TEXT NOT NULL,
+					account_id TEXT NOT NULL DEFAULT '',
+					region TEXT NOT NULL DEFAULT '',
+					mode TEXT NOT NULL,
+					status TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_connections_status_updated_idx ON p2p_cloud_connections(status, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_deployments (
+					deployment_id TEXT PRIMARY KEY NOT NULL,
+					plan_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					execution_status TEXT NOT NULL,
+					outcome_status TEXT NOT NULL,
+					resource_status TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_deployments_plan_updated_idx ON p2p_cloud_deployments(plan_id, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_services (
+					service_id TEXT PRIMARY KEY NOT NULL,
+					deployment_id TEXT NOT NULL,
+					recipe_id TEXT NOT NULL DEFAULT '',
+					name TEXT NOT NULL,
+					service_status TEXT NOT NULL,
+					integration_status TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_services_deployment_updated_idx ON p2p_cloud_services(deployment_id, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipes (
+					recipe_id TEXT PRIMARY KEY NOT NULL,
+					name TEXT NOT NULL,
+					version TEXT NOT NULL,
+					digest TEXT NOT NULL,
+					maturity TEXT NOT NULL CHECK (maturity IN ('experimental', 'awaiting_management_acceptance', 'managed')),
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_recipes_digest_idx ON p2p_cloud_recipes(digest)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_alerts (
+					alert_id TEXT PRIMARY KEY NOT NULL,
+					deployment_id TEXT NOT NULL DEFAULT '',
+					service_id TEXT NOT NULL DEFAULT '',
+					severity TEXT NOT NULL,
+					code TEXT NOT NULL,
+					message TEXT NOT NULL,
+					acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_alerts_open_updated_idx ON p2p_cloud_alerts(acknowledged, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_events (
+					event_id TEXT PRIMARY KEY NOT NULL,
+					type TEXT NOT NULL,
+					aggregate_type TEXT NOT NULL,
+					aggregate_id TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					summary_json TEXT NOT NULL DEFAULT '{}',
+					created_at BIGINT NOT NULL,
+					UNIQUE (aggregate_type, aggregate_id, revision, type)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_events_aggregate_revision_idx ON p2p_cloud_events(aggregate_type, aggregate_id, revision DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_outbox (
+					outbox_id TEXT PRIMARY KEY NOT NULL,
+					kind TEXT NOT NULL,
+					aggregate_type TEXT NOT NULL,
+					aggregate_id TEXT NOT NULL,
+					payload_json TEXT NOT NULL,
+					lease_owner TEXT NOT NULL DEFAULT '',
+					lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0,
+					delivered_at BIGINT NOT NULL DEFAULT 0,
+					created_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_outbox_pending_idx ON p2p_cloud_outbox(delivered_at, lease_until, created_at)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

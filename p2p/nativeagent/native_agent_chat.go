@@ -17,6 +17,7 @@ Core product rules:
 - Current Native Agent can inspect runtime/config, manage native skills, manage MCP servers, run runtime shell/CLI tools, call configured model providers, compress local conversation context, and use built-in Dirextalk tools for contacts, rooms, messages, members, channel posts/comments, summaries, and allowed writes.`
 
 func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]any, error) {
+	ctx = withCloudPlanningRequestScope(ctx)
 	config, _, err := r.agentConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -63,6 +64,9 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 
 func (r *Runtime) agentSystemPrompt(ctx context.Context, config map[string]any, params map[string]any, extra string) string {
 	systemPrompt := nativeAgentDefaultSystemPrompt
+	if cloudSkill := r.cloudDeploymentSkillPrompt(); cloudSkill != "" {
+		systemPrompt = appendPromptBlock(systemPrompt, cloudSkill)
+	}
 	systemPrompt = appendPromptBlock(systemPrompt, pluginConfigString(config, "system_prompt"))
 	if requestPrompt := trimString(params["system_prompt"]); requestPrompt != "" {
 		systemPrompt = appendPromptBlock(systemPrompt, requestPrompt)

@@ -18,6 +18,7 @@ import (
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
@@ -124,6 +125,7 @@ type Service struct {
 	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
+	cloudModule          *cloudmodule.Module
 
 	serviceOperationState
 }
@@ -159,6 +161,7 @@ type Store interface {
 	eventStore
 	pluginsmodule.Store
 	reportsmodule.Store
+	cloudmodule.Store
 }
 
 type socialStore = socialmodule.Store
@@ -759,6 +762,20 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		PublishEvent: service.appendP2PEvent,
 	})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
+	service.cloudModule = cloudmodule.New(service.store, cloudmodule.Config{
+		OwnerMXID: func() string {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return service.ownerMXID
+		},
+		Now: time.Now,
+		NewID: func(kind string) string {
+			return "cloud_" + kind + "_" + randomToken(kind)
+		},
+		Publish: func(ctx context.Context, eventType string, payload map[string]any) error {
+			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, Payload: payload})
+		},
+	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,
 		Contacts:       service.contactsModule,
@@ -768,6 +785,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Members:        service.store,
 		Social:         service.socialModule,
 		Matrix:         service.transport,
+		Cloud:          service.store,
 	}, mcpmodule.Config{
 		Identity: func() mcpmodule.Identity {
 			service.mu.Lock()
@@ -798,11 +816,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	})
 	service.mcpCapabilities = service.mcpModule.Service()
 	service.agentModule = agentmodule.New(agentmodule.Config{
-		Runner:  cfg.NativeAgentRunner,
-		DataDir: cfg.NativeAgentDataDir,
-		Store:   nativeAgentConfigStore{service: service},
-		MCP:     service.mcpCapabilities,
-		Account: serviceAgentAccountPort{service: service},
+		Runner:       cfg.NativeAgentRunner,
+		DataDir:      cfg.NativeAgentDataDir,
+		Store:        nativeAgentConfigStore{service: service},
+		MCP:          service.mcpCapabilities,
+		Account:      serviceAgentAccountPort{service: service},
+		CloudPlanner: serviceNativeCloudPlannerPort{service: service},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

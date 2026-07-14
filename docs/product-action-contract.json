@@ -78,6 +78,106 @@
       "transport": "http_and_ws_request"
     },
     {
+      "name": "cloud.bootstrap",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.connections.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.connections.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.plans.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.plans.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.deployments.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.deployments.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.services.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.services.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.recipes.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.recipes.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.events.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.goals.create",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.role_plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.plans.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.pairing.resume",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.operation.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.operation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.destroy.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.destroy.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "agent.password",
       "auth": "owner",
       "transport": "http_and_ws_request"
