@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Dispatcher"
+  short_description: "Create redacted cloud plans and private recipe drafts"
+  default_prompt: "Use $cloud-dispatcher to research this cloud workload and prepare a redacted plan for my confirmation."
