@@ -26,6 +26,10 @@ const (
 	// Orchestrator must first prove the signed Broker endpoint before a public
 	// Connection record can become active.
 	OutboxKindConnectionRegistrationRequested = "cloud.connection.registration.requested"
+	// OutboxKindDeploymentProvisionRequested is private control-plane work. The
+	// Worker/provisioning runner consumes it later; ProductCore projects only
+	// the de-secretsed Deployment and Job state created with the outbox row.
+	OutboxKindDeploymentProvisionRequested = "cloud.deployment.provision.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"
@@ -41,6 +45,13 @@ var (
 	ErrConnectionBootstrapExpired      = errors.New("cloud connection bootstrap has expired")
 	ErrConnectionBootstrapInvalid      = errors.New("cloud connection bootstrap is not in a completable state")
 	ErrConnectionBootstrapInputInvalid = errors.New("cloud connection bootstrap registration input is invalid")
+	ErrPlanConfirmationConflict        = errors.New("cloud plan confirmation conflicts with the requested revision")
+	ErrPlanConfirmationInvalid         = errors.New("cloud plan confirmation is invalid")
+	ErrPlanQuoteExpired                = errors.New("cloud quote has expired")
+	ErrPlanApprovalConflict            = errors.New("cloud plan approval conflicts with the requested revision")
+	ErrPlanApprovalInvalid             = errors.New("cloud plan approval is invalid")
+	ErrPlanApprovalExpired             = errors.New("cloud plan approval has expired")
+	ErrPlanApprovalSignature           = errors.New("cloud plan approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted

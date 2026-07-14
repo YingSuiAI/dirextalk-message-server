@@ -63,6 +63,7 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.goals.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.role_plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.registration.complete", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.plans.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.plans.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.pairing.resume", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

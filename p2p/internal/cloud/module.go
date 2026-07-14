@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/google/uuid"
 )
 
@@ -33,6 +35,7 @@ const (
 	actionGoalsCreate                     = "cloud.goals.create"
 	actionConnectionsRolePlan             = "cloud.connections.role_plan"
 	actionConnectionsRegistrationComplete = "cloud.connections.registration.complete"
+	actionPlansConfirmationPrepare        = "cloud.plans.confirmation.prepare"
 	actionPlansApprove                    = "cloud.plans.approve"
 	actionDeploymentsPairingResume        = "cloud.deployments.pairing.resume"
 	actionServicesOperationPlan           = "cloud.services.operation.plan"
@@ -50,6 +53,13 @@ const (
 	cloudConnectionBootstrapInvalidCode   = "cloud_connection_bootstrap_invalid"
 	cloudConnectionBootstrapExpiredCode   = "cloud_connection_bootstrap_expired"
 	cloudConnectionBootstrapConflictCode  = "cloud_connection_bootstrap_conflict"
+	cloudPlanConfirmationInvalidCode      = "cloud_plan_confirmation_invalid"
+	cloudPlanConfirmationConflictCode     = "cloud_plan_confirmation_conflict"
+	cloudQuoteExpiredCode                 = "cloud_quote_expired"
+	cloudPlanApprovalInvalidCode          = "cloud_plan_approval_invalid"
+	cloudPlanApprovalConflictCode         = "cloud_plan_approval_conflict"
+	cloudPlanApprovalExpiredCode          = "cloud_plan_approval_expired"
+	cloudPlanApprovalSignatureCode        = "cloud_plan_approval_signature_invalid"
 )
 
 type Config struct {
@@ -86,7 +96,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionGoalsCreate:                     m.createGoal,
 		actionConnectionsRolePlan:             m.createConnectionRolePlan,
 		actionConnectionsRegistrationComplete: m.completeConnectionRegistration,
-		actionPlansApprove:                    m.unavailableWrite,
+		actionPlansConfirmationPrepare:        m.preparePlanConfirmation,
+		actionPlansApprove:                    m.approvePlan,
 		actionDeploymentsPairingResume:        m.unavailableWrite,
 		actionServicesOperationPlan:           m.unavailableWrite,
 		actionServicesOperationApprove:        m.unavailableWrite,
@@ -226,6 +237,193 @@ func (m *Module) completeConnectionRegistration(ctx context.Context, params map[
 		m.publish(ctx, event.Type, event.EventID, jobPayload(job))
 	}
 	return map[string]any{"registration": completed.Bootstrap.Registration()}, nil
+}
+
+// preparePlanConfirmation materializes one immutable PlanV1 from a verified
+// quote tier and returns the short-lived device-signing challenge. The first
+// deployment release deliberately fixes all other scopes to their safe
+// defaults; public ingress, secret delivery, and integrations must be added by
+// a later revisioned plan instead of being smuggled into a purchase approval.
+func (m *Module) preparePlanConfirmation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "plan_id", "expected_revision", "quote_id", "candidate_tier", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(PlanConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	planID := values.String("plan_id")
+	quoteID := values.String("quote_id")
+	tier := values.String("candidate_tier")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(planID) || !cloudIdentifierPattern.MatchString(quoteID) || expectedRevision <= 0 ||
+		(tier != "economy" && tier != "recommended" && tier != "performance") || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPlanConfirmationInvalidCode, "cloud plan confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	quote, found, err := m.store.GetCloudQuote(ctx, quoteID)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if !found {
+		return nil, actionbase.CodedError(http.StatusNotFound, cloudPlanConfirmationInvalidCode, "cloud quote was not found")
+	}
+	now := m.now()
+	if !quote.ValidUntil.After(now) {
+		return nil, actionbase.CodedError(http.StatusConflict, cloudQuoteExpiredCode, "cloud quote has expired")
+	}
+	expiresAt := now.Add(5 * time.Minute)
+	if quote.ValidUntil.Before(expiresAt) {
+		expiresAt = quote.ValidUntil
+	}
+	if !expiresAt.After(now) {
+		return nil, actionbase.CodedError(http.StatusConflict, cloudQuoteExpiredCode, "cloud quote has expired")
+	}
+	created, err := store.PrepareCloudPlanConfirmation(ctx, PreparePlanConfirmationRequest{
+		OwnerMXID: ownerMXID, PlanID: planID, ExpectedRevision: expectedRevision, QuoteID: quoteID, CandidateTier: tier,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: digestFields(planID, fmt.Sprint(expectedRevision), quoteID, tier),
+		ApprovalID: m.newID("approval"), ChallengeID: m.newID("approval_challenge"),
+		ExpiresAt: expiresAt.UnixMilli(), CreatedAt: now.UnixMilli(),
+	})
+	if err != nil {
+		return nil, planConfirmationError(err)
+	}
+	if created.Created {
+		m.publish(ctx, "cloud.plan.changed", created.EventID, planPayload(created.Confirmation.Plan))
+	}
+	return map[string]any{"confirmation": created.Confirmation}, nil
+}
+
+// approvePlan consumes the exact Flutter device signature for a previously
+// persisted confirmation challenge. Neither the native Agent nor MCP gets a
+// path to this handler, and the store atomically records the private provision
+// request before it exposes any queued Deployment projection.
+func (m *Module) approvePlan(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "plan_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(PlanConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	planID := values.String("plan_id")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(planID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPlanApprovalInvalidCode, "cloud plan approval is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	approval, err := decodeApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPlanApprovalInvalidCode, "cloud plan approval is invalid")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UnixMilli()
+	deployment := Deployment{
+		DeploymentID: m.newID("deployment"), PlanID: planID, Execution: "queued", Outcome: "pending", Resource: "none",
+		Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	job := Job{
+		JobID: m.newID("provision"), PlanID: planID, DeploymentID: deployment.DeploymentID, Kind: "provision",
+		Execution: "queued", Outcome: "pending", Checkpoint: "provision_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	payload, marshalErr := json.Marshal(map[string]string{"deployment_id": deployment.DeploymentID})
+	if marshalErr != nil {
+		return nil, actionbase.InternalError(marshalErr)
+	}
+	requestPlanEventID := m.newID("event")
+	requestDeploymentEventID := m.newID("event")
+	requestJobEventID := m.newID("event")
+	created, err := store.ApproveCloudPlan(ctx, ApproveCloudPlanRequest{
+		OwnerMXID: ownerMXID, PlanID: planID, ExpectedRevision: expectedRevision, IdempotencyHash: digest(idempotencyKey), Approval: approval,
+		Deployment: deployment, Job: job,
+		Outbox:      OutboxEntry{OutboxID: m.newID("outbox"), Kind: OutboxKindDeploymentProvisionRequested, AggregateType: "deployment", AggregateID: deployment.DeploymentID, PayloadJSON: string(payload), CreatedAt: now},
+		PlanEventID: requestPlanEventID, DeploymentEventID: requestDeploymentEventID, JobEventID: requestJobEventID, CreatedAt: now,
+	})
+	if err != nil {
+		return nil, planApprovalError(err)
+	}
+	if created.Created {
+		m.publish(ctx, "cloud.plan.changed", requestPlanEventID, planPayload(created.Plan))
+		m.publish(ctx, "cloud.deployment.changed", requestDeploymentEventID, deploymentPayload(created.Deployment))
+		m.publish(ctx, "cloud.job.changed", requestJobEventID, jobPayload(created.Job))
+	}
+	return map[string]any{"plan": created.Plan, "deployment": created.Deployment, "job": created.Job}, nil
+}
+
+func decodeApprovalV1(value any) (cloudcontracts.ApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.ApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.ApprovalV1
+	if err := decoder.Decode(&approval); err != nil {
+		return cloudcontracts.ApprovalV1{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudcontracts.ApprovalV1{}, errors.New("approval contains trailing JSON")
+	}
+	if err := approval.Validate(); err != nil {
+		return cloudcontracts.ApprovalV1{}, err
+	}
+	return approval, nil
+}
+
+func planConfirmationError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud plan confirmation")
+	case errors.Is(err, ErrPlanQuoteExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudQuoteExpiredCode, "cloud quote has expired")
+	case errors.Is(err, ErrPlanConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudPlanConfirmationConflictCode, "cloud plan confirmation revision conflicts with the current plan")
+	case errors.Is(err, ErrPlanConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudPlanConfirmationInvalidCode, "cloud plan is not ready for confirmation")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func planApprovalError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud plan approval")
+	case errors.Is(err, ErrPlanQuoteExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudQuoteExpiredCode, "cloud quote has expired")
+	case errors.Is(err, ErrPlanApprovalExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudPlanApprovalExpiredCode, "cloud plan approval has expired")
+	case errors.Is(err, ErrPlanApprovalSignature):
+		return actionbase.CodedError(http.StatusUnauthorized, cloudPlanApprovalSignatureCode, "cloud plan approval signature is invalid")
+	case errors.Is(err, ErrPlanApprovalConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudPlanApprovalConflictCode, "cloud plan approval revision conflicts with the current plan")
+	case errors.Is(err, ErrPlanApprovalInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudPlanApprovalInvalidCode, "cloud plan approval is invalid")
+	default:
+		return actionbase.InternalError(err)
+	}
 }
 
 // CreateResearchGoal is the only Native Agent-facing entrypoint. It keeps the
@@ -695,5 +893,13 @@ func jobPayload(job Job) map[string]any {
 		"kind": job.Kind, "execution_status": job.Execution, "outcome_status": job.Outcome,
 		"checkpoint": job.Checkpoint, "error_code": job.ErrorCode, "revision": job.Revision,
 		"created_at": job.CreatedAt, "updated_at": job.UpdatedAt,
+	}
+}
+
+func deploymentPayload(deployment Deployment) map[string]any {
+	return map[string]any{
+		"deployment_id": deployment.DeploymentID, "plan_id": deployment.PlanID, "cloud_connection_id": deployment.ConnectionID,
+		"execution_status": deployment.Execution, "outcome_status": deployment.Outcome, "resource_status": deployment.Resource,
+		"revision": deployment.Revision, "created_at": deployment.CreatedAt, "updated_at": deployment.UpdatedAt,
 	}
 }

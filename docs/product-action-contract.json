@@ -153,6 +153,11 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.plans.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.plans.approve",
       "auth": "owner",
       "transport": "http_only"

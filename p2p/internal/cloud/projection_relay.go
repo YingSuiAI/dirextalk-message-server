@@ -230,6 +230,18 @@ type jobProjectionPayload struct {
 	UpdatedAt       int64  `json:"updated_at"`
 }
 
+type deploymentProjectionPayload struct {
+	DeploymentID string `json:"deployment_id"`
+	PlanID       string `json:"plan_id"`
+	ConnectionID string `json:"cloud_connection_id"`
+	Execution    string `json:"execution_status"`
+	Outcome      string `json:"outcome_status"`
+	Resource     string `json:"resource_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
 type connectionProjectionPayload struct {
 	ConnectionID string `json:"cloud_connection_id"`
 	Provider     string `json:"provider"`
@@ -274,6 +286,16 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 			"execution_status": value.ExecutionStatus, "outcome_status": value.OutcomeStatus,
 			"checkpoint": value.Checkpoint, "error_code": value.ErrorCode, "revision": value.Revision,
 			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		}, nil
+	case "cloud.deployment.changed":
+		var value deploymentProjectionPayload
+		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validDeploymentProjection(value) {
+			return nil, errors.New("invalid cloud deployment projection")
+		}
+		return map[string]any{
+			"deployment_id": value.DeploymentID, "plan_id": value.PlanID, "cloud_connection_id": value.ConnectionID,
+			"execution_status": value.Execution, "outcome_status": value.Outcome, "resource_status": value.Resource,
+			"revision": value.Revision, "created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
 		}, nil
 	case "cloud.connection.changed":
 		var value connectionProjectionPayload
@@ -329,6 +351,14 @@ func validJobProjection(value jobProjectionPayload) bool {
 		allowedProjectionValue(value.ExecutionStatus, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
 		allowedProjectionValue(value.OutcomeStatus, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		validVisibleProjectionText(value.Checkpoint, 128, true) && validProjectionErrorCode(value.ErrorCode) &&
+		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
+}
+
+func validDeploymentProjection(value deploymentProjectionPayload) bool {
+	return validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.PlanID) && validProjectionIdentifier(value.ConnectionID) &&
+		allowedProjectionValue(value.Execution, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
+		allowedProjectionValue(value.Outcome, "pending", "succeeded", "failed", "canceled", "interrupted") &&
+		allowedProjectionValue(value.Resource, "none", "active", "retained_tracked", "destroying", "verified_destroyed", "blocked", "orphaned") &&
 		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
 }
 

@@ -38,6 +38,14 @@ func TestProjectionRelayPublishesOnlyWhitelistedCloudSummaries(t *testing.T) {
 			},
 			wantPayload: map[string]any{"job_id": "job-1", "plan_id": "plan-1", "deployment_id": "", "kind": "research", "execution_status": "finished", "outcome_status": "succeeded", "checkpoint": "quote_ready", "error_code": "", "revision": int64(1), "created_at": int64(100), "updated_at": int64(101)},
 		},
+		{
+			name: "deployment",
+			claim: ProjectionClaim{
+				ProjectionID: "projection-deployment", CloudEventID: "event-deployment", LeaseToken: "lease-deployment", Type: "cloud.deployment.changed",
+				PayloadJSON: `{"deployment_id":"deployment-1","plan_id":"plan-1","cloud_connection_id":"connection-1","execution_status":"queued","outcome_status":"pending","resource_status":"none","revision":1,"created_at":100,"updated_at":101}`,
+			},
+			wantPayload: map[string]any{"deployment_id": "deployment-1", "plan_id": "plan-1", "cloud_connection_id": "connection-1", "execution_status": "queued", "outcome_status": "pending", "resource_status": "none", "revision": int64(1), "created_at": int64(100), "updated_at": int64(101)},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -81,6 +89,10 @@ func TestProjectionRelayRejectsUnsafeOrMalformedPayloadWithoutPublishing(t *test
 		{
 			name:  "secret shaped text",
 			claim: ProjectionClaim{ProjectionID: "projection-3", CloudEventID: "event-3", LeaseToken: "lease-3", Type: "cloud.plan.changed", PayloadJSON: `{"plan_id":"plan-1","goal_id":"goal-1","cloud_connection_id":"connection-1","status":"ready_for_confirmation","title":"sk-0123456789abcdefghijklmnop","summary":"safe","recipe_digest":"recipe","quote_id":"quote","plan_hash":"hash","revision":2,"created_at":1,"updated_at":1}`},
+		},
+		{
+			name:  "deployment enrollment leak",
+			claim: ProjectionClaim{ProjectionID: "projection-4", CloudEventID: "event-4", LeaseToken: "lease-4", Type: "cloud.deployment.changed", PayloadJSON: `{"deployment_id":"deployment-1","plan_id":"plan-1","cloud_connection_id":"connection-1","execution_status":"queued","outcome_status":"pending","resource_status":"none","revision":1,"created_at":1,"updated_at":1,"worker_enrollment":"must never project"}`},
 		},
 	}
 	for _, test := range tests {

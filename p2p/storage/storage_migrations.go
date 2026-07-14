@@ -1083,6 +1083,45 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud plan confirmation v43",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// The confirmation record is the durable device-approval boundary.
+				// It stores an unsigned, reviewable ApprovalV1 challenge and only a
+				// consumed signature after verification. It never stores a private
+				// device key, provider credential, Broker endpoint or Worker session.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_plan_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL,
+					owner_mxid TEXT NOT NULL,
+					plan_id TEXT NOT NULL,
+					plan_revision BIGINT NOT NULL CHECK (plan_revision > 0),
+					challenge_id TEXT NOT NULL UNIQUE,
+					signer_key_id TEXT NOT NULL,
+					plan_hash TEXT NOT NULL,
+					approval_json TEXT NOT NULL,
+					signing_payload_cbor BYTEA NOT NULL,
+					expires_at BIGINT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'expired')),
+					prepare_idempotency_hash TEXT NOT NULL,
+					prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT,
+					approve_request_digest TEXT,
+					signature TEXT NOT NULL DEFAULT '',
+					deployment_id TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (plan_id, plan_revision),
+					UNIQUE (owner_mxid, prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_plan_approvals_owner_approve_idempotency_idx
+					ON p2p_cloud_plan_approvals(owner_mxid, approve_idempotency_hash)
+					WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_plan_approvals_plan_status_idx
+					ON p2p_cloud_plan_approvals(plan_id, status, expires_at DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

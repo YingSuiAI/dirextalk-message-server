@@ -116,8 +116,34 @@ same envelope after any indeterminate failure. Only the Broker's exact
 `expired_command` response retires it and permits a new counter. The Broker
 can only return the read-only AWS price/instance-offering quote; on strict
 receipt validation the Store writes the immutable Quote, keeps the Plan in
-`quoting`, records its `quote_id`, and emits safe Plan/Job projections. It does
-not materialize an approval `PlanV1` or authorize a purchase.
+`quoting`, records its `quote_id`, and emits safe Plan/Job projections. Each
+candidate also carries verified architecture, vCPU, memory, GPU count, and
+total GPU-memory facts from the Broker's read-only instance-type lookup; a
+later confirmation never guesses capacity from an instance-type string.
+
+`cloud.plans.confirmation.prepare` is the owner-only transition from a quoted
+Plan to one immutable `ready_for_confirmation` `PlanV1`. It binds exactly one
+quoted tier, recipe digest, capacity scope, no-public-ingress network scope,
+and empty secret/integration scopes. The Store verifies the active Connection's
+registered Flutter Ed25519 public key, persists the canonical Plan version and
+an unsigned short-lived `ApprovalV1` challenge, and returns that reviewable
+challenge. It does not create an AWS resource or hand a secret to a Worker.
+
+`cloud.plans.approve` consumes the exact signed, unexpired persisted challenge.
+In one PostgreSQL transaction it verifies the device signature and revision,
+marks the Plan `approved`, creates a queued/pending Deployment and provision
+Job/Step, and writes a private `cloud.deployment.provision.requested` outbox
+row. It emits only de-secretsed Plan/Deployment/Job summaries. The provision
+outbox is intentionally unclaimed until the independently deployed
+Orchestrator implements the later typed Broker `deployment.create` command;
+this action has not yet created EC2, EBS, an ingress rule, or a billable
+resource.
+
+If the challenge or its bound Quote expires before approval, the same
+transaction instead marks the approval and Plan `expired`, emits a safe Plan
+event, records the failed approval idempotency outcome for replay, and creates
+no Deployment or provision outbox. A `ready_for_confirmation` Plan can never
+be left permanently unapprovable after its challenge expires.
 
 The private research and quote outboxes contain the natural-language goal or
 pre-price request only. ProductCore websocket events and `cloud.events.list`
@@ -127,12 +153,13 @@ signed envelope, receipt, or node-key identity.
 
 The implementation persists recipes, verified quotes, quote command receipts,
 private connection bootstraps and registration command receipts, jobs and job
-steps, plus goals, plans, connections, deployments, services, alerts, Cloud
-audit events, private research/quote/registration outbox records, and
-projection outbox records. An approval Plan version is deliberately absent
-until its separate device-signed confirmation transition exists. Deployment and
-Service writers are deliberately not part of the message-server owner action
-surface.
+steps, plus goals, plans, canonical Plan versions, one-time approval challenges,
+connections, deployments, services, alerts, Cloud audit events, private
+research/quote/registration/provision outbox records, and projection outbox
+records. The consumed approval signature stays in the private approval table;
+it is not part of any ProductCore response, event, MCP result, or Agent input.
+Deployment creation is limited to the approved durable intent above; Service
+writers and all actual cloud mutations remain outside the Message Server.
 
 ## ProductCore actions
 
@@ -150,7 +177,9 @@ Cloud mutation.
 | `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request | HTTP-only |
 | `cloud.connections.role_plan` | creates/replays a short-lived private Stack bootstrap and returns a safe CloudFormation Role Plan | HTTP-only |
 | `cloud.connections.registration.complete` | records Stack outputs as a private pending verification and returns its safe Job binding; it cannot activate a Connection directly | HTTP-only |
-| `cloud.plans.approve`, `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until their independent control-plane transitions are installed | HTTP-only |
+| `cloud.plans.confirmation.prepare` | binds a quoted capacity tier into an immutable no-ingress/no-secret/no-integration PlanV1 and returns a short-lived device challenge | HTTP-only |
+| `cloud.plans.approve` | verifies that exact device signature, then atomically queues the private provision intent; it does not create an AWS resource itself | HTTP-only |
+| `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until their independent control-plane transitions are installed | HTTP-only |
 
 `cloud.connections.role_plan` accepts exactly:
 
@@ -242,6 +271,45 @@ codes in `goal`. The later secure bootstrap channel uploads client-encrypted
 material directly to the AWS Connection Stack KMS/Secrets Manager path and
 returns only `secret_ref` values to ProductCore.
 
+`cloud.plans.confirmation.prepare` accepts exactly:
+
+```json
+{
+  "plan_id": "cloud_plan_…",
+  "expected_revision": 3,
+  "quote_id": "quote_…",
+  "candidate_tier": "recommended",
+  "idempotency_key": "UUID"
+}
+```
+
+It accepts only `economy`, `recommended`, or `performance`; the tier's
+architecture/CPU/memory/GPU/disk capacity must satisfy the persisted Recipe.
+This first confirmation transition accepts only On-Demand candidates; Spot is
+rejected until a separate Recipe checkpoint/resume/interruption contract is
+implemented and tested.
+The returned `confirmation` contains the immutable Plan and unsigned
+`ApprovalV1`; its expiry is at most five minutes and never later than the
+quote's `valid_until`.
+
+`cloud.plans.approve` accepts exactly:
+
+```json
+{
+  "plan_id": "cloud_plan_…",
+  "expected_revision": 4,
+  "approval": { "schema_version": 1, "approval_id": "…", "signature": "…" },
+  "idempotency_key": "UUID"
+}
+```
+
+The complete `approval` object must be the previously returned challenge with
+only its device signature added. Reusing an idempotency key for a different
+prepare or approval request returns `409 cloud_idempotency_conflict`; stale
+revision, expired quote/challenge, and invalid signature fail closed. The
+approval response omits the challenge and signature and reports only safe
+Plan, Deployment, and Job summaries.
+
 ## State and event rules
 
 Plan states are fixed as:
@@ -264,8 +332,8 @@ is available to the control plane after restarts.
 The independent Orchestrator writes only `p2p_cloud_events` and
 `p2p_cloud_projection_outbox` in its fenced transaction. The Message Server
 owns the relay to `p2p_events`: it claims one projection with a lease, decodes
-only fixed `cloud.goal.changed`, `cloud.plan.changed`, and
-`cloud.job.changed` schemas, and calls its local events module with
+only fixed `cloud.goal.changed`, `cloud.plan.changed`, `cloud.job.changed`, and
+`cloud.deployment.changed` schemas, and calls its local events module with
 `dedupe_key=cloud-event:<cloud_event_id>`. It acknowledges only after that
 append. A crash between append and acknowledgement is therefore safe to replay
 without duplicating an owner event. Unknown types, extra fields, malformed
@@ -340,26 +408,30 @@ signed challenge that bind all of:
 
 `plan_hash + revision + quote_id + cloud_connection_id + recipe_digest + resource/network/secret/integration scope + expiry`.
 
-The ProductCore approval action remains disabled until the independent
-Orchestrator, device-key registry, one-time challenge storage, and Dart
-golden-vector verification are wired to that contract.
+The ProductCore prepare/approve actions now use the active Connection's
+device-key registry and a persisted one-time challenge. They bind the exact
+canonical signing payload before the provision intent becomes visible. Dart
+golden-vector verification and the later typed Worker/Broker create command
+remain release gates for any actual provider mutation.
 
-The UI label is **“确认创建并开始计费”**. Price and budget fields remain
-estimates/alerts: they do not promise an AWS billing hard stop. Failure,
-cancellation, successful installation, and `waiting_user_pairing` retain
-resources until the owner explicitly plans and approves a verified destroy.
-Public ingress remains a separate plan and confirmation.
+When the typed Worker creation executor is enabled, the UI label is
+**“确认创建并开始计费”**. Before that executor exists, the current confirmation
+surface must say that it records an approved deployment intent and creates no
+resource or billing. Price and budget fields remain estimates/alerts: they do
+not promise an AWS billing hard stop. Failure, cancellation, successful
+installation, and `waiting_user_pairing` retain resources until the owner
+explicitly plans and approves a verified destroy. Public ingress remains a
+separate plan and confirmation.
 
 ## Explicitly not enabled yet
 
 The current slice does not upload credentials, deploy a Connection Stack on the
-owner's behalf, approve a plan, create an EC2 instance, install a service,
-expose a network endpoint, or destroy a resource. It can issue a reviewed
-CloudFormation handoff and verify a user-deployed Stack, but an active
-Connection can obtain only a read-only quote; it does not execute AWS
-mutations. It ships independently buildable research/quote/registration
-processes and their private event relay, but does not yet deploy a researcher
-endpoint, Worker AMI, Broker executor, or AWS integration test. Those
-transitions must be implemented through the typed Connection Stack/Broker path;
-neither the Eino Agent tool, external MCP, nor the message-server gains
-arbitrary AWS access.
+owner's behalf, create an EC2 instance, install a service, expose a network
+endpoint, or destroy a resource. It can issue a reviewed CloudFormation handoff,
+verify a user-deployed Stack, obtain a read-only quote, and persist an approved
+provision intent; it does not execute AWS mutations. It ships independently
+buildable research/quote/registration processes and their private event relay,
+but does not yet deploy a researcher endpoint, Worker AMI, Broker executor, or
+AWS integration test. Those transitions must be implemented through the typed
+Connection Stack/Broker path; neither the Eino Agent tool, external MCP, nor
+the message-server gains arbitrary AWS access.

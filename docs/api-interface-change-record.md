@@ -2,6 +2,42 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 Device-Signed Cloud Plan Confirmation
+
+`cloud.plans.confirmation.prepare` and `cloud.plans.approve` are now owner
+HTTP-only ProductCore actions. They are unavailable to `agent_token`, `/mcp`,
+and realtime `client.request`.
+
+Preparation binds a `quoting` Plan's expected revision, immutable verified
+quote, selected `economy`/`recommended`/`performance` tier, Recipe resource
+requirements, and active Connection device key into canonical `PlanV1`. Quote
+candidates now carry architecture, vCPU, memory, GPU count, and total GPU
+memory, so confirmation rejects insufficient capacity rather than inferring it
+from an instance-type name. The initial Plan scope is fixed to no public
+ingress, no secret delivery, and no integration. The response returns only the
+reviewable Plan and an unsigned challenge; its expiry is at most five minutes
+and never outlives the quote.
+
+Approval requires the exact stored challenge with a valid Flutter Ed25519
+signature. A single PostgreSQL transaction marks the Plan `approved`, creates
+a queued/pending Deployment and `provision` Job/Step, records a private
+`cloud.deployment.provision.requested` outbox row, and emits safe
+`cloud.plan.changed`, `cloud.deployment.changed`, and `cloud.job.changed`
+projections. Idempotency keys are owner-scoped and reject different request
+shapes, including concurrent cross-Plan collisions. Neither the approval
+signature nor private outbox data appears in a response, audit event, realtime
+projection, Agent input, or MCP result.
+
+This is an approved durable intent, not an AWS mutation: the provision outbox
+has no Worker/EC2 executor yet. It creates no EC2/EBS/ENI, no ingress rule,
+and no billable resource. The later typed Broker `deployment.create` transition
+remains the only permitted path to that work.
+
+If the challenge or bound quote expires, approval atomically marks the
+challenge and Plan `expired`, emits only a safe Plan projection, and records
+the idempotency outcome for retry; it leaves no queued Deployment or provision
+outbox behind.
+
 ## 2026-07-14 User-Owned Connection Stack Registration
 
 `cloud.connections.role_plan` is now an owner HTTP-only action. It accepts an
