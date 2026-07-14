@@ -353,7 +353,10 @@ func (s *Store) CommitWorkerBootstrapObservation(ctx context.Context, claim runt
 			execution: "verifying", outcome: "pending", checkpoint: "worker_bootstrap_verified", errorCode: "",
 			stepStatus: "finished", stepSummary: "The dedicated Worker identity and active bootstrap lease were independently verified by the Connection Stack.",
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return ensureExecutionProbeTask(ctx, tx, claim, now)
 	})
 	if errors.Is(err, ErrLeaseLost) {
 		duplicate, duplicateErr := s.sameVerifiedWorkerBootstrapObservation(ctx, claim, observation)

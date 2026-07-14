@@ -91,6 +91,8 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_cloud_plan_approvals_plan_status_idx",
 		"p2p_cloud_deployment_commands_deployment_idx",
 		"p2p_cloud_deployment_resources_status_idx",
+		"p2p_cloud_execution_probe_tasks_claim_idx",
+		"p2p_cloud_execution_probe_commands_task_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {

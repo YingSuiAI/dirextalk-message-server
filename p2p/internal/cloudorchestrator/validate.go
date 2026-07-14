@@ -368,6 +368,79 @@ func (c QuoteCandidateV1) validate() error {
 	return nil
 }
 
+// Validate accepts only the closed, reference-only execution_probe manifest
+// schema. A valid value carries no executable task material; the separately
+// hashed Recipe and Worker resource manifest remain opaque bindings.
+func (m ExecutionProbeManifestV1) Validate() error {
+	if m.SchemaVersion != ExecutionProbeManifestV1Schema {
+		return fmt.Errorf("schema_version must be %q", ExecutionProbeManifestV1Schema)
+	}
+	if err := validateIdentifier("deployment_id", m.DeploymentID); err != nil {
+		return err
+	}
+	if err := validateIdentifier("plan_id", m.PlanID); err != nil {
+		return err
+	}
+	if err := validateDigest("plan_hash", m.PlanHash); err != nil {
+		return err
+	}
+	if m.PlanRevision == 0 {
+		return errors.New("plan_revision must be positive")
+	}
+	if err := validateDigest("recipe_digest", m.RecipeDigest); err != nil {
+		return err
+	}
+	if err := validateDigest("worker_resource_manifest_digest", m.WorkerResourceManifestDigest); err != nil {
+		return err
+	}
+	return validateExecutionProbeTaskKind(m.TaskKind)
+}
+
+// Validate accepts only an explicitly empty, deployment-bound execution probe
+// input artifact. NoInput must be true: false would make this value ambiguous
+// and would permit a future caller to treat it as an input-bearing payload.
+func (n NoInputV1) Validate() error {
+	if n.SchemaVersion != NoInputV1Schema {
+		return fmt.Errorf("schema_version must be %q", NoInputV1Schema)
+	}
+	if err := validateIdentifier("deployment_id", n.DeploymentID); err != nil {
+		return err
+	}
+	if err := validateExecutionProbeTaskKind(n.TaskKind); err != nil {
+		return err
+	}
+	if !n.NoInput {
+		return errors.New("no_input must be true")
+	}
+	return nil
+}
+
+// ValidateForManifest verifies that this explicitly empty input is bound to
+// the same deployment and fixed task kind as one sealed execution probe
+// manifest. It does not treat a plan or recipe digest as an artifact.
+func (n NoInputV1) ValidateForManifest(manifest ExecutionProbeManifestV1) error {
+	if err := manifest.Validate(); err != nil {
+		return fmt.Errorf("execution probe manifest: %w", err)
+	}
+	if err := n.Validate(); err != nil {
+		return err
+	}
+	if n.DeploymentID != manifest.DeploymentID {
+		return errors.New("no-input deployment_id does not match execution probe manifest")
+	}
+	if n.TaskKind != manifest.TaskKind {
+		return errors.New("no-input task_kind does not match execution probe manifest")
+	}
+	return nil
+}
+
+func validateExecutionProbeTaskKind(kind string) error {
+	if kind != ExecutionProbeTaskKind {
+		return fmt.Errorf("task_kind must be %q", ExecutionProbeTaskKind)
+	}
+	return nil
+}
+
 func (p PlanV1) Validate() error {
 	if err := validateSchema(p.SchemaVersion); err != nil {
 		return err

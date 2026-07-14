@@ -1259,6 +1259,73 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud execution probe task transport v47",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// Execution probe artifacts and command journals are private
+				// orchestrator state. They deliberately never become ProductCore
+				// projections: the Worker receives only typed task references and
+				// digests, while the signed command is replayable after a lost
+				// response without allocating another Broker node counter.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_execution_probe_tasks (
+					deployment_id TEXT PRIMARY KEY NOT NULL,
+					task_id TEXT NOT NULL UNIQUE,
+					plan_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					instance_id TEXT NOT NULL,
+					execution_manifest_cbor BYTEA NOT NULL,
+					execution_manifest_digest TEXT NOT NULL,
+					input_cbor BYTEA NOT NULL,
+					input_digest TEXT NOT NULL,
+					task_status TEXT NOT NULL CHECK (task_status IN ('unissued', 'queued', 'running', 'succeeded', 'failed', 'interrupted')),
+					task_attempt BIGINT NOT NULL CHECK (task_attempt > 0),
+					last_sequence BIGINT NOT NULL DEFAULT 0 CHECK (last_sequence >= 0),
+					checkpoint TEXT NOT NULL DEFAULT '',
+					error_code TEXT NOT NULL DEFAULT '',
+					evidence_digest TEXT NOT NULL DEFAULT '',
+					observed_at BIGINT NOT NULL DEFAULT 0,
+					available_at BIGINT NOT NULL DEFAULT 0,
+					lease_owner TEXT NOT NULL DEFAULT '',
+					lease_token TEXT NOT NULL DEFAULT '',
+					lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+					last_error_code TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_execution_probe_tasks_claim_idx
+					ON p2p_cloud_execution_probe_tasks(task_status, available_at, lease_until, updated_at)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_execution_probe_commands (
+					command_id TEXT PRIMARY KEY NOT NULL,
+					task_id TEXT NOT NULL,
+					deployment_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					request_digest TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK (command_attempt > 0),
+					action TEXT NOT NULL CHECK (action IN ('worker.task.issue', 'worker.task.observe')),
+					node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK (expected_generation > 0),
+					node_counter BIGINT NOT NULL CHECK (node_counter > 0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '',
+					request_sha256 TEXT NOT NULL DEFAULT '',
+					signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0,
+					expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK (state IN ('allocated', 'signed', 'indeterminate', 'accepted', 'expired', 'failed')),
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+					last_error_code TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (cloud_connection_id, node_counter),
+					UNIQUE (task_id, action, request_digest, command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_execution_probe_commands_task_idx
+					ON p2p_cloud_execution_probe_commands(task_id, action, request_digest, command_attempt DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

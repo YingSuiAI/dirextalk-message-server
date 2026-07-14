@@ -1,7 +1,8 @@
 // cloud-orchestrator is an independently supervised, least-privilege Cloud
-// coordinator for research, Stack attestation, quotes, and fixed typed
-// deployment.create requests. It has no Matrix config, Native Agent model
-// key, AWS SDK, Docker socket, or product migration capability.
+// coordinator for research, Stack attestation, quotes, Worker bootstrap
+// observation, and the closed execution-probe transport. It has no Matrix
+// config, Native Agent model key, AWS SDK, Docker socket, or product migration
+// capability.
 package main
 
 import (
@@ -102,7 +103,7 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, quote, and Worker-observation pass")
+	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, quote, Worker-observation, and execution-probe pass")
 	flags.StringVar(&config.researcherURL, "researcher-url", config.researcherURL, "exact HTTPS private researcher endpoint")
 	flags.StringVar(&config.workerID, "worker-id", config.workerID, "non-secret worker identifier")
 	flags.DurationVar(&config.pollInterval, "poll-interval", config.pollInterval, "idle polling interval")
@@ -249,14 +250,20 @@ func run(ctx context.Context, config commandConfig) error {
 	workerBootstrapObservationRunner := runtime.NewWorkerBootstrapObservationRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
+	// execution_probe is a closed, digest-only task transport verification. It
+	// may issue and observe that task, but it cannot execute a Recipe, create
+	// EC2, access Worker credentials, or treat the result as service readiness.
+	executionProbeRunner := runtime.NewExecutionProbeRunner(store, brokerTransport, runtime.Config{
+		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
+	})
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -280,10 +287,11 @@ type iterationRunner interface {
 }
 
 // runIteration gives each independent control-plane loop one chance per poll.
-// A failure in research, Stack registration, quoting, provision, or read-only
-// Worker observation must not starve another durable loop; all errors are
-// returned for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner iterationRunner) (bool, error) {
+// A failure in research, Stack registration, quoting, provision, read-only
+// Worker observation, or the restricted execution-probe transport must not
+// starve another durable loop; all errors are returned for the next retry
+// backoff.
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -297,7 +305,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if workerBootstrapObservationRunner != nil {
 		observed, observationErr = workerBootstrapObservationRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr)
+	var executionProbed bool
+	var executionProbeErr error
+	if executionProbeRunner != nil {
+		executionProbed, executionProbeErr = executionProbeRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

@@ -48,10 +48,16 @@ AWS SDK integration in the message-server process.
   report only `execution_manifest_received` followed by
   `task_transport_verified`, with the Stack atomically binding the evidence
   digest to the issued execution manifest. This is a transport/recovery proof,
-  not service readiness or Recipe execution. The Broker has typed
-  `worker.task.issue` and `worker.task.observe` clients, but no production
-  runtime outbox currently creates either command. It is intentionally not
-  part of the default compose stack until its
+  not service readiness or Recipe execution. After a fenced bootstrap
+  observation, the Orchestrator seals a private deterministic-CBOR
+  `ExecutionProbeManifestV1` and `NoInputV1`, creates one private
+  digest-only issue outbox, and runs the typed `worker.task.issue` /
+  `worker.task.observe` loop. It persists an exact signed envelope before
+  every request and replays it after an indeterminate response; only Stack
+  `expired_command` permits a new node counter. ProductCore receives only the
+  existing `verify` Job projection, never task artifacts, envelopes, raw
+  receipts, Worker identity, logs, endpoints, or secrets. It is intentionally
+  not part of the default compose stack until its
   private researcher, node-key mount, Connection Stack registration, Worker
   identity certificate, and least-privilege database role are deployed. The
   Message Server neither hosts that Worker session broker nor enables an AWS
@@ -181,10 +187,14 @@ The same Stack exposes a separately typed, active-bearer Worker task channel.
 It stores a de-secreted `(deployment_id, task_id)` record in its own KMS-backed
 DynamoDB table, so a lost Worker response can replay the exact task event but
 cannot change its sequence, lease, checkpoint, or execution-manifest digest.
-The current Orchestrator does not enqueue task issues, and the non-root
-`cloud-worker` only sends the two fixed `execution_probe` transport events.
-No Recipe command, root executor, service health assertion, public ingress, or
-AWS mutation is activated by this channel.
+The Orchestrator creates this channel's sole issue outbox only after private
+bootstrap evidence becomes active, then records task state and command
+journals in separate private PostgreSQL tables. The non-root `cloud-worker`
+can send only the two fixed `execution_probe` transport events. A successful
+event finishes the `verify` Job with `task_transport_verified` while leaving
+the Deployment at `verifying` / `pending` / `active`; it cannot establish
+Recipe execution, root execution, service health, public ingress, or any AWS
+mutation.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
@@ -202,12 +212,14 @@ The implementation persists recipes, verified quotes, quote command receipts,
 private connection bootstraps and registration command receipts, jobs and job
 steps, plus goals, plans, canonical Plan versions, one-time approval challenges,
 connections, deployments, services, alerts, Cloud audit events, private
-research/quote/registration/provision outbox records, Worker-bootstrap
-observation leases and exact signed observation-command receipts, and projection
-outbox records. The de-secreted private observation evidence is kept separate
-from public projections. The consumed approval signature stays in the private
-approval table; it is not part of any ProductCore response, event, MCP result,
-or Agent input.
+research/quote/registration/provision/execution-probe outbox records,
+Worker-bootstrap observation leases and exact signed observation-command
+receipts, sealed execution-probe artifacts, independent task observation
+leases, command journals, and projection outbox records. The de-secreted
+private observation evidence and task artifacts are kept separate from public
+projections. The consumed approval signature stays in the private approval
+table; it is not part of any ProductCore response, event, MCP result, or Agent
+input.
 Deployment creation is limited to the approved durable intent above; Service
 writers and all actual cloud mutations remain outside the Message Server.
 

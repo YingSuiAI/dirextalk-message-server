@@ -3,7 +3,7 @@
 This package is the provider-neutral, in-process contract library for the
 separately deployed Cloud Orchestrator. It deliberately does **not** implement
 ProductCore actions, PostgreSQL storage, an AWS SDK client, AWS CLI execution,
-credential bootstrap, direct Worker session/task control or execution, or an
+credential bootstrap, direct Worker session control, a Worker executor, or an
 MCP server.
 
 ## V1 contracts
@@ -19,6 +19,10 @@ MCP server.
   with challenge, signer key id, revision, and expiry. A Broker must verify the
   signature and call `ValidateAgainstPlan` against its current plan before any
   typed mutation.
+- `ExecutionProbeManifestV1` and `NoInputV1` are sealed, private artifacts for
+  the sole pre-executor Worker task. They bind only immutable deployment/plan
+  references and opaque digests; they cannot carry a command, URL, secret,
+  image, or AWS action.
 
 No type exposes a secret value. A secret field is accepted only as an opaque
 `secret_ref:<identifier>` reference. The validators reject common credential
@@ -43,8 +47,9 @@ or signing format.
 `PlanV1.Hash` excludes mutable status/execution projection fields and covers
 the immutable approval surface instead. Set-like scope lists are copied and
 sorted before encoding, so equivalent ordering cannot change a hash or
-signature. `RecipeV1.Digest` and `QuoteV1.Digest` use the same deterministic
-CBOR format for their respective full content.
+signature. `RecipeV1.Digest`, `QuoteV1.Digest`, and the fixed execution-probe
+artifacts use the same deterministic CBOR format for their respective full
+content.
 
 `golden_test.go` pins representative V1 CBOR (base64), hash, and approval
 payload vectors to make a Go/Dart implementation mismatch visible before a

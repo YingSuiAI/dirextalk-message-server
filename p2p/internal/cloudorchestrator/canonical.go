@@ -126,6 +126,76 @@ func (p PlanV1) Hash() (string, error) {
 	return digestCanonicalCBOR(canonical), nil
 }
 
+// CanonicalExecutionProbeManifestCBOR emits RFC 8949 Core Deterministic CBOR
+// for the sealed, reference-only execution_probe manifest artifact.
+func (m ExecutionProbeManifestV1) CanonicalExecutionProbeManifestCBOR() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return canonicalCBOR(m)
+}
+
+// Digest returns the deterministic-CBOR SHA-256 artifact identifier for this
+// exact execution_probe manifest. It is distinct from its bound plan hash,
+// recipe digest, and Worker resource manifest digest.
+func (m ExecutionProbeManifestV1) Digest() (string, error) {
+	canonical, err := m.CanonicalExecutionProbeManifestCBOR()
+	if err != nil {
+		return "", err
+	}
+	return digestCanonicalCBOR(canonical), nil
+}
+
+// VerifyDigest rejects a syntactically valid plan, recipe, or other digest
+// unless it is the digest of this exact execution_probe manifest artifact.
+func (m ExecutionProbeManifestV1) VerifyDigest(digest string) error {
+	actual, err := m.Digest()
+	if err != nil {
+		return err
+	}
+	return verifyExecutionProbeArtifactDigest("execution probe manifest digest", digest, actual)
+}
+
+// CanonicalNoInputCBOR emits RFC 8949 Core Deterministic CBOR for the sealed
+// no-input artifact. The value carries an explicit no_input=true marker rather
+// than any task payload.
+func (n NoInputV1) CanonicalNoInputCBOR() ([]byte, error) {
+	if err := n.Validate(); err != nil {
+		return nil, err
+	}
+	return canonicalCBOR(n)
+}
+
+// Digest returns the deterministic-CBOR SHA-256 artifact identifier for this
+// exact no-input value.
+func (n NoInputV1) Digest() (string, error) {
+	canonical, err := n.CanonicalNoInputCBOR()
+	if err != nil {
+		return "", err
+	}
+	return digestCanonicalCBOR(canonical), nil
+}
+
+// VerifyDigest rejects a syntactically valid plan, recipe, or other digest
+// unless it is the digest of this exact no-input artifact.
+func (n NoInputV1) VerifyDigest(digest string) error {
+	actual, err := n.Digest()
+	if err != nil {
+		return err
+	}
+	return verifyExecutionProbeArtifactDigest("no-input artifact digest", digest, actual)
+}
+
+func verifyExecutionProbeArtifactDigest(label, digest, actual string) error {
+	if err := validateDigest(label, digest); err != nil {
+		return err
+	}
+	if digest != actual {
+		return fmt.Errorf("%s does not match the canonical artifact", label)
+	}
+	return nil
+}
+
 type planHashDocumentV1 struct {
 	SchemaVersion     string               `json:"schema_version"`
 	HashAlgorithm     string               `json:"hash_algorithm"`

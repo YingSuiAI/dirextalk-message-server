@@ -271,6 +271,46 @@ type PlanV1 struct {
 	IntegrationScope  []IntegrationScopeV1 `json:"integration_scope"`
 }
 
+const (
+	// ExecutionProbeManifestV1Schema identifies the sealed, de-secreted
+	// artifact that binds the one fixed transport probe to an already-created
+	// Worker deployment. It is deliberately separate from RecipeV1, PlanV1,
+	// and the Connection Stack Worker resource manifest schemas.
+	ExecutionProbeManifestV1Schema = "dirextalk.execution-probe-manifest/v1"
+	// NoInputV1Schema identifies the sealed empty-input artifact for an
+	// execution probe. It cannot carry task data, commands, URLs, or secrets.
+	NoInputV1Schema = "dirextalk.no-input/v1"
+	// ExecutionProbeTaskKind is the only task kind represented by these
+	// artifacts. It is a transport proof, not Recipe execution or service
+	// readiness.
+	ExecutionProbeTaskKind = "execution_probe"
+)
+
+// ExecutionProbeManifestV1 is a sealed, digestable binding artifact for the
+// restricted execution_probe Worker task. It is not a Recipe, Plan, Worker
+// resource manifest, or executable instruction: it contains only immutable
+// references needed to bind the task to one approved deployment.
+type ExecutionProbeManifestV1 struct {
+	SchemaVersion                string `json:"schema_version"`
+	DeploymentID                 string `json:"deployment_id"`
+	PlanID                       string `json:"plan_id"`
+	PlanHash                     string `json:"plan_hash"`
+	PlanRevision                 uint64 `json:"plan_revision"`
+	RecipeDigest                 string `json:"recipe_digest"`
+	WorkerResourceManifestDigest string `json:"worker_resource_manifest_digest"`
+	TaskKind                     string `json:"task_kind"`
+}
+
+// NoInputV1 is a separate, digestable artifact that explicitly proves the
+// fixed execution_probe task has no input. It binds only the deployment and
+// task kind, never commands, URLs, secrets, or user-provided data.
+type NoInputV1 struct {
+	SchemaVersion string `json:"schema_version"`
+	DeploymentID  string `json:"deployment_id"`
+	TaskKind      string `json:"task_kind"`
+	NoInput       bool   `json:"no_input"`
+}
+
 // ResourceScopeV1 is the hard resource boundary approved for one exclusive
 // worker VM. The Worker does not receive cloud-control credentials.
 type ResourceScopeV1 struct {

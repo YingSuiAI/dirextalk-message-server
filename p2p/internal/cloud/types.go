@@ -30,6 +30,11 @@ const (
 	// Worker/provisioning runner consumes it later; ProductCore projects only
 	// the de-secretsed Deployment and Job state created with the outbox row.
 	OutboxKindDeploymentProvisionRequested = "cloud.deployment.provision.requested"
+	// OutboxKindExecutionProbeIssueRequested is private control-plane work
+	// created only after a dedicated Worker bootstrap lease is independently
+	// verified. It carries sealed digest-only task intent and is never delivered
+	// to ProductCore directly.
+	OutboxKindExecutionProbeIssueRequested = "cloud.execution_probe.issue.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"

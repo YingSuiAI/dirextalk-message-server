@@ -100,32 +100,35 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	quoteFailure := errors.New("quote unavailable")
 	deploymentFailure := errors.New("deployment unavailable")
 	observationFailure := errors.New("worker observation unavailable")
+	executionProbeFailure := errors.New("execution probe unavailable")
 	research := &recordingIterationRunner{processed: true, err: researchFailure}
 	registration := &recordingIterationRunner{processed: true, err: registrationFailure}
 	quote := &recordingIterationRunner{processed: true, err: quoteFailure}
 	deployment := &recordingIterationRunner{processed: true, err: deploymentFailure}
 	observation := &recordingIterationRunner{processed: true, err: observationFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation)
-	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 {
-		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls)
+	executionProbe := &recordingIterationRunner{processed: true, err: executionProbeFailure}
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe)
+	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 {
+		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d execution_probe_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls, executionProbe.calls)
 	}
-	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) {
+	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) || !errors.Is(err, executionProbeFailure) {
 		t.Fatalf("iteration error = %v, want all runner failures", err)
 	}
 }
 
-func TestRunIterationAllowsProvisioningToRemainDisabledWhileWorkerObservationRuns(t *testing.T) {
+func TestRunIterationAllowsProvisioningToRemainDisabledWhileRestrictedWorkersRun(t *testing.T) {
 	research := &recordingIterationRunner{processed: true}
 	registration := &recordingIterationRunner{processed: true}
 	quote := &recordingIterationRunner{processed: true}
 	observation := &recordingIterationRunner{processed: true}
+	executionProbe := &recordingIterationRunner{processed: true}
 
-	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation)
+	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe)
 	if err != nil || !processed {
 		t.Fatalf("iteration = processed:%v err:%v", processed, err)
 	}
-	if research.calls != 1 || registration.calls != 1 || quote.calls != 1 || observation.calls != 1 {
-		t.Fatalf("enabled work must continue while provisioning is disabled: research=%d registration=%d quote=%d observation=%d", research.calls, registration.calls, quote.calls, observation.calls)
+	if research.calls != 1 || registration.calls != 1 || quote.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 {
+		t.Fatalf("enabled work must continue while provisioning is disabled: research=%d registration=%d quote=%d observation=%d execution_probe=%d", research.calls, registration.calls, quote.calls, observation.calls, executionProbe.calls)
 	}
 }
 
