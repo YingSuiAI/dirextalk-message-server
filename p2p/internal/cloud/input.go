@@ -9,7 +9,7 @@ var (
 	awsAccessKeyIDPattern = regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)
 	githubTokenPattern    = regexp.MustCompile(`\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b`)
 	modelTokenPattern     = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}\b`)
-	secretAssignment      = regexp.MustCompile(`(?i)\b(?:aws[_-]?(?:access[_-]?key[_-]?id|secret[_-]?access[_-]?key|session[_-]?token)|github[_-]?token|(?:api|model)[_-]?(?:key|token)|access[_-]?token|authorization)\s*[:=]\s*([^\s,;]+)`)
+	secretAssignment      = regexp.MustCompile(`(?i)\b(?:aws[_-]?(?:access[_-]?key[_-]?id|secret[_-]?access[_-]?key|session[_-]?token)|github[_-]?token|api[_-]?(?:key|token)|model(?:[_-]?api)?[_-]?(?:key|token)|access[_-]?token|authorization)\s*[:=]\s*([^\s,;]+)`)
 )
 
 // ContainsSensitiveGoalMaterial recognizes credential-shaped material that

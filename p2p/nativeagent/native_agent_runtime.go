@@ -152,7 +152,10 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if strings.TrimSpace(action) != "agent.chat.stream" {
 		return fmt.Errorf("native agent stream action %q is not implemented", action)
 	}
-	ctx = withCloudPlanningRequestScope(ctx)
+	ctx, err := prepareCloudDialogueRequest(ctx, params)
+	if err != nil {
+		return err
+	}
 	config, _, err := r.agentConfig(ctx)
 	if err != nil {
 		return err

@@ -445,20 +445,217 @@ func (m *Module) CreateResearchGoal(ctx context.Context, goal, connectionID, ide
 	return response, nil
 }
 
-// ReadCloudStatus is the narrow read-only Agent port. The returned snapshot is
-// the same de-secretsed projection an owner receives from cloud.bootstrap; it
-// never includes private goal prompts, outbox payloads, secret values, or
-// pairing material.
+// ReadCloudStatus is the narrow read-only Agent port. It deliberately uses a
+// smaller model-facing DTO than cloud.bootstrap: provider account/region data,
+// Connection identifiers, private goal prompts, recipe/plan digests, and alert
+// messages are not needed for conversational progress reporting.
 func (m *Module) ReadCloudStatus(ctx context.Context) (map[string]any, error) {
-	result, actionErr := m.bootstrap(ctx, map[string]any{})
-	if actionErr != nil {
-		return nil, fmt.Errorf("%s", actionErr.Error)
+	snapshot, err := m.readCloudStatusSnapshot(ctx, false)
+	if err != nil {
+		return nil, err
 	}
-	response, ok := result.(map[string]any)
-	if !ok {
-		return nil, errors.New("cloud status returned an invalid response")
+	return cloudDialogueStatusPayload(snapshot), nil
+}
+
+type cloudStatusSnapshot struct {
+	goals       []Goal
+	plans       []Plan
+	jobs        []Job
+	connections []Connection
+	deployments []Deployment
+	services    []Service
+	recipes     []Recipe
+	alerts      []Alert
+}
+
+func (m *Module) readCloudStatusSnapshot(ctx context.Context, includeRecipes bool) (cloudStatusSnapshot, error) {
+	if m == nil || m.store == nil {
+		return cloudStatusSnapshot{}, errors.New("cloud status is not configured")
 	}
-	return response, nil
+	goals, err := m.store.ListCloudGoals(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	plans, err := m.store.ListCloudPlans(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	jobs, err := m.store.ListCloudJobs(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	connections, err := m.store.ListCloudConnections(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	deployments, err := m.store.ListCloudDeployments(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	services, err := m.store.ListCloudServices(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	var recipes []Recipe
+	if includeRecipes {
+		recipes, err = m.store.ListCloudRecipes(ctx)
+		if err != nil {
+			return cloudStatusSnapshot{}, err
+		}
+	}
+	alerts, err := m.store.ListCloudAlerts(ctx)
+	if err != nil {
+		return cloudStatusSnapshot{}, err
+	}
+	return cloudStatusSnapshot{
+		goals: goals, plans: planSummaries(plans), jobs: jobs, connections: connections,
+		deployments: deployments, services: services, recipes: recipes, alerts: alerts,
+	}, nil
+}
+
+func cloudBootstrapStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
+	summaries := make([]GoalSummary, 0, len(snapshot.goals))
+	for _, goal := range snapshot.goals {
+		summaries = append(summaries, goal.Summary())
+	}
+	return map[string]any{
+		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": summaries, "plans": snapshot.plans, "jobs": snapshot.jobs,
+		"connections": snapshot.connections, "deployments": snapshot.deployments, "services": snapshot.services, "recipes": snapshot.recipes, "alerts": snapshot.alerts,
+	}
+}
+
+type cloudDialogueGoalStatus struct {
+	GoalID    string `json:"goal_id"`
+	PlanID    string `json:"plan_id"`
+	Status    string `json:"status"`
+	Revision  int64  `json:"revision"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type cloudDialoguePlanStatus struct {
+	PlanID    string `json:"plan_id"`
+	GoalID    string `json:"goal_id"`
+	Status    string `json:"status"`
+	Title     string `json:"title,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Revision  int64  `json:"revision"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type cloudDialogueJobStatus struct {
+	JobID        string `json:"job_id"`
+	PlanID       string `json:"plan_id"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+	Kind         string `json:"kind"`
+	Execution    string `json:"execution_status"`
+	Outcome      string `json:"outcome_status"`
+	Checkpoint   string `json:"checkpoint"`
+	ErrorCode    string `json:"error_code,omitempty"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+type cloudDialogueConnectionStatus struct {
+	Status    string `json:"status"`
+	Revision  int64  `json:"revision"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type cloudDialogueDeploymentStatus struct {
+	DeploymentID string `json:"deployment_id"`
+	PlanID       string `json:"plan_id"`
+	Execution    string `json:"execution_status"`
+	Outcome      string `json:"outcome_status"`
+	Resource     string `json:"resource_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+type cloudDialogueServiceStatus struct {
+	ServiceID    string `json:"service_id"`
+	DeploymentID string `json:"deployment_id"`
+	Name         string `json:"name"`
+	Status       string `json:"service_status"`
+	Integration  string `json:"integration_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+type cloudDialogueAlertStatus struct {
+	AlertID      string `json:"alert_id"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+	ServiceID    string `json:"service_id,omitempty"`
+	Severity     string `json:"severity"`
+	Code         string `json:"code"`
+	Acknowledged bool   `json:"acknowledged"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
+	goals := make([]cloudDialogueGoalStatus, 0, len(snapshot.goals))
+	for _, goal := range snapshot.goals {
+		goals = append(goals, cloudDialogueGoalStatus{
+			GoalID: goal.GoalID, PlanID: goal.PlanID, Status: goal.Status,
+			Revision: goal.Revision, CreatedAt: goal.CreatedAt, UpdatedAt: goal.UpdatedAt,
+		})
+	}
+	plans := make([]cloudDialoguePlanStatus, 0, len(snapshot.plans))
+	for _, plan := range snapshot.plans {
+		plans = append(plans, cloudDialoguePlanStatus{
+			PlanID: plan.PlanID, GoalID: plan.GoalID, Status: plan.Status, Title: plan.Title, Summary: plan.Summary,
+			Revision: plan.Revision, CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
+		})
+	}
+	jobs := make([]cloudDialogueJobStatus, 0, len(snapshot.jobs))
+	for _, job := range snapshot.jobs {
+		jobs = append(jobs, cloudDialogueJobStatus{
+			JobID: job.JobID, PlanID: job.PlanID, DeploymentID: job.DeploymentID, Kind: job.Kind,
+			Execution: job.Execution, Outcome: job.Outcome, Checkpoint: job.Checkpoint, ErrorCode: job.ErrorCode,
+			Revision: job.Revision, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
+		})
+	}
+	connections := make([]cloudDialogueConnectionStatus, 0, len(snapshot.connections))
+	for _, connection := range snapshot.connections {
+		connections = append(connections, cloudDialogueConnectionStatus{
+			Status: connection.Status, Revision: connection.Revision, CreatedAt: connection.CreatedAt, UpdatedAt: connection.UpdatedAt,
+		})
+	}
+	deployments := make([]cloudDialogueDeploymentStatus, 0, len(snapshot.deployments))
+	for _, deployment := range snapshot.deployments {
+		deployments = append(deployments, cloudDialogueDeploymentStatus{
+			DeploymentID: deployment.DeploymentID, PlanID: deployment.PlanID, Execution: deployment.Execution,
+			Outcome: deployment.Outcome, Resource: deployment.Resource, Revision: deployment.Revision,
+			CreatedAt: deployment.CreatedAt, UpdatedAt: deployment.UpdatedAt,
+		})
+	}
+	services := make([]cloudDialogueServiceStatus, 0, len(snapshot.services))
+	for _, service := range snapshot.services {
+		services = append(services, cloudDialogueServiceStatus{
+			ServiceID: service.ServiceID, DeploymentID: service.DeploymentID, Name: service.Name,
+			Status: service.Status, Integration: service.Integration, Revision: service.Revision,
+			CreatedAt: service.CreatedAt, UpdatedAt: service.UpdatedAt,
+		})
+	}
+	alerts := make([]cloudDialogueAlertStatus, 0, len(snapshot.alerts))
+	for _, alert := range snapshot.alerts {
+		alerts = append(alerts, cloudDialogueAlertStatus{
+			AlertID: alert.AlertID, DeploymentID: alert.DeploymentID, ServiceID: alert.ServiceID,
+			Severity: alert.Severity, Code: alert.Code, Acknowledged: alert.Acknowledged,
+			Revision: alert.Revision, CreatedAt: alert.CreatedAt, UpdatedAt: alert.UpdatedAt,
+		})
+	}
+	return map[string]any{
+		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": goals, "plans": plans, "jobs": jobs,
+		"connections": connections, "deployments": deployments, "services": services, "alerts": alerts,
+	}
 }
 
 func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
@@ -570,47 +767,11 @@ func (m *Module) bootstrap(ctx context.Context, params map[string]any) (any, *ac
 	if err := only(params); err != nil {
 		return nil, err
 	}
-	goals, err := m.store.ListCloudGoals(ctx)
+	snapshot, err := m.readCloudStatusSnapshot(ctx, true)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	plans, err := m.store.ListCloudPlans(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	plans = planSummaries(plans)
-	jobs, err := m.store.ListCloudJobs(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	connections, err := m.store.ListCloudConnections(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	deployments, err := m.store.ListCloudDeployments(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	services, err := m.store.ListCloudServices(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	recipes, err := m.store.ListCloudRecipes(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	alerts, err := m.store.ListCloudAlerts(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
-	}
-	summaries := make([]GoalSummary, 0, len(goals))
-	for _, goal := range goals {
-		summaries = append(summaries, goal.Summary())
-	}
-	return map[string]any{
-		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": summaries, "plans": plans, "jobs": jobs,
-		"connections": connections, "deployments": deployments, "services": services, "recipes": recipes, "alerts": alerts,
-	}, nil
+	return cloudBootstrapStatusPayload(snapshot), nil
 }
 
 func (m *Module) connectionsList(ctx context.Context, params map[string]any) (any, *actionbase.Error) {

@@ -27,8 +27,9 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 	if cloudDialogueMode(params) {
 		// Do not derive this set from the configurable/default tool list. The
 		// Cloud dialogue is a capability-reduction mode, so it may expose only
-		// the fixed research-goal and read-only status ports.
-		return r.cloudPlanningTools()
+		// the fixed research-goal and read-only status ports. Its Connection is
+		// bound by the caller's request scope, never a model tool argument.
+		return r.cloudDialoguePlanningTools()
 	}
 	enabled := map[string]bool{}
 	enable := func(tool Tool) {

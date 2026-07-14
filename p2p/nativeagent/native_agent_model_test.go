@@ -145,7 +145,7 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 }
 
 func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
-	const cloudToolCall = `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_cloud_plan_retry","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\",\"cloud_connection_id\":\"connection-1\"}"}}]}}]}`
+	const cloudToolCall = `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_cloud_plan_retry","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\"}"}}]}}]}`
 
 	var requestCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +175,7 @@ func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
 	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
 		"prompt":              "部署一个私有知识库节点",
 		"cloud_dialogue_mode": true,
+		"cloud_connection_id": "connection-1",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-stream",
@@ -199,6 +200,83 @@ func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
 	}
 	if len(events) < 2 || events[len(events)-1].Event != "done" || events[len(events)-1].Data["text"] != "已创建研究计划，等待独立报价和设备确认。" {
 		t.Fatalf("streamed cloud planning events = %#v", events)
+	}
+}
+
+func TestCloudDialogueRejectsSensitiveInputBeforeModelOrPlanner(t *testing.T) {
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{
+			name: "prompt",
+			params: map[string]any{
+				"prompt": "Deploy this service with AWS_SECRET_ACCESS_KEY=not-a-real-secret-value",
+			},
+		},
+		{
+			name: "history message",
+			params: map[string]any{
+				"messages": []any{map[string]any{
+					"role":    "user",
+					"content": "Use MODEL_API_KEY=not-a-real-secret-value for the deployment",
+				}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, stream := range []bool{false, true} {
+				name := "chat"
+				if stream {
+					name = "stream"
+				}
+				t.Run(name, func(t *testing.T) {
+					var modelRequests int
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						modelRequests++
+						http.Error(w, "unexpected model request", http.StatusInternalServerError)
+					}))
+					defer server.Close()
+
+					planner := &recordingCloudPlanner{}
+					runtime := New(Config{
+						DataDir:      filepath.Join(t.TempDir(), "agent"),
+						Store:        &testConfigStore{config: map[string]any{}},
+						CloudPlanner: planner,
+					})
+					params := cloneAnyMap(test.params)
+					params["cloud_dialogue_mode"] = true
+					params["cloud_connection_id"] = "connection-1"
+					params["model_profile"] = map[string]any{
+						"provider": "openai_compatible",
+						"model":    "mock-model",
+						"base_url": server.URL,
+						"api_key":  "test-key",
+					}
+
+					var err error
+					if stream {
+						err = runtime.Stream(context.Background(), "agent.chat.stream", params, func(Event) error {
+							t.Fatal("credential-bearing cloud dialogue must not emit model events")
+							return nil
+						})
+					} else {
+						_, err = runtime.Invoke(context.Background(), "agent.chat", params)
+					}
+					if err == nil {
+						t.Fatal("credential-bearing cloud dialogue must be rejected")
+					}
+					if strings.Contains(err.Error(), "not-a-real-secret-value") {
+						t.Fatalf("rejection must not echo credential material: %v", err)
+					}
+					if modelRequests != 0 || planner.calls != 0 {
+						t.Fatalf("credential-bearing dialogue reached model=%d planner=%d", modelRequests, planner.calls)
+					}
+				})
+			}
+		})
 	}
 }
 

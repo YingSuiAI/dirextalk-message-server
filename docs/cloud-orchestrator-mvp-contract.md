@@ -20,6 +20,12 @@ AWS SDK integration in the message-server process.
   `native_agent_cloud_status`, forces no-memory operation, and excludes runtime
   shell/CLI tools, external MCP, dynamic Skill/MCP management, ordinary
   Dirextalk tools, installed Skill prompts, and request/config prompt injection.
+  The server rejects credential-shaped request text before calling the model and
+  binds the client-selected `cloud_connection_id` outside the tool schema; a
+  model cannot choose a Connection or submit an unbound research goal.
+  Its status result is a separate model-minimized DTO, not the owner bootstrap:
+  it excludes account/region metadata, Connection IDs, private Goal text,
+  artifact digests, and alert messages while retaining progress state.
   It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated

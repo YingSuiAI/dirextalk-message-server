@@ -161,12 +161,64 @@ func TestCloudDialogueModeExposesOnlyPlanningAndReadOnlyStatus(t *testing.T) {
 	if len(tools) != 2 || tools[0].Name != nativeAgentCloudDeploymentPlanTool || tools[1].Name != nativeAgentCloudStatusTool || tools[1].Write {
 		t.Fatalf("cloud dialogue tools = %#v", tools)
 	}
+	properties, _ := tools[0].Parameters["properties"].(map[string]any)
+	if _, exists := properties["cloud_connection_id"]; exists {
+		t.Fatal("cloud dialogue planning must use the client-bound Cloud Connection, not a model-supplied argument")
+	}
 	status, err := tools[1].Handler(context.Background(), map[string]any{})
 	if err != nil || reader.calls != 1 || status.(map[string]any)["plans"] == nil {
 		t.Fatalf("cloud status result=%#v calls=%d err=%v", status, reader.calls, err)
 	}
 	if _, err := tools[1].Handler(context.Background(), map[string]any{"destroy": true}); err == nil {
 		t.Fatal("cloud status tool must reject mutation-shaped arguments")
+	}
+}
+
+func TestCloudDialoguePlanningBindsTheClientSelectedConnection(t *testing.T) {
+	planner := &recordingCloudPlanner{}
+	runtime := New(Config{CloudPlanner: planner})
+	tools := runtime.enabledTools(context.Background(), nil, map[string]any{"cloud_dialogue_mode": true})
+	planningTool, ok := nativeToolByName(tools, nativeAgentCloudDeploymentPlanTool)
+	if !ok {
+		t.Fatal("cloud dialogue planning tool must be available")
+	}
+
+	ctx, err := prepareCloudDialogueRequest(context.Background(), map[string]any{
+		"cloud_dialogue_mode": true,
+		"cloud_connection_id": "connection-selected-by-client",
+	})
+	if err != nil {
+		t.Fatalf("prepare selected Cloud Connection: %v", err)
+	}
+	if _, err := planningTool.Handler(ctx, map[string]any{
+		"goal": "Deploy a private knowledge node after a reviewed plan.",
+	}); err != nil {
+		t.Fatalf("create with selected Cloud Connection: %v", err)
+	}
+	if planner.calls != 1 || planner.connectionID != "connection-selected-by-client" {
+		t.Fatalf("planner must receive only the client-selected Cloud Connection, got %#v", planner)
+	}
+	if _, err := planningTool.Handler(ctx, map[string]any{
+		"goal":                "A model must not choose another connection.",
+		"cloud_connection_id": "connection-not-selected-by-client",
+	}); err == nil {
+		t.Fatal("cloud dialogue must reject a model-supplied Cloud Connection")
+	}
+	if planner.calls != 1 {
+		t.Fatalf("rejected model connection reached planner, calls=%d", planner.calls)
+	}
+
+	withoutSelection, err := prepareCloudDialogueRequest(context.Background(), map[string]any{"cloud_dialogue_mode": true})
+	if err != nil {
+		t.Fatalf("prepare status-only cloud dialogue: %v", err)
+	}
+	if _, err := planningTool.Handler(withoutSelection, map[string]any{
+		"goal": "A Cloud Connection must be selected before research is queued.",
+	}); err == nil {
+		t.Fatal("cloud dialogue must not let the model create an unbound research goal")
+	}
+	if planner.calls != 1 {
+		t.Fatalf("unselected cloud dialogue reached planner, calls=%d", planner.calls)
 	}
 }
 

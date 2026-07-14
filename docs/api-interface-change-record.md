@@ -152,6 +152,28 @@ create a Job that no compliant researcher could settle. A future “plan first,
 attach later” experience requires an explicit revisioned `waiting_connection`
 state and attach action; it is not silently emulated by this contract.
 
+## 2026-07-15 Cloud Dialogue Input And Connection Scope
+
+`cloud_dialogue_mode=true` now rejects credential-shaped material in request
+`prompt`, `message`, and every `messages[].content` or `messages[].text`
+before it resolves a model profile or contacts a model provider. The rejection
+is a fixed safe error and never echoes request content; it also prevents the
+Cloud planner from receiving a Goal.
+
+Cloud dialogue planning now receives a client-selected top-level
+`cloud_connection_id` only through request context. The restricted
+`native_agent_cloud_deployment_plan` schema accepts `goal` alone and rejects a
+model-supplied Connection identifier. A status-only dialogue may omit a
+selection, but a planning call without one is rejected before durable Goal
+creation. Ordinary non-dialogue Native Agent and direct product planning
+contracts remain unchanged.
+
+`native_agent_cloud_status` no longer reuses the owner `cloud.bootstrap`
+payload. Its model-facing DTO retains Goal/Plan/Job/Deployment/Service/Alert
+progress and aggregate Connection state, but omits account IDs, regions,
+Connection identifiers, private Goal prompts, artifact digests, Recipe data,
+and alert messages. The owner ProductCore bootstrap remains unchanged.
+
 ## 2026-07-14 Restricted Cloud Native Agent Dialogue
 
 Owner `agent.chat` and owner realtime Native Agent stream requests may set
