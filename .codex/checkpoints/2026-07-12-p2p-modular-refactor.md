@@ -34,8 +34,9 @@
 - The higher-priority join/contact/channel recovery defect is complete and released as `v1.0.3` at `30afd1f`; retain its focused fault-injection coverage.
 - The realtime WS migration is committed on the current branch. It recreates the old partial WIP from the released implementation rather than applying it: `p2p/internal/realtimews` owns tickets, upgrade/hello/event replay, frame handling, and Plugin/Native Agent streams; root only retains Service wiring and narrow adapters.
 - The migration preserves v1.0.3 WS recovery fields at the top-level error envelope (`code`, `error_code`, `operation_id`, `current_room_id`), ticket single-use/failed-upgrade behavior, account-delete ticket invalidation, Gorilla mount behavior, and existing List-then-Waiter / stream-ID-reuse semantics.
+- Agent account workflow migration is committed as `a6e2981` (`refactor: modularize agent account actions`): `p2p/internal/agent` now owns `agent.password`, `agent.matrix_session.create`, `agent.config.get`, and `agent.config.update`; root retains a narrow lock/Matrix/persistence/status adapter. All four ActionSpecs, JSON shapes (including unconfigured-session `access_token: null`), auth, transports, persistence order, and account-operation fencing are unchanged.
 - The old stash `stash@{0}` / `1cc53d87589caf2a4f03f152f2ca6234ceedf408` remains untouched. It is incomplete and predates v1.0.3; do not apply or drop it.
-- After this WS commit, the next low-risk migration candidate is the root-owned Agent account workflow (`agent.password`, `agent.matrix_session.create`, `agent.config.get/update`) into `p2p/internal/agent`. Avoid join-recovery, direct-room reactivation, and account-deprovision behavior changes.
+- The remaining root flows are intentionally cross-domain or recovery-sensitive (`sync.bootstrap`, account deprovision, direct-room reactivation, and v1.0.3 join recovery). Do not migrate them mechanically; assess only as standalone behavior work.
 
 ## Realtime WS Stage Verification
 
@@ -43,6 +44,13 @@
 - Stage gate passed once: `go test ./p2p/... -count=1` (root 85.345s; storage 35.854s), `go test ./internal/httputil ./setup -count=1`, `go test ./p2p/serviceapi -count=1`, and `go build ./cmd/dirextalk-message-server`.
 - Touched files passed `gofmt`, `gopls check`, `go vet ./p2p/...`, `golangci-lint` (`unused`, `ineffassign`, `staticcheck`), and `git diff --check`. The lint pass also removed four confirmed private dead wrappers plus the uncalled `refreshRoomMembers` helper.
 - Independent engineering/contract review found no P0/P1/P2. It confirmed structured recovery fields, account-delete ticket fencing without a new lock cycle, CORS/Origin, ActionSpecs transport restrictions, stream frame shapes, and no join-recovery bypass.
+
+## Agent Account Stage Verification
+
+- The compact new owning-module test locks password, session response, unconfigured-session `null`, normalized config, blocked-room dedupe, secret exclusion, and offline publication. Existing root tests retain HTTP/WS/auth, Matrix identity, persistence/reload, status-state, Native-store, and account-operation coverage.
+- Passed once at the stage boundary: `go test ./p2p/... -count=1` (root 87.243s; storage 37.524s), `go test ./internal/httputil ./setup -count=1`, and `go build ./cmd/dirextalk-message-server`.
+- Passed: touched-file `gofmt`/`gopls check`, `go vet ./p2p/...`, `golangci-lint` (`unused`, `ineffassign`, `staticcheck`), exact Action contract artifact coverage through `p2p/serviceapi`, and `git diff --check`.
+- Independent engineering and contract audit reported no P0-P2. It verified ActionSpecs/auth/transport, `access_token` null compatibility, secret non-exposure, Service mutex/persistence/offline ordering, session serialization, and account-deletion fencing. The generated `dirextalk-message-server.exe` was removed before commit.
 
 ## Completed Verification
 
