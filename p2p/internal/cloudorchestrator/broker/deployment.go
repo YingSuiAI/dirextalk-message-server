@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"regexp"
 	"time"
@@ -312,35 +311,13 @@ func (command DeploymentCommand) SignatureBase() string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf(
-		"%s\n"+
-			"schema=%s\n"+
-			"connection_id=%s\n"+
-			"command_id=%s\n"+
-			"node_key_id=%s\n"+
-			"issued_at=%s\n"+
-			"expires_at=%s\n"+
-			"expected_generation=%d\n"+
-			"node_counter=%d\n"+
-			"action=%s\n"+
-			"payload_sha256=%s\n"+
-			"approval_binding_sha256=\n"+
-			"approval_challenge_id=\n"+
-			"approval_signature_sha256=\n"+
-			"approval_proof_payload_sha256=%s\n",
-		CommandSignatureSchema,
-		command.Schema,
-		command.ConnectionID,
-		command.CommandID,
-		command.NodeKeyID,
-		command.IssuedAt,
-		command.ExpiresAt,
-		command.ExpectedGeneration,
-		command.NodeCounter,
-		command.Action,
-		command.PayloadSHA256,
-		proofDigest,
-	)
+	return nodeSignatureBase(nodeSignatureFields{
+		Schema: command.Schema, ConnectionID: command.ConnectionID, CommandID: command.CommandID,
+		NodeKeyID: command.NodeKeyID, IssuedAt: command.IssuedAt, ExpiresAt: command.ExpiresAt,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter,
+		Action: command.Action, PayloadSHA256: command.PayloadSHA256,
+		ApprovalProofPayloadSHA256: proofDigest,
+	})
 }
 
 // RequestSHA256 is the durable idempotency identity derived from the signed

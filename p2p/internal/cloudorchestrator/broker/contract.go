@@ -434,6 +434,62 @@ type RegistrationResult struct {
 	Registration Registration        `json:"registration"`
 }
 
+// nodeSignatureFields is the fixed cross-language input to Connection Stack
+// V2's buildNodeSignatureBase. All typed commands, including read-only ones,
+// must retain every approval digest line in the base string: omitted approval
+// material is represented by an empty value, never by an omitted line.
+type nodeSignatureFields struct {
+	Schema                     string
+	ConnectionID               string
+	CommandID                  string
+	NodeKeyID                  string
+	IssuedAt                   string
+	ExpiresAt                  string
+	ExpectedGeneration         int64
+	NodeCounter                int64
+	Action                     string
+	PayloadSHA256              string
+	ApprovalBindingSHA256      string
+	ApprovalChallengeID        string
+	ApprovalSignatureSHA256    string
+	ApprovalProofPayloadSHA256 string
+}
+
+func nodeSignatureBase(fields nodeSignatureFields) string {
+	return fmt.Sprintf(
+		"%s\n"+
+			"schema=%s\n"+
+			"connection_id=%s\n"+
+			"command_id=%s\n"+
+			"node_key_id=%s\n"+
+			"issued_at=%s\n"+
+			"expires_at=%s\n"+
+			"expected_generation=%d\n"+
+			"node_counter=%d\n"+
+			"action=%s\n"+
+			"payload_sha256=%s\n"+
+			"approval_binding_sha256=%s\n"+
+			"approval_challenge_id=%s\n"+
+			"approval_signature_sha256=%s\n"+
+			"approval_proof_payload_sha256=%s\n",
+		CommandSignatureSchema,
+		fields.Schema,
+		fields.ConnectionID,
+		fields.CommandID,
+		fields.NodeKeyID,
+		fields.IssuedAt,
+		fields.ExpiresAt,
+		fields.ExpectedGeneration,
+		fields.NodeCounter,
+		fields.Action,
+		fields.PayloadSHA256,
+		fields.ApprovalBindingSHA256,
+		fields.ApprovalChallengeID,
+		fields.ApprovalSignatureSHA256,
+		fields.ApprovalProofPayloadSHA256,
+	)
+}
+
 // NewQuoteCommand returns a canonical Connection Stack V2 quote.request
 // envelope. It does not call the network and never persists the private key.
 func NewQuoteCommand(input QuoteCommandInput) (QuoteCommand, error) {
@@ -613,69 +669,27 @@ func (command RegistrationCommand) VerifySignature(publicKey ed25519.PublicKey) 
 }
 
 // SignatureBase exactly mirrors buildNodeSignatureBase in the Connection Stack
-// V2 JavaScript contract. quote.request carries neither approval field, hence
-// the three approval lines remain empty.
+// V2 JavaScript contract. quote.request carries no approval material, but its
+// four approval-digest lines are still present and empty.
 func (command QuoteCommand) SignatureBase() string {
-	return fmt.Sprintf(
-		"%s\n"+
-			"schema=%s\n"+
-			"connection_id=%s\n"+
-			"command_id=%s\n"+
-			"node_key_id=%s\n"+
-			"issued_at=%s\n"+
-			"expires_at=%s\n"+
-			"expected_generation=%d\n"+
-			"node_counter=%d\n"+
-			"action=%s\n"+
-			"payload_sha256=%s\n"+
-			"approval_binding_sha256=\n"+
-			"approval_challenge_id=\n"+
-			"approval_signature_sha256=\n",
-		CommandSignatureSchema,
-		command.Schema,
-		command.ConnectionID,
-		command.CommandID,
-		command.NodeKeyID,
-		command.IssuedAt,
-		command.ExpiresAt,
-		command.ExpectedGeneration,
-		command.NodeCounter,
-		command.Action,
-		command.PayloadSHA256,
-	)
+	return nodeSignatureBase(nodeSignatureFields{
+		Schema: command.Schema, ConnectionID: command.ConnectionID, CommandID: command.CommandID,
+		NodeKeyID: command.NodeKeyID, IssuedAt: command.IssuedAt, ExpiresAt: command.ExpiresAt,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter,
+		Action: command.Action, PayloadSHA256: command.PayloadSHA256,
+	})
 }
 
 // SignatureBase exactly mirrors buildNodeSignatureBase in the Connection Stack
 // V2 JavaScript contract. Registration verification carries no approval
-// material, so all three approval lines remain empty.
+// material, so all four approval-digest lines remain empty.
 func (command RegistrationCommand) SignatureBase() string {
-	return fmt.Sprintf(
-		"%s\n"+
-			"schema=%s\n"+
-			"connection_id=%s\n"+
-			"command_id=%s\n"+
-			"node_key_id=%s\n"+
-			"issued_at=%s\n"+
-			"expires_at=%s\n"+
-			"expected_generation=%d\n"+
-			"node_counter=%d\n"+
-			"action=%s\n"+
-			"payload_sha256=%s\n"+
-			"approval_binding_sha256=\n"+
-			"approval_challenge_id=\n"+
-			"approval_signature_sha256=\n",
-		CommandSignatureSchema,
-		command.Schema,
-		command.ConnectionID,
-		command.CommandID,
-		command.NodeKeyID,
-		command.IssuedAt,
-		command.ExpiresAt,
-		command.ExpectedGeneration,
-		command.NodeCounter,
-		command.Action,
-		command.PayloadSHA256,
-	)
+	return nodeSignatureBase(nodeSignatureFields{
+		Schema: command.Schema, ConnectionID: command.ConnectionID, CommandID: command.CommandID,
+		NodeKeyID: command.NodeKeyID, IssuedAt: command.IssuedAt, ExpiresAt: command.ExpiresAt,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter,
+		Action: command.Action, PayloadSHA256: command.PayloadSHA256,
+	})
 }
 
 // RequestSHA256 is the durable request identity calculated by the Connection

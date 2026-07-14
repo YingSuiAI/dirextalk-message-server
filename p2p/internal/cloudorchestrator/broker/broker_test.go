@@ -20,7 +20,7 @@ func TestNewQuoteCommandUsesConnectionStackV2CanonicalEnvelope(t *testing.T) {
 	command := testCommand(t)
 	const wantPayload = `{"quote_request_id":"quote-request-0001","plan_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","region":"us-east-1","candidates":[{"candidate_id":"candidate-0001","tier":"recommended","instance_type":"t3.large","purchase_option":"on_demand","estimated_disk_gib":40}]}`
 	const wantPayloadSHA256 = "2ecd0701be511231c6e5ce075ed14948682900c163acec8d0a93bc06a636511c"
-	const wantRequestSHA256 = "18e50cd8ff5f759be223f6e57fbe6a49351a4881a294bdbba00d132eb25cedd4"
+	const wantRequestSHA256 = "3b68d5d5be6a39f3e42fd3f323c17b4dddc36e38ab6d45335719c6b160ec7e52"
 	const wantSignatureBase = "dirextalk.aws.command-signature/v2\n" +
 		"schema=dirextalk.aws.command/v2\n" +
 		"connection_id=connection-0001\n" +
@@ -34,7 +34,8 @@ func TestNewQuoteCommandUsesConnectionStackV2CanonicalEnvelope(t *testing.T) {
 		"payload_sha256=2ecd0701be511231c6e5ce075ed14948682900c163acec8d0a93bc06a636511c\n" +
 		"approval_binding_sha256=\n" +
 		"approval_challenge_id=\n" +
-		"approval_signature_sha256=\n"
+		"approval_signature_sha256=\n" +
+		"approval_proof_payload_sha256=\n"
 
 	payload, err := base64.StdEncoding.DecodeString(command.PayloadB64)
 	if err != nil {

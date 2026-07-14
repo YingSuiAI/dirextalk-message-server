@@ -640,18 +640,26 @@ func verifyDeploymentProvisionClaimFence(ctx context.Context, tx *sql.Tx, claim 
 }
 
 func transitionProvisionDeployment(ctx context.Context, tx *sql.Tx, claim runtime.DeploymentProvisionClaim, now int64, execution, outcome, resource string) (cloudmodule.Deployment, error) {
+	return transitionDeployment(ctx, tx, claim.DeploymentID, claim.PlanID, claim.ConnectionID, now, execution, outcome, resource)
+}
+
+// transitionDeployment is the one durable deployment state/event writer used
+// by both the provision command and the later Worker bootstrap observation.
+// It keeps private resource evidence out of the ProductCore projection while
+// preserving monotonic deployment revisions across the two execution stages.
+func transitionDeployment(ctx context.Context, tx *sql.Tx, deploymentID, planID, connectionID string, now int64, execution, outcome, resource string) (cloudmodule.Deployment, error) {
 	var deployment cloudmodule.Deployment
 	err := tx.QueryRowContext(ctx, `
 		SELECT deployment_id, plan_id, cloud_connection_id, execution_status, outcome_status, resource_status, revision, created_at, updated_at
 		FROM p2p_cloud_deployments WHERE deployment_id = $1 FOR UPDATE
-	`, claim.DeploymentID).Scan(
+	`, deploymentID).Scan(
 		&deployment.DeploymentID, &deployment.PlanID, &deployment.ConnectionID, &deployment.Execution, &deployment.Outcome, &deployment.Resource,
 		&deployment.Revision, &deployment.CreatedAt, &deployment.UpdatedAt,
 	)
 	if err != nil {
 		return cloudmodule.Deployment{}, err
 	}
-	if deployment.PlanID != claim.PlanID || deployment.ConnectionID != claim.ConnectionID || deployment.Revision <= 0 {
+	if deployment.PlanID != planID || deployment.ConnectionID != connectionID || deployment.Revision <= 0 {
 		return cloudmodule.Deployment{}, ErrLeaseLost
 	}
 	if resource == "" {

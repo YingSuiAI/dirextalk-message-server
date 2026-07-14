@@ -102,7 +102,7 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, and quote pass")
+	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, quote, and Worker-observation pass")
 	flags.StringVar(&config.researcherURL, "researcher-url", config.researcherURL, "exact HTTPS private researcher endpoint")
 	flags.StringVar(&config.workerID, "worker-id", config.workerID, "non-secret worker identifier")
 	flags.DurationVar(&config.pollInterval, "poll-interval", config.pollInterval, "idle polling interval")
@@ -240,20 +240,23 @@ func run(ctx context.Context, config commandConfig) error {
 	registrationRunner := runtime.NewConnectionRegistrationRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
-	// The Connection Stack has no Worker bootstrap-session claim/events API
-	// yet. Do not construct or run the EC2 provisioner behind a configuration
-	// switch: until that closed Worker session boundary exists, a provision
-	// outbox must remain unclaimed and no deployment.create command may leave
-	// this process. Runner unit tests exercise the later execution path directly.
+	// deployment.create remains deliberately disabled in this process. The
+	// Connection Stack can now independently verify Worker bootstrap evidence,
+	// so its read-only observer is safe to run continuously; a future executor
+	// stage must still prove an install/readiness contract before any billable
+	// provision outbox is allowed to leave this process.
 	var deploymentRunner iterationRunner
+	workerBootstrapObservationRunner := runtime.NewWorkerBootstrapObservationRunner(store, brokerTransport, runtime.Config{
+		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
+	})
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -276,11 +279,11 @@ type iterationRunner interface {
 	RunOnce(context.Context) (bool, error)
 }
 
-// runIteration gives each independent outbox exactly one chance per poll. A
-// failure in research, Stack registration, quoting, or a typed provision
-// request must not starve work in another durable outbox; all errors are
+// runIteration gives each independent control-plane loop one chance per poll.
+// A failure in research, Stack registration, quoting, provision, or read-only
+// Worker observation must not starve another durable loop; all errors are
 // returned for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -289,7 +292,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if deploymentRunner != nil {
 		deployed, deploymentErr = deploymentRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr)
+	var observed bool
+	var observationErr error
+	if workerBootstrapObservationRunner != nil {
+		observed, observationErr = workerBootstrapObservationRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

@@ -29,8 +29,13 @@ AWS SDK integration in the message-server process.
   Its mounted Ed25519 node key signs exact durable envelopes but is never
   persisted or sent to the Message Server. The typed `deployment.create`
   runner is present only as a tested control-plane component: the production
-  main process deliberately leaves provision outbox entries unclaimed. The
-  Connection Stack source now has a closed Worker bootstrap claim/events API,
+  main process deliberately leaves provision outbox entries unclaimed. It does
+  run a separate signed, read-only `deployment.observe` loop for a deployment
+  that already has a durable create receipt. That loop cannot create, stop,
+  start, expose, or destroy a Worker; it advances the private Job checkpoint
+  only after the Connection Stack returns current, IID-verified active-lease
+  evidence for the receipt-bound instance. The Connection Stack source now has
+  a closed Worker bootstrap claim/events API,
   IMDSv2 identity verification, and EC2 read-back, but the production
   Orchestrator remains gated until a reviewed fixed Worker AMI, recipe
   executor, service-health evidence, and operational Stack configuration are
@@ -152,6 +157,18 @@ configuration establish the complete execution boundary. The typed Broker
 merely because the bootstrap claim endpoint exists. This action has not yet
 created EC2, EBS, an ingress rule, or a billable resource.
 
+After a later typed creator has recorded a private Worker receipt, the
+Orchestrator may issue a durable, signed `deployment.observe` read. The Stack
+re-reads its receipt-bound Worker session and returns only
+`dirextalk.aws.deployment-observation/v1`: the deployment and instance binding,
+the fixed `provisioning` receipt status, active lease epoch/expiry, sequence,
+and observed time. It never returns a session ID, bearer/hash, endpoint, IID,
+raw event, or log. A non-active or stale observation is deferred; only current
+active evidence atomically advances the provision Job from
+`worker_bootstrap_pending` to `worker_bootstrap_verified` and moves execution
+to `verifying`. A read retry reuses its exact persisted envelope; only the
+Stack's explicit `expired_command` result permits a new node counter.
+
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
 event, records the failed approval idempotency outcome for replay, and creates
@@ -168,9 +185,12 @@ The implementation persists recipes, verified quotes, quote command receipts,
 private connection bootstraps and registration command receipts, jobs and job
 steps, plus goals, plans, canonical Plan versions, one-time approval challenges,
 connections, deployments, services, alerts, Cloud audit events, private
-research/quote/registration/provision outbox records, and projection outbox
-records. The consumed approval signature stays in the private approval table;
-it is not part of any ProductCore response, event, MCP result, or Agent input.
+research/quote/registration/provision outbox records, Worker-bootstrap
+observation leases and exact signed observation-command receipts, and projection
+outbox records. The de-secreted private observation evidence is kept separate
+from public projections. The consumed approval signature stays in the private
+approval table; it is not part of any ProductCore response, event, MCP result,
+or Agent input.
 Deployment creation is limited to the approved durable intent above; Service
 writers and all actual cloud mutations remain outside the Message Server.
 

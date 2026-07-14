@@ -16,7 +16,7 @@ func TestNewRegistrationCommandUsesConnectionStackV2CanonicalEnvelope(t *testing
 	command := testRegistrationCommand(t)
 	const wantPayload = `{"bootstrap_id":"bootstrap-0001","requested_region":"us-east-1","stack_arn":"arn:aws:cloudformation:us-east-1:123456789012:stack/DirextalkConnection-0001/01234567-89ab-cdef-0123-456789abcdef"}`
 	const wantPayloadSHA256 = "5495eb45bff124f1f8c0c861a5709491362f49d5669a7e285c697aa03cd52742"
-	const wantRequestSHA256 = "f1df6d8be5b4740d0962e4ed600abbf7a84e026d87e44c3b2cdcfa3b7c6f5bbb"
+	const wantRequestSHA256 = "e6ce520f2238f0682179ca20f4a1de37fb68a1cd4cabfcddc750fce3fa05a475"
 	const wantSignatureBase = "dirextalk.aws.command-signature/v2\n" +
 		"schema=dirextalk.aws.command/v2\n" +
 		"connection_id=connection-0001\n" +
@@ -30,7 +30,8 @@ func TestNewRegistrationCommandUsesConnectionStackV2CanonicalEnvelope(t *testing
 		"payload_sha256=5495eb45bff124f1f8c0c861a5709491362f49d5669a7e285c697aa03cd52742\n" +
 		"approval_binding_sha256=\n" +
 		"approval_challenge_id=\n" +
-		"approval_signature_sha256=\n"
+		"approval_signature_sha256=\n" +
+		"approval_proof_payload_sha256=\n"
 
 	payload, err := base64.StdEncoding.DecodeString(command.PayloadB64)
 	if err != nil {
