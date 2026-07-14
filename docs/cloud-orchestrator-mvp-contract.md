@@ -23,15 +23,18 @@ AWS SDK integration in the message-server process.
   It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated
-  database role, uses a private mTLS research endpoint, and makes only the
-  fixed HTTPS Connection Stack V2 `quote.request` and
-  `connection.registration.verify` calls. It has no Matrix config, model key,
-  AWS SDK, Docker socket, or migration capability. Its mounted Ed25519 node key
-  signs exact durable envelopes but is never persisted or sent to the Message
-  Server. It is intentionally not part of the default compose stack until its
-  private researcher, node-key mount, Connection Stack registration, and
-  least-privilege database role are deployed. It does not yet ship a Worker or
-  AWS mutation executor.
+  database role, uses a private mTLS research endpoint, and makes the fixed
+  HTTPS Connection Stack V2 research, quote, and registration calls. It has no
+  Matrix config, model key, AWS SDK, Docker socket, or migration capability.
+  Its mounted Ed25519 node key signs exact durable envelopes but is never
+  persisted or sent to the Message Server. The typed `deployment.create`
+  runner is present only as a tested control-plane component: the production
+  main process deliberately leaves provision outbox entries unclaimed until
+  the Connection Stack ships a closed Worker bootstrap claim/events API and
+  instance-identity verification. It is intentionally not part of the default
+  compose stack until its private researcher, node-key mount, Connection Stack
+  registration, and least-privilege database role are deployed. It does not
+  yet ship a Worker session broker or an enabled AWS mutation executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -134,10 +137,11 @@ In one PostgreSQL transaction it verifies the device signature and revision,
 marks the Plan `approved`, creates a queued/pending Deployment and provision
 Job/Step, and writes a private `cloud.deployment.provision.requested` outbox
 row. It emits only de-secretsed Plan/Deployment/Job summaries. The provision
-outbox is intentionally unclaimed until the independently deployed
-Orchestrator implements the later typed Broker `deployment.create` command;
-this action has not yet created EC2, EBS, an ingress rule, or a billable
-resource.
+outbox is intentionally unclaimed by the production Orchestrator until the
+Connection Stack can establish a closed Worker bootstrap session; the typed
+Broker `deployment.create` runner must not become active behind an operator
+switch before that boundary exists. This action has not yet created EC2, EBS,
+an ingress rule, or a billable resource.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
