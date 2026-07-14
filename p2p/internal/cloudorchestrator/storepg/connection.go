@@ -361,10 +361,13 @@ func (s *Store) CommitConnectionRegistration(ctx context.Context, claim runtime.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO p2p_cloud_connection_brokers (
 				cloud_connection_id, broker_command_url, broker_region, connection_generation, node_key_id,
-				next_node_counter, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+				worker_artifact_kind, worker_ami_id, worker_vpc_id, worker_subnet_id, worker_availability_zone,
+				worker_resource_manifest_digest, next_node_counter, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
 		`, claim.ConnectionID, registration.BrokerCommandURL, registration.Region, registration.ConnectionGeneration,
-			registration.NodeKeyID, command.NodeCounter, now); err != nil {
+			registration.NodeKeyID, registration.WorkerArtifact.Kind, registration.WorkerArtifact.AMIID,
+			registration.WorkerNetwork.VPCID, registration.WorkerNetwork.SubnetID, registration.WorkerNetwork.AvailabilityZone,
+			registration.WorkerResourceManifestDigest, command.NodeCounter, now); err != nil {
 			return err
 		}
 		updatedBootstrap, err := tx.ExecContext(ctx, `
@@ -557,7 +560,7 @@ func verifyConnectionRegistrationClaimFence(ctx context.Context, tx *sql.Tx, cla
 }
 
 func transitionConnectionRegistrationJob(ctx context.Context, tx *sql.Tx, claim runtime.ConnectionRegistrationClaim, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
-	return transitionCloudJob(ctx, tx, claim.JobID, "", "connection_registration", "connection_registration", now, transition)
+	return transitionCloudJob(ctx, tx, claim.JobID, "", "", "connection_registration", "connection_registration", now, transition)
 }
 
 func setConnectionRegistrationBootstrapStatus(ctx context.Context, tx *sql.Tx, bootstrapID, status string, now int64) error {

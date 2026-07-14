@@ -349,16 +349,19 @@ func insertQuoteJob(ctx context.Context, tx *sql.Tx, job cloudmodule.Job, now in
 // deployment, but it remains visible after reconnecting the client.
 func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
 	jobID := cloudmodule.ResearchJobID(claim.OutboxID)
-	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "research", "research", now, transition)
+	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "", "research", "research", now, transition)
 }
 
 func transitionQuoteJob(ctx context.Context, tx *sql.Tx, claim runtime.QuoteClaim, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
 	jobID := cloudmodule.QuoteJobID(claim.OutboxID)
-	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "quote", "quote", now, transition)
+	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "", "quote", "quote", now, transition)
 }
 
-func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, kind, stepID string, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
-	if jobID == "" || kind == "" || stepID == "" || (kind == "connection_registration" && planID != "") || (kind != "connection_registration" && planID == "") {
+func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, deploymentID, kind, stepID string, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
+	if jobID == "" || kind == "" || stepID == "" ||
+		(kind == "connection_registration" && (planID != "" || deploymentID != "")) ||
+		(kind == "provision" && (planID == "" || deploymentID == "")) ||
+		(kind != "connection_registration" && kind != "provision" && (planID == "" || deploymentID != "")) {
 		return cloudmodule.Job{}, errors.New("cloud job identity is invalid")
 	}
 	transition.errorCode = durableErrorCode(transition.errorCode, "")
@@ -371,7 +374,7 @@ func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, kind, st
 		&job.Checkpoint, &job.ErrorCode, &job.Revision, &job.CreatedAt, &job.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		job = cloudmodule.Job{
-			JobID: jobID, PlanID: planID, Kind: kind, Execution: transition.execution,
+			JobID: jobID, PlanID: planID, DeploymentID: deploymentID, Kind: kind, Execution: transition.execution,
 			Outcome: transition.outcome, Checkpoint: transition.checkpoint, ErrorCode: transition.errorCode,
 			Revision: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -379,14 +382,14 @@ func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, kind, st
 			INSERT INTO p2p_cloud_jobs (
 				job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
 				checkpoint, error_code, revision, created_at, updated_at
-			) VALUES ($1, $2, '', $3, $4, $5, $6, $7, 1, $8, $8)
-		`, job.JobID, job.PlanID, kind, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, now); err != nil {
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $9)
+		`, job.JobID, job.PlanID, job.DeploymentID, kind, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, now); err != nil {
 			return cloudmodule.Job{}, err
 		}
 	} else if err != nil {
 		return cloudmodule.Job{}, err
 	} else {
-		if job.PlanID != planID || job.DeploymentID != "" || job.Kind != kind || job.Revision <= 0 {
+		if job.PlanID != planID || job.DeploymentID != deploymentID || job.Kind != kind || job.Revision <= 0 {
 			return cloudmodule.Job{}, errors.New("cloud job does not match the claimed outbox")
 		}
 		previousRevision := job.Revision

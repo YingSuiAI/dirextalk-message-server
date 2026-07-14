@@ -1122,6 +1122,81 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud worker placement attestation v44",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// These are private Stack-attested bindings. Empty defaults preserve
+				// pre-v44 Connections, but the provision claim path rejects them
+				// fail-closed until the Connection is re-attested with a fixed Worker
+				// AMI, private placement and resource manifest digest.
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_artifact_kind TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_ami_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_vpc_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_subnet_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_availability_zone TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_connection_brokers ADD COLUMN IF NOT EXISTS worker_resource_manifest_digest TEXT NOT NULL DEFAULT ''`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud deployment provision commands v45",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// deployment.create has its own command journal rather than sharing
+				// the quote table. It preserves the exact signed envelope across an
+				// indeterminate network result, while keeping approval proof and
+				// resource receipts outside ProductCore projections.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_deployment_commands (
+					command_id TEXT PRIMARY KEY NOT NULL,
+					deployment_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					plan_id TEXT NOT NULL,
+					plan_revision BIGINT NOT NULL CHECK (plan_revision > 0),
+					approval_id TEXT NOT NULL,
+					request_digest TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK (command_attempt > 0),
+					action TEXT NOT NULL CHECK (action = 'deployment.create'),
+					node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK (expected_generation > 0),
+					node_counter BIGINT NOT NULL CHECK (node_counter > 0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '',
+					request_sha256 TEXT NOT NULL DEFAULT '',
+					signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0,
+					expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK (state IN ('allocated', 'signed', 'indeterminate', 'accepted', 'expired', 'failed')),
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+					last_error_code TEXT NOT NULL DEFAULT '',
+					receipt_json TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (cloud_connection_id, node_counter),
+					UNIQUE (deployment_id, request_digest, command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_deployment_commands_deployment_idx
+					ON p2p_cloud_deployment_commands(deployment_id, request_digest, command_attempt DESC)`,
+				// Resource identifiers are durable private accounting/cleanup facts,
+				// never public Deployment summary fields. A receipt is trusted only
+				// after the typed Stack response binds it to the signed command.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_deployment_resources (
+					deployment_id TEXT PRIMARY KEY NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					request_sha256 TEXT NOT NULL,
+					resource_status TEXT NOT NULL CHECK (resource_status IN ('active', 'retained_tracked', 'destroying', 'verified_destroyed', 'blocked', 'orphaned')),
+					instance_id TEXT NOT NULL,
+					volume_ids_json TEXT NOT NULL,
+					network_interface_ids_json TEXT NOT NULL,
+					broker_receipt_json TEXT NOT NULL,
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_deployment_resources_status_idx
+					ON p2p_cloud_deployment_resources(resource_status, updated_at DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

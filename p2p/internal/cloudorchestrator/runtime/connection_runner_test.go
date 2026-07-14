@@ -328,10 +328,15 @@ func testBrokerRegistration(t *testing.T, claim ConnectionRegistrationClaim, sig
 		BrokerCommandURL:     claim.BrokerEndpoint,
 		NodeKeyID:            claim.NodeKeyID,
 		ConnectionGeneration: claim.ExpectedGeneration,
-		StackARN:             claim.StackARN,
-		CommandID:            claim.Command.CommandID,
-		RequestSHA256:        signed.RequestSHA256,
-		ReceiptJSON:          `{"disposition":"registered"}`,
+		WorkerArtifact:       WorkerArtifactReferenceV1{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
+		WorkerNetwork: DeploymentNetworkReference{
+			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: claim.RequestedRegion + "a",
+		},
+		WorkerResourceManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		StackARN:                     claim.StackARN,
+		CommandID:                    claim.Command.CommandID,
+		RequestSHA256:                signed.RequestSHA256,
+		ReceiptJSON:                  `{"disposition":"registered"}`,
 	}
 	if err := ValidateBrokerRegistration(claim, signed, registration); err != nil {
 		t.Fatalf("test broker registration must be valid: %v", err)

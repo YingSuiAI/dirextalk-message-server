@@ -84,7 +84,7 @@ func TestStoreCommitConnectionRegistrationMakesOnlySafeConnectionMaterialVisible
 	if err != nil {
 		t.Fatal(err)
 	}
-	if containsAny(string(encodedConnection), []string{"execute-api", "stack/", "private", "signature"}) {
+	if containsAny(string(encodedConnection), []string{"execute-api", "stack/", "private", "signature", "worker_", "ami-", "vpc-", "subnet-"}) {
 		t.Fatalf("public connection leaked private Stack facts: %s", encodedConnection)
 	}
 
@@ -110,8 +110,21 @@ func TestStoreCommitConnectionRegistrationMakesOnlySafeConnectionMaterialVisible
 	).Scan(&projection); err != nil {
 		t.Fatal(err)
 	}
-	if containsAny(projection, []string{"execute-api", "stack/", "raw-private-receipt", "node_key"}) {
+	if containsAny(projection, []string{"execute-api", "stack/", "raw-private-receipt", "node_key", "worker_", "ami-", "vpc-", "subnet-"}) {
 		t.Fatalf("connection projection leaked private material: %s", projection)
+	}
+	var artifactKind, amiID, vpcID, subnetID, availabilityZone, manifestDigest string
+	if err := database.DB().QueryRowContext(ctx, `
+		SELECT worker_artifact_kind, worker_ami_id, worker_vpc_id, worker_subnet_id,
+			worker_availability_zone, worker_resource_manifest_digest
+		FROM p2p_cloud_connection_brokers WHERE cloud_connection_id = $1`, claim.ConnectionID,
+	).Scan(&artifactKind, &amiID, &vpcID, &subnetID, &availabilityZone, &manifestDigest); err != nil {
+		t.Fatal(err)
+	}
+	if artifactKind != "fixed_ami" || amiID != "ami-0123456789abcdef0" || vpcID != "vpc-0123456789abcdef0" ||
+		subnetID != "subnet-0123456789abcdef0" || availabilityZone != claim.RequestedRegion+"a" ||
+		manifestDigest != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("private worker placement binding = artifact:%q ami:%q vpc:%q subnet:%q az:%q digest:%q", artifactKind, amiID, vpcID, subnetID, availabilityZone, manifestDigest)
 	}
 	var execution, outcome, checkpoint string
 	if err := database.DB().QueryRowContext(ctx, `
@@ -220,7 +233,12 @@ func validBrokerRegistration(claim runtime.ConnectionRegistrationClaim, signed r
 		Schema: "dirextalk.aws.connection-registration/v1", BootstrapID: claim.BootstrapID, ConnectionID: claim.ConnectionID,
 		AccountID: "123456789012", Region: claim.RequestedRegion, BrokerCommandURL: claim.BrokerEndpoint,
 		NodeKeyID: claim.NodeKeyID, ConnectionGeneration: claim.ExpectedGeneration, StackARN: claim.StackARN,
-		CommandID: claim.Command.CommandID, RequestSHA256: signed.RequestSHA256, ReceiptJSON: `{"raw-private-receipt":"ignored-by-store"}`,
+		WorkerArtifact: runtime.WorkerArtifactReferenceV1{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
+		WorkerNetwork: runtime.DeploymentNetworkReference{
+			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: claim.RequestedRegion + "a",
+		},
+		WorkerResourceManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		CommandID:                    claim.Command.CommandID, RequestSHA256: signed.RequestSHA256, ReceiptJSON: `{"raw-private-receipt":"ignored-by-store"}`,
 	}
 }
 

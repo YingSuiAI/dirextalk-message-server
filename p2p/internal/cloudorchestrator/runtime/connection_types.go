@@ -107,18 +107,21 @@ type SignedConnectionRegistrationCommand struct {
 // credentials, Lambda logs, public keys, or arbitrary response data are
 // accepted into the durable control plane.
 type BrokerRegistration struct {
-	Schema               string
-	BootstrapID          string
-	ConnectionID         string
-	AccountID            string
-	Region               string
-	BrokerCommandURL     string
-	NodeKeyID            string
-	ConnectionGeneration int64
-	StackARN             string
-	CommandID            string
-	RequestSHA256        string
-	ReceiptJSON          string
+	Schema                       string
+	BootstrapID                  string
+	ConnectionID                 string
+	AccountID                    string
+	Region                       string
+	BrokerCommandURL             string
+	NodeKeyID                    string
+	ConnectionGeneration         int64
+	WorkerArtifact               WorkerArtifactReferenceV1
+	WorkerNetwork                DeploymentNetworkReference
+	WorkerResourceManifestDigest string
+	StackARN                     string
+	CommandID                    string
+	RequestSHA256                string
+	ReceiptJSON                  string
 }
 
 type ConnectionRegistrationStore interface {
@@ -202,7 +205,8 @@ func ValidateBrokerRegistration(claim ConnectionRegistrationClaim, signed Signed
 	}
 	if registration.Schema != "dirextalk.aws.connection-registration/v1" || registration.BootstrapID != claim.BootstrapID || registration.ConnectionID != claim.ConnectionID ||
 		!accountIDPattern.MatchString(registration.AccountID) || registration.Region != claim.RequestedRegion || registration.NodeKeyID != claim.NodeKeyID ||
-		registration.ConnectionGeneration != claim.ExpectedGeneration || registration.StackARN != claim.StackARN || registration.CommandID != claim.Command.CommandID ||
+		registration.ConnectionGeneration != claim.ExpectedGeneration || !validRegisteredWorkerConfiguration(registration.Region, registration.WorkerArtifact, registration.WorkerNetwork, registration.WorkerResourceManifestDigest) ||
+		registration.StackARN != claim.StackARN || registration.CommandID != claim.Command.CommandID ||
 		registration.RequestSHA256 != signed.RequestSHA256 || registration.BrokerCommandURL != claim.BrokerEndpoint || strings.TrimSpace(registration.ReceiptJSON) == "" {
 		return errors.New("broker connection registration does not bind the signed command")
 	}
@@ -210,6 +214,13 @@ func ValidateBrokerRegistration(claim ConnectionRegistrationClaim, signed Signed
 		return fmt.Errorf("broker connection registration endpoint: %w", err)
 	}
 	return nil
+}
+
+func validRegisteredWorkerConfiguration(region string, artifact WorkerArtifactReferenceV1, network DeploymentNetworkReference, resourceManifestDigest string) bool {
+	return artifact.Kind == "fixed_ami" && ec2AMIIdentifierPattern.MatchString(artifact.AMIID) &&
+		ec2VPCIdentifierPattern.MatchString(network.VPCID) && ec2SubnetIdentifierPattern.MatchString(network.SubnetID) &&
+		deploymentAvailabilityZone.MatchString(network.AvailabilityZone) && strings.TrimSuffix(network.AvailabilityZone, network.AvailabilityZone[len(network.AvailabilityZone)-1:]) == region &&
+		deploymentDigestPattern.MatchString(resourceManifestDigest)
 }
 
 func cloudRegion(value string) bool {

@@ -129,11 +129,16 @@ var (
 		"broker_command_url",
 		"node_key_id",
 		"connection_generation",
+		"worker_artifact",
+		"worker_network",
+		"worker_resource_manifest_digest",
 		"stack_arn",
 		"command_id",
 		"request_sha256",
 	}
-	quoteFields = []string{
+	registrationWorkerArtifactFields = []string{"kind", "ami_id"}
+	registrationWorkerNetworkFields  = []string{"vpc_id", "subnet_id", "availability_zone"}
+	quoteFields                      = []string{
 		"schema",
 		"quote_id",
 		"connection_id",
@@ -346,17 +351,34 @@ type RegistrationReceipt struct {
 // Registration is the strict stack-derived connection attestation returned by
 // the Broker after it validates a signed registration request.
 type Registration struct {
-	Schema               string `json:"schema"`
-	BootstrapID          string `json:"bootstrap_id"`
-	ConnectionID         string `json:"connection_id"`
-	AccountID            string `json:"account_id"`
-	Region               string `json:"region"`
-	BrokerCommandURL     string `json:"broker_command_url"`
-	NodeKeyID            string `json:"node_key_id"`
-	ConnectionGeneration int64  `json:"connection_generation"`
-	StackARN             string `json:"stack_arn"`
-	CommandID            string `json:"command_id"`
-	RequestSHA256        string `json:"request_sha256"`
+	Schema                       string                  `json:"schema"`
+	BootstrapID                  string                  `json:"bootstrap_id"`
+	ConnectionID                 string                  `json:"connection_id"`
+	AccountID                    string                  `json:"account_id"`
+	Region                       string                  `json:"region"`
+	BrokerCommandURL             string                  `json:"broker_command_url"`
+	NodeKeyID                    string                  `json:"node_key_id"`
+	ConnectionGeneration         int64                   `json:"connection_generation"`
+	WorkerArtifact               WorkerArtifactReference `json:"worker_artifact"`
+	WorkerNetwork                WorkerNetworkReference  `json:"worker_network"`
+	WorkerResourceManifestDigest string                  `json:"worker_resource_manifest_digest"`
+	StackARN                     string                  `json:"stack_arn"`
+	CommandID                    string                  `json:"command_id"`
+	RequestSHA256                string                  `json:"request_sha256"`
+}
+
+// WorkerArtifactReference and WorkerNetworkReference are private Stack-owned
+// launch bindings. They are attested during connection registration so a
+// later deployment.create cannot choose an arbitrary AMI or network.
+type WorkerArtifactReference struct {
+	Kind  string `json:"kind"`
+	AMIID string `json:"ami_id"`
+}
+
+type WorkerNetworkReference struct {
+	VPCID            string `json:"vpc_id"`
+	SubnetID         string `json:"subnet_id"`
+	AvailabilityZone string `json:"availability_zone"`
 }
 
 // QuotedCandidate is a quote candidate bound to the original signed request.
@@ -949,6 +971,13 @@ func validateRegistration(command RegistrationCommand, request RegistrationReque
 	if registration.Schema != RegistrationSchema || !idPattern.MatchString(registration.BootstrapID) || !idPattern.MatchString(registration.ConnectionID) || !accountIDPattern.MatchString(registration.AccountID) || !regionPattern.MatchString(registration.Region) || !keyIDPattern.MatchString(registration.NodeKeyID) || !safePositive(registration.ConnectionGeneration) || !idPattern.MatchString(registration.CommandID) || !sha256Pattern.MatchString(registration.RequestSHA256) {
 		return newError("invalid_registration", nil)
 	}
+	if registration.WorkerArtifact.Kind != "fixed_ami" || !amiIDPattern.MatchString(registration.WorkerArtifact.AMIID) ||
+		!vpcIDPattern.MatchString(registration.WorkerNetwork.VPCID) || !subnetIDPattern.MatchString(registration.WorkerNetwork.SubnetID) ||
+		!availabilityZonePattern.MatchString(registration.WorkerNetwork.AvailabilityZone) ||
+		registration.WorkerNetwork.AvailabilityZone[:len(registration.WorkerNetwork.AvailabilityZone)-1] != registration.Region ||
+		!namedSHA256Pattern.MatchString(registration.WorkerResourceManifestDigest) {
+		return newError("invalid_registration", nil)
+	}
 	endpoint, err := parseBrokerEndpoint(registration.BrokerCommandURL)
 	if err != nil || endpoint.String() != registration.BrokerCommandURL {
 		return newError("invalid_registration", err)
@@ -1136,7 +1165,14 @@ func validateRegistrationResultJSONShape(raw []byte) error {
 	if _, err := exactJSONObject(object["receipt"], registrationReceiptFields); err != nil {
 		return err
 	}
-	_, err = exactJSONObject(object["registration"], registrationFields)
+	registration, err := exactJSONObject(object["registration"], registrationFields)
+	if err != nil {
+		return err
+	}
+	if _, err = exactJSONObject(registration["worker_artifact"], registrationWorkerArtifactFields); err != nil {
+		return err
+	}
+	_, err = exactJSONObject(registration["worker_network"], registrationWorkerNetworkFields)
 	return err
 }
 

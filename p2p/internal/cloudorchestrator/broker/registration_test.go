@@ -164,6 +164,18 @@ func TestClientRejectsUnboundRegistrationAttestation(t *testing.T) {
 				registration.BrokerCommandURL = "https://alternate.example/prod/v2/commands"
 			},
 		},
+		{
+			name: "worker AMI",
+			mutate: func(registration *Registration) {
+				registration.WorkerArtifact.AMIID = "ami-not-attested"
+			},
+		},
+		{
+			name: "worker network",
+			mutate: func(registration *Registration) {
+				registration.WorkerNetwork.SubnetID = "subnet-not-attested"
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -231,9 +243,14 @@ func validRegistrationResult(t *testing.T, command RegistrationCommand, endpoint
 		BrokerCommandURL:     endpoint,
 		NodeKeyID:            command.NodeKeyID,
 		ConnectionGeneration: command.ExpectedGeneration,
-		StackARN:             request.StackARN,
-		CommandID:            command.CommandID,
-		RequestSHA256:        command.RequestSHA256(),
+		WorkerArtifact:       WorkerArtifactReference{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
+		WorkerNetwork: WorkerNetworkReference{
+			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a",
+		},
+		WorkerResourceManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		StackARN:                     request.StackARN,
+		CommandID:                    command.CommandID,
+		RequestSHA256:                command.RequestSHA256(),
 	}
 	return RegistrationResult{
 		Status: status,
