@@ -3,6 +3,8 @@ package p2p
 import (
 	"context"
 	"errors"
+
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport/dendrite"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -188,7 +190,7 @@ func TestProfileUpdateIgnoresSingleRoomMemberProfileFailure(t *testing.T) {
 func TestFillMissingRoomVersionPrefersLookupBeforeDefault(t *testing.T) {
 	ctx := context.Background()
 	queryRes := roomserverAPI.QueryLatestEventsAndStateResponse{RoomExists: true}
-	fillMissingRoomVersion(
+	dendrite.FillMissingRoomVersion(
 		ctx,
 		"!room:example.com",
 		&queryRes,
@@ -202,7 +204,7 @@ func TestFillMissingRoomVersionPrefersLookupBeforeDefault(t *testing.T) {
 	}
 
 	queryRes = roomserverAPI.QueryLatestEventsAndStateResponse{RoomExists: true}
-	fillMissingRoomVersion(
+	dendrite.FillMissingRoomVersion(
 		ctx,
 		"!room:example.com",
 		&queryRes,

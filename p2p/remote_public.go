@@ -393,7 +393,9 @@ func (s *Service) remotePublicAction(ctx context.Context, serverName, action str
 	if err != nil {
 		return http.StatusBadGateway, err
 	}
-	defer closeResource(res.Body)
+	if res.Body != nil {
+		defer func() { _ = res.Body.Close() }()
+	}
 	if res.StatusCode != http.StatusOK {
 		return res.StatusCode, remotePublicError(res.Body, res.StatusCode)
 	}
