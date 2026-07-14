@@ -35,6 +35,10 @@ const (
 	// verified. It carries sealed digest-only task intent and is never delivered
 	// to ProductCore directly.
 	OutboxKindExecutionProbeIssueRequested = "cloud.execution_probe.issue.requested"
+	// OutboxKindRecipeExecutionInstallRequested is a sealed, digest-only
+	// control-plane intent. It does not issue a Worker task yet and may only be
+	// created after the separate RecipeExecutionApprovalV1 is verified.
+	OutboxKindRecipeExecutionInstallRequested = "cloud.recipe_execution.install.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"
@@ -45,18 +49,24 @@ const (
 )
 
 var (
-	ErrIdempotencyConflict             = errors.New("cloud idempotency key was reused with a different request")
-	ErrConnectionBootstrapConflict     = errors.New("cloud connection bootstrap conflicts with the requested revision")
-	ErrConnectionBootstrapExpired      = errors.New("cloud connection bootstrap has expired")
-	ErrConnectionBootstrapInvalid      = errors.New("cloud connection bootstrap is not in a completable state")
-	ErrConnectionBootstrapInputInvalid = errors.New("cloud connection bootstrap registration input is invalid")
-	ErrPlanConfirmationConflict        = errors.New("cloud plan confirmation conflicts with the requested revision")
-	ErrPlanConfirmationInvalid         = errors.New("cloud plan confirmation is invalid")
-	ErrPlanQuoteExpired                = errors.New("cloud quote has expired")
-	ErrPlanApprovalConflict            = errors.New("cloud plan approval conflicts with the requested revision")
-	ErrPlanApprovalInvalid             = errors.New("cloud plan approval is invalid")
-	ErrPlanApprovalExpired             = errors.New("cloud plan approval has expired")
-	ErrPlanApprovalSignature           = errors.New("cloud plan approval signature is invalid")
+	ErrIdempotencyConflict                 = errors.New("cloud idempotency key was reused with a different request")
+	ErrConnectionBootstrapConflict         = errors.New("cloud connection bootstrap conflicts with the requested revision")
+	ErrConnectionBootstrapExpired          = errors.New("cloud connection bootstrap has expired")
+	ErrConnectionBootstrapInvalid          = errors.New("cloud connection bootstrap is not in a completable state")
+	ErrConnectionBootstrapInputInvalid     = errors.New("cloud connection bootstrap registration input is invalid")
+	ErrPlanConfirmationConflict            = errors.New("cloud plan confirmation conflicts with the requested revision")
+	ErrPlanConfirmationInvalid             = errors.New("cloud plan confirmation is invalid")
+	ErrPlanQuoteExpired                    = errors.New("cloud quote has expired")
+	ErrPlanApprovalConflict                = errors.New("cloud plan approval conflicts with the requested revision")
+	ErrPlanApprovalInvalid                 = errors.New("cloud plan approval is invalid")
+	ErrPlanApprovalExpired                 = errors.New("cloud plan approval has expired")
+	ErrPlanApprovalSignature               = errors.New("cloud plan approval signature is invalid")
+	ErrRecipeExecutionManifestConflict     = errors.New("cloud recipe execution manifest conflicts with the current deployment")
+	ErrRecipeExecutionManifestInvalid      = errors.New("cloud recipe execution manifest is invalid")
+	ErrRecipeExecutionConfirmationConflict = errors.New("cloud recipe execution confirmation conflicts with the requested deployment")
+	ErrRecipeExecutionConfirmationInvalid  = errors.New("cloud recipe execution confirmation is invalid")
+	ErrRecipeExecutionApprovalExpired      = errors.New("cloud recipe execution approval has expired")
+	ErrRecipeExecutionApprovalSignature    = errors.New("cloud recipe execution approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted

@@ -1326,6 +1326,69 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud recipe execution confirmation v48",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// A manifest is registered only by the trusted Orchestrator compiler.
+				// ProductCore, Agent, MCP, and Worker paths never write this table.
+				// It stores sealed references/digests rather than a command, artifact
+				// body, URL, secret value, provider credential, or Worker session.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_execution_manifests (
+					execution_id TEXT PRIMARY KEY NOT NULL,
+					deployment_id TEXT NOT NULL UNIQUE,
+					plan_id TEXT NOT NULL,
+					plan_revision BIGINT NOT NULL CHECK (plan_revision > 0),
+					plan_hash TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					manifest_digest TEXT NOT NULL,
+					manifest_cbor BYTEA NOT NULL,
+					manifest_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('registered', 'approval_prepared', 'approved')),
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_recipe_execution_manifests_status_updated_idx
+					ON p2p_cloud_recipe_execution_manifests(status, updated_at DESC)`,
+				// Approval proof has a separate journal from Plan approval. A consumed
+				// execution signature must never be substituted for a purchase approval,
+				// and all replay keys remain owner-scoped and durable.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_execution_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL,
+					owner_mxid TEXT NOT NULL,
+					execution_id TEXT NOT NULL,
+					deployment_id TEXT NOT NULL,
+					deployment_revision BIGINT NOT NULL CHECK (deployment_revision > 0),
+					plan_id TEXT NOT NULL,
+					plan_revision BIGINT NOT NULL CHECK (plan_revision > 0),
+					signer_key_id TEXT NOT NULL,
+					manifest_digest TEXT NOT NULL,
+					approval_json TEXT NOT NULL,
+					signing_payload_cbor BYTEA NOT NULL,
+					expires_at BIGINT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'expired')),
+					prepare_idempotency_hash TEXT NOT NULL,
+					prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT,
+					approve_request_digest TEXT,
+					signature TEXT NOT NULL DEFAULT '',
+					job_id TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (owner_mxid, prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_recipe_execution_approvals_owner_approve_idempotency_idx
+					ON p2p_cloud_recipe_execution_approvals(owner_mxid, approve_idempotency_hash)
+					WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_recipe_execution_approvals_execution_active_idx
+					ON p2p_cloud_recipe_execution_approvals(execution_id)
+					WHERE status IN ('pending', 'approved')`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_recipe_execution_approvals_execution_status_idx
+					ON p2p_cloud_recipe_execution_approvals(execution_id, status, expires_at DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

@@ -163,6 +163,16 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.deployments.recipe_execution.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.recipe_execution.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.deployments.pairing.resume",
       "auth": "owner",
       "transport": "http_only"

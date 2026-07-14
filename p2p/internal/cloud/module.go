@@ -20,46 +20,52 @@ import (
 )
 
 const (
-	actionBootstrap                       = "cloud.bootstrap"
-	actionConnectionsList                 = "cloud.connections.list"
-	actionConnectionsGet                  = "cloud.connections.get"
-	actionPlansList                       = "cloud.plans.list"
-	actionPlansGet                        = "cloud.plans.get"
-	actionDeploymentsList                 = "cloud.deployments.list"
-	actionDeploymentsGet                  = "cloud.deployments.get"
-	actionServicesList                    = "cloud.services.list"
-	actionServicesGet                     = "cloud.services.get"
-	actionRecipesList                     = "cloud.recipes.list"
-	actionRecipesGet                      = "cloud.recipes.get"
-	actionEventsList                      = "cloud.events.list"
-	actionGoalsCreate                     = "cloud.goals.create"
-	actionConnectionsRolePlan             = "cloud.connections.role_plan"
-	actionConnectionsRegistrationComplete = "cloud.connections.registration.complete"
-	actionPlansConfirmationPrepare        = "cloud.plans.confirmation.prepare"
-	actionPlansApprove                    = "cloud.plans.approve"
-	actionDeploymentsPairingResume        = "cloud.deployments.pairing.resume"
-	actionServicesOperationPlan           = "cloud.services.operation.plan"
-	actionServicesOperationApprove        = "cloud.services.operation.approve"
-	actionServicesDestroyPlan             = "cloud.services.destroy.plan"
-	actionServicesDestroyApprove          = "cloud.services.destroy.approve"
-	cloudUnavailableCode                  = "cloud_orchestrator_unavailable"
-	cloudIdempotencyInvalidCode           = "cloud_idempotency_key_invalid"
-	cloudGoalInvalidCode                  = "cloud_goal_invalid"
-	cloudConnectionIDInvalidCode          = "cloud_connection_id_invalid"
-	cloudConnectionRequiredCode           = "cloud_connection_required"
-	cloudInvalidParamsCode                = "cloud_invalid_params"
-	cloudIdempotencyConflictCode          = "cloud_idempotency_conflict"
-	cloudConnectionStackUnavailableCode   = "cloud_connection_stack_unavailable"
-	cloudConnectionBootstrapInvalidCode   = "cloud_connection_bootstrap_invalid"
-	cloudConnectionBootstrapExpiredCode   = "cloud_connection_bootstrap_expired"
-	cloudConnectionBootstrapConflictCode  = "cloud_connection_bootstrap_conflict"
-	cloudPlanConfirmationInvalidCode      = "cloud_plan_confirmation_invalid"
-	cloudPlanConfirmationConflictCode     = "cloud_plan_confirmation_conflict"
-	cloudQuoteExpiredCode                 = "cloud_quote_expired"
-	cloudPlanApprovalInvalidCode          = "cloud_plan_approval_invalid"
-	cloudPlanApprovalConflictCode         = "cloud_plan_approval_conflict"
-	cloudPlanApprovalExpiredCode          = "cloud_plan_approval_expired"
-	cloudPlanApprovalSignatureCode        = "cloud_plan_approval_signature_invalid"
+	actionBootstrap                                     = "cloud.bootstrap"
+	actionConnectionsList                               = "cloud.connections.list"
+	actionConnectionsGet                                = "cloud.connections.get"
+	actionPlansList                                     = "cloud.plans.list"
+	actionPlansGet                                      = "cloud.plans.get"
+	actionDeploymentsList                               = "cloud.deployments.list"
+	actionDeploymentsGet                                = "cloud.deployments.get"
+	actionServicesList                                  = "cloud.services.list"
+	actionServicesGet                                   = "cloud.services.get"
+	actionRecipesList                                   = "cloud.recipes.list"
+	actionRecipesGet                                    = "cloud.recipes.get"
+	actionEventsList                                    = "cloud.events.list"
+	actionGoalsCreate                                   = "cloud.goals.create"
+	actionConnectionsRolePlan                           = "cloud.connections.role_plan"
+	actionConnectionsRegistrationComplete               = "cloud.connections.registration.complete"
+	actionPlansConfirmationPrepare                      = "cloud.plans.confirmation.prepare"
+	actionPlansApprove                                  = "cloud.plans.approve"
+	actionDeploymentsRecipeExecutionConfirmationPrepare = "cloud.deployments.recipe_execution.confirmation.prepare"
+	actionDeploymentsRecipeExecutionApprove             = "cloud.deployments.recipe_execution.approve"
+	actionDeploymentsPairingResume                      = "cloud.deployments.pairing.resume"
+	actionServicesOperationPlan                         = "cloud.services.operation.plan"
+	actionServicesOperationApprove                      = "cloud.services.operation.approve"
+	actionServicesDestroyPlan                           = "cloud.services.destroy.plan"
+	actionServicesDestroyApprove                        = "cloud.services.destroy.approve"
+	cloudUnavailableCode                                = "cloud_orchestrator_unavailable"
+	cloudIdempotencyInvalidCode                         = "cloud_idempotency_key_invalid"
+	cloudGoalInvalidCode                                = "cloud_goal_invalid"
+	cloudConnectionIDInvalidCode                        = "cloud_connection_id_invalid"
+	cloudConnectionRequiredCode                         = "cloud_connection_required"
+	cloudInvalidParamsCode                              = "cloud_invalid_params"
+	cloudIdempotencyConflictCode                        = "cloud_idempotency_conflict"
+	cloudConnectionStackUnavailableCode                 = "cloud_connection_stack_unavailable"
+	cloudConnectionBootstrapInvalidCode                 = "cloud_connection_bootstrap_invalid"
+	cloudConnectionBootstrapExpiredCode                 = "cloud_connection_bootstrap_expired"
+	cloudConnectionBootstrapConflictCode                = "cloud_connection_bootstrap_conflict"
+	cloudPlanConfirmationInvalidCode                    = "cloud_plan_confirmation_invalid"
+	cloudPlanConfirmationConflictCode                   = "cloud_plan_confirmation_conflict"
+	cloudQuoteExpiredCode                               = "cloud_quote_expired"
+	cloudPlanApprovalInvalidCode                        = "cloud_plan_approval_invalid"
+	cloudPlanApprovalConflictCode                       = "cloud_plan_approval_conflict"
+	cloudPlanApprovalExpiredCode                        = "cloud_plan_approval_expired"
+	cloudPlanApprovalSignatureCode                      = "cloud_plan_approval_signature_invalid"
+	cloudRecipeExecutionConfirmationInvalidCode         = "cloud_recipe_execution_confirmation_invalid"
+	cloudRecipeExecutionConfirmationConflictCode        = "cloud_recipe_execution_confirmation_conflict"
+	cloudRecipeExecutionApprovalExpiredCode             = "cloud_recipe_execution_approval_expired"
+	cloudRecipeExecutionApprovalSignatureCode           = "cloud_recipe_execution_approval_signature_invalid"
 )
 
 type Config struct {
@@ -98,11 +104,13 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionConnectionsRegistrationComplete: m.completeConnectionRegistration,
 		actionPlansConfirmationPrepare:        m.preparePlanConfirmation,
 		actionPlansApprove:                    m.approvePlan,
-		actionDeploymentsPairingResume:        m.unavailableWrite,
-		actionServicesOperationPlan:           m.unavailableWrite,
-		actionServicesOperationApprove:        m.unavailableWrite,
-		actionServicesDestroyPlan:             m.unavailableWrite,
-		actionServicesDestroyApprove:          m.unavailableWrite,
+		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
+		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
+		actionDeploymentsPairingResume:                      m.unavailableWrite,
+		actionServicesOperationPlan:                         m.unavailableWrite,
+		actionServicesOperationApprove:                      m.unavailableWrite,
+		actionServicesDestroyPlan:                           m.unavailableWrite,
+		actionServicesDestroyApprove:                        m.unavailableWrite,
 	}
 }
 
@@ -371,6 +379,101 @@ func (m *Module) approvePlan(ctx context.Context, params map[string]any) (any, *
 	return map[string]any{"plan": created.Plan, "deployment": created.Deployment, "job": created.Job}, nil
 }
 
+// prepareRecipeExecutionConfirmation creates a fresh, short-lived challenge
+// for the one trusted sealed manifest already registered to a Deployment. The
+// public request can name only the Deployment revision; artifact, command,
+// root, secret-slot, and network scope remain server-side trusted data.
+func (m *Module) prepareRecipeExecutionConfirmation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "deployment_id", "expected_revision", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(RecipeExecutionConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	deploymentID := values.String("deployment_id")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(deploymentID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC()
+	prepared, err := store.PrepareCloudRecipeExecutionConfirmation(ctx, PrepareRecipeExecutionConfirmationRequest{
+		OwnerMXID: ownerMXID, DeploymentID: deploymentID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: digestFields(deploymentID, fmt.Sprint(expectedRevision)),
+		ApprovalID: m.newID("recipe_execution_approval"), ChallengeID: m.newID("recipe_execution_challenge"),
+		CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		return nil, recipeExecutionConfirmationError(err)
+	}
+	return map[string]any{"confirmation": prepared.Confirmation}, nil
+}
+
+// approveRecipeExecution verifies the exact device signature for a trusted
+// manifest and atomically creates an install Job plus a private digest-only
+// outbox intent. It deliberately does not claim a Worker, issue a task, call
+// the Broker, mutate AWS, or change Deployment/Service readiness.
+func (m *Module) approveRecipeExecution(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "deployment_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(RecipeExecutionConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	deploymentID := values.String("deployment_id")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(deploymentID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	approval, err := decodeRecipeExecutionApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution confirmation is invalid")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UnixMilli()
+	job := Job{
+		JobID: m.newID("install"), PlanID: approval.PlanID, DeploymentID: deploymentID, Kind: "install",
+		Execution: "queued", Outcome: "pending", Checkpoint: "install_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	jobEventID := m.newID("event")
+	approved, err := store.ApproveCloudRecipeExecution(ctx, ApproveRecipeExecutionRequest{
+		OwnerMXID: ownerMXID, DeploymentID: deploymentID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), Approval: approval, Job: job,
+		OutboxID: m.newID("outbox"), JobEventID: jobEventID, CreatedAt: now,
+	})
+	if err != nil {
+		return nil, recipeExecutionApprovalError(err)
+	}
+	if approved.Created {
+		m.publish(ctx, "cloud.job.changed", jobEventID, jobPayload(approved.Job))
+	}
+	return map[string]any{"execution": approved.Execution, "job": approved.Job}, nil
+}
+
 func decodeApprovalV1(value any) (cloudcontracts.ApprovalV1, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -388,6 +491,27 @@ func decodeApprovalV1(value any) (cloudcontracts.ApprovalV1, error) {
 	}
 	if err := approval.Validate(); err != nil {
 		return cloudcontracts.ApprovalV1{}, err
+	}
+	return approval, nil
+}
+
+func decodeRecipeExecutionApprovalV1(value any) (cloudcontracts.RecipeExecutionApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.RecipeExecutionApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.RecipeExecutionApprovalV1
+	if err := decoder.Decode(&approval); err != nil {
+		return cloudcontracts.RecipeExecutionApprovalV1{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudcontracts.RecipeExecutionApprovalV1{}, errors.New("recipe execution approval contains trailing JSON")
+	}
+	if err := approval.Validate(); err != nil {
+		return cloudcontracts.RecipeExecutionApprovalV1{}, err
 	}
 	return approval, nil
 }
@@ -421,6 +545,36 @@ func planApprovalError(err error) *actionbase.Error {
 		return actionbase.CodedError(http.StatusConflict, cloudPlanApprovalConflictCode, "cloud plan approval revision conflicts with the current plan")
 	case errors.Is(err, ErrPlanApprovalInvalid):
 		return actionbase.CodedError(http.StatusConflict, cloudPlanApprovalInvalidCode, "cloud plan approval is invalid")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func recipeExecutionConfirmationError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud recipe execution confirmation")
+	case errors.Is(err, ErrRecipeExecutionConfirmationConflict), errors.Is(err, ErrRecipeExecutionManifestConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationConflictCode, "cloud recipe execution confirmation conflicts with the current deployment")
+	case errors.Is(err, ErrRecipeExecutionConfirmationInvalid), errors.Is(err, ErrRecipeExecutionManifestInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution is not ready for confirmation")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func recipeExecutionApprovalError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud recipe execution approval")
+	case errors.Is(err, ErrRecipeExecutionApprovalExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionApprovalExpiredCode, "cloud recipe execution approval has expired")
+	case errors.Is(err, ErrRecipeExecutionApprovalSignature):
+		return actionbase.CodedError(http.StatusUnauthorized, cloudRecipeExecutionApprovalSignatureCode, "cloud recipe execution approval signature is invalid")
+	case errors.Is(err, ErrRecipeExecutionConfirmationConflict), errors.Is(err, ErrRecipeExecutionManifestConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationConflictCode, "cloud recipe execution approval conflicts with the current deployment")
+	case errors.Is(err, ErrRecipeExecutionConfirmationInvalid), errors.Is(err, ErrRecipeExecutionManifestInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution approval is invalid")
 	default:
 		return actionbase.InternalError(err)
 	}

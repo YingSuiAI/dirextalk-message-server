@@ -180,6 +180,246 @@ func TestDatabaseStoreCloudPlanApprovalExpiryClosesPlanAndReplays(t *testing.T) 
 	}
 }
 
+func TestDatabaseStoreRecipeExecutionConfirmationBindsTrustedManifestAndQueuesOnlyInstallIntent(t *testing.T) {
+	ctx := context.Background()
+	store := newCloudConfirmationStore(t)
+	now := time.Date(2026, time.July, 15, 9, 0, 0, 0, time.UTC)
+	owner, deployment, privateKey, manifest := seedCloudRecipeExecutionReadyDeployment(t, store, now)
+
+	registered, err := store.RegisterTrustedCloudRecipeExecutionManifest(ctx, cloudmodule.RegisterTrustedRecipeExecutionManifestRequest{
+		Manifest: manifest, RegisteredAt: now.Add(2 * time.Minute).UnixMilli(),
+	})
+	if err != nil || !registered.Created || registered.Execution.Status != "registered" || registered.Execution.DeploymentID != deployment.DeploymentID {
+		t.Fatalf("register trusted manifest = %#v, err=%v", registered, err)
+	}
+	replayRegistration, err := store.RegisterTrustedCloudRecipeExecutionManifest(ctx, cloudmodule.RegisterTrustedRecipeExecutionManifestRequest{
+		Manifest: manifest, RegisteredAt: now.Add(3 * time.Minute).UnixMilli(),
+	})
+	if err != nil || replayRegistration.Created || replayRegistration.Execution.ExecutionID != registered.Execution.ExecutionID {
+		t.Fatalf("register replay = %#v, err=%v", replayRegistration, err)
+	}
+	tamperedManifest := manifest
+	tamperedManifest.ArtifactDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	if _, err := store.RegisterTrustedCloudRecipeExecutionManifest(ctx, cloudmodule.RegisterTrustedRecipeExecutionManifestRequest{
+		Manifest: tamperedManifest, RegisteredAt: now.Add(3 * time.Minute).UnixMilli(),
+	}); err != cloudmodule.ErrRecipeExecutionManifestConflict {
+		t.Fatalf("tampered registration error = %v, want %v", err, cloudmodule.ErrRecipeExecutionManifestConflict)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		UPDATE p2p_cloud_worker_bootstrap_observations
+		SET worker_lease_expires_at = $1
+		WHERE deployment_id = $2
+	`, now.Add(2*time.Minute).UnixMilli(), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PrepareCloudRecipeExecutionConfirmation(ctx, cloudmodule.PrepareRecipeExecutionConfirmationRequest{
+		OwnerMXID: owner, DeploymentID: deployment.DeploymentID, ExpectedRevision: deployment.Revision,
+		IdempotencyHash: "recipe-execution-expired-worker-idempotency", RequestDigest: "recipe-execution-expired-worker-request",
+		ApprovalID: "recipe-execution-expired-worker-approval-1", ChallengeID: "recipe-execution-expired-worker-challenge-1",
+		CreatedAt: now.Add(3 * time.Minute).UnixMilli(), ExpiresAt: now.Add(8 * time.Minute).UnixMilli(),
+	}); err != cloudmodule.ErrRecipeExecutionManifestInvalid {
+		t.Fatalf("expired worker prepare error = %v, want %v", err, cloudmodule.ErrRecipeExecutionManifestInvalid)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		UPDATE p2p_cloud_worker_bootstrap_observations
+		SET worker_lease_expires_at = $1
+		WHERE deployment_id = $2
+	`, now.Add(time.Hour).UnixMilli(), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+
+	prepare := cloudmodule.PrepareRecipeExecutionConfirmationRequest{
+		OwnerMXID: owner, DeploymentID: deployment.DeploymentID, ExpectedRevision: deployment.Revision,
+		IdempotencyHash: "recipe-execution-prepare-idempotency", RequestDigest: "recipe-execution-prepare-request",
+		ApprovalID: "recipe-execution-approval-1", ChallengeID: "recipe-execution-challenge-1",
+		CreatedAt: now.Add(3 * time.Minute).UnixMilli(), ExpiresAt: now.Add(8 * time.Minute).UnixMilli(),
+	}
+	prepared, err := store.PrepareCloudRecipeExecutionConfirmation(ctx, prepare)
+	if err != nil || !prepared.Created || prepared.Confirmation.Execution.Status != "approval_prepared" {
+		t.Fatalf("prepare recipe execution confirmation = %#v, err=%v", prepared, err)
+	}
+	if prepared.Confirmation.Approval.PlanRevision != manifest.PlanRevision || prepared.Confirmation.Approval.DeploymentRevision != uint64(deployment.Revision) ||
+		prepared.Confirmation.Approval.RecipeExecutionManifestDigest != registered.Execution.RecipeExecutionManifestDigest || prepared.Confirmation.Approval.Signature != "" {
+		t.Fatalf("prepared execution approval binding = %#v", prepared.Confirmation.Approval)
+	}
+	prepareReplay, err := store.PrepareCloudRecipeExecutionConfirmation(ctx, prepare)
+	if err != nil || prepareReplay.Created || prepareReplay.Confirmation.Approval.ApprovalID != prepare.ApprovalID {
+		t.Fatalf("prepare execution replay = %#v, err=%v", prepareReplay, err)
+	}
+	prepareConflict := prepare
+	prepareConflict.RequestDigest = "different-recipe-execution-prepare-request"
+	if _, err := store.PrepareCloudRecipeExecutionConfirmation(ctx, prepareConflict); err != cloudmodule.ErrIdempotencyConflict {
+		t.Fatalf("prepare execution idempotency conflict = %v", err)
+	}
+
+	signed, err := prepared.Confirmation.Approval.Sign(privateKey, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalRequest := cloudmodule.ApproveRecipeExecutionRequest{
+		OwnerMXID: owner, DeploymentID: deployment.DeploymentID, ExpectedRevision: deployment.Revision,
+		IdempotencyHash: "recipe-execution-approve-idempotency", Approval: signed,
+		Job: cloudmodule.Job{
+			JobID: "job-install-recipe-execution-1", PlanID: deployment.PlanID, DeploymentID: deployment.DeploymentID, Kind: "install",
+			Execution: "queued", Outcome: "pending", Checkpoint: "install_queued", Revision: 1,
+			CreatedAt: now.Add(4 * time.Minute).UnixMilli(), UpdatedAt: now.Add(4 * time.Minute).UnixMilli(),
+		},
+		OutboxID: "outbox-install-recipe-execution-1", JobEventID: "event-install-recipe-execution-1", CreatedAt: now.Add(4 * time.Minute).UnixMilli(),
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		UPDATE p2p_cloud_worker_bootstrap_observations
+		SET worker_lease_expires_at = $1
+		WHERE deployment_id = $2
+	`, now.Add(3*time.Minute).UnixMilli(), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApproveCloudRecipeExecution(ctx, approvalRequest); err != cloudmodule.ErrRecipeExecutionManifestInvalid {
+		t.Fatalf("expired worker approval error = %v, want %v", err, cloudmodule.ErrRecipeExecutionManifestInvalid)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		UPDATE p2p_cloud_worker_bootstrap_observations
+		SET worker_lease_expires_at = $1
+		WHERE deployment_id = $2
+	`, now.Add(time.Hour).UnixMilli(), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := store.ApproveCloudRecipeExecution(ctx, approvalRequest)
+	if err != nil || !approved.Created || approved.Execution.Status != "approved" || approved.Job.Kind != "install" || approved.Job.Checkpoint != "install_queued" {
+		t.Fatalf("approve recipe execution = %#v, err=%v", approved, err)
+	}
+	if strings.Contains(mustCloudConfirmationJSON(t, approved), signed.Signature) {
+		t.Fatalf("recipe execution approval response leaked device signature: %s", mustCloudConfirmationJSON(t, approved))
+	}
+	replayedApproval, err := store.ApproveCloudRecipeExecution(ctx, approvalRequest)
+	if err != nil || replayedApproval.Created || replayedApproval.Job.JobID != approvalRequest.Job.JobID {
+		t.Fatalf("recipe execution approval replay = %#v, err=%v", replayedApproval, err)
+	}
+	approvalConflict := approvalRequest
+	approvalConflict.ExpectedRevision++
+	if _, err := store.ApproveCloudRecipeExecution(ctx, approvalConflict); err != cloudmodule.ErrIdempotencyConflict {
+		t.Fatalf("recipe execution approval idempotency conflict = %v", err)
+	}
+
+	var executionStatus string
+	var executionRevision int64
+	var deploymentExecution, deploymentOutcome, deploymentResource string
+	var outboxPayload string
+	var stepStatus, stepCheckpoint string
+	var signatureInEvents, signatureInOutbox int
+	if err := store.DB().QueryRowContext(ctx, `SELECT status, revision FROM p2p_cloud_recipe_execution_manifests WHERE execution_id = $1`, manifest.ExecutionID).Scan(&executionStatus, &executionRevision); err != nil || executionStatus != "approved" || executionRevision != 3 {
+		t.Fatalf("recipe execution manifest status=%q revision=%d err=%v", executionStatus, executionRevision, err)
+	}
+	if err := store.DB().QueryRowContext(ctx, `SELECT execution_status, outcome_status, resource_status FROM p2p_cloud_deployments WHERE deployment_id = $1`, deployment.DeploymentID).Scan(&deploymentExecution, &deploymentOutcome, &deploymentResource); err != nil ||
+		deploymentExecution != "verifying" || deploymentOutcome != "pending" || deploymentResource != "active" {
+		t.Fatalf("recipe execution must not change deployment state: execution=%q outcome=%q resource=%q err=%v", deploymentExecution, deploymentOutcome, deploymentResource, err)
+	}
+	if err := store.DB().QueryRowContext(ctx, `SELECT payload_json FROM p2p_cloud_outbox WHERE outbox_id = $1 AND kind = $2`, approvalRequest.OutboxID, cloudmodule.OutboxKindRecipeExecutionInstallRequested).Scan(&outboxPayload); err != nil || outboxPayload != `{"execution_id":"`+manifest.ExecutionID+`"}` {
+		t.Fatalf("recipe execution outbox payload=%q err=%v", outboxPayload, err)
+	}
+	if err := store.DB().QueryRowContext(ctx, `SELECT status, checkpoint FROM p2p_cloud_job_steps WHERE job_id = $1 AND step_id = 'install'`, approvalRequest.Job.JobID).Scan(&stepStatus, &stepCheckpoint); err != nil || stepStatus != "queued" || stepCheckpoint != "install_queued" {
+		t.Fatalf("recipe execution install step status=%q checkpoint=%q err=%v", stepStatus, stepCheckpoint, err)
+	}
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_events WHERE summary_json LIKE '%' || $1 || '%'`, signed.Signature).Scan(&signatureInEvents); err != nil || signatureInEvents != 0 {
+		t.Fatalf("recipe execution event signature leak count=%d err=%v", signatureInEvents, err)
+	}
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_outbox WHERE payload_json LIKE '%' || $1 || '%'`, signed.Signature).Scan(&signatureInOutbox); err != nil || signatureInOutbox != 0 {
+		t.Fatalf("recipe execution outbox signature leak count=%d err=%v", signatureInOutbox, err)
+	}
+}
+
+func seedCloudRecipeExecutionReadyDeployment(t *testing.T, store *DatabaseStore, now time.Time) (string, cloudmodule.Deployment, ed25519.PrivateKey, cloudcontracts.RecipeExecutionManifestV1) {
+	t.Helper()
+	ctx := context.Background()
+	owner := "@owner:example.com"
+	connectionID := "connection-recipe-execution-1"
+	planID := "cloud-plan-recipe-execution-1"
+	quoteID := "quote-recipe-execution-1"
+	privateKey, publicSPKI := cloudConfirmationDeviceKey(t)
+	recipe, quote := cloudConfirmationFixtures(t, now, connectionID, quoteID)
+	seedCloudConfirmationState(t, store, owner, connectionID, planID, recipe, quote, publicSPKI)
+	prepared, err := store.PrepareCloudPlanConfirmation(ctx, cloudmodule.PreparePlanConfirmationRequest{
+		OwnerMXID: owner, PlanID: planID, ExpectedRevision: 3, QuoteID: quoteID, CandidateTier: "recommended",
+		IdempotencyHash: "recipe-execution-plan-prepare-idempotency", RequestDigest: "recipe-execution-plan-prepare-request",
+		ApprovalID: "recipe-execution-plan-approval-1", ChallengeID: "recipe-execution-plan-challenge-1",
+		CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli(),
+	})
+	if err != nil || !prepared.Created {
+		t.Fatalf("seed recipe execution plan confirmation = %#v, err=%v", prepared, err)
+	}
+	signedPlanApproval, err := prepared.Confirmation.Approval.Sign(privateKey, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	planApprovalRequest := cloudConfirmationApprovalRequest(owner, planID, "recipe-execution-1", signedPlanApproval, now.Add(time.Minute).UnixMilli())
+	planApprovalRequest.IdempotencyHash = "recipe-execution-plan-approve-idempotency"
+	approvedPlan, err := store.ApproveCloudPlan(ctx, planApprovalRequest)
+	if err != nil || !approvedPlan.Created {
+		t.Fatalf("seed recipe execution plan approval = %#v, err=%v", approvedPlan, err)
+	}
+	deployment := approvedPlan.Deployment
+	if _, err := store.DB().ExecContext(ctx, `
+		UPDATE p2p_cloud_deployments
+		SET execution_status = 'verifying', outcome_status = 'pending', resource_status = 'active', updated_at = $1
+		WHERE deployment_id = $2
+	`, now.Add(2*time.Minute).UnixMilli(), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	deployment.Execution, deployment.Outcome, deployment.Resource = "verifying", "pending", "active"
+	workerResourceDigest := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	if _, err := store.DB().ExecContext(ctx, `
+		INSERT INTO p2p_cloud_connection_brokers (
+			cloud_connection_id, broker_command_url, broker_region, connection_generation, node_key_id,
+			worker_artifact_kind, worker_ami_id, worker_vpc_id, worker_subnet_id, worker_availability_zone,
+			worker_resource_manifest_digest, next_node_counter, created_at, updated_at
+		) VALUES ($1, 'https://broker.example.invalid/v2/commands', 'ap-south-1', 1, 'node-key-recipe-execution-1',
+			'fixed_ami', 'ami-0123456789abcdef0', 'vpc-0123456789abcdef0', 'subnet-0123456789abcdef0', 'ap-south-1a', $2, 0, $3, $3)
+	`, connectionID, workerResourceDigest, now.Add(2*time.Minute).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		INSERT INTO p2p_cloud_deployment_resources (
+			deployment_id, cloud_connection_id, request_sha256, resource_status, instance_id,
+			volume_ids_json, network_interface_ids_json, broker_receipt_json, created_at, updated_at
+		) VALUES ($1, $2, 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', 'active', 'i-0123456789abcdef0', '[]', '[]', '{}', $3, $3)
+	`, deployment.DeploymentID, connectionID, now.Add(2*time.Minute).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+		INSERT INTO p2p_cloud_worker_bootstrap_observations (
+			deployment_id, cloud_connection_id, instance_id, worker_session_state, worker_lease_epoch,
+			worker_lease_expires_at, worker_last_sequence, worker_last_event_at, observed_at,
+			available_at, lease_owner, lease_token, lease_until, attempts, last_error_code, created_at, updated_at
+		) VALUES ($1, $2, 'i-0123456789abcdef0', 'active', 1, $3, 0, $4, $4, $4, '', '', 0, 0, '', $4, $4)
+	`, deployment.DeploymentID, connectionID, now.Add(time.Hour).UnixMilli(), now.Add(2*time.Minute).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+
+	var displayJSON string
+	if err := store.DB().QueryRowContext(ctx, `SELECT display_json FROM p2p_cloud_plan_versions WHERE plan_id = $1 ORDER BY revision DESC LIMIT 1`, planID).Scan(&displayJSON); err != nil {
+		t.Fatal(err)
+	}
+	var planV1 cloudcontracts.PlanV1
+	if err := json.Unmarshal([]byte(displayJSON), &planV1); err != nil {
+		t.Fatal(err)
+	}
+	planV1.Status = cloudcontracts.PlanApproved
+	planV1.Revision = uint64(approvedPlan.Plan.Revision)
+	planHash, err := planV1.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := cloudcontracts.RecipeExecutionManifestV1{
+		SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: "execution-recipe-confirmation-1", DeploymentID: deployment.DeploymentID,
+		PlanID: planV1.PlanID, PlanHash: planHash, PlanRevision: planV1.Revision, RecipeDigest: planV1.Recipe.Digest,
+		WorkerResourceManifestDigest: workerResourceDigest, ArtifactDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+	}
+	if err := manifest.ValidateForPlan(planV1); err != nil {
+		t.Fatalf("recipe execution manifest fixture = %v", err)
+	}
+	return owner, deployment, privateKey, manifest
+}
+
 func newCloudConfirmationStore(t *testing.T) *DatabaseStore {
 	t.Helper()
 	ctx := context.Background()

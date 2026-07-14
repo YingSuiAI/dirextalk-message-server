@@ -85,21 +85,25 @@ AWS SDK integration in the message-server process.
   and checkpoint-order substitution; the existing non-root `cloud-worker`
   parser continues to reject this new schema. `Executor.ExecuteTask` further
   refuses to invoke an action driver unless the sealed manifest and durable
-  checkpoint match the delivered task. This remains deliberately unwired to
-  the current Worker task broker, the Connection Stack, a fresh execution
-  approval, artifact delivery, or a root executor. Consequently it cannot
-  deploy OpenClaw, a knowledge-base node, a website, a model, or any other
-  service, and it provides no new API or AWS mutation path.
+  checkpoint match the delivered task. Its runtime remains deliberately
+  unwired to the current Worker task broker, the Connection Stack, artifact
+  delivery, and a root executor. Consequently it cannot deploy OpenClaw, a
+  knowledge-base node, a website, a model, or any other service, and it
+  provides no AWS mutation path.
 - The domain package also defines a distinct, short-lived
   `RecipeExecutionApprovalV1`. It is intentionally not an extension of the
   purchase `ApprovalV1`: the device signing payload binds the approved Plan
   identity and scope, deployment revision, sealed execution-manifest digest,
   Worker-resource/artifact digests, opaque action, root requirement, timeout,
   ordered checkpoints, and opaque volume/data/secret slots. It rejects stale
-  Plan/manifest/deployment bindings before a signature can be consumed. This
-  is only a deterministic-CBOR signing contract in the current stage: no
-  ProductCore action, database challenge, Worker task issue, artifact delivery,
-  or AWS mutation consumes it yet.
+  Plan/manifest/deployment bindings before a signature can be consumed. A
+  separate owner HTTP-only confirmation action can persist a five-minute
+  device challenge only after a private registrar has bound the manifest to
+  the current approved Plan, an active deployment resource, the Broker Worker
+  manifest digest, and an active Worker observation. Its approval creates only
+  a queued `install` Job/Step and private execution-ID outbox intent; the
+  production Orchestrator does not claim it, and it cannot issue a Worker task,
+  execute root automation, deliver artifacts, or mutate AWS.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -209,6 +213,21 @@ configuration establish the complete execution boundary. The typed Broker
 merely because the bootstrap claim endpoint exists. This action has not yet
 created EC2, EBS, an ingress rule, or a billable resource.
 
+`cloud.deployments.recipe_execution.confirmation.prepare` accepts only a
+deployment ID, expected revision, and UUID idempotency key. It cannot accept a
+manifest, artifact, command, URL, secret, or Worker payload. A private
+registrar must have first verified and saved the trusted manifest against the
+current approved Plan, active deployment resource, Broker Worker manifest
+digest, and active Worker observation. The returned
+`RecipeExecutionApprovalV1` is a five-minute device challenge.
+
+`cloud.deployments.recipe_execution.approve` consumes that exact signed
+challenge. Its one transaction creates only a queued/pending `install`
+Job/Step and a private `cloud.recipe_execution.install.requested` outbox
+record containing the opaque execution ID. It does not change the Deployment,
+claim a Worker task, invoke the recipe coordinator, deliver an artifact, run
+root commands, create an AWS resource, or make a service ready.
+
 After a later typed creator has recorded a private Worker receipt, the
 Orchestrator may issue a durable, signed `deployment.observe` read. The Stack
 re-reads its receipt-bound Worker session and returns only
@@ -250,10 +269,11 @@ The implementation persists recipes, verified quotes, quote command receipts,
 private connection bootstraps and registration command receipts, jobs and job
 steps, plus goals, plans, canonical Plan versions, one-time approval challenges,
 connections, deployments, services, alerts, Cloud audit events, private
-research/quote/registration/provision/execution-probe outbox records,
-Worker-bootstrap observation leases and exact signed observation-command
-receipts, sealed execution-probe artifacts, independent task observation
-leases, command journals, and projection outbox records. The de-secreted
+research/quote/registration/provision/execution-probe/recipe-execution-install
+outbox records, Worker-bootstrap observation leases and exact signed
+observation-command receipts, sealed execution-probe artifacts, trusted
+recipe-execution manifests, execution approval challenges, independent task
+observation leases, command journals, and projection outbox records. The de-secreted
 private observation evidence and task artifacts are kept separate from public
 projections. The consumed approval signature stays in the private approval
 table; it is not part of any ProductCore response, event, MCP result, or Agent
@@ -279,6 +299,8 @@ Cloud mutation.
 | `cloud.connections.registration.complete` | records Stack outputs as a private pending verification and returns its safe Job binding; it cannot activate a Connection directly | HTTP-only |
 | `cloud.plans.confirmation.prepare` | binds a quoted capacity tier into an immutable no-ingress/no-secret/no-integration PlanV1 and returns a short-lived device challenge | HTTP-only |
 | `cloud.plans.approve` | verifies that exact device signature, then atomically queues the private provision intent; it does not create an AWS resource itself | HTTP-only |
+| `cloud.deployments.recipe_execution.confirmation.prepare` | resolves only a privately registered trusted manifest for the deployment and returns a short-lived device challenge | HTTP-only |
+| `cloud.deployments.recipe_execution.approve` | verifies that exact device signature, then atomically queues a private `install` intent; it does not issue a Worker task or execute the recipe | HTTP-only |
 | `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until their independent control-plane transitions are installed | HTTP-only |
 
 `cloud.connections.role_plan` accepts exactly:

@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-15
 
+## 2026-07-15 Recipe Execution Confirmation Boundary
+
+Added owner HTTP-only
+`cloud.deployments.recipe_execution.confirmation.prepare` and
+`cloud.deployments.recipe_execution.approve` actions. They accept only a
+deployment ID, expected revision, UUID idempotency key, and, for approval, an
+exact signed device challenge; clients cannot provide an execution manifest,
+artifact, command, URL, secret, or Worker payload.
+
+A private registrar first verifies and persists a trusted manifest bound to the
+current approved Plan, active deployment resource, Broker Worker manifest
+digest, and active Worker observation. Approval then creates only a queued
+`install` Job/Step and a private outbox record containing the opaque
+execution ID. No current consumer can turn that intent into a Worker task,
+root execution, AWS mutation, or service readiness.
+
 ## 2026-07-15 Sealed Recipe Execution Foundation
 
 Added internal `RecipeExecutionManifestV1` deterministic-CBOR artifacts and a
@@ -18,8 +34,8 @@ the returned artifact digest and action declaration to match the manifest,
 resumes only from the exact next checkpoint, and does not replay an action
 after a terminal checkpoint. It does not run a process, download a bundle,
 retrieve a secret, call AWS, alter the existing `execution_probe` task, or
-mean service readiness. This is an internal contract only: no ProductCore,
-MCP, Agent, Flutter, Connection Stack, or deployment-script API changed.
+mean service readiness. Its later persistent confirmation consumer remains
+unable to execute the coordinator or issue a Worker task.
 
 ## 2026-07-14 Device-Signed Cloud Plan Confirmation
 
