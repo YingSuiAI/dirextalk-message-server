@@ -77,7 +77,7 @@ func (m *Module) Join(ctx context.Context, scope string, raw map[string]any) (an
 	if scope == "group" {
 		member.ChannelID = ""
 	}
-	applyMemberProfile(&member, params)
+	ApplyMemberProfile(&member, params)
 	m.config.ApplyLocalProfile(&member)
 	settlementCtx, cancel := actionbase.SettlementContext(ctx)
 	defer cancel()

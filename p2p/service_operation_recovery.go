@@ -51,13 +51,6 @@ type serviceOperationState struct {
 	workflowEntries    map[string]*recoverableOperationEntry
 }
 
-type recoverableOperationTracker struct {
-	mu     sync.Mutex
-	store  operationsmodule.Store
-	owner  string
-	record operationsmodule.Record
-}
-
 type recoverableOperationContextKey struct{}
 
 func recoverableProductAction(action string) bool {
@@ -428,7 +421,7 @@ func (s *Service) handleRecoverableOperation(
 	if workflow != nil {
 		defer func() {
 			writeCtx, cancel := operationWriteContext(ctx)
-			releaseErr := workflow.release(writeCtx)
+			releaseErr := workflow.Release(writeCtx)
 			cancel()
 			if releaseErr != nil {
 				retResult = nil
@@ -553,19 +546,19 @@ func (s *Service) handleRecoverableOperation(
 		record.ErrorCode = ""
 		record.UpdatedAt = time.Now().UTC().UnixMilli()
 	}
-	tracker := &recoverableOperationTracker{store: s.store, owner: claimOwner, record: record}
+	tracker := operationsmodule.NewTracker(s.store, claimOwner, record, operationLeaseDurationMillis)
 	defer func() {
 		writeCtx, cancel := operationWriteContext(ctx)
-		releaseErr := tracker.release(writeCtx)
+		releaseErr := tracker.Release(writeCtx)
 		cancel()
 		if releaseErr != nil {
 			retResult = nil
-			retErr = operationPersistenceError(tracker.snapshot(), releaseErr)
+			retErr = operationPersistenceError(tracker.Snapshot(), releaseErr)
 		}
 	}()
 	if workflow != nil {
 		writeCtx, cancel := operationWriteContext(ctx)
-		renewErr := workflow.heartbeat(writeCtx)
+		renewErr := workflow.Heartbeat(writeCtx)
 		cancel()
 		if renewErr != nil {
 			return nil, operationPersistenceError(record, renewErr)
@@ -582,7 +575,7 @@ func (s *Service) handleRecoverableOperation(
 	}
 	result, apiErr := handler(trackedCtx, handlerParams)
 	if apiErr != nil {
-		snapshot := tracker.snapshot()
+		snapshot := tracker.Snapshot()
 		status := operationStatusFailed
 		if operationNeedsRecovery(snapshot.Phase) {
 			status = operationStatusReconciling
@@ -591,10 +584,10 @@ func (s *Service) handleRecoverableOperation(
 			}
 		}
 		writeCtx, cancel := operationWriteContext(ctx)
-		updateErr := tracker.update(writeCtx, status, snapshot.Phase, snapshot.CurrentRoomID, apiErr.Code, "")
+		updateErr := tracker.Update(writeCtx, status, snapshot.Phase, snapshot.CurrentRoomID, apiErr.Code, "")
 		cancel()
 		if updateErr != nil {
-			return nil, operationPersistenceError(tracker.snapshot(), updateErr)
+			return nil, operationPersistenceError(tracker.Snapshot(), updateErr)
 		}
 		// The outer durable operation owns the recovery key. Never let a
 		// federated peer or nested adapter replace it in the public envelope.
@@ -603,22 +596,22 @@ func (s *Service) handleRecoverableOperation(
 		return nil, apiErr
 	}
 
-	result, status, currentRoomID, resultErrorCode := operationResultMetadata(result, tracker.snapshot())
+	result, status, currentRoomID, resultErrorCode := operationResultMetadata(result, tracker.Snapshot())
 	resultJSON, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
-		return nil, operationPersistenceError(tracker.snapshot(), marshalErr)
+		return nil, operationPersistenceError(tracker.Snapshot(), marshalErr)
 	}
 	operationStatus := operationStatusCompleted
 	phase := operationPhaseCompleted
 	if operationResultNeedsReconciliation(status, resultErrorCode) {
 		operationStatus = operationStatusReconciling
-		phase = tracker.snapshot().Phase
+		phase = tracker.Snapshot().Phase
 	}
 	writeCtx, cancel := operationWriteContext(ctx)
-	err = tracker.update(writeCtx, operationStatus, phase, currentRoomID, resultErrorCode, string(resultJSON))
+	err = tracker.Update(writeCtx, operationStatus, phase, currentRoomID, resultErrorCode, string(resultJSON))
 	cancel()
 	if err != nil {
-		return nil, operationPersistenceError(tracker.snapshot(), err)
+		return nil, operationPersistenceError(tracker.Snapshot(), err)
 	}
 	return result, nil
 }
@@ -750,7 +743,7 @@ func (s *Service) operationInFlightResult(ctx context.Context, record operations
 func (s *Service) acquireDurableBusinessWorkflow(
 	ctx context.Context,
 	record operationsmodule.Record,
-) (*recoverableOperationTracker, bool, *apiError) {
+) (*operationsmodule.Tracker, bool, *apiError) {
 	if record.Action == "channels.public.join_request" {
 		advance, err := s.publicJoinCanAdvanceTerminalGeneration(ctx, record)
 		if err != nil {
@@ -778,7 +771,7 @@ func (s *Service) acquireDurableBusinessWorkflow(
 			return nil, false, operationPersistenceError(record, err)
 		}
 		if claimed {
-			return &recoverableOperationTracker{store: s.store, owner: owner, record: claimedRecord}, true, nil
+			return operationsmodule.NewTracker(s.store, owner, claimedRecord, operationLeaseDurationMillis), true, nil
 		}
 		select {
 		case <-waitCtx.Done():
@@ -1491,8 +1484,8 @@ func (s *Service) lockMemberWorkflow(key string) func() {
 	}
 }
 
-func operationTracker(ctx context.Context) (*recoverableOperationTracker, bool) {
-	tracker, ok := ctx.Value(recoverableOperationContextKey{}).(*recoverableOperationTracker)
+func operationTracker(ctx context.Context) (*operationsmodule.Tracker, bool) {
+	tracker, ok := ctx.Value(recoverableOperationContextKey{}).(*operationsmodule.Tracker)
 	return tracker, ok && tracker != nil
 }
 
@@ -1501,7 +1494,7 @@ func recoverableOperationSnapshot(ctx context.Context) (operationsmodule.Record,
 	if !ok {
 		return operationsmodule.Record{}, false
 	}
-	return tracker.snapshot(), true
+	return tracker.Snapshot(), true
 }
 
 func markRecoverableOperation(ctx context.Context, phase, currentRoomID string) error {
@@ -1509,8 +1502,8 @@ func markRecoverableOperation(ctx context.Context, phase, currentRoomID string) 
 	if !ok {
 		return nil
 	}
-	current := tracker.snapshot()
-	return tracker.update(ctx, operationStatusRunning, phase, currentRoomID, current.ErrorCode, current.ResultJSON)
+	current := tracker.Snapshot()
+	return tracker.Update(ctx, operationStatusRunning, phase, currentRoomID, current.ErrorCode, current.ResultJSON)
 }
 
 func recoverableOperationWriteError(ctx context.Context, err error) *apiError {
@@ -1518,63 +1511,4 @@ func recoverableOperationWriteError(ctx context.Context, err error) *apiError {
 		return operationPersistenceError(record, err)
 	}
 	return internalError(err)
-}
-
-func (t *recoverableOperationTracker) snapshot() operationsmodule.Record {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.record
-}
-
-func (t *recoverableOperationTracker) update(ctx context.Context, status, phase, currentRoomID, errorCode, resultJSON string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	record := t.record
-	if status != "" {
-		record.Status = status
-	}
-	if phase != "" {
-		record.Phase = phase
-	}
-	if currentRoomID != "" {
-		record.CurrentRoomID = currentRoomID
-	}
-	record.ErrorCode = errorCode
-	record.ResultJSON = resultJSON
-	record.UpdatedAt = time.Now().UTC().UnixMilli()
-	updated, ok, err := t.store.CompareAndSwapOperation(ctx, record, t.record.Revision, t.owner, operationLeaseDurationMillis)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("recoverable operation lease or revision was lost")
-	}
-	t.record = updated
-	return nil
-}
-
-func (t *recoverableOperationTracker) heartbeat(ctx context.Context) error {
-	current := t.snapshot()
-	return t.update(ctx, current.Status, current.Phase, current.CurrentRoomID, current.ErrorCode, current.ResultJSON)
-}
-
-func (t *recoverableOperationTracker) release(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.record.LeaseOwner == "" {
-		return nil
-	}
-	record := t.record
-	record.LeaseOwner = ""
-	record.LeaseUntil = 0
-	record.UpdatedAt = time.Now().UTC().UnixMilli()
-	updated, ok, err := t.store.CompareAndSwapOperation(ctx, record, t.record.Revision, t.owner, 0)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("recoverable operation lease or revision was lost while releasing")
-	}
-	t.record = updated
-	return nil
 }

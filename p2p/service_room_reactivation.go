@@ -292,7 +292,7 @@ func (s *Service) joinAndProjectRetainedRoomGeneration(
 			return result, transportWriteError(err)
 		}
 	}
-	var workflow *recoverableOperationTracker
+	var workflow *operationsmodule.Tracker
 	if s.transport != nil && !matrixJoined {
 		var acquired bool
 		workflow, acquired, err = s.acquireMatrixJoinWorkflow(ctx, *member)
@@ -324,7 +324,7 @@ func (s *Service) joinAndProjectRetainedRoomGeneration(
 		} else if workflow != nil {
 			defer func() {
 				writeCtx, cancel := operationWriteContext(ctx)
-				err := workflow.release(writeCtx)
+				err := workflow.Release(writeCtx)
 				cancel()
 				if err != nil && retErr == nil {
 					retErr = recoverableOperationWriteError(ctx, err)
@@ -533,7 +533,7 @@ func (s *Service) commitRetainedRoomMatrixJoin(ctx context.Context, member *memb
 func (s *Service) acquireMatrixJoinWorkflow(
 	ctx context.Context,
 	member memberRecord,
-) (*recoverableOperationTracker, bool, error) {
+) (*operationsmodule.Tracker, bool, error) {
 	if s.store == nil {
 		return nil, true, nil
 	}
@@ -564,7 +564,7 @@ func (s *Service) acquireMatrixJoinWorkflow(
 			return nil, false, err
 		}
 		if claimed {
-			return &recoverableOperationTracker{store: s.store, owner: owner, record: claimedRecord}, true, nil
+			return operationsmodule.NewTracker(s.store, owner, claimedRecord, operationLeaseDurationMillis), true, nil
 		}
 		select {
 		case <-waitCtx.Done():

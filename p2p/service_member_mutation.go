@@ -115,18 +115,6 @@ func (s *Service) memberRecordFor(roomID, channelID, userID string) memberRecord
 	}
 }
 
-func applyMemberProfileParams(member *memberRecord, params map[string]any) {
-	if displayName := trimString(params["display_name"]); displayName != "" {
-		member.DisplayName = displayName
-	}
-	if avatarURL := trimString(params["avatar_url"]); avatarURL != "" {
-		member.AvatarURL = avatarURL
-	}
-	if domain := trimString(params["domain"]); domain != "" {
-		member.Domain = domain
-	}
-}
-
 func (s *Service) applyLocalOwnerMemberProfile(member *memberRecord) {
 	if member == nil {
 		return

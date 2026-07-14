@@ -16,6 +16,7 @@ import (
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
@@ -205,7 +206,7 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if currentRequesterBaseURL != "" && (restartGeneration || localMember.RequesterNodeBaseURL == "") {
 		localMember.RequesterNodeBaseURL = currentRequesterBaseURL
 	}
-	applyMemberProfileParams(&localMember, params)
+	membersmodule.ApplyMemberProfile(&localMember, actionbase.Params(params))
 	if restartGeneration {
 		saved, saveErr := s.saveMemberIfState(ctx, localMember, previousRequestID, previousMembership)
 		if saveErr != nil {
@@ -296,7 +297,7 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 		localJoin.ChannelID = ch.ChannelID
 		localJoin.Membership = "approved"
 		localJoin.Role = fallbackString(localJoin.Role, "member")
-		applyMemberProfileParams(&localJoin, params)
+		membersmodule.ApplyMemberProfile(&localJoin, actionbase.Params(params))
 		joinParams := cloneParams(params)
 		joinParams["server_names"] = channelJoinServerNames(params["server_names"], roomID)
 		attempt, apiErr := s.joinAndProjectRetainedRoomGeneration(ctx, "channel", &localJoin, joinParams)

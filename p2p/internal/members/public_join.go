@@ -158,7 +158,7 @@ func (m *Module) ChannelPublicJoinRequest(ctx context.Context, raw map[string]an
 	if requesterNodeBaseURL != "" && (newGeneration || member.RequesterNodeBaseURL == "") {
 		member.RequesterNodeBaseURL = requesterNodeBaseURL
 	}
-	applyMemberProfile(&member, params)
+	ApplyMemberProfile(&member, params)
 	if newGeneration {
 		if m.config.SaveMemberGeneration == nil {
 			return nil, actionbase.InternalError(errors.New("member generation persistence is not configured"))

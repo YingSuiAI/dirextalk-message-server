@@ -72,7 +72,7 @@ func (m *Module) Invite(ctx context.Context, scope string, raw map[string]any) (
 		if scope == "group" {
 			member.ChannelID = ""
 		}
-		applyMemberProfile(&member, actionbase.Params(raw))
+		ApplyMemberProfile(&member, actionbase.Params(raw))
 		if actionErr := sendInvite(ctx, &member, raw, actionbase.Params(raw).Bool("is_direct")); actionErr != nil {
 			return nil, actionErr
 		}
@@ -232,7 +232,9 @@ func inviteMemberIDs(params actionbase.Params) []string {
 	return users
 }
 
-func applyMemberProfile(member *dirextalkdomain.MemberRecord, params actionbase.Params) {
+// ApplyMemberProfile merges optional profile fields without clearing a known
+// value when callers omit a field or provide only whitespace.
+func ApplyMemberProfile(member *dirextalkdomain.MemberRecord, params actionbase.Params) {
 	if displayName := params.String("display_name"); displayName != "" {
 		member.DisplayName = displayName
 	}

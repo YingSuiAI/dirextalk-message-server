@@ -75,7 +75,7 @@ func (m *Module) RoomReactivate(ctx context.Context, raw map[string]any) (any, *
 			if scope == "group" {
 				member.ChannelID = ""
 			}
-			applyMemberProfile(&member, params)
+			ApplyMemberProfile(&member, params)
 			m.config.ApplyLocalProfile(&member)
 			if err := m.config.SaveMember(ctx, member); err != nil {
 				return nil, actionbase.InternalError(err)
@@ -105,7 +105,7 @@ func (m *Module) RoomReactivate(ctx context.Context, raw map[string]any) (any, *
 	if scope == "group" {
 		member.ChannelID = ""
 	}
-	applyMemberProfile(&member, params)
+	ApplyMemberProfile(&member, params)
 	m.config.ApplyLocalProfile(&member)
 	if err := m.config.SaveMember(ctx, member); err != nil {
 		return nil, actionbase.InternalError(err)

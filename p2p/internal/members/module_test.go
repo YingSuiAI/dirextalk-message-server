@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
 type listCall struct {
@@ -143,6 +144,20 @@ func TestSortByJoinOrderPinsOwnersAndPlacesZeroLast(t *testing.T) {
 	SortByJoinOrder(members)
 	if got, want := memberIDs(members), []string{"@owner:example.com", "@same-a:example.com", "@same-b:example.com", "@zero-a:example.com", "@zero-b:example.com"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("member order = %#v, want %#v", got, want)
+	}
+}
+
+func TestApplyMemberProfileOnlyMergesNonEmptyNormalizedFields(t *testing.T) {
+	member := dirextalkdomain.MemberRecord{
+		DisplayName: "Existing", AvatarURL: "mxc://example.com/existing", Domain: "example.com",
+	}
+	ApplyMemberProfile(&member, actionbase.Params{
+		"display_name": " Updated ",
+		"avatar_url":   "   ",
+		"domain":       " remote.example ",
+	})
+	if member.DisplayName != "Updated" || member.AvatarURL != "mxc://example.com/existing" || member.Domain != "remote.example" {
+		t.Fatalf("profile merge = %#v", member)
 	}
 }
 
