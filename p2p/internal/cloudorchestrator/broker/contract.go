@@ -155,6 +155,11 @@ var (
 		"instance_type",
 		"purchase_option",
 		"estimated_disk_gib",
+		"architecture",
+		"vcpu",
+		"memory_mib",
+		"gpu_count",
+		"gpu_memory_mib",
 		"hourly_minor",
 		"thirty_day_minor",
 		"startup_upper_minor",
@@ -361,6 +366,11 @@ type QuotedCandidate struct {
 	InstanceType      string   `json:"instance_type"`
 	PurchaseOption    string   `json:"purchase_option"`
 	EstimatedDiskGiB  int64    `json:"estimated_disk_gib"`
+	Architecture      string   `json:"architecture"`
+	VCPU              int64    `json:"vcpu"`
+	MemoryMiB         int64    `json:"memory_mib"`
+	GPUCount          int64    `json:"gpu_count"`
+	GPUMemoryMiB      int64    `json:"gpu_memory_mib"`
 	HourlyMinor       int64    `json:"hourly_minor"`
 	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
 	StartupUpperMinor int64    `json:"startup_upper_minor"`
@@ -972,7 +982,10 @@ func validateQuote(command QuoteCommand, request QuoteRequest, quote Quote) erro
 	}
 	for index, candidate := range quote.Candidates {
 		requested := request.Candidates[index]
-		if candidate.CandidateID != requested.CandidateID || candidate.Tier != requested.Tier || candidate.InstanceType != requested.InstanceType || candidate.PurchaseOption != requested.PurchaseOption || candidate.EstimatedDiskGiB != requested.EstimatedDiskGiB || !safeNonnegative(candidate.HourlyMinor) || !safeNonnegative(candidate.ThirtyDayMinor) || !safeNonnegative(candidate.StartupUpperMinor) || !canonicalStrings(candidate.AvailabilityZones, availabilityZonePattern, true) {
+		if candidate.CandidateID != requested.CandidateID || candidate.Tier != requested.Tier || candidate.InstanceType != requested.InstanceType || candidate.PurchaseOption != requested.PurchaseOption || candidate.EstimatedDiskGiB != requested.EstimatedDiskGiB ||
+			(candidate.Architecture != "amd64" && candidate.Architecture != "arm64") || candidate.VCPU < 1 || candidate.VCPU > 65535 || candidate.MemoryMiB < 1 || candidate.MemoryMiB > 4294967295 ||
+			candidate.GPUCount < 0 || candidate.GPUCount > 65535 || candidate.GPUMemoryMiB < 0 || candidate.GPUMemoryMiB > 4294967295 ||
+			(candidate.GPUCount == 0) != (candidate.GPUMemoryMiB == 0) || !safeNonnegative(candidate.HourlyMinor) || !safeNonnegative(candidate.ThirtyDayMinor) || !safeNonnegative(candidate.StartupUpperMinor) || !canonicalStrings(candidate.AvailabilityZones, availabilityZonePattern, true) {
 			return newError("invalid_quote", nil)
 		}
 	}
@@ -1284,7 +1297,7 @@ func quotesEqual(left, right Quote) bool {
 	}
 	for index, candidate := range left.Candidates {
 		other := right.Candidates[index]
-		if candidate.CandidateID != other.CandidateID || candidate.Tier != other.Tier || candidate.InstanceType != other.InstanceType || candidate.PurchaseOption != other.PurchaseOption || candidate.EstimatedDiskGiB != other.EstimatedDiskGiB || candidate.HourlyMinor != other.HourlyMinor || candidate.ThirtyDayMinor != other.ThirtyDayMinor || candidate.StartupUpperMinor != other.StartupUpperMinor || !sameStrings(candidate.AvailabilityZones, other.AvailabilityZones) {
+		if candidate.CandidateID != other.CandidateID || candidate.Tier != other.Tier || candidate.InstanceType != other.InstanceType || candidate.PurchaseOption != other.PurchaseOption || candidate.EstimatedDiskGiB != other.EstimatedDiskGiB || candidate.Architecture != other.Architecture || candidate.VCPU != other.VCPU || candidate.MemoryMiB != other.MemoryMiB || candidate.GPUCount != other.GPUCount || candidate.GPUMemoryMiB != other.GPUMemoryMiB || candidate.HourlyMinor != other.HourlyMinor || candidate.ThirtyDayMinor != other.ThirtyDayMinor || candidate.StartupUpperMinor != other.StartupUpperMinor || !sameStrings(candidate.AvailabilityZones, other.AvailabilityZones) {
 			return false
 		}
 	}

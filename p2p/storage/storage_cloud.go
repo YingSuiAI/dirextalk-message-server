@@ -61,6 +61,11 @@ type cloudQuoteDisplayCandidate struct {
 	Tier              string   `json:"tier"`
 	InstanceType      string   `json:"instance_type"`
 	PurchaseOption    string   `json:"purchase_option"`
+	Architecture      string   `json:"architecture"`
+	VCPU              uint16   `json:"vcpu"`
+	MemoryMiB         uint32   `json:"memory_mib"`
+	GPUCount          uint16   `json:"gpu_count"`
+	GPUMemoryMiB      uint32   `json:"gpu_memory_mib"`
 	HourlyMinor       int64    `json:"hourly_minor"`
 	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
 	StartupUpperMinor int64    `json:"startup_upper_minor"`
@@ -543,6 +548,11 @@ func decodeCloudQuoteView(displayJSON, expectedQuoteID string) (cloudmodule.Quot
 			Tier:              candidate.Tier,
 			InstanceType:      candidate.InstanceType,
 			PurchaseOption:    candidate.PurchaseOption,
+			Architecture:      candidate.Architecture,
+			VCPU:              candidate.VCPU,
+			MemoryMiB:         candidate.MemoryMiB,
+			GPUCount:          candidate.GPUCount,
+			GPUMemoryMiB:      candidate.GPUMemoryMiB,
 			HourlyMinor:       candidate.HourlyMinor,
 			ThirtyDayMinor:    candidate.ThirtyDayMinor,
 			StartupUpperMinor: candidate.StartupUpperMinor,
@@ -564,6 +574,8 @@ func validCloudQuoteDisplay(display cloudQuoteDisplay, expectedQuoteID string) b
 	tiers := make(map[string]struct{}, len(display.Candidates))
 	for _, candidate := range display.Candidates {
 		if strings.TrimSpace(candidate.CandidateID) == "" || strings.TrimSpace(candidate.InstanceType) == "" ||
+			(candidate.Architecture != "amd64" && candidate.Architecture != "arm64") || candidate.VCPU == 0 || candidate.MemoryMiB == 0 ||
+			(candidate.GPUCount == 0) != (candidate.GPUMemoryMiB == 0) ||
 			candidate.HourlyMinor < 0 || candidate.ThirtyDayMinor < 0 || candidate.StartupUpperMinor < 0 ||
 			candidate.EstimatedDiskGiB == 0 {
 			return false

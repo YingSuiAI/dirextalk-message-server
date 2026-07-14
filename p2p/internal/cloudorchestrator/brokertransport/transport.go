@@ -264,7 +264,8 @@ func runtimeQuote(result broker.QuoteResult) (runtime.BrokerQuote, error) {
 	for index, candidate := range result.Quote.Candidates {
 		candidates[index] = cloudcontracts.QuoteCandidateV1{
 			CandidateID: candidate.CandidateID, Tier: cloudcontracts.QuoteTier(candidate.Tier), InstanceType: candidate.InstanceType,
-			PurchaseOption: cloudcontracts.PurchaseOption(candidate.PurchaseOption), HourlyMinor: candidate.HourlyMinor,
+			PurchaseOption: cloudcontracts.PurchaseOption(candidate.PurchaseOption), Architecture: cloudcontracts.Architecture(candidate.Architecture),
+			VCPU: uint16(candidate.VCPU), MemoryMiB: uint32(candidate.MemoryMiB), GPUCount: uint16(candidate.GPUCount), GPUMemoryMiB: uint32(candidate.GPUMemoryMiB), HourlyMinor: candidate.HourlyMinor,
 			ThirtyDayMinor: candidate.ThirtyDayMinor, StartupUpperMinor: candidate.StartupUpperMinor,
 			EstimatedDiskGiB: uint32(candidate.EstimatedDiskGiB), AvailabilityZones: append([]string(nil), candidate.AvailabilityZones...),
 		}

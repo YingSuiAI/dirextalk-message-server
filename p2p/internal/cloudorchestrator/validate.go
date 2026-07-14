@@ -344,6 +344,18 @@ func (c QuoteCandidateV1) validate() error {
 	if !validPurchaseOption(c.PurchaseOption) {
 		return fmt.Errorf("purchase_option %q is invalid", c.PurchaseOption)
 	}
+	if !validArchitecture(c.Architecture) {
+		return fmt.Errorf("architecture %q is invalid", c.Architecture)
+	}
+	if c.VCPU == 0 || c.MemoryMiB == 0 {
+		return errors.New("vcpu and memory_mib must be positive")
+	}
+	if c.GPUCount == 0 && c.GPUMemoryMiB != 0 {
+		return errors.New("gpu memory requires a positive gpu count")
+	}
+	if c.GPUCount > 0 && c.GPUMemoryMiB == 0 {
+		return errors.New("gpu count requires positive gpu memory")
+	}
 	if c.HourlyMinor < 0 || c.ThirtyDayMinor < 0 || c.StartupUpperMinor < 0 {
 		return errors.New("monetary values may not be negative")
 	}

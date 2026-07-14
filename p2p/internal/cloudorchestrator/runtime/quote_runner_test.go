@@ -372,7 +372,8 @@ func testBrokerQuote(t *testing.T, claim QuoteClaim, signed SignedQuoteCommand) 
 	for index, candidate := range claim.Request.Candidates {
 		candidates[index] = cloudcontracts.QuoteCandidateV1{
 			CandidateID: candidate.CandidateID, Tier: candidate.Tier, InstanceType: candidate.InstanceType,
-			PurchaseOption: candidate.PurchaseOption, HourlyMinor: 128, ThirtyDayMinor: 92160,
+			PurchaseOption: candidate.PurchaseOption, Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384,
+			GPUCount: 0, GPUMemoryMiB: 0, HourlyMinor: 128, ThirtyDayMinor: 92160,
 			StartupUpperMinor: 0, EstimatedDiskGiB: candidate.EstimatedDiskGiB,
 		}
 	}

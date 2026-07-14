@@ -78,14 +78,14 @@ func TestDatabaseStoreGetCloudQuoteReturnsStrictSafeView(t *testing.T) {
 
 	quotedAt := time.Date(2026, time.July, 14, 8, 0, 0, 0, time.UTC)
 	validUntil := quotedAt.Add(15 * time.Minute)
-	safeDisplay := `{"schema_version":"cloud-orchestrator/v1","quote_id":"quote-safe-1","cloud_connection_id":"connection-safe-1","region":"ap-south-1","currency":"USD","quoted_at":"` + quotedAt.Format(time.RFC3339Nano) + `","valid_until":"` + validUntil.Format(time.RFC3339Nano) + `","candidates":[{"candidate_id":"recommended-private-binding","tier":"recommended","instance_type":"m7i.xlarge","purchase_option":"on_demand","hourly_minor":2000,"thirty_day_minor":1440000,"startup_upper_minor":500,"estimated_disk_gib":80,"availability_zones":["ap-south-1a"]}],"included_items":["ec2_linux_ondemand"],"unincluded_items":["ebs_gp3","taxes"]}`
+	safeDisplay := `{"schema_version":"cloud-orchestrator/v1","quote_id":"quote-safe-1","cloud_connection_id":"connection-safe-1","region":"ap-south-1","currency":"USD","quoted_at":"` + quotedAt.Format(time.RFC3339Nano) + `","valid_until":"` + validUntil.Format(time.RFC3339Nano) + `","candidates":[{"candidate_id":"recommended-private-binding","tier":"recommended","instance_type":"m7i.xlarge","purchase_option":"on_demand","architecture":"amd64","vcpu":4,"memory_mib":16384,"gpu_count":0,"gpu_memory_mib":0,"hourly_minor":2000,"thirty_day_minor":1440000,"startup_upper_minor":500,"estimated_disk_gib":80,"availability_zones":["ap-south-1a"]}],"included_items":["ec2_linux_ondemand"],"unincluded_items":["ebs_gp3","taxes"]}`
 	insertCloudQuoteDisplay(t, store, "quote-safe-1", "connection-safe-1", "digest-safe-1", safeDisplay, quotedAt, validUntil)
 
 	quote, found, err := store.GetCloudQuote(ctx, "quote-safe-1")
 	if err != nil || !found || quote.QuoteID != "quote-safe-1" || quote.ConnectionID != "connection-safe-1" || quote.Region != "ap-south-1" || quote.Currency != "USD" || len(quote.Candidates) != 1 {
 		t.Fatalf("safe cloud quote = %#v, found=%v err=%v", quote, found, err)
 	}
-	if quote.Candidates[0].Tier != "recommended" || quote.Candidates[0].InstanceType != "m7i.xlarge" || quote.Candidates[0].HourlyMinor != 2000 || len(quote.IncludedItems) != 1 || len(quote.UnincludedItems) != 2 {
+	if quote.Candidates[0].Tier != "recommended" || quote.Candidates[0].InstanceType != "m7i.xlarge" || quote.Candidates[0].Architecture != "amd64" || quote.Candidates[0].VCPU != 4 || quote.Candidates[0].MemoryMiB != 16384 || quote.Candidates[0].GPUCount != 0 || quote.Candidates[0].GPUMemoryMiB != 0 || quote.Candidates[0].HourlyMinor != 2000 || len(quote.IncludedItems) != 1 || len(quote.UnincludedItems) != 2 {
 		t.Fatalf("safe cloud quote content = %#v", quote)
 	}
 	encoded, err := json.Marshal(quote)
@@ -108,6 +108,14 @@ func TestDatabaseStoreGetCloudQuoteReturnsStrictSafeView(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), privateCanary) {
 		t.Fatalf("unsafe quote error leaked stored display data: %v", err)
+	}
+
+	missingCapacity := strings.Replace(safeDisplay, `"quote_id":"quote-safe-1"`, `"quote_id":"quote-missing-capacity-1"`, 1)
+	missingCapacity = strings.Replace(missingCapacity, `,"memory_mib":16384`, "", 1)
+	insertCloudQuoteDisplay(t, store, "quote-missing-capacity-1", "connection-safe-1", "digest-missing-capacity-1", missingCapacity, quotedAt, validUntil)
+	_, found, err = store.GetCloudQuote(ctx, "quote-missing-capacity-1")
+	if err == nil || found {
+		t.Fatalf("capacity-incomplete cloud quote result found=%v err=%v", found, err)
 	}
 }
 

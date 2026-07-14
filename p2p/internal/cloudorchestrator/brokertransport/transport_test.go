@@ -86,6 +86,28 @@ func TestRequestQuoteRejectsChangedPersistedEnvelopeBeforeNetwork(t *testing.T) 
 	}
 }
 
+func TestRuntimeQuoteCarriesBrokerCapacityMetadata(t *testing.T) {
+	result := broker.QuoteResult{Quote: broker.Quote{
+		Schema: "dirextalk.aws.quote/v1", QuoteID: "quote-capacity-0001", ConnectionID: "connection-capacity-0001",
+		CommandID: "command-capacity-0001", RequestSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		QuoteRequestID: "quote-request-capacity-0001", PlanDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Region: "us-east-1", Currency: "USD", QuotedAt: "2026-07-14T12:00:00.000Z", ValidUntil: "2026-07-14T12:15:00.000Z",
+		Candidates: []broker.QuotedCandidate{{
+			CandidateID: "recommended-capacity-0001", Tier: "recommended", InstanceType: "g5.xlarge", PurchaseOption: "on_demand",
+			EstimatedDiskGiB: 80, Architecture: "amd64", VCPU: 4, MemoryMiB: 16384, GPUCount: 1, GPUMemoryMiB: 24576,
+			HourlyMinor: 100, ThirtyDayMinor: 72000, StartupUpperMinor: 0, AvailabilityZones: []string{"us-east-1a"},
+		}},
+	}}
+	quote, err := runtimeQuote(result)
+	if err != nil {
+		t.Fatalf("runtimeQuote: %v", err)
+	}
+	candidate := quote.Candidates[0]
+	if candidate.Architecture != cloudcontracts.ArchitectureAMD64 || candidate.VCPU != 4 || candidate.MemoryMiB != 16384 || candidate.GPUCount != 1 || candidate.GPUMemoryMiB != 24576 {
+		t.Fatalf("runtime capacity metadata = %#v", candidate)
+	}
+}
+
 func TestBuildConnectionRegistrationCommandBindsOnlyPendingBootstrap(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

@@ -87,7 +87,8 @@ func TestStoreCommitQuoteMakesOnlySafeQuoteMaterialVisible(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("safe quote view found=%v err=%v", found, err)
 	}
-	if view.QuoteID != result.QuoteID || view.ConnectionID != claim.ConnectionID || len(view.Candidates) != 1 || view.Candidates[0].HourlyMinor != 2000 || view.Candidates[0].Tier != string(cloudcontracts.QuoteTierRecommended) {
+	if view.QuoteID != result.QuoteID || view.ConnectionID != claim.ConnectionID || len(view.Candidates) != 1 || view.Candidates[0].HourlyMinor != 2000 || view.Candidates[0].Tier != string(cloudcontracts.QuoteTierRecommended) ||
+		view.Candidates[0].Architecture != string(cloudcontracts.ArchitectureAMD64) || view.Candidates[0].VCPU != 4 || view.Candidates[0].MemoryMiB != 16384 || view.Candidates[0].GPUCount != 0 || view.Candidates[0].GPUMemoryMiB != 0 {
 		t.Fatalf("safe quote view = %#v", view)
 	}
 	var commandState, requestSHA, receipt string
@@ -165,7 +166,8 @@ func validBrokerQuote(claim runtime.QuoteClaim, signed runtime.SignedQuoteComman
 	for index, candidate := range request.Candidates {
 		candidates[index] = cloudcontracts.QuoteCandidateV1{
 			CandidateID: candidate.CandidateID, Tier: candidate.Tier, InstanceType: candidate.InstanceType,
-			PurchaseOption: candidate.PurchaseOption, HourlyMinor: 2000, ThirtyDayMinor: 1_440_000,
+			PurchaseOption: candidate.PurchaseOption, Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384,
+			GPUCount: 0, GPUMemoryMiB: 0, HourlyMinor: 2000, ThirtyDayMinor: 1_440_000,
 			StartupUpperMinor: 0, EstimatedDiskGiB: candidate.EstimatedDiskGiB, AvailabilityZones: []string{"ap-south-1a"},
 		}
 	}

@@ -225,6 +225,11 @@ type QuoteCandidateV1 struct {
 	Tier              QuoteTier      `json:"tier"`
 	InstanceType      string         `json:"instance_type"`
 	PurchaseOption    PurchaseOption `json:"purchase_option"`
+	Architecture      Architecture   `json:"architecture"`
+	VCPU              uint16         `json:"vcpu"`
+	MemoryMiB         uint32         `json:"memory_mib"`
+	GPUCount          uint16         `json:"gpu_count"`
+	GPUMemoryMiB      uint32         `json:"gpu_memory_mib"`
 	HourlyMinor       int64          `json:"hourly_minor"`
 	ThirtyDayMinor    int64          `json:"thirty_day_minor"`
 	StartupUpperMinor int64          `json:"startup_upper_minor"`

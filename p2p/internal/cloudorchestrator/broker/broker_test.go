@@ -211,6 +211,25 @@ func TestStrictQuoteResponseRejectsDuplicateFields(t *testing.T) {
 	}
 }
 
+func TestStrictQuoteResponseRequiresCapacityMetadata(t *testing.T) {
+	command := testCommand(t)
+	result := validQuoteResult(t, command)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal quote result: %v", err)
+	}
+	missingArchitecture := bytes.ReplaceAll(raw, []byte(`,"architecture":"amd64"`), nil)
+	if _, err := decodeQuoteResultJSON(missingArchitecture); err == nil {
+		t.Fatal("decodeQuoteResultJSON accepted a quote without architecture metadata")
+	}
+
+	result.Quote.Candidates[0].GPUCount = 1
+	result.Receipt.Quote.Candidates[0].GPUCount = 1
+	if err := ValidateQuoteResult(command, result); err == nil {
+		t.Fatal("ValidateQuoteResult accepted GPU count without GPU memory metadata")
+	}
+}
+
 func TestClientRejectsRedirectAndOversizedResponse(t *testing.T) {
 	command := testCommand(t)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -290,6 +309,11 @@ func validQuoteResult(t *testing.T, command QuoteCommand) QuoteResult {
 			InstanceType:      request.Candidates[0].InstanceType,
 			PurchaseOption:    request.Candidates[0].PurchaseOption,
 			EstimatedDiskGiB:  request.Candidates[0].EstimatedDiskGiB,
+			Architecture:      "amd64",
+			VCPU:              2,
+			MemoryMiB:         8192,
+			GPUCount:          0,
+			GPUMemoryMiB:      0,
 			HourlyMinor:       5,
 			ThirtyDayMinor:    3600,
 			StartupUpperMinor: 10,
