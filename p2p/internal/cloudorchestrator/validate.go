@@ -18,6 +18,8 @@ var (
 	currencyPattern   = regexp.MustCompile(`^[A-Z]{3}$`)
 	awsRegionPattern  = regexp.MustCompile(`^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9]$`)
 	secretRefPattern  = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
+	volumeRefPattern  = regexp.MustCompile(`^volume_ref:[A-Za-z0-9._/-]{1,120}$`)
+	dataRefPattern    = regexp.MustCompile(`^data_ref:[A-Za-z0-9._/-]{1,120}$`)
 	secretPatterns    = []*regexp.Regexp{
 		regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`),
 		regexp.MustCompile(`(?i)aws_secret_access_key\s*[:=]`),
@@ -432,6 +434,181 @@ func (n NoInputV1) ValidateForManifest(manifest ExecutionProbeManifestV1) error 
 		return errors.New("no-input task_kind does not match execution probe manifest")
 	}
 	return nil
+}
+
+// Validate accepts only a de-secreted, reference-only execution boundary. A
+// valid manifest is still not an executable Recipe and cannot authorize a
+// Worker task by itself.
+func (m RecipeExecutionManifestV1) Validate() error {
+	if m.SchemaVersion != RecipeExecutionManifestV1Schema {
+		return fmt.Errorf("schema_version must be %q", RecipeExecutionManifestV1Schema)
+	}
+	if err := validateIdentifier("execution_id", m.ExecutionID); err != nil {
+		return err
+	}
+	if err := validateIdentifier("deployment_id", m.DeploymentID); err != nil {
+		return err
+	}
+	if err := validateIdentifier("plan_id", m.PlanID); err != nil {
+		return err
+	}
+	if err := validateIdentifier("action_id", m.ActionID); err != nil {
+		return err
+	}
+	if err := validateDigest("plan_hash", m.PlanHash); err != nil {
+		return err
+	}
+	if err := validateDigest("recipe_digest", m.RecipeDigest); err != nil {
+		return err
+	}
+	if err := validateDigest("worker_resource_manifest_digest", m.WorkerResourceManifestDigest); err != nil {
+		return err
+	}
+	if err := validateDigest("artifact_digest", m.ArtifactDigest); err != nil {
+		return err
+	}
+	if m.PlanRevision == 0 {
+		return errors.New("plan_revision must be positive")
+	}
+	if m.TimeoutSeconds == 0 || m.TimeoutSeconds > 24*60*60 {
+		return errors.New("timeout_seconds must be between 1 and 86400")
+	}
+	if err := validateCheckpointSequence(m.CheckpointSequence); err != nil {
+		return err
+	}
+	if err := validateVolumeSlots(m.VolumeSlots); err != nil {
+		return err
+	}
+	if err := validateDataSlots(m.DataSlots); err != nil {
+		return err
+	}
+	return validateSecretSlots(m.SecretSlots)
+}
+
+// ValidateForPlan verifies that the immutable identifiers and any secret slot
+// references are already bound by the reviewed Plan. Artifact delivery,
+// volume/data realization, and execution remain separate typed control-plane
+// responsibilities.
+func (m RecipeExecutionManifestV1) ValidateForPlan(plan PlanV1) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	planHash, err := plan.Hash()
+	if err != nil {
+		return fmt.Errorf("plan: %w", err)
+	}
+	if m.PlanID != plan.PlanID || m.PlanRevision != plan.Revision || m.PlanHash != planHash || m.RecipeDigest != plan.Recipe.Digest {
+		return errors.New("recipe execution manifest does not match the reviewed plan")
+	}
+	allowedSecrets := make(map[string]struct{}, len(plan.SecretScope))
+	for _, reference := range plan.SecretScope {
+		allowedSecrets[reference.SecretRef] = struct{}{}
+	}
+	for _, slot := range m.SecretSlots {
+		if _, found := allowedSecrets[slot.SecretRef]; !found {
+			return errors.New("recipe execution manifest references a secret outside the reviewed plan")
+		}
+	}
+	return nil
+}
+
+func validateCheckpointSequence(values []string) error {
+	if len(values) == 0 || len(values) > 32 {
+		return errors.New("checkpoint_sequence must contain 1 to 32 entries")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if err := validateIdentifier("checkpoint", value); err != nil {
+			return err
+		}
+		if _, found := seen[value]; found {
+			return errors.New("checkpoint_sequence must not contain duplicates")
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateVolumeSlots(slots []VolumeSlotV1) error {
+	if len(slots) > 64 {
+		return errors.New("volume_slots may contain at most 64 entries")
+	}
+	seenSlots := make(map[string]struct{}, len(slots))
+	seenRefs := make(map[string]struct{}, len(slots))
+	for index, slot := range slots {
+		if err := validateIdentifier("volume slot id", slot.SlotID); err != nil {
+			return fmt.Errorf("volume slot %d: %w", index, err)
+		}
+		if err := validateOpaqueReference("volume_ref", slot.VolumeRef, volumeRefPattern); err != nil {
+			return fmt.Errorf("volume slot %d: %w", index, err)
+		}
+		if _, found := seenSlots[slot.SlotID]; found {
+			return errors.New("volume_slots must not contain duplicate slot_id values")
+		}
+		if _, found := seenRefs[slot.VolumeRef]; found {
+			return errors.New("volume_slots must not contain duplicate volume_ref values")
+		}
+		seenSlots[slot.SlotID] = struct{}{}
+		seenRefs[slot.VolumeRef] = struct{}{}
+	}
+	return nil
+}
+
+func validateDataSlots(slots []DataSlotV1) error {
+	if len(slots) > 64 {
+		return errors.New("data_slots may contain at most 64 entries")
+	}
+	seenSlots := make(map[string]struct{}, len(slots))
+	seenRefs := make(map[string]struct{}, len(slots))
+	for index, slot := range slots {
+		if err := validateIdentifier("data slot id", slot.SlotID); err != nil {
+			return fmt.Errorf("data slot %d: %w", index, err)
+		}
+		if err := validateOpaqueReference("data_ref", slot.DataRef, dataRefPattern); err != nil {
+			return fmt.Errorf("data slot %d: %w", index, err)
+		}
+		if _, found := seenSlots[slot.SlotID]; found {
+			return errors.New("data_slots must not contain duplicate slot_id values")
+		}
+		if _, found := seenRefs[slot.DataRef]; found {
+			return errors.New("data_slots must not contain duplicate data_ref values")
+		}
+		seenSlots[slot.SlotID] = struct{}{}
+		seenRefs[slot.DataRef] = struct{}{}
+	}
+	return nil
+}
+
+func validateSecretSlots(slots []SecretSlotV1) error {
+	if len(slots) > 64 {
+		return errors.New("secret_slots may contain at most 64 entries")
+	}
+	seenSlots := make(map[string]struct{}, len(slots))
+	seenRefs := make(map[string]struct{}, len(slots))
+	for index, slot := range slots {
+		if err := validateIdentifier("secret slot id", slot.SlotID); err != nil {
+			return fmt.Errorf("secret slot %d: %w", index, err)
+		}
+		if err := validateOpaqueReference("secret_ref", slot.SecretRef, secretRefPattern); err != nil {
+			return fmt.Errorf("secret slot %d: %w", index, err)
+		}
+		if _, found := seenSlots[slot.SlotID]; found {
+			return errors.New("secret_slots must not contain duplicate slot_id values")
+		}
+		if _, found := seenRefs[slot.SecretRef]; found {
+			return errors.New("secret_slots must not contain duplicate secret_ref values")
+		}
+		seenSlots[slot.SlotID] = struct{}{}
+		seenRefs[slot.SecretRef] = struct{}{}
+	}
+	return nil
+}
+
+func validateOpaqueReference(label, value string, pattern *regexp.Regexp) error {
+	if !pattern.MatchString(value) {
+		return fmt.Errorf("%s must be an opaque %s identifier", label, label)
+	}
+	return rejectSecretMaterial(label, value)
 }
 
 func validateExecutionProbeTaskKind(kind string) error {

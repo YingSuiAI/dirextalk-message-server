@@ -126,6 +126,36 @@ func (p PlanV1) Hash() (string, error) {
 	return digestCanonicalCBOR(canonical), nil
 }
 
+// CanonicalRecipeExecutionManifestCBOR emits RFC 8949 Core Deterministic CBOR
+// for the sealed, reference-only compiled Recipe execution boundary.
+func (m RecipeExecutionManifestV1) CanonicalRecipeExecutionManifestCBOR() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return canonicalCBOR(normalizeRecipeExecutionManifest(m))
+}
+
+// Digest returns the deterministic-CBOR SHA-256 artifact identifier for this
+// exact execution scope. It is distinct from its bound plan hash, recipe
+// digest, Worker resource manifest digest, and compiled artifact digest.
+func (m RecipeExecutionManifestV1) Digest() (string, error) {
+	canonical, err := m.CanonicalRecipeExecutionManifestCBOR()
+	if err != nil {
+		return "", err
+	}
+	return digestCanonicalCBOR(canonical), nil
+}
+
+// VerifyDigest rejects a syntactically valid plan, recipe, or compiled
+// artifact digest unless it is the digest of this exact execution manifest.
+func (m RecipeExecutionManifestV1) VerifyDigest(digest string) error {
+	actual, err := m.Digest()
+	if err != nil {
+		return err
+	}
+	return verifyRecipeExecutionArtifactDigest("recipe execution manifest digest", digest, actual)
+}
+
 // CanonicalExecutionProbeManifestCBOR emits RFC 8949 Core Deterministic CBOR
 // for the sealed, reference-only execution_probe manifest artifact.
 func (m ExecutionProbeManifestV1) CanonicalExecutionProbeManifestCBOR() ([]byte, error) {
@@ -187,6 +217,16 @@ func (n NoInputV1) VerifyDigest(digest string) error {
 }
 
 func verifyExecutionProbeArtifactDigest(label, digest, actual string) error {
+	if err := validateDigest(label, digest); err != nil {
+		return err
+	}
+	if digest != actual {
+		return fmt.Errorf("%s does not match the canonical artifact", label)
+	}
+	return nil
+}
+
+func verifyRecipeExecutionArtifactDigest(label, digest, actual string) error {
 	if err := validateDigest(label, digest); err != nil {
 		return err
 	}
@@ -350,6 +390,39 @@ func normalizeRecipe(recipe RecipeV1) RecipeV1 {
 	normalized.Install.CheckpointNames = canonicalSet(recipe.Install.CheckpointNames)
 	normalized.Install.AllowedAdaptations = canonicalSet(recipe.Install.AllowedAdaptations)
 	normalized.Install.Steps = append([]InstallStepV1(nil), recipe.Install.Steps...)
+	return normalized
+}
+
+func normalizeRecipeExecutionManifest(manifest RecipeExecutionManifestV1) RecipeExecutionManifestV1 {
+	normalized := manifest
+	// Checkpoints are an ordered recovery protocol, so their caller-provided
+	// sequence is preserved. Slot declarations have no ordering semantics and
+	// are canonicalized by opaque slot/reference identifiers instead.
+	normalized.CheckpointSequence = append([]string(nil), manifest.CheckpointSequence...)
+	normalized.VolumeSlots = append([]VolumeSlotV1(nil), manifest.VolumeSlots...)
+	sort.Slice(normalized.VolumeSlots, func(i, j int) bool {
+		left, right := normalized.VolumeSlots[i], normalized.VolumeSlots[j]
+		if left.SlotID == right.SlotID {
+			return left.VolumeRef < right.VolumeRef
+		}
+		return left.SlotID < right.SlotID
+	})
+	normalized.DataSlots = append([]DataSlotV1(nil), manifest.DataSlots...)
+	sort.Slice(normalized.DataSlots, func(i, j int) bool {
+		left, right := normalized.DataSlots[i], normalized.DataSlots[j]
+		if left.SlotID == right.SlotID {
+			return left.DataRef < right.DataRef
+		}
+		return left.SlotID < right.SlotID
+	})
+	normalized.SecretSlots = append([]SecretSlotV1(nil), manifest.SecretSlots...)
+	sort.Slice(normalized.SecretSlots, func(i, j int) bool {
+		left, right := normalized.SecretSlots[i], normalized.SecretSlots[j]
+		if left.SlotID == right.SlotID {
+			return left.SecretRef < right.SecretRef
+		}
+		return left.SlotID < right.SlotID
+	})
 	return normalized
 }
 

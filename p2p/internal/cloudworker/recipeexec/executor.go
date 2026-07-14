@@ -1,0 +1,304 @@
+// Package recipeexec coordinates a sealed Recipe execution manifest with a
+// trusted artifact resolver, an idempotent action driver, and durable
+// checkpoints. It deliberately does not execute processes, download content,
+// retrieve secrets, or call any cloud API. Those privileges stay in later,
+// separately isolated execution components.
+package recipeexec
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
+)
+
+var (
+	// ErrExecutorConfiguration means the local host did not provide every
+	// required trusted dependency. It is never safe to fall back to a shell or
+	// an unverified artifact when one is absent.
+	ErrExecutorConfiguration = errors.New("recipe executor is not configured")
+	// ErrArtifactDigestMismatch means the resolver did not return the exact
+	// compiled artifact locked by the manifest.
+	ErrArtifactDigestMismatch = errors.New("resolved recipe artifact digest does not match the manifest")
+	// ErrActionUnsupported means the trusted artifact did not declare the
+	// requested opaque action identifier.
+	ErrActionUnsupported = errors.New("resolved recipe artifact does not support the manifest action")
+	// ErrCheckpointBinding means a durable record belongs to another execution
+	// or another immutable manifest digest.
+	ErrCheckpointBinding = errors.New("recipe checkpoint does not match execution binding")
+	// ErrCheckpointState means the durable record cannot represent a legal
+	// prefix of the manifest's checkpoint sequence.
+	ErrCheckpointState = errors.New("recipe checkpoint state is invalid")
+	// ErrCheckpointOutOfOrder prevents a driver from skipping, replaying, or
+	// regressing a declared checkpoint.
+	ErrCheckpointOutOfOrder = errors.New("recipe checkpoint is not the next declared checkpoint")
+	// ErrCheckpointConflict is a sentinel an atomic CheckpointStore may return
+	// when another holder advanced the state first.
+	ErrCheckpointConflict = errors.New("recipe checkpoint compare-and-swap conflict")
+	// ErrExecutionIncomplete means a driver returned successfully without
+	// persisting the terminal declared checkpoint.
+	ErrExecutionIncomplete = errors.New("recipe action returned before the terminal checkpoint")
+)
+
+// Binding is the durable identity for one execution attempt. The manifest
+// digest makes a stale checkpoint unusable after any reviewed scope changes.
+type Binding struct {
+	ExecutionID    string
+	ManifestDigest string
+}
+
+// Bundle is a trusted resolver result. It contains only the authenticated
+// artifact digest and the opaque action identifiers it exposes; it carries no
+// command, URL, secret, or arbitrary payload into this coordinator.
+type Bundle struct {
+	ArtifactDigest string
+	ActionIDs      []string
+}
+
+// BundleResolver must authenticate and pin a compiled artifact before
+// returning its descriptor. The coordinator independently compares the
+// returned digest with the sealed manifest before it calls a driver.
+type BundleResolver interface {
+	Resolve(ctx context.Context, artifactDigest string) (Bundle, error)
+}
+
+// CheckpointState is one durable prefix of the declared checkpoint sequence.
+// Index is -1 only before the first checkpoint; Completed is true only at the
+// sequence's terminal checkpoint.
+type CheckpointState struct {
+	Binding    Binding
+	Checkpoint string
+	Index      int
+	Completed  bool
+}
+
+// InitialCheckpointState returns the only valid state before any action work
+// has been recorded.
+func InitialCheckpointState(binding Binding) CheckpointState {
+	return CheckpointState{Binding: binding, Index: -1}
+}
+
+// CheckpointStore owns durable, compare-and-swap checkpoint persistence. Load
+// must return InitialCheckpointState(binding) for a fresh execution; Advance
+// must atomically accept next only when the stored state equals previous.
+type CheckpointStore interface {
+	Load(ctx context.Context, binding Binding) (CheckpointState, error)
+	Advance(ctx context.Context, previous, next CheckpointState) error
+}
+
+// ActionRequest is the narrow non-secret input exposed to a trusted action
+// driver. Stable Binding lets the driver make its external action idempotent
+// across a restart; ResumeAfter tells it which semantic checkpoint was
+// persisted. Volume/data/secret fields remain opaque slot references.
+type ActionRequest struct {
+	Binding      Binding
+	Artifact     Bundle
+	DeploymentID string
+	ActionID     string
+	RootRequired bool
+	Timeout      time.Duration
+	ResumeAfter  string
+	VolumeSlots  []cloudorchestrator.VolumeSlotV1
+	DataSlots    []cloudorchestrator.DataSlotV1
+	SecretSlots  []cloudorchestrator.SecretSlotV1
+}
+
+// CheckpointReporter is the sole way an ActionDriver advances durable
+// progress. The coordinator rejects any checkpoint that is not the immediate
+// next item in the sealed sequence.
+type CheckpointReporter interface {
+	Checkpoint(ctx context.Context, name string) error
+}
+
+// ActionDriver is intentionally an interface rather than a shell callback.
+// Implementations must use Binding as their idempotency key and must report
+// every declared checkpoint in order, including the terminal checkpoint.
+type ActionDriver interface {
+	Execute(ctx context.Context, request ActionRequest, checkpoints CheckpointReporter) error
+}
+
+// Executor coordinates one sealed manifest. It is intentionally not wired to
+// the cloud-worker command or Connection Stack task protocol yet.
+type Executor struct {
+	Resolver BundleResolver
+	Store    CheckpointStore
+	Driver   ActionDriver
+}
+
+// Result reports only non-secret, durable execution progress. Completed does
+// not mean the deployed service is externally ready; readiness remains a
+// separately verified control-plane concern.
+type Result struct {
+	ExecutionID    string
+	ManifestDigest string
+	LastCheckpoint string
+	Completed      bool
+	Resumed        bool
+}
+
+// Execute validates the sealed scope, resolves the exact compiled artifact,
+// resumes at its durable checkpoint, and requires the driver to record the
+// terminal checkpoint before reporting success.
+func (executor Executor) Execute(ctx context.Context, manifest cloudorchestrator.RecipeExecutionManifestV1) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := manifest.Validate(); err != nil {
+		return Result{}, fmt.Errorf("recipe execution manifest: %w", err)
+	}
+	if executor.Resolver == nil || executor.Store == nil || executor.Driver == nil {
+		return Result{}, ErrExecutorConfiguration
+	}
+	manifestDigest, err := manifest.Digest()
+	if err != nil {
+		return Result{}, fmt.Errorf("digest recipe execution manifest: %w", err)
+	}
+	binding := Binding{ExecutionID: manifest.ExecutionID, ManifestDigest: manifestDigest}
+	runContext, cancel := context.WithTimeout(ctx, time.Duration(manifest.TimeoutSeconds)*time.Second)
+	defer cancel()
+	if err := runContext.Err(); err != nil {
+		return Result{}, err
+	}
+	bundle, err := executor.Resolver.Resolve(runContext, manifest.ArtifactDigest)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve recipe artifact: %w", err)
+	}
+	if bundle.ArtifactDigest != manifest.ArtifactDigest {
+		return Result{}, ErrArtifactDigestMismatch
+	}
+	if !bundleSupportsAction(bundle, manifest.ActionID) {
+		return Result{}, ErrActionUnsupported
+	}
+
+	state, err := executor.Store.Load(runContext, binding)
+	if err != nil {
+		return Result{}, fmt.Errorf("load recipe checkpoint: %w", err)
+	}
+	if err := validateCheckpointState(state, binding, manifest.CheckpointSequence); err != nil {
+		return Result{}, err
+	}
+	resumed := state.Index >= 0
+	result := resultForState(binding, state, resumed)
+	if state.Completed {
+		return result, nil
+	}
+	if err := runContext.Err(); err != nil {
+		return result, err
+	}
+	reporter := &checkpointReporter{
+		store:            executor.Store,
+		executionContext: runContext,
+		binding:          binding,
+		checkpoints:      manifest.CheckpointSequence,
+		state:            state,
+	}
+	request := ActionRequest{
+		Binding:      binding,
+		Artifact:     cloneBundle(bundle),
+		DeploymentID: manifest.DeploymentID,
+		ActionID:     manifest.ActionID,
+		RootRequired: manifest.RootRequired,
+		Timeout:      time.Duration(manifest.TimeoutSeconds) * time.Second,
+		ResumeAfter:  state.Checkpoint,
+		VolumeSlots:  append([]cloudorchestrator.VolumeSlotV1(nil), manifest.VolumeSlots...),
+		DataSlots:    append([]cloudorchestrator.DataSlotV1(nil), manifest.DataSlots...),
+		SecretSlots:  append([]cloudorchestrator.SecretSlotV1(nil), manifest.SecretSlots...),
+	}
+	if err := executor.Driver.Execute(runContext, request, reporter); err != nil {
+		return resultForState(binding, reporter.state, resumed), fmt.Errorf("execute recipe action: %w", err)
+	}
+	if err := runContext.Err(); err != nil {
+		return resultForState(binding, reporter.state, resumed), err
+	}
+	if !reporter.state.Completed {
+		return resultForState(binding, reporter.state, resumed), ErrExecutionIncomplete
+	}
+	return resultForState(binding, reporter.state, resumed), nil
+}
+
+type checkpointReporter struct {
+	mu               sync.Mutex
+	store            CheckpointStore
+	executionContext context.Context
+	binding          Binding
+	checkpoints      []string
+	state            CheckpointState
+}
+
+func (reporter *checkpointReporter) Checkpoint(ctx context.Context, name string) error {
+	reporter.mu.Lock()
+	defer reporter.mu.Unlock()
+	if err := reporter.executionContext.Err(); err != nil {
+		return err
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if reporter.state.Completed {
+		return ErrCheckpointOutOfOrder
+	}
+	nextIndex := reporter.state.Index + 1
+	if nextIndex >= len(reporter.checkpoints) || reporter.checkpoints[nextIndex] != name {
+		return ErrCheckpointOutOfOrder
+	}
+	next := CheckpointState{
+		Binding:    reporter.binding,
+		Checkpoint: name,
+		Index:      nextIndex,
+		Completed:  nextIndex == len(reporter.checkpoints)-1,
+	}
+	if err := reporter.store.Advance(reporter.executionContext, reporter.state, next); err != nil {
+		return fmt.Errorf("advance recipe checkpoint: %w", err)
+	}
+	reporter.state = next
+	return nil
+}
+
+func validateCheckpointState(state CheckpointState, binding Binding, checkpoints []string) error {
+	if state.Binding != binding {
+		return ErrCheckpointBinding
+	}
+	if state.Index < -1 || state.Index >= len(checkpoints) {
+		return ErrCheckpointState
+	}
+	if state.Index == -1 {
+		if state.Checkpoint != "" || state.Completed {
+			return ErrCheckpointState
+		}
+		return nil
+	}
+	if state.Checkpoint != checkpoints[state.Index] || state.Completed != (state.Index == len(checkpoints)-1) {
+		return ErrCheckpointState
+	}
+	return nil
+}
+
+func resultForState(binding Binding, state CheckpointState, resumed bool) Result {
+	return Result{
+		ExecutionID:    binding.ExecutionID,
+		ManifestDigest: binding.ManifestDigest,
+		LastCheckpoint: state.Checkpoint,
+		Completed:      state.Completed,
+		Resumed:        resumed,
+	}
+}
+
+func bundleSupportsAction(bundle Bundle, actionID string) bool {
+	for _, candidate := range bundle.ActionIDs {
+		if candidate == actionID {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneBundle(bundle Bundle) Bundle {
+	clone := bundle
+	clone.ActionIDs = append([]string(nil), bundle.ActionIDs...)
+	return clone
+}

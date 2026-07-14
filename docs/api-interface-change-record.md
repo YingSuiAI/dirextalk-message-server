@@ -1,6 +1,25 @@
 # API Interface Change Record
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
+
+## 2026-07-15 Sealed Recipe Execution Foundation
+
+Added internal `RecipeExecutionManifestV1` deterministic-CBOR artifacts and a
+`cloudworker/recipeexec` coordinator. The manifest binds one execution and
+deployment to an immutable Plan revision/hash, Recipe digest, Worker resource
+manifest digest, locked compiled-artifact digest, opaque action identifier,
+timeout, ordered recovery checkpoints, and opaque volume/data/secret slots.
+It rejects command text, URLs, file paths, raw credentials, invalid references,
+and secret slots that are outside the reviewed Plan.
+
+The coordinator accepts only a trusted artifact resolver, durable
+compare-and-swap checkpoint store, and idempotent action driver. It requires
+the returned artifact digest and action declaration to match the manifest,
+resumes only from the exact next checkpoint, and does not replay an action
+after a terminal checkpoint. It does not run a process, download a bundle,
+retrieve a secret, call AWS, alter the existing `execution_probe` task, or
+mean service readiness. This is an internal contract only: no ProductCore,
+MCP, Agent, Flutter, Connection Stack, or deployment-script API changed.
 
 ## 2026-07-14 Device-Signed Cloud Plan Confirmation
 

@@ -280,6 +280,10 @@ const (
 	// NoInputV1Schema identifies the sealed empty-input artifact for an
 	// execution probe. It cannot carry task data, commands, URLs, or secrets.
 	NoInputV1Schema = "dirextalk.no-input/v1"
+	// RecipeExecutionManifestV1Schema identifies the sealed, de-secreted
+	// execution boundary for a future compiled Recipe artifact. It is not yet a
+	// Worker task type or a permission to execute a shell command.
+	RecipeExecutionManifestV1Schema = "dirextalk.recipe-execution-manifest/v1"
 	// ExecutionProbeTaskKind is the only task kind represented by these
 	// artifacts. It is a transport proof, not Recipe execution or service
 	// readiness.
@@ -309,6 +313,55 @@ type NoInputV1 struct {
 	DeploymentID  string `json:"deployment_id"`
 	TaskKind      string `json:"task_kind"`
 	NoInput       bool   `json:"no_input"`
+}
+
+// RecipeExecutionManifestV1 seals the non-secret execution scope for one
+// compiled Recipe artifact. It binds an execution to an approved Plan revision
+// and Worker resource manifest while deliberately carrying no command text,
+// URL, credential value, file path, or cloud-control instruction. The
+// artifact resolver and a separately isolated executor remain responsible for
+// authenticating the artifact and performing any privileged action.
+type RecipeExecutionManifestV1 struct {
+	SchemaVersion                string         `json:"schema_version"`
+	ExecutionID                  string         `json:"execution_id"`
+	DeploymentID                 string         `json:"deployment_id"`
+	PlanID                       string         `json:"plan_id"`
+	PlanHash                     string         `json:"plan_hash"`
+	PlanRevision                 uint64         `json:"plan_revision"`
+	RecipeDigest                 string         `json:"recipe_digest"`
+	WorkerResourceManifestDigest string         `json:"worker_resource_manifest_digest"`
+	ArtifactDigest               string         `json:"artifact_digest"`
+	ActionID                     string         `json:"action_id"`
+	RootRequired                 bool           `json:"root_required"`
+	TimeoutSeconds               uint32         `json:"timeout_seconds"`
+	CheckpointSequence           []string       `json:"checkpoint_sequence"`
+	VolumeSlots                  []VolumeSlotV1 `json:"volume_slots,omitempty"`
+	DataSlots                    []DataSlotV1   `json:"data_slots,omitempty"`
+	SecretSlots                  []SecretSlotV1 `json:"secret_slots,omitempty"`
+}
+
+// VolumeSlotV1 binds an opaque pre-provisioned volume reference to a compiled
+// artifact slot. It contains neither a host path nor a cloud volume ID.
+type VolumeSlotV1 struct {
+	SlotID    string `json:"slot_id"`
+	VolumeRef string `json:"volume_ref"`
+	ReadOnly  bool   `json:"read_only"`
+}
+
+// DataSlotV1 binds an opaque, already-authorized data reference to a compiled
+// artifact slot. Delivery details stay outside this manifest.
+type DataSlotV1 struct {
+	SlotID   string `json:"slot_id"`
+	DataRef  string `json:"data_ref"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+// SecretSlotV1 names a KMS/Secrets Manager reference already approved on the
+// Plan. It never carries a secret value, environment variable name, or file
+// path.
+type SecretSlotV1 struct {
+	SlotID    string `json:"slot_id"`
+	SecretRef string `json:"secret_ref"`
 }
 
 // ResourceScopeV1 is the hard resource boundary approved for one exclusive

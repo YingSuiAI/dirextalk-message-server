@@ -68,6 +68,19 @@ AWS SDK integration in the message-server process.
   identity certificate, and least-privilege database role are deployed. The
   Message Server neither hosts that Worker session broker nor enables an AWS
   mutation executor.
+- The source additionally defines a private deterministic-CBOR
+  `RecipeExecutionManifestV1` and a pure `cloudworker/recipeexec`
+  coordinator. The manifest seals an execution/deployment/Plan-revision/
+  Recipe/Worker-resource/artifact digest binding, opaque action ID, timeout,
+  ordered checkpoints, and opaque volume/data/secret slots. It contains no
+  command, URL, file path, secret value, or AWS credential. The coordinator
+  requires a trusted compiled-artifact resolver, a CAS checkpoint store, and
+  an idempotent action driver; it rejects artifact mismatches, stale manifest
+  checkpoints, skipped/replayed checkpoints, and successful returns without a
+  terminal checkpoint. It is deliberately not wired into `cloud-worker`, the
+  task broker, the Connection Stack, or a root executor yet. Consequently it
+  cannot deploy OpenClaw, a knowledge-base node, a website, a model, or any
+  other service, and it provides no new API or AWS mutation path.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
