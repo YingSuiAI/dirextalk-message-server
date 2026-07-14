@@ -49,7 +49,11 @@ func (provider *recordingIdentityProofProvider) Fetch(context.Context) (cloudwor
 type recordingWorkerSessionClient struct {
 	claimProofs    []cloudworker.InstanceIdentityProof
 	heartbeat      func(context.Context) error
+	retry          func(context.Context) error
+	renew          func(context.Context, cloudworker.InstanceIdentityProof) error
+	renewProofs    []cloudworker.InstanceIdentityProof
 	retryCalls     int
+	renewCalls     int
 	closeCalls     int
 	heartbeatCalls int
 }
@@ -67,9 +71,21 @@ func (client *recordingWorkerSessionClient) Heartbeat(ctx context.Context) error
 	return client.heartbeat(ctx)
 }
 
-func (client *recordingWorkerSessionClient) RetryPending(context.Context) error {
+func (client *recordingWorkerSessionClient) RetryPending(ctx context.Context) error {
 	client.retryCalls++
+	if client.retry != nil {
+		return client.retry(ctx)
+	}
 	return errors.New("retry must not run during shutdown")
+}
+
+func (client *recordingWorkerSessionClient) RenewIfDue(ctx context.Context, proof cloudworker.InstanceIdentityProof) error {
+	client.renewCalls++
+	client.renewProofs = append(client.renewProofs, proof)
+	if client.renew != nil {
+		return client.renew(ctx, proof)
+	}
+	return nil
 }
 
 func (client *recordingWorkerSessionClient) Close() {
@@ -77,6 +93,10 @@ func (client *recordingWorkerSessionClient) Close() {
 }
 
 func writeWorkerBootstrapConfig(t *testing.T, now time.Time, once bool, interval time.Duration) commandConfig {
+	return writeWorkerBootstrapConfigWithExpiry(t, now, now.Add(5*time.Minute), once, interval)
+}
+
+func writeWorkerBootstrapConfigWithExpiry(t *testing.T, now, expiresAt time.Time, once bool, interval time.Duration) commandConfig {
 	t.Helper()
 	endpoint := "https://broker.example.invalid/v2/worker-sessions"
 	manifest := cloudworker.BootstrapManifest{
@@ -87,7 +107,7 @@ func writeWorkerBootstrapConfig(t *testing.T, now time.Time, once bool, interval
 		BootstrapEndpoint:      endpoint,
 		WorkerImageDigest:      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ArtifactManifestDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		ExpiresAt:              now.UTC().Add(5 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+		ExpiresAt:              expiresAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -127,7 +147,7 @@ func TestRunWithDependenciesClaimsFromIMDSProofThenHeartbeats(t *testing.T) {
 	err := runWithDependencies(ctx, writeWorkerBootstrapConfig(t, now, false, time.Millisecond), provider,
 		func(manifest cloudworker.BootstrapManifest, config cloudworker.SessionClientConfig) (workerSessionClient, error) {
 			factoryCalls++
-			if manifest.ConnectionID != "connection-v2-0001" || config.ExpectedBootstrapEndpoint != manifest.BootstrapEndpoint || config.Now == nil {
+			if manifest.ConnectionID != "connection-v2-0001" || config.ExpectedBootstrapEndpoint != manifest.BootstrapEndpoint || config.Now == nil || !config.AllowExpiredBootstrap {
 				t.Fatalf("unexpected session factory input: manifest=%#v config=%#v", manifest, config)
 			}
 			return client, nil
@@ -142,6 +162,27 @@ func TestRunWithDependenciesClaimsFromIMDSProofThenHeartbeats(t *testing.T) {
 	}
 	if client.heartbeatCalls != 1 || client.retryCalls != 0 || client.closeCalls != 1 {
 		t.Fatalf("worker heartbeat lifecycle = %#v", client)
+	}
+}
+
+func TestRunWithDependenciesAllowsExpiredBootstrapOnlyForBrokerReauthentication(t *testing.T) {
+	now := time.Date(2026, 7, 15, 2, 0, 0, 0, time.UTC)
+	provider := &recordingIdentityProofProvider{proof: validWorkerIdentityProof()}
+	client := &recordingWorkerSessionClient{}
+	err := runWithDependencies(context.Background(), writeWorkerBootstrapConfigWithExpiry(t, now, now.Add(-time.Minute), true, time.Millisecond), provider,
+		func(_ cloudworker.BootstrapManifest, config cloudworker.SessionClientConfig) (workerSessionClient, error) {
+			if !config.AllowExpiredBootstrap {
+				t.Fatal("expired bootstrap was not marked for broker-side reauthentication")
+			}
+			return client, nil
+		},
+		func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatalf("expired active-session reauthentication attempt error = %v", err)
+	}
+	if provider.calls != 1 || len(client.claimProofs) != 1 || client.heartbeatCalls != 1 || client.closeCalls != 1 {
+		t.Fatalf("expired bootstrap reauthentication lifecycle = provider:%d client:%#v", provider.calls, client)
 	}
 }
 
@@ -190,5 +231,37 @@ func TestRunWithDependenciesDoesNotClaimWhenIMDSProofFails(t *testing.T) {
 	}
 	if provider.calls != 1 || len(client.claimProofs) != 0 || client.heartbeatCalls != 0 || client.closeCalls != 1 {
 		t.Fatalf("failed IMDS proof must not reach Broker actions: provider=%d client=%#v", provider.calls, client)
+	}
+}
+
+func TestRunWithDependenciesRetriesTransientWorkerTransportFailuresUntilShutdown(t *testing.T) {
+	now := time.Date(2026, 7, 15, 2, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	provider := &recordingIdentityProofProvider{proof: validWorkerIdentityProof()}
+	client := &recordingWorkerSessionClient{}
+	client.heartbeat = func(context.Context) error {
+		if client.heartbeatCalls == 2 {
+			cancel()
+		}
+		return errors.New("temporary heartbeat outage")
+	}
+	client.retry = func(context.Context) error {
+		return errors.New("temporary retry outage")
+	}
+	client.renew = func(context.Context, cloudworker.InstanceIdentityProof) error {
+		return errors.New("temporary renewal outage")
+	}
+	err := runWithDependencies(ctx, writeWorkerBootstrapConfig(t, now, false, time.Millisecond), provider,
+		func(cloudworker.BootstrapManifest, cloudworker.SessionClientConfig) (workerSessionClient, error) {
+			return client, nil
+		},
+		func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatalf("transient worker transport failures must wait for shutdown, got %v", err)
+	}
+	if client.heartbeatCalls != 2 || client.retryCalls != 1 || client.renewCalls != 1 || len(client.renewProofs) != 1 || client.renewProofs[0] != provider.proof || client.closeCalls != 1 {
+		t.Fatalf("transient failure lifecycle = %#v", client)
 	}
 }

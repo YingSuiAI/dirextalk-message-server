@@ -49,6 +49,7 @@ type workerSessionClient interface {
 	Claim(context.Context, cloudworker.InstanceIdentityProof) error
 	Heartbeat(context.Context) error
 	RetryPending(context.Context) error
+	RenewIfDue(context.Context, cloudworker.InstanceIdentityProof) error
 	Close()
 }
 
@@ -128,6 +129,7 @@ func runWithDependencies(
 		MaxLifetime:               10 * time.Minute,
 		ExpectedConnectionID:      config.expectedConnection,
 		ExpectedBootstrapEndpoint: config.expectedEndpoint,
+		AllowExpired:              true,
 	})
 	if err != nil {
 		return errConfigInvalid
@@ -136,6 +138,7 @@ func runWithDependencies(
 		ExpectedConnectionID:      config.expectedConnection,
 		ExpectedBootstrapEndpoint: config.expectedEndpoint,
 		Now:                       now,
+		AllowExpiredBootstrap:     true,
 	})
 	if err != nil || client == nil {
 		return errConfigInvalid
@@ -177,11 +180,17 @@ func runWithDependencies(
 				if ctx.Err() != nil {
 					return nil
 				}
-				if retryErr := client.RetryPending(ctx); retryErr != nil {
-					if ctx.Err() != nil {
-						return nil
-					}
-					return errRunFailed
+				_ = client.RetryPending(ctx)
+				if ctx.Err() != nil {
+					return nil
+				}
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err := client.RenewIfDue(ctx, proof); err != nil {
+				if ctx.Err() != nil {
+					return nil
 				}
 			}
 		}

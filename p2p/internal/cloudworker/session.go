@@ -17,6 +17,7 @@ import (
 const (
 	defaultHTTPTimeout       = 30 * time.Second
 	maxWorkerSessionResponse = 64 * 1024
+	workerSessionRenewalLead = time.Minute
 )
 
 var (
@@ -42,6 +43,10 @@ type SessionClientConfig struct {
 	ExpectedBootstrapEndpoint string
 	HTTPClient                *http.Client
 	Now                       func() time.Time
+	// AllowExpiredBootstrap is only used by the cloud-worker reconnect path.
+	// The Broker still decides whether the immutable bootstrap session was
+	// already activated and can be reauthenticated.
+	AllowExpiredBootstrap bool
 }
 
 // SessionSnapshot is deliberately safe to project or test: it never carries
@@ -59,12 +64,13 @@ type SessionClient struct {
 	client   *http.Client
 	now      func() time.Time
 
-	mu      sync.Mutex
-	state   SessionState
-	access  string
-	epoch   uint64
-	lastAck uint64
-	pending *SessionEvent
+	mu             sync.Mutex
+	state          SessionState
+	access         string
+	epoch          uint64
+	leaseExpiresAt time.Time
+	lastAck        uint64
+	pending        *SessionEvent
 }
 
 // NewSessionClient validates the immutable manifest before any HTTP request.
@@ -79,6 +85,7 @@ func NewSessionClient(manifest BootstrapManifest, config SessionClientConfig) (*
 		MaxLifetime:               maxBootstrapManifestLifetime,
 		ExpectedConnectionID:      config.ExpectedConnectionID,
 		ExpectedBootstrapEndpoint: config.ExpectedBootstrapEndpoint,
+		AllowExpired:              config.AllowExpiredBootstrap,
 	}); err != nil {
 		return nil, err
 	}
@@ -108,6 +115,28 @@ func (client *SessionClient) Claim(ctx context.Context, proof InstanceIdentityPr
 	if client.state != SessionStateUnclaimed {
 		return ErrSessionClaimed
 	}
+	return client.claimLocked(ctx, proof, false)
+}
+
+// RenewIfDue presents the VM identity proof again once the bearer lease is
+// close to expiring. A successful renewal must rotate both the lease epoch and
+// bearer token, so prior telemetry cannot be sent under the new lease.
+func (client *SessionClient) RenewIfDue(ctx context.Context, proof InstanceIdentityProof) error {
+	if client == nil {
+		return ErrSessionNotClaimed
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.state != SessionStateActive || client.leaseExpiresAt.IsZero() {
+		return ErrSessionNotClaimed
+	}
+	if client.now().UTC().Before(client.leaseExpiresAt.Add(-workerSessionRenewalLead)) {
+		return nil
+	}
+	return client.claimLocked(ctx, proof, true)
+}
+
+func (client *SessionClient) claimLocked(ctx context.Context, proof InstanceIdentityProof, renewing bool) error {
 	request, err := NewClaimRequest(client.manifest, proof)
 	if err != nil {
 		return err
@@ -117,11 +146,25 @@ func (client *SessionClient) Claim(ctx context.Context, proof InstanceIdentityPr
 		return err
 	}
 	var response claimResponse
-	if err := decodeStrictObject(body, &response); err != nil || response.ValidateFor(client.manifest, client.now()) != nil {
+	now := client.now().UTC()
+	if err := decodeStrictObject(body, &response); err != nil || response.ValidateFor(client.manifest, now) != nil {
 		return errors.New("worker claim response is invalid")
+	}
+	leaseExpiresAt, err := parseCanonicalInstant(response.LeaseExpiresAt)
+	if err != nil {
+		return errors.New("worker claim response is invalid")
+	}
+	if renewing && (response.LeaseEpoch <= client.epoch || response.AccessToken == client.access) {
+		return errors.New("worker session renewal did not rotate its lease")
 	}
 	client.access = response.AccessToken
 	client.epoch = response.LeaseEpoch
+	client.leaseExpiresAt = leaseExpiresAt
+	// Events from the prior epoch are not valid under the rotated bearer. This
+	// Worker currently emits telemetry only; later recipe execution will own
+	// durable checkpoint recovery separately from this transport reset.
+	client.lastAck = 0
+	client.pending = nil
 	client.state = SessionStateActive
 	return nil
 }

@@ -51,6 +51,10 @@ type ManifestValidationContext struct {
 	MaxLifetime               time.Duration
 	ExpectedConnectionID      string
 	ExpectedBootstrapEndpoint string
+	// AllowExpired is only for a restarted cloud-worker to present its
+	// immutable, already-bound manifest to the Broker for reauthentication.
+	// It does not relax any manifest binding and does not grant a session.
+	AllowExpired bool
 }
 
 // ParseBootstrapManifest rejects unknown and duplicate JSON fields before it
@@ -94,7 +98,14 @@ func (manifest BootstrapManifest) Validate(context ManifestValidationContext) er
 		return errors.New("worker bootstrap manifest does not match its endpoint")
 	}
 	expiresAt, err := parseCanonicalInstant(manifest.ExpiresAt)
-	if err != nil || !expiresAt.After(context.Now.UTC()) || expiresAt.Sub(context.Now.UTC()) > context.MaxLifetime {
+	if err != nil {
+		return errors.New("worker bootstrap manifest has expired or exceeds its lifetime")
+	}
+	if expiresAt.After(context.Now.UTC()) {
+		if expiresAt.Sub(context.Now.UTC()) > context.MaxLifetime {
+			return errors.New("worker bootstrap manifest has expired or exceeds its lifetime")
+		}
+	} else if !context.AllowExpired {
 		return errors.New("worker bootstrap manifest has expired or exceeds its lifetime")
 	}
 	return nil

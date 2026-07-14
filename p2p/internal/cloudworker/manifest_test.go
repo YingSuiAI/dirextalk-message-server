@@ -91,3 +91,27 @@ func TestBootstrapManifestV1RejectsExpiredOrUnboundValues(t *testing.T) {
 		})
 	}
 }
+
+func TestBootstrapManifestV1AllowsExpiredBootstrapOnlyForExplicitReauthentication(t *testing.T) {
+	const endpoint = "https://broker.example.invalid/v2/worker-sessions"
+	manifest := validTestManifest(endpoint)
+	manifest.ExpiresAt = "2026-07-14T06:59:00.000Z"
+	context := validManifestContext(endpoint)
+
+	if err := manifest.Validate(context); err == nil {
+		t.Fatal("Validate() accepted an expired manifest without explicit reauthentication")
+	}
+	context.AllowExpired = true
+	if err := manifest.Validate(context); err != nil {
+		t.Fatalf("Validate() rejected an explicitly reauthenticating expired manifest: %v", err)
+	}
+	manifest.ConnectionID = "connection-v2-other"
+	if err := manifest.Validate(context); err == nil {
+		t.Fatal("Validate() accepted an expired manifest with an unbound connection")
+	}
+	manifest = validTestManifest(endpoint)
+	manifest.ExpiresAt = "2026-07-14T07:06:00.000Z"
+	if err := manifest.Validate(context); err == nil {
+		t.Fatal("Validate() accepted a future manifest beyond its lifetime during reauthentication")
+	}
+}

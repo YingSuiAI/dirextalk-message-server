@@ -33,14 +33,16 @@ AWS SDK integration in the message-server process.
   Connection Stack source now has a closed Worker bootstrap claim/events API,
   IMDSv2 identity verification, and EC2 read-back, but the production
   Orchestrator remains gated until a reviewed fixed Worker AMI, recipe
-  executor, renewable Worker lease/recovery protocol, service-health evidence,
-  and operational Stack configuration are deployed together. The current
-  bootstrap lease is at most ten minutes and is intentionally insufficient for
-  long-running services or continuous monitoring. It is intentionally not part
-  of the default compose stack until its private researcher, node-key mount,
-  Connection Stack registration, Worker identity certificate, and
-  least-privilege database role are deployed. The Message Server neither hosts
-  that Worker session broker nor enables an AWS mutation executor.
+  executor, service-health evidence, and operational Stack configuration are
+  deployed together. The current source provides a bounded Worker
+  reauthentication protocol: a first claim remains limited to the at-most-ten
+  minute bootstrap window, while an already active, independently IID-verified
+  Worker may rotate its bearer and epoch during a 24-hour recovery-retention
+  fence. It is intentionally not part of the default compose stack until its
+  private researcher, node-key mount, Connection Stack registration, Worker
+  identity certificate, and least-privilege database role are deployed. The
+  Message Server neither hosts that Worker session broker nor enables an AWS
+  mutation executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
