@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
@@ -46,6 +47,10 @@ func TestDatabaseStoreCreateCloudGoalIsAtomicAndIdempotent(t *testing.T) {
 	if err != nil || len(events) != 2 || events[0].SummaryJSON == "" || events[0].SummaryJSON == request.Goal.Prompt || events[0].Summary == nil {
 		t.Fatalf("durable cloud events = %#v, err=%v", events, err)
 	}
+	var projections int
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_projection_outbox`).Scan(&projections); err != nil || projections != 2 {
+		t.Fatalf("initial cloud events must atomically create two projection records: count=%d err=%v", projections, err)
+	}
 
 	broken := cloudGoalCreateRequest("cloud-goal-2", "cloud-plan-2", "idem-2", "digest-2", "duplicate-event", "outbox-2")
 	broken.Events[1].EventID = broken.Events[0].EventID
@@ -55,6 +60,49 @@ func TestDatabaseStoreCreateCloudGoalIsAtomicAndIdempotent(t *testing.T) {
 	goals, err := store.ListCloudGoals(ctx)
 	if err != nil || len(goals) != 1 || goals[0].GoalID != request.Goal.GoalID {
 		t.Fatalf("failed create leaked a cloud goal: %#v, err=%v", goals, err)
+	}
+}
+
+func TestDatabaseStoreCloudProjectionUsesAuthoritativeEventAndFencesLeases(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	request := cloudGoalCreateRequest("cloud-goal-projection", "cloud-plan-projection", "idem-projection", "digest-projection", "event-projection", "outbox-projection")
+	request.Events = request.Events[:1]
+	if _, err := store.CreateCloudGoal(ctx, request); err != nil {
+		t.Fatalf("seed cloud projection: %v", err)
+	}
+	projectionID := cloudProjectionID(request.Events[0].EventID)
+	if _, err := store.DB().ExecContext(ctx, `UPDATE p2p_cloud_projection_outbox SET payload_json = $1 WHERE projection_id = $2`, `{"raw_worker_log":"sk-0123456789abcdefghijklmnop"}`, projectionID); err != nil {
+		t.Fatal(err)
+	}
+
+	first, found, err := store.ClaimCloudProjection(ctx, "message-server-a", time.Minute, "lease-a")
+	if err != nil || !found || first.ProjectionID != projectionID || first.LeaseToken != "lease-a" {
+		t.Fatalf("first projection claim = %#v, found=%v err=%v", first, found, err)
+	}
+	if first.PayloadJSON != request.Events[0].SummaryJSON {
+		t.Fatalf("claim must use authoritative cloud event summary, got %q want %q", first.PayloadJSON, request.Events[0].SummaryJSON)
+	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE p2p_cloud_projection_outbox SET lease_until = 0 WHERE projection_id = $1`, projectionID); err != nil {
+		t.Fatal(err)
+	}
+	second, found, err := store.ClaimCloudProjection(ctx, "message-server-b", time.Minute, "lease-b")
+	if err != nil || !found || second.ProjectionID != projectionID || second.LeaseToken != "lease-b" {
+		t.Fatalf("takeover projection claim = %#v, found=%v err=%v", second, found, err)
+	}
+	if err := store.CompleteCloudProjection(ctx, first); !errors.Is(err, cloudmodule.ErrProjectionLeaseLost) {
+		t.Fatalf("expired worker completion = %v, want lease loss", err)
+	}
+	if err := store.CompleteCloudProjection(ctx, second); err != nil {
+		t.Fatalf("current worker completion: %v", err)
 	}
 }
 

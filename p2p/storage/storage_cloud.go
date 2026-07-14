@@ -3,6 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 )
@@ -15,6 +19,11 @@ const cloudGoalColumns = `
 const cloudPlanColumns = `
 	plan_id, goal_id, cloud_connection_id, status, title, summary,
 	recipe_digest, quote_id, plan_hash, revision, created_at, updated_at
+`
+
+const cloudJobColumns = `
+	job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
+	checkpoint, error_code, revision, created_at, updated_at
 `
 
 func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule.CreateGoalRequest) (cloudmodule.CreateGoalResult, error) {
@@ -70,12 +79,38 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 			plan.RecipeDigest, plan.QuoteID, plan.PlanHash, plan.Revision, plan.CreatedAt, plan.UpdatedAt); err != nil {
 			return err
 		}
+		job := request.Job
+		if job.JobID != "" {
+			if _, err := txn.ExecContext(ctx, `
+				INSERT INTO p2p_cloud_jobs (
+					job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
+					checkpoint, error_code, revision, created_at, updated_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			`, job.JobID, job.PlanID, job.DeploymentID, job.Kind, job.Execution, job.Outcome,
+				job.Checkpoint, job.ErrorCode, job.Revision, job.CreatedAt, job.UpdatedAt); err != nil {
+				return err
+			}
+			if _, err := txn.ExecContext(ctx, `
+				INSERT INTO p2p_cloud_job_steps (
+					job_id, step_id, status, summary, checkpoint, error_code, revision, created_at, updated_at
+				) VALUES ($1, 'research', 'queued', 'Cloud research is queued for the selected connection.', $2, '', 1, $3, $3)
+			`, job.JobID, job.Checkpoint, job.CreatedAt); err != nil {
+				return err
+			}
+		}
 		for _, event := range request.Events {
 			if _, err := txn.ExecContext(ctx, `
 				INSERT INTO p2p_cloud_events (
 					event_id, type, aggregate_type, aggregate_id, revision, summary_json, created_at
 				) VALUES ($1, $2, $3, $4, $5, $6, $7)
 			`, event.EventID, event.Type, event.AggregateType, event.AggregateID, event.Revision, event.SummaryJSON, event.CreatedAt); err != nil {
+				return err
+			}
+			if _, err := txn.ExecContext(ctx, `
+				INSERT INTO p2p_cloud_projection_outbox (
+					projection_id, cloud_event_id, type, payload_json, available_at, created_at
+				) VALUES ($1, $2, $3, $4, $5, $5)
+			`, cloudProjectionID(event.EventID), event.EventID, event.Type, event.SummaryJSON, event.CreatedAt); err != nil {
 				return err
 			}
 		}
@@ -91,6 +126,126 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 		return nil
 	})
 	return result, err
+}
+
+// ClaimCloudProjection returns an authoritative Cloud event summary. The
+// outbox payload remains a redundant delivery record; it is not trusted as a
+// source for ProductCore projection content.
+func (s *DatabaseStore) ClaimCloudProjection(ctx context.Context, workerID string, lease time.Duration, leaseToken string) (cloudmodule.ProjectionClaim, bool, error) {
+	workerID = strings.TrimSpace(workerID)
+	leaseToken = strings.TrimSpace(leaseToken)
+	if workerID == "" || len(workerID) > 128 || strings.ContainsAny(workerID, "\r\n\t\x00") || leaseToken == "" || len(leaseToken) > 128 || strings.ContainsAny(leaseToken, "\r\n\t\x00") {
+		return cloudmodule.ProjectionClaim{}, false, errors.New("cloud projection claim identity is invalid")
+	}
+	if lease <= 0 || lease > 5*time.Minute {
+		return cloudmodule.ProjectionClaim{}, false, errors.New("cloud projection claim lease is invalid")
+	}
+	now := time.Now().UTC().UnixMilli()
+	row := s.db.QueryRowContext(ctx, `
+		WITH selected AS (
+			SELECT outbox.projection_id
+			FROM p2p_cloud_projection_outbox AS outbox
+			WHERE outbox.completed_at = 0
+				AND outbox.available_at <= $1
+				AND outbox.lease_until <= $1
+			ORDER BY outbox.created_at ASC, outbox.projection_id ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		), claimed AS (
+			UPDATE p2p_cloud_projection_outbox AS outbox
+			SET lease_owner = $2, lease_token = $3, lease_until = $4,
+				attempts = outbox.attempts + 1, last_error_code = ''
+			FROM selected
+			WHERE outbox.projection_id = selected.projection_id
+			RETURNING outbox.projection_id, outbox.cloud_event_id, outbox.lease_token, outbox.attempts
+		)
+		SELECT claimed.projection_id, claimed.cloud_event_id, event.type, event.summary_json,
+			claimed.lease_token, claimed.attempts
+		FROM claimed
+		JOIN p2p_cloud_events AS event ON event.event_id = claimed.cloud_event_id
+	`, now, workerID, leaseToken, now+lease.Milliseconds())
+	var claim cloudmodule.ProjectionClaim
+	if err := row.Scan(&claim.ProjectionID, &claim.CloudEventID, &claim.Type, &claim.PayloadJSON, &claim.LeaseToken, &claim.Attempt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cloudmodule.ProjectionClaim{}, false, nil
+		}
+		return cloudmodule.ProjectionClaim{}, false, fmt.Errorf("claim cloud projection: %w", err)
+	}
+	return claim, true, nil
+}
+
+func (s *DatabaseStore) CompleteCloudProjection(ctx context.Context, claim cloudmodule.ProjectionClaim) error {
+	now := time.Now().UTC().UnixMilli()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE p2p_cloud_projection_outbox
+		SET lease_owner = '', lease_token = '', lease_until = 0, completed_at = $1,
+			available_at = $1, last_error_code = ''
+		WHERE projection_id = $2 AND lease_token = $3 AND completed_at = 0 AND lease_until > $1
+	`, now, claim.ProjectionID, claim.LeaseToken)
+	if err != nil {
+		return err
+	}
+	return requireCloudProjectionMutation(result)
+}
+
+func (s *DatabaseStore) DeferCloudProjection(ctx context.Context, claim cloudmodule.ProjectionClaim, code string, availableAt time.Time) error {
+	now := time.Now().UTC().UnixMilli()
+	available := availableAt.UTC().UnixMilli()
+	if available < now {
+		available = now
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE p2p_cloud_projection_outbox
+		SET lease_owner = '', lease_token = '', lease_until = 0,
+			available_at = $1, last_error_code = $2
+		WHERE projection_id = $3 AND lease_token = $4 AND completed_at = 0 AND lease_until > $5
+	`, available, durableCloudProjectionCode(code, cloudmodule.ProjectionPublishFailureCode), claim.ProjectionID, claim.LeaseToken, now)
+	if err != nil {
+		return err
+	}
+	return requireCloudProjectionMutation(result)
+}
+
+func (s *DatabaseStore) RejectCloudProjection(ctx context.Context, claim cloudmodule.ProjectionClaim, code string) error {
+	now := time.Now().UTC().UnixMilli()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE p2p_cloud_projection_outbox
+		SET lease_owner = '', lease_token = '', lease_until = 0, completed_at = $1,
+			available_at = $1, last_error_code = $2
+		WHERE projection_id = $3 AND lease_token = $4 AND completed_at = 0 AND lease_until > $1
+	`, now, durableCloudProjectionCode(code, cloudmodule.InvalidCloudProjectionCode), claim.ProjectionID, claim.LeaseToken)
+	if err != nil {
+		return err
+	}
+	return requireCloudProjectionMutation(result)
+}
+
+func cloudProjectionID(eventID string) string {
+	return "cloud_projection_" + eventID
+}
+
+func requireCloudProjectionMutation(result sql.Result) error {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return cloudmodule.ErrProjectionLeaseLost
+	}
+	return nil
+}
+
+func durableCloudProjectionCode(value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || len(value) > 96 {
+		return fallback
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' && character != '-' {
+			return fallback
+		}
+	}
+	return value
 }
 
 func (s *DatabaseStore) ListCloudGoals(ctx context.Context) ([]cloudmodule.Goal, error) {
@@ -136,6 +291,24 @@ func (s *DatabaseStore) GetCloudPlan(ctx context.Context, id string) (cloudmodul
 		return cloudmodule.Plan{}, false, err
 	}
 	return item, true, nil
+}
+
+func (s *DatabaseStore) ListCloudJobs(ctx context.Context) ([]cloudmodule.Job, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+cloudJobColumns+` FROM p2p_cloud_jobs ORDER BY updated_at DESC, job_id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []cloudmodule.Job{}
+	for rows.Next() {
+		var item cloudmodule.Job
+		if err := scanCloudJob(rows, &item); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *DatabaseStore) ListCloudConnections(ctx context.Context) ([]cloudmodule.Connection, error) {
@@ -314,6 +487,12 @@ func scanCloudGoal(row cloudScanner, item *cloudmodule.Goal) error {
 func scanCloudPlan(row cloudScanner, item *cloudmodule.Plan) error {
 	return row.Scan(&item.PlanID, &item.GoalID, &item.ConnectionID, &item.Status, &item.Title, &item.Summary,
 		&item.RecipeDigest, &item.QuoteID, &item.PlanHash, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
+}
+
+func scanCloudJob(row cloudScanner, item *cloudmodule.Job) error {
+	return row.Scan(
+		&item.JobID, &item.PlanID, &item.DeploymentID, &item.Kind, &item.Execution, &item.Outcome,
+		&item.Checkpoint, &item.ErrorCode, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
 }
 
 func scanCloudConnection(row cloudScanner, item *cloudmodule.Connection) error {

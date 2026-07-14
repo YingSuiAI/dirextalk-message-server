@@ -12,6 +12,7 @@ import (
 
 const (
 	nativeAgentCloudDeploymentPlanTool = "native_agent_cloud_deployment_plan"
+	nativeAgentCloudStatusTool         = "native_agent_cloud_status"
 	nativeAgentCloudDialogueModeParam  = "cloud_dialogue_mode"
 )
 
@@ -52,27 +53,46 @@ func cloudPlanningIdempotencyKey(ctx context.Context, goal, connectionID string)
 }
 
 func (r *Runtime) cloudPlanningTools() []Tool {
-	if r == nil || r.cloudPlanner == nil {
+	if r == nil {
 		return nil
 	}
-	return []Tool{{
-		Name: nativeAgentCloudDeploymentPlanTool,
-		Description: "Create a research-only Cloud deployment goal from an explicit user request. " +
-			"It never accepts credentials, approves spend, creates infrastructure, opens a network endpoint, or destroys resources. " +
-			"Use it to hand an intent to the independent Cloud Orchestrator so it can return a reviewed plan and quote.",
-		Write: true,
-		Parameters: objectSchema(map[string]any{
-			"goal": map[string]any{
-				"type":        "string",
-				"description": "The user-approved deployment intent, service requirement, resource needs, and constraints. Do not include credentials or secret values.",
+	tools := make([]Tool, 0, 2)
+	if r.cloudPlanner != nil {
+		tools = append(tools, Tool{
+			Name: nativeAgentCloudDeploymentPlanTool,
+			Description: "Create a research-only Cloud deployment goal from an explicit user request. " +
+				"It never accepts credentials, approves spend, creates infrastructure, opens a network endpoint, or destroys resources. " +
+				"Use it to hand an intent to the independent Cloud Orchestrator so it can return a reviewed plan and quote.",
+			Write: true,
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"goal": map[string]any{
+						"type":        "string",
+						"description": "The user-approved deployment intent, service requirement, resource needs, and constraints. Do not include credentials or secret values.",
+					},
+					"cloud_connection_id": map[string]any{
+						"type":        "string",
+						"description": "Required existing Dirextalk Cloud Connection identifier. Ask the user to create a Connection through the dedicated client flow before creating research when none is available.",
+					},
+				},
+				"required":             []string{"goal", "cloud_connection_id"},
+				"additionalProperties": false,
 			},
-			"cloud_connection_id": map[string]any{
-				"type":        "string",
-				"description": "Optional existing Dirextalk Cloud Connection identifier. Omit when the user has not connected AWS yet.",
-			},
-		}),
-		Handler: r.createCloudResearchGoal,
-	}}
+			Handler: r.createCloudResearchGoal,
+		})
+	}
+	if r.cloudStatusReader != nil {
+		tools = append(tools, Tool{
+			Name: nativeAgentCloudStatusTool,
+			Description: "Read the de-secretsed Cloud goals, plans, jobs, deployments, services, and alerts. " +
+				"It cannot create, approve, expose, stop, resume, destroy, or upload a secret.",
+			Write:      false,
+			Parameters: objectSchema(map[string]any{}),
+			Handler:    r.readCloudStatus,
+		})
+	}
+	return tools
 }
 
 func (r *Runtime) createCloudResearchGoal(ctx context.Context, args map[string]any) (any, error) {
@@ -92,8 +112,18 @@ func (r *Runtime) createCloudResearchGoal(ctx context.Context, args map[string]a
 		return nil, fmt.Errorf("cloud deployment planning accepts secret_ref values, not raw secret material")
 	}
 	connectionID := trimString(args["cloud_connection_id"])
-	if len(connectionID) > 128 || strings.ContainsAny(connectionID, "\r\n\t") {
-		return nil, fmt.Errorf("cloud_connection_id is invalid")
+	if connectionID == "" || len(connectionID) > 128 || strings.ContainsAny(connectionID, "\r\n\t") {
+		return nil, fmt.Errorf("cloud_connection_id is required and must be valid")
 	}
 	return r.cloudPlanner.CreateResearchGoal(ctx, goal, connectionID, cloudPlanningIdempotencyKey(ctx, goal, connectionID))
+}
+
+func (r *Runtime) readCloudStatus(ctx context.Context, args map[string]any) (any, error) {
+	if r == nil || r.cloudStatusReader == nil {
+		return nil, fmt.Errorf("cloud status is not configured")
+	}
+	if len(args) != 0 {
+		return nil, fmt.Errorf("cloud status does not accept parameters")
+	}
+	return r.cloudStatusReader.ReadCloudStatus(ctx)
 }

@@ -41,6 +41,7 @@ type MemoryStore struct {
 	operations       map[string]operations.Record
 	cloudGoals       map[string]cloudmodule.Goal
 	cloudPlans       map[string]cloudmodule.Plan
+	cloudJobs        map[string]cloudmodule.Job
 	cloudIdem        map[string]string
 	cloudConnections map[string]cloudmodule.Connection
 	cloudDeployments map[string]cloudmodule.Deployment
@@ -80,6 +81,7 @@ func NewMemoryStore() *MemoryStore {
 		operations:                       make(map[string]operations.Record),
 		cloudGoals:                       make(map[string]cloudmodule.Goal),
 		cloudPlans:                       make(map[string]cloudmodule.Plan),
+		cloudJobs:                        make(map[string]cloudmodule.Job),
 		cloudIdem:                        make(map[string]string),
 		cloudConnections:                 make(map[string]cloudmodule.Connection),
 		cloudDeployments:                 make(map[string]cloudmodule.Deployment),

@@ -772,8 +772,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		NewID: func(kind string) string {
 			return "cloud_" + kind + "_" + randomToken(kind)
 		},
-		Publish: func(ctx context.Context, eventType string, payload map[string]any) error {
-			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, Payload: payload})
+		Publish: func(ctx context.Context, eventType, cloudEventID string, payload map[string]any) error {
+			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, DedupeKey: "cloud-event:" + cloudEventID, Payload: payload})
 		},
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
@@ -816,12 +816,13 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	})
 	service.mcpCapabilities = service.mcpModule.Service()
 	service.agentModule = agentmodule.New(agentmodule.Config{
-		Runner:       cfg.NativeAgentRunner,
-		DataDir:      cfg.NativeAgentDataDir,
-		Store:        nativeAgentConfigStore{service: service},
-		MCP:          service.mcpCapabilities,
-		Account:      serviceAgentAccountPort{service: service},
-		CloudPlanner: serviceNativeCloudPlannerPort{service: service},
+		Runner:            cfg.NativeAgentRunner,
+		DataDir:           cfg.NativeAgentDataDir,
+		Store:             nativeAgentConfigStore{service: service},
+		MCP:               service.mcpCapabilities,
+		Account:           serviceAgentAccountPort{service: service},
+		CloudPlanner:      serviceNativeCloudPlannerPort{service: service},
+		CloudStatusReader: serviceNativeCloudPlannerPort{service: service},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

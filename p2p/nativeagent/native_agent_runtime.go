@@ -17,11 +17,12 @@ const (
 )
 
 type Config struct {
-	DataDir      string
-	Store        ConfigStore
-	Tools        []Tool
-	CloudPlanner CloudPlanner
-	HTTPClient   *http.Client
+	DataDir           string
+	Store             ConfigStore
+	Tools             []Tool
+	CloudPlanner      CloudPlanner
+	CloudStatusReader CloudStatusReader
+	HTTPClient        *http.Client
 }
 
 type ConfigStore interface {
@@ -36,17 +37,26 @@ type CloudPlanner interface {
 	CreateResearchGoal(context.Context, string, string, string) (map[string]any, error)
 }
 
+// CloudStatusReader exposes only a de-secretsed Cloud projection to the
+// Eino Agent. It has no approval, secret, provider, or lifecycle mutation
+// method, so cloud dialogue can report progress without becoming a control
+// plane bypass.
+type CloudStatusReader interface {
+	ReadCloudStatus(context.Context) (map[string]any, error)
+}
+
 type Event struct {
 	Event string
 	Data  map[string]any
 }
 
 type Runtime struct {
-	store        ConfigStore
-	dataDir      string
-	client       *http.Client
-	tools        []Tool
-	cloudPlanner CloudPlanner
+	store             ConfigStore
+	dataDir           string
+	client            *http.Client
+	tools             []Tool
+	cloudPlanner      CloudPlanner
+	cloudStatusReader CloudStatusReader
 }
 
 func New(config Config) *Runtime {
@@ -62,11 +72,12 @@ func New(config Config) *Runtime {
 		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
 	}
 	return &Runtime{
-		store:        config.Store,
-		dataDir:      filepath.Clean(dataDir),
-		client:       client,
-		tools:        append([]Tool{}, config.Tools...),
-		cloudPlanner: config.CloudPlanner,
+		store:             config.Store,
+		dataDir:           filepath.Clean(dataDir),
+		client:            client,
+		tools:             append([]Tool{}, config.Tools...),
+		cloudPlanner:      config.CloudPlanner,
+		cloudStatusReader: config.CloudStatusReader,
 	}
 }
 

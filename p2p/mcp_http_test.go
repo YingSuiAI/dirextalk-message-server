@@ -104,14 +104,15 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 }
 
 func TestMCPHTTPCloudToolsAreReadOnlyAndDoNotExposeGoalPrompts(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
+	service := newCloudConnectedService(t)
 	router := newP2PTestRouter(service)
 	goal := "Deploy a private knowledge node with internal source constraints."
 	create := jsonRequest(t, "/_p2p/command", map[string]any{
 		"action": "cloud.goals.create",
 		"params": map[string]any{
-			"goal":            goal,
-			"idempotency_key": "bdf0ee8d-9ec2-4f4b-9bbd-a00000000001",
+			"goal":                goal,
+			"cloud_connection_id": cloudTestConnectionID,
+			"idempotency_key":     "bdf0ee8d-9ec2-4f4b-9bbd-a00000000001",
 		},
 	})
 	create.Header.Set("Authorization", "Bearer "+service.AccessToken())

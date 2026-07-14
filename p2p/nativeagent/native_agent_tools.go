@@ -25,10 +25,10 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 		byName[tool.Name] = tool
 	}
 	if cloudDialogueMode(params) {
-		if tool, ok := byName[nativeAgentCloudDeploymentPlanTool]; ok {
-			return []Tool{tool}
-		}
-		return nil
+		// Do not derive this set from the configurable/default tool list. The
+		// Cloud dialogue is a capability-reduction mode, so it may expose only
+		// the fixed research-goal and read-only status ports.
+		return r.cloudPlanningTools()
 	}
 	enabled := map[string]bool{}
 	enable := func(tool Tool) {
@@ -75,6 +75,7 @@ func nativeAgentManagementTool(name string) bool {
 	name = strings.TrimSpace(name)
 	return name == "native_agent_runtime_inspect" ||
 		name == nativeAgentCloudDeploymentPlanTool ||
+		name == nativeAgentCloudStatusTool ||
 		strings.HasPrefix(name, "native_agent_skills_") ||
 		strings.HasPrefix(name, "native_agent_mcp_servers_")
 }

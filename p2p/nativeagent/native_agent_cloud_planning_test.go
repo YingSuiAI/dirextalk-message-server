@@ -16,6 +16,17 @@ type recordingCloudPlanner struct {
 	calls           int
 }
 
+type recordingCloudStatusReader struct {
+	calls int
+}
+
+func (r *recordingCloudStatusReader) ReadCloudStatus(context.Context) (map[string]any, error) {
+	r.calls++
+	return map[string]any{
+		"plans": []map[string]any{{"plan_id": "cloud_plan_1", "status": "researching"}},
+	}, nil
+}
+
 func (p *recordingCloudPlanner) CreateResearchGoal(_ context.Context, goal, connectionID, idempotencyKey string) (map[string]any, error) {
 	p.goal = goal
 	p.connectionID = connectionID
@@ -34,7 +45,7 @@ func TestCloudDeploymentPlanningIdempotencyIsScopedToOneAgentRequest(t *testing.
 	if !ok {
 		t.Fatal("cloud deployment planning tool must be available")
 	}
-	args := map[string]any{"goal": "Deploy a private knowledge node after a reviewed plan."}
+	args := map[string]any{"goal": "Deploy a private knowledge node after a reviewed plan.", "cloud_connection_id": "connection-1"}
 	firstRequest := withCloudPlanningRequestScope(context.Background())
 	if _, err := tool.Handler(firstRequest, args); err != nil {
 		t.Fatalf("first planner call: %v", err)
@@ -95,6 +106,14 @@ func TestCloudDeploymentPlanningToolIsEinoNativeAndCredentialFree(t *testing.T) 
 	if planner.calls != 1 {
 		t.Fatalf("secret-bearing goal reached planner, calls=%d", planner.calls)
 	}
+	if _, err := tool.Handler(context.Background(), map[string]any{
+		"goal": "must require a selected connection before research is queued",
+	}); err == nil {
+		t.Fatal("cloud deployment planning must reject an unbound research goal")
+	}
+	if planner.calls != 1 {
+		t.Fatalf("unbound request reached planner, calls=%d", planner.calls)
+	}
 
 	einoTools, cleanup, err := runtime.enabledEinoTools(context.Background(), nil, nil)
 	if err != nil {
@@ -122,6 +141,32 @@ func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 	}
 	if !containsStringValue(inspect["built_in_skills"], "cloud_deployment_planner") {
 		t.Fatalf("runtime inspect must surface the server-side Cloud skill, got %#v", inspect)
+	}
+}
+
+func TestCloudDialogueModeExposesOnlyPlanningAndReadOnlyStatus(t *testing.T) {
+	planner := &recordingCloudPlanner{}
+	reader := &recordingCloudStatusReader{}
+	runtime := New(Config{
+		CloudPlanner:      planner,
+		CloudStatusReader: reader,
+		Tools: []Tool{{
+			Name: "runtime_shell",
+			Handler: func(context.Context, map[string]any) (any, error) {
+				return nil, nil
+			},
+		}},
+	})
+	tools := runtime.enabledTools(context.Background(), map[string]any{"enabled_tools": []any{"all"}}, map[string]any{"cloud_dialogue_mode": true})
+	if len(tools) != 2 || tools[0].Name != nativeAgentCloudDeploymentPlanTool || tools[1].Name != nativeAgentCloudStatusTool || tools[1].Write {
+		t.Fatalf("cloud dialogue tools = %#v", tools)
+	}
+	status, err := tools[1].Handler(context.Background(), map[string]any{})
+	if err != nil || reader.calls != 1 || status.(map[string]any)["plans"] == nil {
+		t.Fatalf("cloud status result=%#v calls=%d err=%v", status, reader.calls, err)
+	}
+	if _, err := tools[1].Handler(context.Background(), map[string]any{"destroy": true}); err == nil {
+		t.Fatal("cloud status tool must reject mutation-shaped arguments")
 	}
 }
 
@@ -187,7 +232,10 @@ func TestCloudDialogueModeHardRestrictsToolsPromptAndMemory(t *testing.T) {
 		}
 	}
 	if !strings.Contains(run.session.systemPrompt, nativeAgentCloudDeploymentPlanTool) {
-		t.Fatalf("cloud dialogue prompt must name the only available tool: %q", run.session.systemPrompt)
+		t.Fatalf("cloud dialogue prompt must name the deployment-plan tool: %q", run.session.systemPrompt)
+	}
+	if !strings.Contains(run.session.systemPrompt, nativeAgentCloudStatusTool) {
+		t.Fatalf("cloud dialogue prompt must explain the read-only status tool: %q", run.session.systemPrompt)
 	}
 }
 

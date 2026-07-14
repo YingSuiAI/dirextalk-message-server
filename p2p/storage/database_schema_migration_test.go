@@ -76,6 +76,13 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_cloud_alerts_open_updated_idx",
 		"p2p_cloud_events_aggregate_revision_idx",
 		"p2p_cloud_outbox_pending_idx",
+		"p2p_cloud_outbox_claim_idx",
+		"p2p_cloud_plan_versions_plan_created_idx",
+		"p2p_cloud_recipe_versions_recipe_created_idx",
+		"p2p_cloud_quotes_connection_valid_idx",
+		"p2p_cloud_jobs_plan_updated_idx",
+		"p2p_cloud_job_steps_job_updated_idx",
+		"p2p_cloud_projection_outbox_pending_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {

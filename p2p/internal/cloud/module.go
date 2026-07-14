@@ -42,6 +42,7 @@ const (
 	cloudIdempotencyInvalidCode    = "cloud_idempotency_key_invalid"
 	cloudGoalInvalidCode           = "cloud_goal_invalid"
 	cloudConnectionIDInvalidCode   = "cloud_connection_id_invalid"
+	cloudConnectionRequiredCode    = "cloud_connection_required"
 	cloudInvalidParamsCode         = "cloud_invalid_params"
 	cloudIdempotencyConflictCode   = "cloud_idempotency_conflict"
 )
@@ -50,7 +51,7 @@ type Config struct {
 	OwnerMXID func() string
 	Now       func() time.Time
 	NewID     func(kind string) string
-	Publish   func(context.Context, string, map[string]any) error
+	Publish   func(context.Context, string, string, map[string]any) error
 }
 
 type Module struct {
@@ -106,6 +107,22 @@ func (m *Module) CreateResearchGoal(ctx context.Context, goal, connectionID, ide
 	return response, nil
 }
 
+// ReadCloudStatus is the narrow read-only Agent port. The returned snapshot is
+// the same de-secretsed projection an owner receives from cloud.bootstrap; it
+// never includes private goal prompts, outbox payloads, secret values, or
+// pairing material.
+func (m *Module) ReadCloudStatus(ctx context.Context) (map[string]any, error) {
+	result, actionErr := m.bootstrap(ctx, map[string]any{})
+	if actionErr != nil {
+		return nil, fmt.Errorf("%s", actionErr.Error)
+	}
+	response, ok := result.(map[string]any)
+	if !ok {
+		return nil, errors.New("cloud status returned an invalid response")
+	}
+	return response, nil
+}
+
 func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
 	if err := only(params, "goal", "cloud_connection_id", "idempotency_key"); err != nil {
 		return nil, err
@@ -129,14 +146,19 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 	if m == nil || m.store == nil {
 		return nil, unavailableError()
 	}
-	if connectionID != "" {
-		_, found, err := m.store.GetCloudConnection(ctx, connectionID)
-		if err != nil {
-			return nil, actionbase.InternalError(err)
-		}
-		if !found {
-			return nil, actionbase.CodedError(http.StatusNotFound, "cloud_connection_not_found", "cloud connection was not found")
-		}
+	if connectionID == "" {
+		// A reviewable QuoteV1 and PlanV1 bind one immutable Cloud Connection.
+		// Do not create a private outbox row that no compliant Orchestrator can
+		// ever claim. A future waiting_connection + attach flow must be a
+		// separate, revisioned state transition rather than an implicit retry.
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionRequiredCode, "cloud_connection_id is required before research can start")
+	}
+	_, found, err := m.store.GetCloudConnection(ctx, connectionID)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	if !found {
+		return nil, actionbase.CodedError(http.StatusNotFound, "cloud_connection_not_found", "cloud connection was not found")
 	}
 	ownerMXID := ""
 	if m.cfg.OwnerMXID != nil {
@@ -148,6 +170,8 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 	now := m.now().UnixMilli()
 	goalID := m.newID("goal")
 	planID := m.newID("plan")
+	outboxID := m.newID("outbox")
+	jobID := ResearchJobID(outboxID)
 	goal := Goal{
 		GoalID: goalID, OwnerMXID: ownerMXID, Prompt: goalText, ConnectionID: connectionID,
 		PlanID: planID, Status: GoalStatusResearching,
@@ -158,6 +182,10 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 		PlanID: planID, GoalID: goalID, ConnectionID: connectionID, Status: PlanStatusResearching,
 		Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
+	job := Job{
+		JobID: jobID, PlanID: planID, Kind: "research", Execution: "queued", Outcome: "pending",
+		Checkpoint: "research_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
 	payload, err := json.Marshal(map[string]string{
 		"goal_id": goalID, "plan_id": planID, "cloud_connection_id": connectionID, "goal": goalText,
 	})
@@ -167,12 +195,14 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 	request := CreateGoalRequest{
 		Goal: goal,
 		Plan: plan,
+		Job:  job,
 		Events: []Event{
 			{EventID: m.newID("event"), Type: "cloud.goal.changed", AggregateType: "goal", AggregateID: goalID, Revision: 1, SummaryJSON: mustJSON(goal.Summary()), CreatedAt: now},
 			{EventID: m.newID("event"), Type: "cloud.plan.changed", AggregateType: "plan", AggregateID: planID, Revision: 1, SummaryJSON: mustJSON(plan), CreatedAt: now},
+			{EventID: m.newID("event"), Type: "cloud.job.changed", AggregateType: "job", AggregateID: jobID, Revision: 1, SummaryJSON: mustJSON(job), CreatedAt: now},
 		},
 		Outbox: OutboxEntry{
-			OutboxID: m.newID("outbox"), Kind: OutboxKindResearchGoalRequested,
+			OutboxID: outboxID, Kind: OutboxKindResearchGoalRequested,
 			AggregateType: "goal", AggregateID: goalID, PayloadJSON: string(payload), CreatedAt: now,
 		},
 	}
@@ -184,8 +214,16 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 		return nil, actionbase.InternalError(err)
 	}
 	if created.Created {
-		m.publish(ctx, "cloud.goal.changed", goalPayload(created.Goal.Summary()))
-		m.publish(ctx, "cloud.plan.changed", planPayload(created.Plan))
+		for _, event := range request.Events {
+			switch event.Type {
+			case "cloud.goal.changed":
+				m.publish(ctx, event.Type, event.EventID, goalPayload(created.Goal.Summary()))
+			case "cloud.plan.changed":
+				m.publish(ctx, event.Type, event.EventID, planPayload(created.Plan))
+			case "cloud.job.changed":
+				m.publish(ctx, event.Type, event.EventID, jobPayload(job))
+			}
+		}
 	}
 	return map[string]any{"goal": created.Goal.Summary(), "plan": created.Plan}, nil
 }
@@ -199,6 +237,10 @@ func (m *Module) bootstrap(ctx context.Context, params map[string]any) (any, *ac
 		return nil, actionbase.InternalError(err)
 	}
 	plans, err := m.store.ListCloudPlans(ctx)
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	jobs, err := m.store.ListCloudJobs(ctx)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
@@ -227,7 +269,7 @@ func (m *Module) bootstrap(ctx context.Context, params map[string]any) (any, *ac
 		summaries = append(summaries, goal.Summary())
 	}
 	return map[string]any{
-		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": summaries, "plans": plans,
+		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": summaries, "plans": plans, "jobs": jobs,
 		"connections": connections, "deployments": deployments, "services": services, "recipes": recipes, "alerts": alerts,
 	}, nil
 }
@@ -396,9 +438,9 @@ func (m *Module) unavailableWrite(_ context.Context, _ map[string]any) (any, *ac
 	return nil, unavailableError()
 }
 
-func (m *Module) publish(ctx context.Context, eventType string, payload map[string]any) {
+func (m *Module) publish(ctx context.Context, eventType, cloudEventID string, payload map[string]any) {
 	if m != nil && m.cfg.Publish != nil {
-		_ = m.cfg.Publish(ctx, eventType, payload)
+		_ = m.cfg.Publish(ctx, eventType, cloudEventID, payload)
 	}
 }
 
@@ -463,14 +505,24 @@ func mustJSON(value any) string {
 func goalPayload(summary GoalSummary) map[string]any {
 	return map[string]any{
 		"goal_id": summary.GoalID, "plan_id": summary.PlanID, "cloud_connection_id": summary.ConnectionID,
-		"status": summary.Status, "revision": summary.Revision, "updated_at": summary.UpdatedAt,
+		"status": summary.Status, "revision": summary.Revision, "created_at": summary.CreatedAt, "updated_at": summary.UpdatedAt,
 	}
 }
 
 func planPayload(plan Plan) map[string]any {
 	return map[string]any{
 		"plan_id": plan.PlanID, "goal_id": plan.GoalID, "cloud_connection_id": plan.ConnectionID,
-		"status": plan.Status, "title": plan.Title, "recipe_digest": plan.RecipeDigest,
+		"status": plan.Status, "title": plan.Title, "summary": plan.Summary, "recipe_digest": plan.RecipeDigest,
 		"quote_id": plan.QuoteID, "plan_hash": plan.PlanHash, "revision": plan.Revision, "updated_at": plan.UpdatedAt,
+		"created_at": plan.CreatedAt,
+	}
+}
+
+func jobPayload(job Job) map[string]any {
+	return map[string]any{
+		"job_id": job.JobID, "plan_id": job.PlanID, "deployment_id": job.DeploymentID,
+		"kind": job.Kind, "execution_status": job.Execution, "outcome_status": job.Outcome,
+		"checkpoint": job.Checkpoint, "error_code": job.ErrorCode, "revision": job.Revision,
+		"created_at": job.CreatedAt, "updated_at": job.UpdatedAt,
 	}
 }

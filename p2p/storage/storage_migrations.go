@@ -866,6 +866,98 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud orchestrator runtime v40",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_outbox ADD COLUMN IF NOT EXISTS lease_token TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_outbox ADD COLUMN IF NOT EXISTS available_at BIGINT NOT NULL DEFAULT 0`,
+				`ALTER TABLE p2p_cloud_outbox ADD COLUMN IF NOT EXISTS last_error_code TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_outbox ADD COLUMN IF NOT EXISTS completed_at BIGINT NOT NULL DEFAULT 0`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_outbox_claim_idx ON p2p_cloud_outbox(kind, completed_at, available_at, lease_until, created_at)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_plan_versions (
+					plan_id TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					canonical_cbor BYTEA NOT NULL,
+					display_json TEXT NOT NULL,
+					plan_hash TEXT NOT NULL,
+					recipe_digest TEXT NOT NULL,
+					quote_id TEXT NOT NULL,
+					quote_digest TEXT NOT NULL,
+					quote_valid_until BIGINT NOT NULL,
+					created_at BIGINT NOT NULL,
+					PRIMARY KEY (plan_id, revision)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_plan_versions_plan_created_idx ON p2p_cloud_plan_versions(plan_id, created_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_versions (
+					recipe_id TEXT NOT NULL,
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					canonical_cbor BYTEA NOT NULL,
+					display_json TEXT NOT NULL,
+					digest TEXT NOT NULL,
+					maturity TEXT NOT NULL,
+					created_at BIGINT NOT NULL,
+					PRIMARY KEY (recipe_id, revision)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_recipe_versions_recipe_created_idx ON p2p_cloud_recipe_versions(recipe_id, created_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_quotes (
+					quote_id TEXT PRIMARY KEY NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					region TEXT NOT NULL,
+					currency TEXT NOT NULL,
+					digest TEXT NOT NULL UNIQUE,
+					canonical_cbor BYTEA NOT NULL,
+					display_json TEXT NOT NULL,
+					quoted_at BIGINT NOT NULL,
+					valid_until BIGINT NOT NULL,
+					created_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_quotes_connection_valid_idx ON p2p_cloud_quotes(cloud_connection_id, valid_until DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_jobs (
+					job_id TEXT PRIMARY KEY NOT NULL,
+					plan_id TEXT NOT NULL,
+					deployment_id TEXT NOT NULL DEFAULT '',
+					kind TEXT NOT NULL,
+					execution_status TEXT NOT NULL CHECK (execution_status IN ('queued', 'provisioning', 'installing', 'waiting_user', 'verifying', 'finished')),
+					outcome_status TEXT NOT NULL CHECK (outcome_status IN ('pending', 'succeeded', 'failed', 'canceled', 'interrupted')),
+					checkpoint TEXT NOT NULL DEFAULT '',
+					error_code TEXT NOT NULL DEFAULT '',
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_jobs_plan_updated_idx ON p2p_cloud_jobs(plan_id, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_job_steps (
+					job_id TEXT NOT NULL,
+					step_id TEXT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'waiting_user', 'finished', 'failed')),
+					summary TEXT NOT NULL,
+					checkpoint TEXT NOT NULL DEFAULT '',
+					error_code TEXT NOT NULL DEFAULT '',
+					revision BIGINT NOT NULL CHECK (revision > 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					PRIMARY KEY (job_id, step_id)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_job_steps_job_updated_idx ON p2p_cloud_job_steps(job_id, updated_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_projection_outbox (
+					projection_id TEXT PRIMARY KEY NOT NULL,
+					cloud_event_id TEXT NOT NULL UNIQUE,
+					type TEXT NOT NULL,
+					payload_json TEXT NOT NULL,
+					lease_owner TEXT NOT NULL DEFAULT '',
+					lease_token TEXT NOT NULL DEFAULT '',
+					lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0,
+					available_at BIGINT NOT NULL DEFAULT 0,
+					last_error_code TEXT NOT NULL DEFAULT '',
+					completed_at BIGINT NOT NULL DEFAULT 0,
+					created_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_projection_outbox_pending_idx ON p2p_cloud_projection_outbox(completed_at, available_at, lease_until, created_at)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

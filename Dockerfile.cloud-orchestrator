@@ -1,0 +1,39 @@
+FROM --platform=${BUILDPLATFORM} docker.io/golang:1.26.5-alpine AS build
+
+WORKDIR /src
+ARG TARGETARCH
+ARG VERSION=v0.0.0-dev+local
+ARG COMMIT=uncommitted
+ARG BUILD_TIME=
+
+RUN --mount=target=. \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    GOOS=linux GOARCH="$TARGETARCH" CGO_ENABLED=0 \
+    go build -trimpath \
+      -ldflags="-s -w -X github.com/YingSuiAI/dirextalk-message-server/internal.version=${VERSION} -X github.com/YingSuiAI/dirextalk-message-server/internal.commit=${COMMIT} -X github.com/YingSuiAI/dirextalk-message-server/internal.buildTime=${BUILD_TIME}" \
+      -o /out/cloud-orchestrator ./p2p/cmd/cloud-orchestrator
+
+FROM docker.io/alpine:3.22
+
+ARG VERSION=v0.0.0-dev+local
+ARG COMMIT=uncommitted
+ARG BUILD_TIME=
+
+RUN apk --no-cache add ca-certificates && \
+    addgroup -S -g 65532 cloudorchestrator && \
+    adduser -S -D -H -u 65532 -G cloudorchestrator cloudorchestrator
+
+LABEL org.opencontainers.image.title="Dirextalk Cloud Orchestrator" \
+      org.opencontainers.image.description="Least-privilege Dirextalk Cloud research worker" \
+      org.opencontainers.image.source="https://github.com/YingSuiAI/dirextalk-message-server" \
+      org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
+
+COPY --from=build /out/cloud-orchestrator /usr/local/bin/cloud-orchestrator
+
+USER 65532:65532
+WORKDIR /var/empty
+ENTRYPOINT ["/usr/local/bin/cloud-orchestrator"]

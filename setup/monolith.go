@@ -105,6 +105,13 @@ func (m *Monolith) AddAllPublicRoutes(
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeprovisioner(accountDeprovisioner)
+	processCtx.ComponentStarted()
+	go func() {
+		defer processCtx.ComponentFinished()
+		if relayErr := p2pService.RunCloudProjectionRelay(processCtx.Context()); relayErr != nil && processCtx.Context().Err() == nil {
+			logrus.WithError(relayErr).Warn("P2P cloud projection relay unavailable")
+		}
+	}()
 	matrixHistoryReader := p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil)
 	p2pService.SetMatrixMessageReader(matrixHistoryReader)
 	p2pService.SetMatrixProfileResolver(matrixProfileResolver)

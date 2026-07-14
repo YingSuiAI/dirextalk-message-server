@@ -20,6 +20,9 @@ func (s *MemoryStore) CreateCloudGoal(_ context.Context, request cloudmodule.Cre
 	}
 	s.cloudGoals[request.Goal.GoalID] = request.Goal
 	s.cloudPlans[request.Plan.PlanID] = request.Plan
+	if request.Job.JobID != "" {
+		s.cloudJobs[request.Job.JobID] = request.Job
+	}
 	s.cloudIdem[idempotencyKey] = request.Goal.GoalID
 	for _, event := range request.Events {
 		s.cloudEvents = append(s.cloudEvents, event)
@@ -59,6 +62,19 @@ func (s *MemoryStore) GetCloudPlan(_ context.Context, id string) (cloudmodule.Pl
 	item, ok := s.cloudPlans[id]
 	s.mu.RUnlock()
 	return item, ok, nil
+}
+
+func (s *MemoryStore) ListCloudJobs(_ context.Context) ([]cloudmodule.Job, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Job, 0, len(s.cloudJobs))
+	for _, item := range s.cloudJobs {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].JobID, items[j].JobID)
+	})
+	return items, nil
 }
 
 func (s *MemoryStore) ListCloudConnections(_ context.Context) ([]cloudmodule.Connection, error) {

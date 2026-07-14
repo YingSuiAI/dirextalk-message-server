@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 const (
@@ -100,6 +101,29 @@ type Deployment struct {
 	UpdatedAt    int64  `json:"updated_at"`
 }
 
+// Job tracks one durable Cloud control-plane operation. It is independent
+// from plan and resource state so a retry or research failure remains visible
+// after websocket reconnects without implying that a resource exists.
+type Job struct {
+	JobID        string `json:"job_id"`
+	PlanID       string `json:"plan_id"`
+	DeploymentID string `json:"deployment_id"`
+	Kind         string `json:"kind"`
+	Execution    string `json:"execution_status"`
+	Outcome      string `json:"outcome_status"`
+	Checkpoint   string `json:"checkpoint"`
+	ErrorCode    string `json:"error_code"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// ResearchJobID is deterministic so an older source outbox can lazily gain a
+// visible research Job after a server upgrade without creating a second task.
+func ResearchJobID(outboxID string) string {
+	return "cloud_job_research_" + strings.TrimSpace(outboxID)
+}
+
 // Service is intentionally separate from Deployment so a failed integration
 // cannot turn an otherwise running service into a failed cloud resource.
 type Service struct {
@@ -178,6 +202,7 @@ type OutboxEntry struct {
 type CreateGoalRequest struct {
 	Goal   Goal
 	Plan   Plan
+	Job    Job
 	Events []Event
 	Outbox OutboxEntry
 }
@@ -196,6 +221,7 @@ type Store interface {
 	ListCloudGoals(context.Context) ([]Goal, error)
 	ListCloudPlans(context.Context) ([]Plan, error)
 	GetCloudPlan(context.Context, string) (Plan, bool, error)
+	ListCloudJobs(context.Context) ([]Job, error)
 	ListCloudConnections(context.Context) ([]Connection, error)
 	GetCloudConnection(context.Context, string) (Connection, bool, error)
 	ListCloudDeployments(context.Context) ([]Deployment, error)

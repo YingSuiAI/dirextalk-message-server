@@ -112,6 +112,10 @@ func (m *Module) cloudStatus(ctx context.Context, _ map[string]any) (any, *direx
 	if plansErr != nil {
 		return nil, internalError(plansErr)
 	}
+	jobs, jobsErr := cloud.ListCloudJobs(ctx)
+	if jobsErr != nil {
+		return nil, internalError(jobsErr)
+	}
 	deployments, deploymentsErr := cloud.ListCloudDeployments(ctx)
 	if deploymentsErr != nil {
 		return nil, internalError(deploymentsErr)
@@ -126,6 +130,7 @@ func (m *Module) cloudStatus(ctx context.Context, _ map[string]any) (any, *direx
 	}
 	return map[string]any{
 		"plans":       cloudPlanStatusCounts(plans),
+		"jobs":        cloudJobStatusCounts(jobs),
 		"deployments": cloudDeploymentStatusCounts(deployments),
 		"services":    cloudServiceStatusCounts(services),
 		"alerts":      cloudAlertSummaries(alerts),
@@ -224,6 +229,20 @@ func cloudDeploymentStatusCounts(items []cloudmodule.Deployment) map[string]any 
 		statuses = append(statuses, item.Execution)
 	}
 	return cloudStatusCounts(statuses)
+}
+
+func cloudJobStatusCounts(items []cloudmodule.Job) map[string]any {
+	execution := make([]string, 0, len(items))
+	outcome := make([]string, 0, len(items))
+	for _, item := range items {
+		execution = append(execution, item.Execution)
+		outcome = append(outcome, item.Outcome)
+	}
+	return map[string]any{
+		"total":     len(items),
+		"execution": cloudStatusCounts(execution),
+		"outcome":   cloudStatusCounts(outcome),
+	}
 }
 
 func cloudServiceStatusCounts(items []cloudmodule.Service) map[string]any {

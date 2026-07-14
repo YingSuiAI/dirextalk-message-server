@@ -2,17 +2,57 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 Cloud Orchestrator Research Runtime And Projection Relay
+
+The repository now builds the standalone `p2p/cmd/cloud-orchestrator` process
+and the separate non-root `Dockerfile.cloud-orchestrator` image. The worker is
+not part of the default Message Server compose service and has no Matrix
+configuration, model/API key, AWS SDK, Docker socket, product migration, or
+arbitrary provider API capability. It reads PostgreSQL configuration only from
+the regular file named by `CLOUD_ORCHESTRATOR_DATABASE_URL_FILE`, requires an
+exact configured HTTPS `CLOUD_ORCHESTRATOR_RESEARCHER_URL` at exactly
+`/v1/cloud-research`, rejects redirects, and bounds each private research
+attempt below its durable claim lease. This is a research/typed-contract
+worker only; it does not create an AWS resource.
+
+Cloud creation now atomically inserts a queued/pending `research_queued` Job
+and Step plus owner-safe `p2p_cloud_projection_outbox` records for its initial
+Goal, Plan, and Job audit events. A fenced standalone worker records the Job
+lease, retry, success, or failure checkpoint in the same transaction as its
+outbox transition, then writes Cloud events and projection records. The
+Message Server, not the worker, relays those records to
+the product event stream using `cloud-event:<cloud_event_id>` as the durable
+dedupe key. The relay accepts only strict `cloud.goal.changed`,
+`cloud.plan.changed`, and `cloud.job.changed` schemas; unknown/extra fields,
+credential-shaped text, private Goal prompts, and raw Worker material never
+reach WS or Matrix projections.
+
+`cloud_dialogue_mode=true` now exposes one additional read-only Native Agent
+tool, `native_agent_cloud_status`, beside the existing
+`native_agent_cloud_deployment_plan`. It returns the same de-secretsed Cloud
+snapshot as the owner bootstrap projection and rejects parameters. It does not
+add a create, approve, secret, ingress, service-operation, or destroy path.
+
+Research planning now requires an existing `cloud_connection_id`.
+`cloud.goals.create` and the Eino tool reject an omitted value with
+`400 cloud_connection_required` before durable insertion: current QuoteV1 and
+PlanV1 contracts bind one Connection, so accepting an unbound request would
+create a Job that no compliant researcher could settle. A future “plan first,
+attach later” experience requires an explicit revisioned `waiting_connection`
+state and attach action; it is not silently emulated by this contract.
+
 ## 2026-07-14 Restricted Cloud Native Agent Dialogue
 
 Owner `agent.chat` and owner realtime Native Agent stream requests may set
 `cloud_dialogue_mode=true` to enter a request-scoped capability-reduced Cloud
 planning conversation. This is not an approval or mutation flag. The model
 receives exactly one tool when the Cloud planner is configured:
-`native_agent_cloud_deployment_plan`. The server excludes the runtime shell,
+`native_agent_cloud_deployment_plan` (and, after the relay update, the
+read-only `native_agent_cloud_status`). The server excludes the runtime shell,
 runtime CLI tools, external MCP tools, dynamic Skill/MCP management tools,
 ordinary Dirextalk tools, installed Skill prompts, request/config system
 prompts, and memory. The only resulting write remains the existing validated
-research Goal; billing, ingress, secret delivery, approval, service operation,
+connection-bound research Goal/queued Job; billing, ingress, secret delivery, approval, service operation,
 and destroy remain outside the conversation and require their typed control
 plane contracts.
 
@@ -37,9 +77,10 @@ de-secretsed read tools `dirextalk_cloud_workloads_list`,
 registers a Cloud mutation or secret tool.
 
 The implemented first transition is `cloud.goals.create`. It accepts a UUID
-`idempotency_key`, a 1–12,000-character `goal`, and an optional existing
+`idempotency_key`, a 1–12,000-character `goal`, and a required existing
 `cloud_connection_id`. It atomically persists a private Goal and a Plan in
-`researching`, a de-secretsed Cloud audit event pair, and an outbox request for
+`researching`, a queued/pending research Job/Step, three de-secretsed Cloud
+audit events, and an outbox request for
 the independently deployed Cloud Orchestrator. Repeating the same UUID and
 same intent returns the original Goal/Plan; using that UUID for a different
 intent returns `409 cloud_idempotency_conflict`. The raw idempotency key and

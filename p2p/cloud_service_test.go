@@ -5,27 +5,72 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
+	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/google/uuid"
 )
 
+const cloudTestConnectionID = "connection-test-1"
+
+type cloudConnectedMemoryStore struct {
+	*p2pstorage.MemoryStore
+	connection cloudmodule.Connection
+}
+
+func (s *cloudConnectedMemoryStore) GetCloudConnection(_ context.Context, id string) (cloudmodule.Connection, bool, error) {
+	if s != nil && id == s.connection.ConnectionID {
+		return s.connection, true, nil
+	}
+	return cloudmodule.Connection{}, false, nil
+}
+
+func (s *cloudConnectedMemoryStore) ListCloudConnections(_ context.Context) ([]cloudmodule.Connection, error) {
+	if s == nil || s.connection.ConnectionID == "" {
+		return []cloudmodule.Connection{}, nil
+	}
+	return []cloudmodule.Connection{s.connection}, nil
+}
+
+func newCloudConnectedService(t *testing.T) *Service {
+	t.Helper()
+	store := &cloudConnectedMemoryStore{
+		MemoryStore: p2pstorage.NewMemoryStore(),
+		connection: cloudmodule.Connection{
+			ConnectionID: cloudTestConnectionID,
+			Provider:     "aws",
+			Mode:         "role",
+			Status:       "active",
+			Revision:     1,
+			CreatedAt:    1,
+			UpdatedAt:    1,
+		},
+	}
+	service, err := NewServiceWithStore(context.Background(), Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatalf("new cloud-connected service: %v", err)
+	}
+	return service
+}
+
 func TestNativeCloudPlannerPortCreatesOnlyOneResearchGoal(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
+	service := newCloudConnectedService(t)
 	planner := serviceNativeCloudPlannerPort{service: service}
 	requestKey := uuid.NewString()
 
-	first, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", "", requestKey)
+	first, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", cloudTestConnectionID, requestKey)
 	if err != nil {
 		t.Fatalf("create native cloud research goal: %v", err)
 	}
-	second, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", "", requestKey)
+	second, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", cloudTestConnectionID, requestKey)
 	if err != nil {
 		t.Fatalf("replay native cloud research goal: %v", err)
 	}
-	third, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", "", uuid.NewString())
+	third, err := planner.CreateResearchGoal(context.Background(), "Deploy a private knowledge node after a reviewed plan.", cloudTestConnectionID, uuid.NewString())
 	if err != nil {
 		t.Fatalf("new native cloud research goal: %v", err)
 	}
@@ -40,9 +85,83 @@ func TestNativeCloudPlannerPortCreatesOnlyOneResearchGoal(t *testing.T) {
 		t.Fatalf("a distinct native agent request must create a new research goal: first=%#v third=%#v", first, third)
 	}
 	events := mustListP2PEvents(t, service)
-	if len(events) != 4 || events[0].Type != "cloud.goal.changed" || events[1].Type != "cloud.plan.changed" || events[2].Type != "cloud.goal.changed" || events[3].Type != "cloud.plan.changed" {
-		t.Fatalf("native planner must only project goal and plan research events: %#v", events)
+	if len(events) != 6 || events[0].Type != "cloud.goal.changed" || events[1].Type != "cloud.plan.changed" || events[2].Type != "cloud.job.changed" || events[3].Type != "cloud.goal.changed" || events[4].Type != "cloud.plan.changed" || events[5].Type != "cloud.job.changed" {
+		t.Fatalf("native planner must project the queued research job with each goal and plan: %#v", events)
 	}
+}
+
+func TestServiceCloudProjectionRelayPublishesAndStopsWithLifecycleContext(t *testing.T) {
+	store := &serviceProjectionStore{
+		MemoryStore: p2pstorage.NewMemoryStore(),
+		claim: cloudmodule.ProjectionClaim{
+			ProjectionID: "projection-1", CloudEventID: "cloud-event-1", Type: "cloud.goal.changed",
+			PayloadJSON: `{"goal_id":"goal-1","plan_id":"plan-1","cloud_connection_id":"connection-1","status":"researching","revision":1,"created_at":1,"updated_at":1}`,
+		},
+		completed: make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	service, err := NewServiceWithStore(ctx, Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- service.RunCloudProjectionRelay(ctx) }()
+	select {
+	case <-store.completed:
+	case <-time.After(time.Second):
+		t.Fatal("cloud projection relay did not settle the available projection")
+	}
+	events := mustListP2PEvents(t, service)
+	if len(events) != 1 || events[0].Type != "cloud.goal.changed" || events[0].DedupeKey != "cloud-event:cloud-event-1" || events[0].Payload["goal"] != nil {
+		t.Fatalf("cloud relay projection = %#v", events)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("cloud projection relay stopped with %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cloud projection relay did not stop with its lifecycle context")
+	}
+}
+
+type serviceProjectionStore struct {
+	*p2pstorage.MemoryStore
+	mu        sync.Mutex
+	claim     cloudmodule.ProjectionClaim
+	claimed   bool
+	completed chan struct{}
+}
+
+func (s *serviceProjectionStore) ClaimCloudProjection(_ context.Context, _ string, _ time.Duration, token string) (cloudmodule.ProjectionClaim, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed {
+		return cloudmodule.ProjectionClaim{}, false, nil
+	}
+	s.claimed = true
+	claim := s.claim
+	claim.LeaseToken = token
+	return claim, true, nil
+}
+
+func (s *serviceProjectionStore) CompleteCloudProjection(_ context.Context, _ cloudmodule.ProjectionClaim) error {
+	select {
+	case <-s.completed:
+	default:
+		close(s.completed)
+	}
+	return nil
+}
+
+func (s *serviceProjectionStore) DeferCloudProjection(_ context.Context, _ cloudmodule.ProjectionClaim, _ string, _ time.Time) error {
+	return nil
+}
+
+func (s *serviceProjectionStore) RejectCloudProjection(_ context.Context, _ cloudmodule.ProjectionClaim, _ string) error {
+	return nil
 }
 
 func TestCloudGoalCreateRejectsSecretMaterialBeforePersistence(t *testing.T) {
@@ -95,15 +214,41 @@ func TestCloudGoalCreateRejectsNullBytesBeforePersistence(t *testing.T) {
 	}
 }
 
-func TestCloudGoalCreateIsOwnerOnlyIdempotentAndProjectsResearchPlan(t *testing.T) {
+func TestCloudGoalCreateRequiresAnExistingConnectionBeforePersistingResearch(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+	request := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "cloud.goals.create",
+		"params": map[string]any{
+			"goal":            "Deploy a private knowledge service with a reviewable recipe.",
+			"idempotency_key": uuid.NewString(),
+		},
+	})
+	request.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unbound cloud goal = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeJSONMap(t, recorder.Body.String())
+	if response["code"] != "cloud_connection_required" {
+		t.Fatalf("unbound cloud goal error = %#v", response)
+	}
+	if events := mustListP2PEvents(t, service); len(events) != 0 {
+		t.Fatalf("unbound goal must not emit events: %#v", events)
+	}
+}
+
+func TestCloudGoalCreateIsOwnerOnlyIdempotentAndProjectsResearchPlan(t *testing.T) {
+	service := newCloudConnectedService(t)
 	router := newP2PTestRouter(service)
 	idempotencyKey := uuid.NewString()
 	body := map[string]any{
 		"action": "cloud.goals.create",
 		"params": map[string]any{
-			"goal":            "Deploy a private knowledge service with a reviewable recipe.",
-			"idempotency_key": idempotencyKey,
+			"goal":                "Deploy a private knowledge service with a reviewable recipe.",
+			"cloud_connection_id": cloudTestConnectionID,
+			"idempotency_key":     idempotencyKey,
 		},
 	}
 
@@ -153,10 +298,14 @@ func TestCloudGoalCreateIsOwnerOnlyIdempotentAndProjectsResearchPlan(t *testing.
 	if !ok || len(plans) != 1 || plans[0].(map[string]any)["plan_id"] != plan["plan_id"] {
 		t.Fatalf("cloud bootstrap plans = %#v", snapshot["plans"])
 	}
+	jobs, ok := snapshot["jobs"].([]any)
+	if !ok || len(jobs) != 1 || jobs[0].(map[string]any)["plan_id"] != plan["plan_id"] || jobs[0].(map[string]any)["execution_status"] != "queued" || jobs[0].(map[string]any)["outcome_status"] != "pending" {
+		t.Fatalf("cloud bootstrap queued research job = %#v", snapshot["jobs"])
+	}
 
 	events := mustListP2PEvents(t, service)
-	if len(events) != 2 || events[0].Type != "cloud.goal.changed" || events[1].Type != "cloud.plan.changed" {
-		t.Fatalf("cloud create must emit non-secret entity projections, got %#v", events)
+	if len(events) != 3 || events[0].Type != "cloud.goal.changed" || events[1].Type != "cloud.plan.changed" || events[2].Type != "cloud.job.changed" {
+		t.Fatalf("cloud create must emit non-secret goal, plan, and queued-job projections, got %#v", events)
 	}
 	if _, leaked := events[0].Payload["goal"]; leaked {
 		t.Fatalf("goal prompt must not be copied into realtime event payload: %#v", events[0])

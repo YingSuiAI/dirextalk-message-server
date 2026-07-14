@@ -40,6 +40,7 @@ type MemberStore interface {
 type CloudReader interface {
 	ListCloudPlans(context.Context) ([]cloudmodule.Plan, error)
 	GetCloudPlan(context.Context, string) (cloudmodule.Plan, bool, error)
+	ListCloudJobs(context.Context) ([]cloudmodule.Job, error)
 	ListCloudDeployments(context.Context) ([]cloudmodule.Deployment, error)
 	GetCloudDeployment(context.Context, string) (cloudmodule.Deployment, bool, error)
 	ListCloudServices(context.Context) ([]cloudmodule.Service, error)
