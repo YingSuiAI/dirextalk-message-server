@@ -144,6 +144,89 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 	}
 }
 
+func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
+	const cloudToolCall = `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_cloud_plan_retry","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\",\"cloud_connection_id\":\"connection-1\"}"}}]}}]}`
+
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode streamed model request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requestCount <= 2 {
+			_, _ = w.Write([]byte("data: " + cloudToolCall + "\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"已创建研究计划，等待独立报价和设备确认。\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	planner := &idempotentCloudPlanner{}
+	runtime := New(Config{
+		DataDir:      filepath.Join(t.TempDir(), "agent"),
+		Store:        &testConfigStore{config: map[string]any{}},
+		CloudPlanner: planner,
+	})
+	var events []Event
+	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
+		"prompt":              "部署一个私有知识库节点",
+		"cloud_dialogue_mode": true,
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-stream",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	}, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream cloud planning chat: %v", err)
+	}
+	if requestCount != 3 {
+		t.Fatalf("streamed model requests = %d, want retry plus final answer", requestCount)
+	}
+	if planner.calls != 2 || planner.created != 1 {
+		t.Fatalf("streamed cloud planner calls=%d durable goals=%d, want 2 calls and 1 goal", planner.calls, planner.created)
+	}
+	if len(planner.idempotencyKeys) != 2 || planner.idempotencyKeys[0] != planner.idempotencyKeys[1] {
+		t.Fatalf("streamed cloud planning idempotency keys = %#v, want one request scope", planner.idempotencyKeys)
+	}
+	if len(events) < 2 || events[len(events)-1].Event != "done" || events[len(events)-1].Data["text"] != "已创建研究计划，等待独立报价和设备确认。" {
+		t.Fatalf("streamed cloud planning events = %#v", events)
+	}
+}
+
+type idempotentCloudPlanner struct {
+	calls            int
+	created          int
+	idempotencyKeys  []string
+	resultsByRequest map[string]map[string]any
+}
+
+func (p *idempotentCloudPlanner) CreateResearchGoal(_ context.Context, _ string, _ string, idempotencyKey string) (map[string]any, error) {
+	p.calls++
+	p.idempotencyKeys = append(p.idempotencyKeys, idempotencyKey)
+	if p.resultsByRequest == nil {
+		p.resultsByRequest = map[string]map[string]any{}
+	}
+	if result, ok := p.resultsByRequest[idempotencyKey]; ok {
+		return result, nil
+	}
+	p.created++
+	result := map[string]any{
+		"goal": map[string]any{"goal_id": "cloud_goal_1", "status": "researching"},
+		"plan": map[string]any{"plan_id": "cloud_plan_1", "status": "researching"},
+	}
+	p.resultsByRequest[idempotencyKey] = result
+	return result, nil
+}
+
 func TestModelLoopCanCallInstalledRuntimeCLITool(t *testing.T) {
 	var requestCount int
 	var sawRuntimeOutput bool
