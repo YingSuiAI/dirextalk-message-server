@@ -51,6 +51,18 @@ const (
 	QuoteTierPerformance QuoteTier = "performance"
 )
 
+// QuoteRequestCandidateV1 is the non-price-bearing candidate shape shared by
+// model-produced research drafts and typed Broker quote requests. It is kept
+// separate from QuoteCandidateV1 so a researcher cannot manufacture a price
+// estimate, approval binding, or final plan hash.
+type QuoteRequestCandidateV1 struct {
+	CandidateID      string         `json:"candidate_id"`
+	Tier             QuoteTier      `json:"tier"`
+	InstanceType     string         `json:"instance_type"`
+	PurchaseOption   PurchaseOption `json:"purchase_option"`
+	EstimatedDiskGiB uint32         `json:"estimated_disk_gib"`
+}
+
 type EntryPointKind string
 
 const (
@@ -165,6 +177,33 @@ type LifecycleContractV1 struct {
 	Destroy  string `json:"destroy"`
 }
 
+// ResearchDraftV1 is the restricted result a model may produce while
+// researching a workload. It intentionally contains only an AWS region and
+// one to three non-price-bearing instance candidates. The Orchestrator turns
+// it into a QuoteRequestV1; it is not a plan, quote, approval, or purchase
+// authorization.
+type ResearchDraftV1 struct {
+	SchemaVersion string                    `json:"schema_version"`
+	Region        string                    `json:"region"`
+	Candidates    []QuoteRequestCandidateV1 `json:"candidates"`
+}
+
+// QuoteRequestV1 is the immutable pre-price binding sent through the typed
+// Broker quote command. Digest returns the deterministic-CBOR value supplied
+// to the Broker payload as plan_digest. It is deliberately independent of
+// PlanV1.Hash because a final approval plan cannot exist before a quote is
+// issued.
+type QuoteRequestV1 struct {
+	SchemaVersion     string                    `json:"schema_version"`
+	QuoteRequestID    string                    `json:"quote_request_id"`
+	PlanID            string                    `json:"plan_id"`
+	PlanRevision      uint64                    `json:"plan_revision"`
+	CloudConnectionID string                    `json:"cloud_connection_id"`
+	RecipeDigest      string                    `json:"recipe_digest"`
+	Region            string                    `json:"region"`
+	Candidates        []QuoteRequestCandidateV1 `json:"candidates"`
+}
+
 // QuoteV1 is an immutable price estimate. Monetary values are represented in
 // the currency's minor unit, never float values. It is not an AWS budget or a
 // billing hard stop.
@@ -177,6 +216,7 @@ type QuoteV1 struct {
 	QuotedAt          time.Time          `json:"quoted_at"`
 	ValidUntil        time.Time          `json:"valid_until"`
 	Candidates        []QuoteCandidateV1 `json:"candidates"`
+	IncludedItems     []string           `json:"included_items,omitempty"`
 	UnincludedItems   []string           `json:"unincluded_items,omitempty"`
 }
 

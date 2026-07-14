@@ -64,6 +64,32 @@ func (s *MemoryStore) GetCloudPlan(_ context.Context, id string) (cloudmodule.Pl
 	return item, ok, nil
 }
 
+// GetCloudQuote supports focused in-process tests without introducing a second
+// quote source of truth. A test may seed a Plan with its safe Quote projection;
+// production startup continues to require PostgreSQL and its quote table.
+func (s *MemoryStore) GetCloudQuote(_ context.Context, id string) (cloudmodule.QuoteView, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, plan := range s.cloudPlans {
+		if plan.QuoteID == id && plan.Quote != nil && plan.Quote.QuoteID == id {
+			return cloneCloudQuoteView(*plan.Quote), true, nil
+		}
+	}
+	return cloudmodule.QuoteView{}, false, nil
+}
+
+func cloneCloudQuoteView(value cloudmodule.QuoteView) cloudmodule.QuoteView {
+	clone := value
+	clone.Candidates = make([]cloudmodule.QuoteCandidateView, len(value.Candidates))
+	for index, candidate := range value.Candidates {
+		clone.Candidates[index] = candidate
+		clone.Candidates[index].AvailabilityZones = cloneStringSlice(candidate.AvailabilityZones)
+	}
+	clone.IncludedItems = cloneStringSlice(value.IncludedItems)
+	clone.UnincludedItems = cloneStringSlice(value.UnincludedItems)
+	return clone
+}
+
 func (s *MemoryStore) ListCloudJobs(_ context.Context) ([]cloudmodule.Job, error) {
 	s.mu.RLock()
 	items := make([]cloudmodule.Job, 0, len(s.cloudJobs))

@@ -240,6 +240,7 @@ func (m *Module) bootstrap(ctx context.Context, params map[string]any) (any, *ac
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
+	plans = planSummaries(plans)
 	jobs, err := m.store.ListCloudJobs(ctx)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
@@ -311,7 +312,7 @@ func (m *Module) plansList(ctx context.Context, params map[string]any) (any, *ac
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	return map[string]any{"plans": items}, nil
+	return map[string]any{"plans": planSummaries(items)}, nil
 }
 
 func (m *Module) plansGet(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
@@ -328,6 +329,22 @@ func (m *Module) plansGet(ctx context.Context, params map[string]any) (any, *act
 	}
 	if !ok {
 		return nil, actionbase.CodedError(http.StatusNotFound, "cloud_plan_not_found", "cloud plan was not found")
+	}
+	// A store only persists the quote ID on plans. Clear any implementation
+	// supplied detail first so this is the sole projection path that can attach
+	// a quote, and only when the immutable binding exists.
+	item.Quote = nil
+	if item.QuoteID != "" {
+		quote, found, err := m.store.GetCloudQuote(ctx, item.QuoteID)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		if found {
+			if quote.QuoteID != item.QuoteID || quote.ConnectionID != item.ConnectionID {
+				return nil, actionbase.InternalError(errors.New("cloud quote does not match plan"))
+			}
+			item.Quote = &quote
+		}
 	}
 	return item, nil
 }
@@ -516,6 +533,13 @@ func planPayload(plan Plan) map[string]any {
 		"quote_id": plan.QuoteID, "plan_hash": plan.PlanHash, "revision": plan.Revision, "updated_at": plan.UpdatedAt,
 		"created_at": plan.CreatedAt,
 	}
+}
+
+func planSummaries(plans []Plan) []Plan {
+	for index := range plans {
+		plans[index].Quote = nil
+	}
+	return plans
 }
 
 func jobPayload(job Job) map[string]any {

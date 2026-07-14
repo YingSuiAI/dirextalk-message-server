@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -60,6 +62,92 @@ func TestDatabaseStoreCreateCloudGoalIsAtomicAndIdempotent(t *testing.T) {
 	goals, err := store.ListCloudGoals(ctx)
 	if err != nil || len(goals) != 1 || goals[0].GoalID != request.Goal.GoalID {
 		t.Fatalf("failed create leaked a cloud goal: %#v, err=%v", goals, err)
+	}
+}
+
+func TestDatabaseStoreGetCloudQuoteReturnsStrictSafeView(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	quotedAt := time.Date(2026, time.July, 14, 8, 0, 0, 0, time.UTC)
+	validUntil := quotedAt.Add(15 * time.Minute)
+	safeDisplay := `{"schema_version":"cloud-orchestrator/v1","quote_id":"quote-safe-1","cloud_connection_id":"connection-safe-1","region":"ap-south-1","currency":"USD","quoted_at":"` + quotedAt.Format(time.RFC3339Nano) + `","valid_until":"` + validUntil.Format(time.RFC3339Nano) + `","candidates":[{"candidate_id":"recommended-private-binding","tier":"recommended","instance_type":"m7i.xlarge","purchase_option":"on_demand","hourly_minor":2000,"thirty_day_minor":1440000,"startup_upper_minor":500,"estimated_disk_gib":80,"availability_zones":["ap-south-1a"]}],"included_items":["ec2_linux_ondemand"],"unincluded_items":["ebs_gp3","taxes"]}`
+	insertCloudQuoteDisplay(t, store, "quote-safe-1", "connection-safe-1", "digest-safe-1", safeDisplay, quotedAt, validUntil)
+
+	quote, found, err := store.GetCloudQuote(ctx, "quote-safe-1")
+	if err != nil || !found || quote.QuoteID != "quote-safe-1" || quote.ConnectionID != "connection-safe-1" || quote.Region != "ap-south-1" || quote.Currency != "USD" || len(quote.Candidates) != 1 {
+		t.Fatalf("safe cloud quote = %#v, found=%v err=%v", quote, found, err)
+	}
+	if quote.Candidates[0].Tier != "recommended" || quote.Candidates[0].InstanceType != "m7i.xlarge" || quote.Candidates[0].HourlyMinor != 2000 || len(quote.IncludedItems) != 1 || len(quote.UnincludedItems) != 2 {
+		t.Fatalf("safe cloud quote content = %#v", quote)
+	}
+	encoded, err := json.Marshal(quote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"schema_version", "candidate_id", "command_id", "request_sha256", "receipt", "envelope", "endpoint", "key", "secret"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("safe quote view leaked %q: %s", forbidden, encoded)
+		}
+	}
+
+	privateCanary := "private-command-receipt-canary"
+	unsafeDisplay := strings.Replace(safeDisplay, `"quote_id":"quote-safe-1"`, `"quote_id":"quote-unsafe-1"`, 1)
+	unsafeDisplay = strings.TrimSuffix(unsafeDisplay, `}`) + `,"command_id":"` + privateCanary + `"}`
+	insertCloudQuoteDisplay(t, store, "quote-unsafe-1", "connection-safe-1", "digest-unsafe-1", unsafeDisplay, quotedAt, validUntil)
+	_, found, err = store.GetCloudQuote(ctx, "quote-unsafe-1")
+	if err == nil || found {
+		t.Fatalf("unsafe cloud quote result found=%v err=%v", found, err)
+	}
+	if strings.Contains(err.Error(), privateCanary) {
+		t.Fatalf("unsafe quote error leaked stored display data: %v", err)
+	}
+}
+
+func TestMemoryStoreGetCloudQuoteReturnsClonedSafeProjection(t *testing.T) {
+	store := NewMemoryStore()
+	request := cloudGoalCreateRequest("cloud-goal-memory-quote", "cloud-plan-memory-quote", "idem-memory-quote", "digest-memory-quote", "event-memory-quote", "outbox-memory-quote")
+	quotedAt := time.Date(2026, time.July, 14, 8, 0, 0, 0, time.UTC)
+	request.Plan.QuoteID = "quote-memory-1"
+	request.Plan.Quote = &cloudmodule.QuoteView{
+		QuoteID: "quote-memory-1", ConnectionID: "connection-memory-1", Region: "us-east-1", Currency: "USD",
+		QuotedAt: quotedAt, ValidUntil: quotedAt.Add(15 * time.Minute),
+		Candidates: []cloudmodule.QuoteCandidateView{{
+			Tier: "economy", InstanceType: "t3.medium", PurchaseOption: "on_demand", EstimatedDiskGiB: 40,
+			AvailabilityZones: []string{"us-east-1a"},
+		}},
+	}
+	if _, err := store.CreateCloudGoal(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	first, found, err := store.GetCloudQuote(context.Background(), request.Plan.QuoteID)
+	if err != nil || !found || first.QuoteID != request.Plan.QuoteID || len(first.Candidates) != 1 {
+		t.Fatalf("memory cloud quote = %#v found=%v err=%v", first, found, err)
+	}
+	first.Candidates[0].AvailabilityZones[0] = "mutated"
+	second, found, err := store.GetCloudQuote(context.Background(), request.Plan.QuoteID)
+	if err != nil || !found || second.Candidates[0].AvailabilityZones[0] != "us-east-1a" {
+		t.Fatalf("memory cloud quote must be cloned: %#v found=%v err=%v", second, found, err)
+	}
+}
+
+func insertCloudQuoteDisplay(t *testing.T, store *DatabaseStore, quoteID, connectionID, digest, displayJSON string, quotedAt, validUntil time.Time) {
+	t.Helper()
+	_, err := store.DB().ExecContext(context.Background(), `
+		INSERT INTO p2p_cloud_quotes (
+			quote_id, cloud_connection_id, region, currency, digest, canonical_cbor, display_json,
+			quoted_at, valid_until, created_at
+		) VALUES ($1, $2, 'ap-south-1', 'USD', $3, $4, $5, $6, $7, $6)
+	`, quoteID, connectionID, digest, []byte{1}, displayJSON, quotedAt.UnixMilli(), validUntil.UnixMilli())
+	if err != nil {
+		t.Fatalf("insert cloud quote display: %v", err)
 	}
 }
 

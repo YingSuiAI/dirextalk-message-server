@@ -958,6 +958,60 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud orchestrator broker quote v41",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// This table contains only the independently verified, non-secret
+				// Connection Stack endpoint and public signing-key identity. The
+				// corresponding private Ed25519 key is never stored in PostgreSQL.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_connection_brokers (
+					cloud_connection_id TEXT PRIMARY KEY NOT NULL,
+					broker_command_url TEXT NOT NULL,
+					broker_region TEXT NOT NULL,
+					connection_generation BIGINT NOT NULL CHECK (connection_generation > 0),
+					node_key_id TEXT NOT NULL,
+					next_node_counter BIGINT NOT NULL DEFAULT 0 CHECK (next_node_counter >= 0),
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_connection_brokers_region_idx
+					ON p2p_cloud_connection_brokers(broker_region, cloud_connection_id)`,
+				// Command identity and exact signed envelopes are durable so a lost
+				// response can be replayed without a second purchase or counter.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_broker_commands (
+					command_id TEXT PRIMARY KEY NOT NULL,
+					cloud_connection_id TEXT NOT NULL,
+					plan_id TEXT NOT NULL,
+					plan_revision BIGINT NOT NULL CHECK (plan_revision > 0),
+					quote_request_id TEXT NOT NULL,
+					quote_request_digest TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK (command_attempt > 0),
+					action TEXT NOT NULL CHECK (action = 'quote.request'),
+					node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK (expected_generation > 0),
+					node_counter BIGINT NOT NULL CHECK (node_counter > 0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '',
+					request_sha256 TEXT NOT NULL DEFAULT '',
+					signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0,
+					expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK (state IN ('allocated', 'signed', 'indeterminate', 'accepted', 'expired', 'failed')),
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+					last_error_code TEXT NOT NULL DEFAULT '',
+					receipt_json TEXT NOT NULL DEFAULT '',
+					quote_json TEXT NOT NULL DEFAULT '',
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL,
+					UNIQUE (cloud_connection_id, node_counter),
+					UNIQUE (plan_id, plan_revision, quote_request_digest, command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_broker_commands_plan_idx
+					ON p2p_cloud_broker_commands(plan_id, plan_revision, quote_request_digest, command_attempt DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

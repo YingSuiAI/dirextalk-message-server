@@ -27,6 +27,23 @@ func TestOpenAICompatiblePlannerUsesSecretOnlyForAuthorization(t *testing.T) {
 		if payload["model"] != "research-model" || payload["api_key"] != nil || strings.Contains(mustJSON(t, payload), apiKey) {
 			t.Fatalf("model payload must not contain the API key")
 		}
+		messages, ok := payload["messages"].([]any)
+		if !ok || len(messages) < 2 {
+			t.Fatalf("model messages = %#v", payload["messages"])
+		}
+		systemMessage, ok := messages[0].(map[string]any)
+		if !ok {
+			t.Fatalf("model system message = %#v", messages[0])
+		}
+		system, ok := systemMessage["content"].(string)
+		if !ok {
+			t.Fatalf("model system prompt = %#v", messages[0])
+		}
+		for _, required := range []string{"ResearchDraftV1", "PlanV1", "QuoteV1", "price", "approval", "hash"} {
+			if !strings.Contains(system, required) {
+				t.Fatalf("model system prompt must constrain %q: %q", required, system)
+			}
+		}
 		content, err := json.Marshal(want)
 		if err != nil {
 			t.Fatal(err)
@@ -44,8 +61,8 @@ func TestOpenAICompatiblePlannerUsesSecretOnlyForAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, err := planner.Research(context.Background(), input)
-	if err != nil || output.Plan.PlanID != input.PlanID || output.Quote.QuoteID != want.Quote.QuoteID {
-		t.Fatalf("model research output valid=%t err=%v", output.Plan.PlanID == input.PlanID, err)
+	if err != nil || output.Draft.Region != want.Draft.Region || output.Recipe.RecipeID != want.Recipe.RecipeID {
+		t.Fatalf("model research output valid=%t err=%v", output.Draft.Region == want.Draft.Region, err)
 	}
 }
 

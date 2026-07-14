@@ -2,7 +2,10 @@ package storepg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +89,7 @@ func TestStorePersistsResearchJobLeaseRetryAndFailure(t *testing.T) {
 	}
 }
 
-func TestStoreCommitResearchAtomicallyPublishesSafeProjection(t *testing.T) {
+func TestStoreCommitResearchAtomicallyQueuesVerifiedQuote(t *testing.T) {
 	ctx, database, closeDatabase := openMigratedStore(t)
 	defer closeDatabase()
 	seedResearchGoal(t, ctx, database)
@@ -99,20 +102,24 @@ func TestStoreCommitResearchAtomicallyPublishesSafeProjection(t *testing.T) {
 	if err := store.MarkResearchStarted(ctx, claim); err != nil {
 		t.Fatalf("mark research started: %v", err)
 	}
-	output := testResearchOutput(t, now, claim)
+	output := testResearchOutput(t, now)
 	if err := store.CommitResearch(ctx, claim, output); err != nil {
 		t.Fatalf("commit research: %v", err)
 	}
 
-	var status, title, summary, planHash string
-	var revision int64
-	if err := database.DB().QueryRowContext(ctx, `
-		SELECT status, title, summary, plan_hash, revision
-		FROM p2p_cloud_plans WHERE plan_id = $1`, claim.PlanID).Scan(&status, &title, &summary, &planHash, &revision); err != nil {
+	recipeDigest, err := output.Recipe.Digest()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if status != string(cloudcontracts.PlanReadyForConfirmation) || revision != 2 || title != output.Title || summary != output.Summary || planHash == "" {
-		t.Fatalf("plan projection = status:%q revision:%d title:%q summary:%q hash:%q", status, revision, title, summary, planHash)
+	var status, title, summary, storedRecipeDigest, quoteID, planHash string
+	var revision int64
+	if err := database.DB().QueryRowContext(ctx, `
+		SELECT status, title, summary, recipe_digest, quote_id, plan_hash, revision
+		FROM p2p_cloud_plans WHERE plan_id = $1`, claim.PlanID).Scan(&status, &title, &summary, &storedRecipeDigest, &quoteID, &planHash, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(cloudcontracts.PlanQuoting) || revision != 2 || title != output.Title || summary != output.Summary || storedRecipeDigest != recipeDigest || quoteID != "" || planHash != "" {
+		t.Fatalf("plan projection = status:%q revision:%d title:%q summary:%q recipe_digest:%q quote_id:%q hash:%q", status, revision, title, summary, storedRecipeDigest, quoteID, planHash)
 	}
 	var planSummary string
 	if err := database.DB().QueryRowContext(ctx, `
@@ -123,11 +130,64 @@ func TestStoreCommitResearchAtomicallyPublishesSafeProjection(t *testing.T) {
 	if !strings.Contains(planSummary, `"goal_id":"`+claim.GoalID+`"`) {
 		t.Fatalf("plan event must preserve its goal_id for strict realtime projection: %s", planSummary)
 	}
-	for _, table := range []string{"p2p_cloud_plan_versions", "p2p_cloud_recipe_versions", "p2p_cloud_quotes", "p2p_cloud_jobs", "p2p_cloud_job_steps", "p2p_cloud_projection_outbox"} {
+	for _, table := range []string{"p2p_cloud_recipe_versions", "p2p_cloud_jobs", "p2p_cloud_job_steps", "p2p_cloud_projection_outbox"} {
 		var count int
 		if err := database.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("%s rows=%d err=%v", table, count, err)
 		}
+	}
+	for _, table := range []string{"p2p_cloud_plan_versions", "p2p_cloud_quotes"} {
+		var count int
+		if err := database.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+			t.Fatal(err)
+		} else if count != 0 {
+			t.Fatalf("%s rows=%d, want no model-produced approval plan or price quote", table, count)
+		}
+	}
+
+	var quoteOutboxID, quoteKind, quoteAggregateType, quoteAggregateID, rawQuoteRequest string
+	var quoteCompletedAt int64
+	if err := database.DB().QueryRowContext(ctx, `
+		SELECT outbox_id, kind, aggregate_type, aggregate_id, payload_json, completed_at
+		FROM p2p_cloud_outbox
+		WHERE kind = $1`, runtime.QuotePlanRequested).Scan(
+		&quoteOutboxID, &quoteKind, &quoteAggregateType, &quoteAggregateID, &rawQuoteRequest, &quoteCompletedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if quoteOutboxID == "" || quoteKind != runtime.QuotePlanRequested || quoteAggregateType != "plan" || quoteAggregateID != claim.PlanID || quoteCompletedAt != 0 {
+		t.Fatalf("quote outbox = id:%q kind:%q aggregate:%s/%s completed_at:%d", quoteOutboxID, quoteKind, quoteAggregateType, quoteAggregateID, quoteCompletedAt)
+	}
+	decoder := json.NewDecoder(strings.NewReader(rawQuoteRequest))
+	decoder.DisallowUnknownFields()
+	var quoteRequest cloudcontracts.QuoteRequestV1
+	if err := decoder.Decode(&quoteRequest); err != nil {
+		t.Fatalf("decode quote request payload: %v", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		t.Fatalf("quote request payload has trailing JSON: %v", err)
+	}
+	if err := quoteRequest.Validate(); err != nil {
+		t.Fatalf("quote request payload validation: %v", err)
+	}
+	if quoteRequest.SchemaVersion != cloudcontracts.SchemaVersionV1 || quoteRequest.QuoteRequestID == "" || quoteRequest.PlanID != claim.PlanID || quoteRequest.PlanRevision != uint64(claim.PlanRevision+1) || quoteRequest.CloudConnectionID != claim.ConnectionID || quoteRequest.RecipeDigest != recipeDigest || quoteRequest.Region != output.Draft.Region || !reflect.DeepEqual(quoteRequest.Candidates, output.Draft.Candidates) {
+		t.Fatalf("quote request payload = %#v", quoteRequest)
+	}
+	if containsAny(rawQuoteRequest, []string{"\"quote_id\"", "\"plan_hash\"", "\"hourly_minor\"", "\"thirty_day_minor\"", "\"startup_upper_minor\""}) {
+		t.Fatalf("quote request must remain pre-price and pre-approval: %s", rawQuoteRequest)
+	}
+	var quoteJobKind, quoteJobExecution, quoteJobOutcome, quoteJobCheckpoint string
+	var quoteJobRevision int64
+	if err := database.DB().QueryRowContext(ctx, `
+		SELECT kind, execution_status, outcome_status, checkpoint, revision
+		FROM p2p_cloud_jobs WHERE job_id = $1`, cloudmodule.QuoteJobID(quoteOutboxID)).Scan(
+		&quoteJobKind, &quoteJobExecution, &quoteJobOutcome, &quoteJobCheckpoint, &quoteJobRevision,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if quoteJobKind != "quote" || quoteJobExecution != "queued" || quoteJobOutcome != "pending" || quoteJobCheckpoint != "quote_queued" || quoteJobRevision != 1 {
+		t.Fatalf("quote job = kind:%q execution:%q outcome:%q checkpoint:%q revision:%d", quoteJobKind, quoteJobExecution, quoteJobOutcome, quoteJobCheckpoint, quoteJobRevision)
 	}
 	var rawProjection string
 	if err := database.DB().QueryRowContext(ctx, `SELECT payload_json FROM p2p_cloud_projection_outbox ORDER BY created_at, projection_id LIMIT 1`).Scan(&rawProjection); err != nil {
@@ -158,9 +218,16 @@ func TestStoreResearchEventsPassTheStrictProjectionRelay(t *testing.T) {
 	if err := store.MarkResearchStarted(ctx, claim); err != nil {
 		t.Fatalf("mark research started: %v", err)
 	}
-	if err := store.CommitResearch(ctx, claim, testResearchOutput(t, now, claim)); err != nil {
+	if err := store.CommitResearch(ctx, claim, testResearchOutput(t, now)); err != nil {
 		t.Fatalf("commit research: %v", err)
 	}
+	var quoteOutboxID string
+	if err := database.DB().QueryRowContext(ctx, `
+		SELECT outbox_id FROM p2p_cloud_outbox WHERE kind = $1`, runtime.QuotePlanRequested,
+	).Scan(&quoteOutboxID); err != nil {
+		t.Fatal(err)
+	}
+	quoteJobID := cloudmodule.QuoteJobID(quoteOutboxID)
 
 	type publishedEvent struct {
 		id      string
@@ -172,7 +239,8 @@ func TestStoreResearchEventsPassTheStrictProjectionRelay(t *testing.T) {
 		published = append(published, publishedEvent{id: eventID, typ: eventType, payload: payload})
 		return nil
 	}, cloudmodule.ProjectionRelayConfig{WorkerID: "projection-test"})
-	for index := 0; index < 7; index++ {
+	const expectedProjectionEvents = 7
+	for index := 0; index <= expectedProjectionEvents; index++ {
 		processed, err := relay.RunOnce(ctx)
 		if err != nil {
 			t.Fatalf("relay iteration %d: %v", index, err)
@@ -181,7 +249,7 @@ func TestStoreResearchEventsPassTheStrictProjectionRelay(t *testing.T) {
 			break
 		}
 	}
-	if len(published) != 6 {
+	if len(published) != expectedProjectionEvents {
 		rows, err := database.DB().QueryContext(ctx, `
 			SELECT type, last_error_code FROM p2p_cloud_projection_outbox ORDER BY created_at, projection_id`)
 		if err != nil {
@@ -198,22 +266,28 @@ func TestStoreResearchEventsPassTheStrictProjectionRelay(t *testing.T) {
 				rejected = append(rejected, eventType+":"+code)
 			}
 		}
-		t.Fatalf("strict relay published %d events, want six; rejected=%#v events=%#v", len(published), rejected, published)
+		t.Fatalf("strict relay published %d events, want %d; rejected=%#v events=%#v", len(published), expectedProjectionEvents, rejected, published)
 	}
 	for _, event := range published {
 		if containsAny(event.typ+" "+event.id, []string{"private deployment intent", "secret_ref"}) {
 			t.Fatalf("published event identity leaked private material: %#v", event)
 		}
 	}
-	var readyPlan map[string]any
+	var quotingPlan map[string]any
+	var quoteJob map[string]any
 	for _, event := range published {
 		if event.typ == "cloud.plan.changed" && event.payload["revision"] == int64(2) {
-			readyPlan = event.payload
-			break
+			quotingPlan = event.payload
+		}
+		if event.typ == "cloud.job.changed" && event.payload["job_id"] == quoteJobID {
+			quoteJob = event.payload
 		}
 	}
-	if readyPlan == nil || readyPlan["goal_id"] != claim.GoalID || readyPlan["created_at"] != int64(100) {
-		t.Fatalf("ready plan relay payload = %#v", readyPlan)
+	if quotingPlan == nil || quotingPlan["goal_id"] != claim.GoalID || quotingPlan["created_at"] != int64(100) || quotingPlan["status"] != string(cloudcontracts.PlanQuoting) || quotingPlan["quote_id"] != "" || quotingPlan["plan_hash"] != "" {
+		t.Fatalf("quoting plan relay payload = %#v", quotingPlan)
+	}
+	if quoteJob == nil || quoteJob["plan_id"] != claim.PlanID || quoteJob["kind"] != "quote" || quoteJob["checkpoint"] != "quote_queued" || quoteJob["execution_status"] != "queued" || quoteJob["outcome_status"] != "pending" {
+		t.Fatalf("quote job relay payload = %#v", quoteJob)
 	}
 }
 
@@ -265,7 +339,7 @@ func seedResearchGoal(t *testing.T, ctx context.Context, database *p2pstorage.Da
 	}
 }
 
-func testResearchOutput(t *testing.T, now time.Time, claim runtime.Claim) runtime.ResearchOutput {
+func testResearchOutput(t *testing.T, now time.Time) runtime.ResearchOutput {
 	t.Helper()
 	recipe := cloudcontracts.RecipeV1{
 		SchemaVersion: cloudcontracts.SchemaVersionV1, RecipeID: "recipe-knowledge-1", Name: "Private knowledge workload", Maturity: cloudcontracts.RecipeExperimental,
@@ -275,26 +349,16 @@ func testResearchOutput(t *testing.T, now time.Time, claim runtime.Claim) runtim
 		Health:       cloudcontracts.HealthContractV1{Liveness: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeHTTP, Target: "/healthz"}, Readiness: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeHTTP, Target: "/readyz"}, Semantic: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeCommand, Target: "verify-service"}},
 		Lifecycle:    cloudcontracts.LifecycleContractV1{Start: "start", Stop: "stop", Restart: "restart", Upgrade: "upgrade", Rollback: "rollback", Backup: "backup", Restore: "restore", Destroy: "destroy"},
 	}
-	recipeDigest, err := recipe.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	quote := cloudcontracts.QuoteV1{
-		SchemaVersion: cloudcontracts.SchemaVersionV1, QuoteID: "quote-knowledge-1", CloudConnectionID: claim.ConnectionID, Region: "ap-south-1", Currency: "USD", QuotedAt: now, ValidUntil: now.Add(15 * time.Minute),
-		Candidates: []cloudcontracts.QuoteCandidateV1{{CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, HourlyMinor: 2000, ThirtyDayMinor: 1440000, EstimatedDiskGiB: 80, AvailabilityZones: []string{"ap-south-1a"}}},
-	}
-	quoteDigest, err := quote.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
 	return runtime.ResearchOutput{
-		Plan: cloudcontracts.PlanV1{
-			SchemaVersion: cloudcontracts.SchemaVersionV1, PlanID: claim.PlanID, Revision: uint64(claim.PlanRevision + 1), Status: cloudcontracts.PlanReadyForConfirmation, CloudConnectionID: claim.ConnectionID,
-			Recipe: cloudcontracts.RecipeBindingV1{RecipeID: recipe.RecipeID, Digest: recipeDigest, Maturity: recipe.Maturity}, Quote: cloudcontracts.QuoteBindingV1{QuoteID: quote.QuoteID, Digest: quoteDigest, ValidUntil: quote.ValidUntil, CandidateID: "recommended"},
-			ResourceScope: cloudcontracts.ResourceScopeV1{Region: quote.Region, AvailabilityZones: []string{"ap-south-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384, DiskGiB: 80, PurchaseOption: cloudcontracts.PurchaseOnDemand},
-			NetworkScope:  cloudcontracts.NetworkScopeV1{PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone},
+		Recipe: recipe,
+		Draft: cloudcontracts.ResearchDraftV1{
+			SchemaVersion: cloudcontracts.SchemaVersionV1,
+			Region:        "ap-south-1",
+			Candidates: []cloudcontracts.QuoteRequestCandidateV1{{
+				CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80,
+			}},
 		},
-		Recipe: recipe, Quote: quote, Title: "Private knowledge workload", Summary: "Official-source private single-VM proposal; review the quote before creating billable resources.",
+		Title: "Private knowledge workload", Summary: "Official-source private single-VM proposal; obtain a verified price estimate before creating billable resources.",
 	}
 }
 

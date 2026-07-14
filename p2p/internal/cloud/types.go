@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 const (
@@ -58,22 +59,54 @@ func (g Goal) Summary() GoalSummary {
 	}
 }
 
+// QuoteView is the owner-visible, de-secretsed projection of one immutable
+// price estimate. It intentionally excludes broker command envelopes,
+// receipts, endpoint details, key material, and every secret reference.
+// Quotes are only hydrated for cloud.plans.get; bootstrap and list surfaces
+// remain summary-only even when a plan has a quote binding.
+type QuoteView struct {
+	QuoteID         string               `json:"quote_id"`
+	ConnectionID    string               `json:"cloud_connection_id"`
+	Region          string               `json:"region"`
+	Currency        string               `json:"currency"`
+	QuotedAt        time.Time            `json:"quoted_at"`
+	ValidUntil      time.Time            `json:"valid_until"`
+	Candidates      []QuoteCandidateView `json:"candidates"`
+	IncludedItems   []string             `json:"included_items,omitempty"`
+	UnincludedItems []string             `json:"unincluded_items,omitempty"`
+}
+
+// QuoteCandidateView contains only the cost and capacity facts needed to
+// compare the selectable quote tiers. Candidate IDs remain internal to the
+// immutable quote binding and are not part of the ProductCore projection.
+type QuoteCandidateView struct {
+	Tier              string   `json:"tier"`
+	InstanceType      string   `json:"instance_type"`
+	PurchaseOption    string   `json:"purchase_option"`
+	HourlyMinor       int64    `json:"hourly_minor"`
+	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
+	StartupUpperMinor int64    `json:"startup_upper_minor"`
+	EstimatedDiskGiB  uint32   `json:"estimated_disk_gib"`
+	AvailabilityZones []string `json:"availability_zones,omitempty"`
+}
+
 // Plan is a de-secretsed planning artifact. PlanHash is intentionally blank
 // until the external planner supplies a deterministic-CBOR digest; approval
 // handlers will not accept a plan without it.
 type Plan struct {
-	PlanID       string `json:"plan_id"`
-	GoalID       string `json:"goal_id"`
-	ConnectionID string `json:"cloud_connection_id,omitempty"`
-	Status       string `json:"status"`
-	Title        string `json:"title,omitempty"`
-	Summary      string `json:"summary,omitempty"`
-	RecipeDigest string `json:"recipe_digest,omitempty"`
-	QuoteID      string `json:"quote_id,omitempty"`
-	PlanHash     string `json:"plan_hash,omitempty"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	PlanID       string     `json:"plan_id"`
+	GoalID       string     `json:"goal_id"`
+	ConnectionID string     `json:"cloud_connection_id,omitempty"`
+	Status       string     `json:"status"`
+	Title        string     `json:"title,omitempty"`
+	Summary      string     `json:"summary,omitempty"`
+	RecipeDigest string     `json:"recipe_digest,omitempty"`
+	QuoteID      string     `json:"quote_id,omitempty"`
+	Quote        *QuoteView `json:"quote,omitempty"`
+	PlanHash     string     `json:"plan_hash,omitempty"`
+	Revision     int64      `json:"revision"`
+	CreatedAt    int64      `json:"created_at"`
+	UpdatedAt    int64      `json:"updated_at"`
 }
 
 type Connection struct {
@@ -122,6 +155,12 @@ type Job struct {
 // visible research Job after a server upgrade without creating a second task.
 func ResearchJobID(outboxID string) string {
 	return "cloud_job_research_" + strings.TrimSpace(outboxID)
+}
+
+// QuoteJobID is deterministic so retries of the durable quote request retain
+// one visible Job without creating a second billing-related operation.
+func QuoteJobID(outboxID string) string {
+	return "cloud_job_quote_" + strings.TrimSpace(outboxID)
 }
 
 // Service is intentionally separate from Deployment so a failed integration
@@ -221,6 +260,7 @@ type Store interface {
 	ListCloudGoals(context.Context) ([]Goal, error)
 	ListCloudPlans(context.Context) ([]Plan, error)
 	GetCloudPlan(context.Context, string) (Plan, bool, error)
+	GetCloudQuote(context.Context, string) (QuoteView, bool, error)
 	ListCloudJobs(context.Context) ([]Job, error)
 	ListCloudConnections(context.Context) ([]Connection, error)
 	GetCloudConnection(context.Context, string) (Connection, bool, error)

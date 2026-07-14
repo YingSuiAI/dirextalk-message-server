@@ -224,23 +224,7 @@ func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output 
 	if err != nil {
 		return err
 	}
-	quoteDigest, err := output.Quote.Digest()
-	if err != nil {
-		return err
-	}
-	planHash, err := output.Plan.Hash()
-	if err != nil {
-		return err
-	}
 	recipeCBOR, err := output.Recipe.CanonicalRecipeCBOR()
-	if err != nil {
-		return err
-	}
-	quoteCBOR, err := output.Quote.CanonicalQuoteCBOR()
-	if err != nil {
-		return err
-	}
-	planCBOR, err := output.Plan.CanonicalPlanCBOR()
 	if err != nil {
 		return err
 	}
@@ -248,29 +232,32 @@ func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output 
 	if err != nil {
 		return err
 	}
-	quoteJSON, err := json.Marshal(output.Quote)
+	draftDigest, err := output.Draft.Digest()
 	if err != nil {
 		return err
 	}
-	planJSON, err := json.Marshal(output.Plan)
+	quoteRequest := cloudcontracts.QuoteRequestV1{
+		SchemaVersion:     cloudcontracts.SchemaVersionV1,
+		QuoteRequestID:    stableID("cloud_quote_request_", claim.PlanID, fmt.Sprint(claim.PlanRevision+1), recipeDigest, draftDigest),
+		PlanID:            claim.PlanID,
+		PlanRevision:      uint64(claim.PlanRevision + 1),
+		CloudConnectionID: claim.ConnectionID,
+		RecipeDigest:      recipeDigest,
+		Region:            output.Draft.Region,
+		Candidates:        append([]cloudcontracts.QuoteRequestCandidateV1(nil), output.Draft.Candidates...),
+	}
+	if err := quoteRequest.Validate(); err != nil {
+		return fmt.Errorf("validate quote request: %w", err)
+	}
+	quoteRequestJSON, err := json.Marshal(quoteRequest)
 	if err != nil {
 		return err
 	}
+	quoteOutboxID := stableID("cloud_outbox_quote_", quoteRequest.QuoteRequestID)
+	quoteJobID := cloudmodule.QuoteJobID(quoteOutboxID)
 
 	return s.withClaimTransaction(ctx, claim, func(tx *sql.Tx, now int64) error {
 		if err := ensureRecipe(ctx, tx, output.Recipe, recipeDigest, recipeCBOR, recipeJSON, now); err != nil {
-			return err
-		}
-		if err := ensureQuote(ctx, tx, output.Quote, quoteDigest, quoteCBOR, quoteJSON, now); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO p2p_cloud_plan_versions (
-				plan_id, revision, canonical_cbor, display_json, plan_hash, recipe_digest,
-				quote_id, quote_digest, quote_valid_until, created_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, output.Plan.PlanID, output.Plan.Revision, planCBOR, string(planJSON), planHash, recipeDigest,
-			output.Quote.QuoteID, quoteDigest, output.Quote.ValidUntil.UTC().UnixMilli(), now); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
@@ -278,8 +265,8 @@ func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output 
 			SET status = $1, title = $2, summary = $3, recipe_digest = $4,
 				quote_id = $5, plan_hash = $6, revision = $7, updated_at = $8
 			WHERE plan_id = $9 AND revision = $10 AND status = 'researching'
-		`, string(cloudcontracts.PlanReadyForConfirmation), output.Title, output.Summary, recipeDigest,
-			output.Quote.QuoteID, planHash, output.Plan.Revision, now, claim.PlanID, claim.PlanRevision)
+		`, string(cloudcontracts.PlanQuoting), output.Title, output.Summary, recipeDigest,
+			"", "", int64(quoteRequest.PlanRevision), now, claim.PlanID, claim.PlanRevision)
 		if err != nil {
 			return err
 		}
@@ -291,18 +278,36 @@ func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output 
 			return err
 		}
 		planSummary := map[string]any{
-			"plan_id": output.Plan.PlanID, "goal_id": claim.GoalID, "cloud_connection_id": output.Plan.CloudConnectionID,
-			"status": string(cloudcontracts.PlanReadyForConfirmation), "title": output.Title,
-			"summary": output.Summary, "recipe_digest": recipeDigest, "quote_id": output.Quote.QuoteID,
-			"plan_hash": planHash, "revision": int64(output.Plan.Revision), "created_at": planCreatedAt, "updated_at": now,
+			"plan_id": claim.PlanID, "goal_id": claim.GoalID, "cloud_connection_id": claim.ConnectionID,
+			"status": string(cloudcontracts.PlanQuoting), "title": output.Title,
+			"summary": output.Summary, "recipe_digest": recipeDigest, "quote_id": "",
+			"plan_hash": "", "revision": int64(quoteRequest.PlanRevision), "created_at": planCreatedAt, "updated_at": now,
 		}
-		if err := writeEventAndProjection(ctx, tx, stableID("cloud_event_", claim.PlanID, fmt.Sprint(output.Plan.Revision), "ready"), "cloud.plan.changed", "plan", claim.PlanID, int64(output.Plan.Revision), planSummary, now); err != nil {
+		if err := writeEventAndProjection(ctx, tx, stableID("cloud_event_", claim.PlanID, fmt.Sprint(quoteRequest.PlanRevision), "quote_requested"), "cloud.plan.changed", "plan", claim.PlanID, int64(quoteRequest.PlanRevision), planSummary, now); err != nil {
 			return err
 		}
 		if _, err := transitionResearchJob(ctx, tx, claim, now, researchJobTransition{
-			execution: "finished", outcome: "succeeded", checkpoint: "quote_ready", errorCode: "",
-			stepStatus: "finished", stepSummary: "Official-source research and quote are ready for review.",
+			execution: "finished", outcome: "succeeded", checkpoint: "research_ready", errorCode: "",
+			stepStatus: "finished", stepSummary: "Official-source research draft is ready for a verified price quote.",
 		}); err != nil {
+			return err
+		}
+		quoteJob := cloudmodule.Job{
+			JobID: quoteJobID, PlanID: claim.PlanID, Kind: "quote", Execution: "queued", Outcome: "pending",
+			Checkpoint: "quote_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := insertQuoteJob(ctx, tx, quoteJob, now); err != nil {
+			return err
+		}
+		if err := writeEventAndProjection(ctx, tx,
+			stableID("cloud_event_", quoteJob.JobID, "1", quoteJob.Checkpoint),
+			"cloud.job.changed", "job", quoteJob.JobID, quoteJob.Revision, jobSummary(quoteJob), now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO p2p_cloud_outbox (outbox_id, kind, aggregate_type, aggregate_id, payload_json, created_at)
+			VALUES ($1, $2, 'plan', $3, $4, $5)
+		`, quoteOutboxID, runtime.QuotePlanRequested, claim.PlanID, string(quoteRequestJSON), now); err != nil {
 			return err
 		}
 		return completeOutbox(ctx, tx, claim, now)
@@ -318,14 +323,43 @@ type researchJobTransition struct {
 	stepSummary string
 }
 
+func insertQuoteJob(ctx context.Context, tx *sql.Tx, job cloudmodule.Job, now int64) error {
+	if job.JobID == "" || job.PlanID == "" || job.Kind != "quote" || job.Revision != 1 || job.Execution != "queued" || job.Outcome != "pending" || job.Checkpoint != "quote_queued" {
+		return errors.New("quote job is invalid")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO p2p_cloud_jobs (
+			job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
+			checkpoint, error_code, revision, created_at, updated_at
+		) VALUES ($1, $2, '', 'quote', 'queued', 'pending', 'quote_queued', '', 1, $3, $3)
+	`, job.JobID, job.PlanID, now); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO p2p_cloud_job_steps (
+			job_id, step_id, status, summary, checkpoint, error_code, revision, created_at, updated_at
+		) VALUES ($1, 'quote', 'queued', 'A verified AWS price quote is queued for the selected connection.', 'quote_queued', '', 1, $2, $2)
+	`, job.JobID, now)
+	return err
+}
+
 // transitionResearchJob is always called from a claim-fenced transaction. It
 // makes the research lifecycle durable independently of the Plan: an expired
 // lease, retry, or terminal source failure cannot be mistaken for a service
 // deployment, but it remains visible after reconnecting the client.
 func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
 	jobID := cloudmodule.ResearchJobID(claim.OutboxID)
-	if jobID == "cloud_job_research_" || claim.PlanID == "" || claim.OutboxID == "" {
-		return cloudmodule.Job{}, errors.New("research job identity is invalid")
+	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "research", "research", now, transition)
+}
+
+func transitionQuoteJob(ctx context.Context, tx *sql.Tx, claim runtime.QuoteClaim, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
+	jobID := cloudmodule.QuoteJobID(claim.OutboxID)
+	return transitionCloudJob(ctx, tx, jobID, claim.PlanID, "quote", "quote", now, transition)
+}
+
+func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, kind, stepID string, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
+	if jobID == "" || planID == "" || kind == "" || stepID == "" {
+		return cloudmodule.Job{}, errors.New("cloud job identity is invalid")
 	}
 	transition.errorCode = durableErrorCode(transition.errorCode, "")
 	var job cloudmodule.Job
@@ -337,7 +371,7 @@ func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim,
 		&job.Checkpoint, &job.ErrorCode, &job.Revision, &job.CreatedAt, &job.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		job = cloudmodule.Job{
-			JobID: jobID, PlanID: claim.PlanID, Kind: "research", Execution: transition.execution,
+			JobID: jobID, PlanID: planID, Kind: kind, Execution: transition.execution,
 			Outcome: transition.outcome, Checkpoint: transition.checkpoint, ErrorCode: transition.errorCode,
 			Revision: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -345,15 +379,15 @@ func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim,
 			INSERT INTO p2p_cloud_jobs (
 				job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
 				checkpoint, error_code, revision, created_at, updated_at
-			) VALUES ($1, $2, '', 'research', $3, $4, $5, $6, 1, $7, $7)
-		`, job.JobID, job.PlanID, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, now); err != nil {
+			) VALUES ($1, $2, '', $3, $4, $5, $6, $7, 1, $8, $8)
+		`, job.JobID, job.PlanID, kind, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, now); err != nil {
 			return cloudmodule.Job{}, err
 		}
 	} else if err != nil {
 		return cloudmodule.Job{}, err
 	} else {
-		if job.PlanID != claim.PlanID || job.DeploymentID != "" || job.Kind != "research" || job.Revision <= 0 {
-			return cloudmodule.Job{}, errors.New("research job does not match the claimed outbox")
+		if job.PlanID != planID || job.DeploymentID != "" || job.Kind != kind || job.Revision <= 0 {
+			return cloudmodule.Job{}, errors.New("cloud job does not match the claimed outbox")
 		}
 		previousRevision := job.Revision
 		job.Execution = transition.execution
@@ -380,8 +414,8 @@ func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim,
 		UPDATE p2p_cloud_job_steps
 		SET status = $1, summary = $2, checkpoint = $3, error_code = $4,
 			revision = revision + 1, updated_at = $5
-		WHERE job_id = $6 AND step_id = 'research'
-	`, transition.stepStatus, transition.stepSummary, transition.checkpoint, transition.errorCode, now, job.JobID)
+		WHERE job_id = $6 AND step_id = $7
+	`, transition.stepStatus, transition.stepSummary, transition.checkpoint, transition.errorCode, now, job.JobID, stepID)
 	if err != nil {
 		return cloudmodule.Job{}, err
 	}
@@ -393,8 +427,8 @@ func transitionResearchJob(ctx context.Context, tx *sql.Tx, claim runtime.Claim,
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO p2p_cloud_job_steps (
 				job_id, step_id, status, summary, checkpoint, error_code, revision, created_at, updated_at
-			) VALUES ($1, 'research', $2, $3, $4, $5, 1, $6, $6)
-		`, job.JobID, transition.stepStatus, transition.stepSummary, transition.checkpoint, transition.errorCode, now); err != nil {
+			) VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)
+		`, job.JobID, stepID, transition.stepStatus, transition.stepSummary, transition.checkpoint, transition.errorCode, now); err != nil {
 			return cloudmodule.Job{}, err
 		}
 	}

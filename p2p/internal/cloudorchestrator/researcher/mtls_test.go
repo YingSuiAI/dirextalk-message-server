@@ -99,8 +99,8 @@ func TestMutualTLSHTTPPlannerCompletesAResearchRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, err := planner.Research(context.Background(), input)
-	if err != nil || output.Plan.PlanID != input.PlanID {
-		t.Fatalf("mTLS research output valid=%t err=%v", output.Plan.PlanID == input.PlanID, err)
+	if err != nil || output.Draft.Region == "" {
+		t.Fatalf("mTLS research output valid=%t err=%v", output.Draft.Region != "", err)
 	}
 }
 

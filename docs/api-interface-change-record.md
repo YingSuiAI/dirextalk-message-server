@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 Cloud Research Draft And Signed Read-Only Quote
+
+The private researcher result is now deliberately narrower: it returns only an
+experimental `RecipeV1`, non-price `ResearchDraftV1`, title, and summary. It
+cannot return a final Plan, Quote, price, approval, quote ID, or plan hash. The
+fenced Orchestrator Store derives a `QuoteRequestV1`, moves the Plan from
+`researching` to `quoting`, and creates a distinct quote Job/outbox record.
+
+`p2p/cmd/cloud-orchestrator` now requires a mounted PKCS#8 Ed25519 node-key
+file and runs a second bounded quote loop. The loop persists one exact signed
+Connection Stack V2 `quote.request` envelope before the first HTTPS attempt;
+ambiguous failures replay the same envelope/counter and only the Broker's
+`expired_command` result permits a new one. The client accepts no AWS action
+other than quote request, no generic provider endpoint, and no AWS SDK or CLI.
+
+After a strictly bound Broker receipt, the Store persists a verified immutable
+quote and keeps the Plan in `quoting` with its `quote_id`; it does not create a
+final approval Plan or billable resource. `cloud.plans.get` gains an additive
+de-secretsed nested `quote` projection. `cloud.bootstrap` and all list actions
+remain summary-only. The projection relay now accepts the new de-secretsed
+`quote` Job kind. This stage does not expose a create/approve/destroy action,
+accept credentials, or run an AWS mutation.
+
 ## 2026-07-14 Private Cloud Researcher mTLS Boundary
 
 The independent private `p2p/cmd/cloud-researcher` runtime and its non-root
@@ -13,8 +36,9 @@ name; the Researcher requires TLS 1.3 with verified client certificates. A
 model credential is accepted only from the Researcher's regular mounted file,
 never an environment value, command flag, Agent request, event, or response.
 The endpoint accepts one strict `ResearchInput` JSON shape and returns a
-validated `ResearchOutput` shape; malformed, oversized, secret-bearing, or
-untyped requests are rejected without emitting their content.
+validated `ResearchOutput` shape at exact `/v2/cloud-research`; malformed,
+oversized, secret-bearing, legacy-path, or untyped requests are rejected
+without emitting their content.
 
 This completes only the private research transport boundary. It does not
 activate `cloud.plans.approve`, create a Connection Stack, provision an EC2
@@ -30,7 +54,7 @@ configuration, model/API key, AWS SDK, Docker socket, product migration, or
 arbitrary provider API capability. It reads PostgreSQL configuration only from
 the regular file named by `CLOUD_ORCHESTRATOR_DATABASE_URL_FILE`, requires an
 exact configured HTTPS `CLOUD_ORCHESTRATOR_RESEARCHER_URL` at exactly
-`/v1/cloud-research`, rejects redirects, and bounds each private research
+`/v2/cloud-research`, rejects redirects, and bounds each private research
 attempt below its durable claim lease. This is a research/typed-contract
 worker only; it does not create an AWS resource.
 

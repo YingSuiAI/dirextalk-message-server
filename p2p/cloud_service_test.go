@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,38 @@ const cloudTestConnectionID = "connection-test-1"
 type cloudConnectedMemoryStore struct {
 	*p2pstorage.MemoryStore
 	connection cloudmodule.Connection
+}
+
+type cloudQuoteMemoryStore struct {
+	*p2pstorage.MemoryStore
+	plan       cloudmodule.Plan
+	quote      cloudmodule.QuoteView
+	quoteFound bool
+	quoteCalls int
+}
+
+func (s *cloudQuoteMemoryStore) GetCloudPlan(_ context.Context, id string) (cloudmodule.Plan, bool, error) {
+	if s != nil && id == s.plan.PlanID {
+		return s.plan, true, nil
+	}
+	return cloudmodule.Plan{}, false, nil
+}
+
+func (s *cloudQuoteMemoryStore) ListCloudPlans(_ context.Context) ([]cloudmodule.Plan, error) {
+	if s == nil || s.plan.PlanID == "" {
+		return []cloudmodule.Plan{}, nil
+	}
+	return []cloudmodule.Plan{s.plan}, nil
+}
+
+func (s *cloudQuoteMemoryStore) GetCloudQuote(_ context.Context, id string) (cloudmodule.QuoteView, bool, error) {
+	if s != nil {
+		s.quoteCalls++
+		if s.quoteFound && id == s.quote.QuoteID {
+			return s.quote, true, nil
+		}
+	}
+	return cloudmodule.QuoteView{}, false, nil
 }
 
 func (s *cloudConnectedMemoryStore) GetCloudConnection(_ context.Context, id string) (cloudmodule.Connection, bool, error) {
@@ -309,6 +342,90 @@ func TestCloudGoalCreateIsOwnerOnlyIdempotentAndProjectsResearchPlan(t *testing.
 	}
 	if _, leaked := events[0].Payload["goal"]; leaked {
 		t.Fatalf("goal prompt must not be copied into realtime event payload: %#v", events[0])
+	}
+}
+
+func TestCloudPlansGetHydratesOnlySafeQuoteDetail(t *testing.T) {
+	quotedAt := time.Date(2026, time.July, 14, 8, 0, 0, 0, time.UTC)
+	store := &cloudQuoteMemoryStore{
+		MemoryStore: p2pstorage.NewMemoryStore(),
+		plan: cloudmodule.Plan{
+			PlanID: "plan-quote-1", GoalID: "goal-quote-1", ConnectionID: cloudTestConnectionID,
+			Status: cloudmodule.PlanStatusReadyForConfirmation, QuoteID: "quote-quote-1", Revision: 2,
+			CreatedAt: 1, UpdatedAt: 2,
+			// Detail supplied by a store must never leak through list/bootstrap;
+			// only plans.get is allowed to attach the fetched QuoteView below.
+			Quote: &cloudmodule.QuoteView{QuoteID: "must-not-appear"},
+		},
+		quoteFound: true,
+		quote: cloudmodule.QuoteView{
+			QuoteID: "quote-quote-1", ConnectionID: cloudTestConnectionID, Region: "ap-south-1", Currency: "USD",
+			QuotedAt: quotedAt, ValidUntil: quotedAt.Add(15 * time.Minute),
+			Candidates: []cloudmodule.QuoteCandidateView{{
+				Tier: "recommended", InstanceType: "m7i.xlarge", PurchaseOption: "on_demand",
+				HourlyMinor: 2000, ThirtyDayMinor: 1440000, StartupUpperMinor: 500, EstimatedDiskGiB: 80,
+				AvailabilityZones: []string{"ap-south-1a"},
+			}},
+			IncludedItems: []string{"ec2_linux_ondemand"}, UnincludedItems: []string{"ebs_gp3", "taxes"},
+		},
+	}
+	service, err := NewServiceWithStore(context.Background(), Config{ServerName: "example.com"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := newP2PTestRouter(service)
+
+	get := jsonRequest(t, "/_p2p/query", map[string]any{"action": "cloud.plans.get", "params": map[string]any{"plan_id": store.plan.PlanID}})
+	get.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, get)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("cloud plans.get = %d body=%s", getRec.Code, getRec.Body.String())
+	}
+	getResult := decodeJSONMap(t, getRec.Body.String())
+	quote, ok := getResult["quote"].(map[string]any)
+	if !ok || quote["quote_id"] != store.quote.QuoteID || quote["cloud_connection_id"] != cloudTestConnectionID || quote["region"] != "ap-south-1" || quote["currency"] != "USD" {
+		t.Fatalf("cloud plans.get quote = %#v", getResult)
+	}
+	candidates, ok := quote["candidates"].([]any)
+	if !ok || len(candidates) != 1 {
+		t.Fatalf("cloud plans.get candidates = %#v", quote)
+	}
+	candidate, ok := candidates[0].(map[string]any)
+	if !ok || candidate["tier"] != "recommended" || candidate["instance_type"] != "m7i.xlarge" || candidate["hourly_minor"] != float64(2000) {
+		t.Fatalf("cloud plans.get candidate = %#v", candidates[0])
+	}
+	for _, forbidden := range []string{"candidate_id", "schema_version", "command_id", "request_sha256", "receipt", "envelope", "endpoint", "key", "secret"} {
+		if _, exists := quote[forbidden]; exists {
+			t.Fatalf("cloud plans.get leaked %q in quote: %#v", forbidden, quote)
+		}
+		if strings.Contains(getRec.Body.String(), forbidden) {
+			t.Fatalf("cloud plans.get body leaked %q: %s", forbidden, getRec.Body.String())
+		}
+	}
+	if store.quoteCalls != 1 {
+		t.Fatalf("cloud plans.get quote reads = %d, want 1", store.quoteCalls)
+	}
+
+	for _, action := range []string{"cloud.plans.list", "cloud.bootstrap"} {
+		request := jsonRequest(t, "/_p2p/query", map[string]any{"action": action, "params": map[string]any{}})
+		request.Header.Set("Authorization", "Bearer "+service.AccessToken())
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s = %d body=%s", action, recorder.Code, recorder.Body.String())
+		}
+		response := decodeJSONMap(t, recorder.Body.String())
+		plans, ok := response["plans"].([]any)
+		if !ok || len(plans) != 1 {
+			t.Fatalf("%s plans = %#v", action, response["plans"])
+		}
+		if _, leaked := plans[0].(map[string]any)["quote"]; leaked {
+			t.Fatalf("%s must not include plan quote detail: %#v", action, plans[0])
+		}
+	}
+	if store.quoteCalls != 1 {
+		t.Fatalf("list/bootstrap must not hydrate quote detail, reads=%d", store.quoteCalls)
 	}
 }
 

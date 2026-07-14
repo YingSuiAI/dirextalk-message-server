@@ -121,7 +121,7 @@ func TestRunnerFailsInvalidPayloadAndOutputWithoutLeakingPlannerError(t *testing
 	t.Run("output", func(t *testing.T) {
 		claim := testResearchClaim()
 		output := validResearchOutput(t, now, claim)
-		output.Plan.PlanID = "another-plan"
+		output.Draft.Candidates[0].PurchaseOption = cloudcontracts.PurchaseSpot
 		store := &fakeStore{claims: []Claim{claim}}
 		runner := New(store, &fakePlanner{output: output}, Config{WorkerID: "orchestrator-1", Now: func() time.Time { return now }})
 
@@ -244,37 +244,16 @@ func validResearchOutput(t *testing.T, now time.Time, claim Claim) ResearchOutpu
 		},
 		Lifecycle: cloudcontracts.LifecycleContractV1{Start: "start", Stop: "stop", Restart: "restart", Upgrade: "upgrade", Rollback: "rollback", Backup: "backup", Restore: "restore", Destroy: "destroy"},
 	}
-	recipeDigest, err := recipe.Digest()
-	if err != nil {
-		t.Fatalf("recipe digest: %v", err)
+	return ResearchOutput{
+		Recipe: recipe,
+		Draft: cloudcontracts.ResearchDraftV1{
+			SchemaVersion: cloudcontracts.SchemaVersionV1,
+			Region:        "ap-south-1",
+			Candidates: []cloudcontracts.QuoteRequestCandidateV1{{
+				CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge",
+				PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80,
+			}},
+		},
+		Title: "Private knowledge workload", Summary: "Official-source private single-VM proposal; await a verified provider quote before any approval surface is created.",
 	}
-	quote := cloudcontracts.QuoteV1{
-		SchemaVersion:     cloudcontracts.SchemaVersionV1,
-		QuoteID:           "quote-knowledge-1",
-		CloudConnectionID: claim.ConnectionID,
-		Region:            "ap-south-1",
-		Currency:          "USD",
-		QuotedAt:          now,
-		ValidUntil:        now.Add(15 * time.Minute),
-		Candidates: []cloudcontracts.QuoteCandidateV1{{
-			CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand,
-			HourlyMinor: 2000, ThirtyDayMinor: 1440000, StartupUpperMinor: 0, EstimatedDiskGiB: 80, AvailabilityZones: []string{"ap-south-1a"},
-		}},
-	}
-	quoteDigest, err := quote.Digest()
-	if err != nil {
-		t.Fatalf("quote digest: %v", err)
-	}
-	plan := cloudcontracts.PlanV1{
-		SchemaVersion:     cloudcontracts.SchemaVersionV1,
-		PlanID:            claim.PlanID,
-		Revision:          uint64(claim.PlanRevision + 1),
-		Status:            cloudcontracts.PlanReadyForConfirmation,
-		CloudConnectionID: claim.ConnectionID,
-		Recipe:            cloudcontracts.RecipeBindingV1{RecipeID: recipe.RecipeID, Digest: recipeDigest, Maturity: recipe.Maturity},
-		Quote:             cloudcontracts.QuoteBindingV1{QuoteID: quote.QuoteID, Digest: quoteDigest, ValidUntil: quote.ValidUntil, CandidateID: "recommended"},
-		ResourceScope:     cloudcontracts.ResourceScopeV1{Region: quote.Region, AvailabilityZones: []string{"ap-south-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384, DiskGiB: 80, PurchaseOption: cloudcontracts.PurchaseOnDemand},
-		NetworkScope:      cloudcontracts.NetworkScopeV1{PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone},
-	}
-	return ResearchOutput{Plan: plan, Recipe: recipe, Quote: quote, Title: "Private knowledge workload", Summary: "Official-source private single-VM proposal; review the quote before creating billable resources."}
 }

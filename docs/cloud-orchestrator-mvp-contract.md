@@ -23,12 +23,14 @@ AWS SDK integration in the message-server process.
   It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated
-  database role and uses a private, mTLS-authenticated exact-HTTPS research
-  endpoint that returns only typed `ResearchOutput`; the binary has no Matrix
-  config, model key, AWS SDK, Docker socket, or migration capability. It is
-  intentionally not part of the default compose stack until an independently
-  authenticated private researcher endpoint and its least-privilege database
-  role are deployed. It does not yet ship a Worker or AWS executor.
+  database role, uses a private mTLS research endpoint, and makes only the
+  fixed HTTPS Connection Stack V2 `quote.request` call. It has no Matrix
+  config, model key, AWS SDK, Docker socket, or migration capability. Its
+  mounted Ed25519 node key signs an exact durable quote envelope but is never
+  persisted or sent to the Message Server. It is intentionally not part of the
+  default compose stack until its private researcher, node-key mount, Connection
+  Stack registration, and least-privilege database role are deployed. It does
+  not yet ship a Worker or AWS mutation executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -63,16 +65,36 @@ the message-server host home and rejects direct or common wrapped AWS CLI
 invocation. This is defense in depth, not a substitute for the typed
 Connection Stack boundary or a sandbox for arbitrary runtime commands.
 
-The outbox contains the private natural-language goal for the external
-planner. ProductCore websocket events and `cloud.events.list` carry summaries
-only; they never copy the goal prompt, AWS credentials, session tokens,
-pairing URLs, QR payloads, or service secrets.
+The researcher can return only an experimental `RecipeV1`, a non-price
+`ResearchDraftV1` (region plus one to three On-Demand candidate requests), and
+display title/summary. It cannot return a `PlanV1`, `QuoteV1`, price, quote
+identifier, approval, plan hash, or digest. The fenced Store derives the
+immutable `QuoteRequestV1`, transitions the Plan to `quoting`, finishes the
+research Job as `research_ready`, and atomically queues a separate quote Job
+and `cloud.plan.quote.requested` outbox item.
 
-The implementation persists versioned plan/recipe/quote artifacts, jobs and
-job steps, plus goals, plans, connections, deployments, services, recipes,
-alerts, Cloud audit events, private research outbox records, and projection
-outbox records. Connection/Deployment/Service writers are deliberately not
-part of the message-server owner action surface.
+The quote runner allocates a monotonically increasing per-connection node
+counter, persists the exact signed V2 envelope before HTTP, and replays that
+same envelope after any indeterminate failure. Only the Broker's exact
+`expired_command` response retires it and permits a new counter. The Broker
+can only return the read-only AWS price/instance-offering quote; on strict
+receipt validation the Store writes the immutable Quote, keeps the Plan in
+`quoting`, records its `quote_id`, and emits safe Plan/Job projections. It does
+not materialize an approval `PlanV1` or authorize a purchase.
+
+The private research and quote outboxes contain the natural-language goal or
+pre-price request only. ProductCore websocket events and `cloud.events.list`
+carry summaries only; they never copy the goal prompt, AWS credentials,
+session tokens, pairing URLs, QR payloads, service secrets, Broker endpoint,
+signed envelope, receipt, or node-key identity.
+
+The implementation persists recipes, verified quotes, quote command receipts,
+jobs and job steps, plus goals, plans, connections, deployments, services,
+alerts, Cloud audit events, private research/quote outbox records, and
+projection outbox records. An approval Plan version is deliberately absent
+until its separate device-signed confirmation transition exists.
+Connection/Deployment/Service writers are deliberately not part of the
+message-server owner action surface.
 
 ## ProductCore actions
 
@@ -85,7 +107,7 @@ Cloud mutation.
 | Action family | Current behavior | Transport |
 | --- | --- | --- |
 | `cloud.bootstrap` | returns owner projections (`goals`, `plans`, `jobs`, `connections`, `deployments`, `services`, `recipes`, `alerts`) | HTTP + WS request |
-| `cloud.{connections,plans,deployments,services,recipes}.list/get` | typed owner-only projection reads | HTTP + WS request |
+| `cloud.{connections,plans,deployments,services,recipes}.list/get` | typed owner-only projection reads; only `cloud.plans.get` may attach a de-secretsed quote detail | HTTP + WS request |
 | `cloud.events.list` | de-secretsed durable Cloud audit events; `limit` is 1–200 | HTTP + WS request |
 | `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request | HTTP-only |
 | `cloud.connections.role_plan`, `cloud.plans.approve`, `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until the independent control plane is installed | HTTP-only |
@@ -171,21 +193,28 @@ without duplicating an owner event. Unknown types, extra fields, malformed
 JSON, credential-shaped text, raw Worker logs, Goal prompts, and secret
 material are terminally rejected from the websocket projection.
 
-Research progress is a Job axis, not a guess derived from a Plan status. The
-initial Job is `research_queued`; a fenced claim records `research_leased`, a
-classified retry records `research_retry_scheduled`, and terminal outcomes are
-`quote_ready` or `research_failed`. Only these de-secretsed checkpoint and
-error-code values enter Job events/status; raw provider replies, prompts, and
-logs stay private. A failed research Job may leave its Plan at `researching`:
-the Job outcome is the durable terminal fact until a later explicit re-plan or
-retry contract is introduced.
+Research and quote progress are Job axes, not guesses derived from Plan status.
+The initial research Job is `research_queued`; a fenced claim records
+`research_leased`, a classified retry records `research_retry_scheduled`, and
+a successful draft records `research_ready`. Its successor quote Job moves
+through `quote_queued`, `quote_leased`, `quote_retry_scheduled`,
+`quote_command_expired`, `quote_ready`, or `quote_failed`. Only these
+de-secretsed checkpoint and error-code values enter Job events/status; raw
+provider replies, prompts, Broker errors, and logs stay private. A failed
+research Job may leave its Plan at `researching`; a failed quote Job leaves the
+Plan at `quoting` without an approval surface.
 
 `cloud-orchestrator` uses a bounded attempt timeout shorter than each lease;
-it defers a timed-out research attempt rather than accepting a late result.
-It reads its PostgreSQL URL only from the regular file named by
+it defers a timed-out research or quote attempt rather than accepting a late
+result. It reads its PostgreSQL URL only from the regular file named by
 `CLOUD_ORCHESTRATOR_DATABASE_URL_FILE`, never a CLI flag or log line. Its
 research endpoint is `CLOUD_ORCHESTRATOR_RESEARCHER_URL` and must be exact
-HTTPS `/v1/cloud-research` with no user info, query, fragment, or redirects.
+HTTPS `/v2/cloud-research` with no user info, query, fragment, or redirects.
+It also reads exactly one PKCS#8 Ed25519 node signing key from the regular
+mounted file named by `CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE`. The key is
+used only to sign the fixed Connection Stack V2 `quote.request` envelope;
+there is no generic AWS request path.
+
 It also requires a dedicated mounted mTLS CA, client certificate, client key,
 and expected server name (`CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE`,
 `CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE`,
@@ -193,6 +222,12 @@ and expected server name (`CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE`,
 `CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME`). Its transport disables proxy
 use, requires TLS 1.3, and rejects a researcher certificate that does not
 match the configured name.
+
+The exact V2 Broker client independently rejects proxies, redirects, non-HTTPS
+or non-`/v2/commands` endpoints, TLS below 1.2, unexpected JSON, oversized
+responses, response/receipt mismatches, and any returned quote that is not
+bound to the persisted signature-base `request_sha256`. It accepts no action
+other than `quote.request`.
 
 `p2p/cmd/cloud-researcher` is the corresponding independently deployable,
 non-root private model boundary. It listens only with TLS 1.3 mutual
@@ -210,8 +245,9 @@ mutation.
 
 The repository includes `Dockerfile.cloud-orchestrator`, a distinct non-root
 image that contains only this binary and CA certificates; it must be given a
-read-only root filesystem, its one DSN secret file, and no message-server
-volumes, Docker socket, AWS credentials, Matrix configuration, or Agent data.
+read-only root filesystem, its DSN and node-signing-key secret files, and no
+message-server volumes, Docker socket, AWS credentials, Matrix configuration,
+or Agent data.
 `Dockerfile.cloud-researcher` is likewise a non-root image and must receive
 only its read-only mTLS/model-key mounts, not the Orchestrator DSN, Message
 Server data, AWS credentials, Docker socket, or Worker material.
@@ -235,11 +271,12 @@ Public ingress remains a separate plan and confirmation.
 
 ## Explicitly not enabled yet
 
-The first slice does not upload credentials, deploy a Connection Stack, price
-instances, approve a plan, create an EC2 instance, install a service, expose a
-network endpoint, or destroy a resource. It ships the independently buildable
-research process and its private event relay, but does not yet deploy a
-researcher endpoint, Worker AMI, Broker executor, or AWS integration test.
-Those transitions must be implemented through the typed Connection Stack/Broker
-path; neither the Eino Agent tool, external MCP, nor the message-server gains
-arbitrary AWS access.
+The current slice does not upload credentials, deploy a Connection Stack,
+approve a plan, create an EC2 instance, install a service, expose a network
+endpoint, or destroy a resource. Once a separately registered Connection Stack
+is available it can obtain only a read-only quote; it does not execute AWS
+mutations. It ships independently buildable research/quote processes and their
+private event relay, but does not yet deploy a researcher endpoint, Worker AMI,
+Broker executor, or AWS integration test. Those transitions must be implemented
+through the typed Connection Stack/Broker path; neither the Eino Agent tool,
+external MCP, nor the message-server gains arbitrary AWS access.

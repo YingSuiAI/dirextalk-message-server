@@ -61,3 +61,21 @@ func TestPlanV1CBORUsesJSONFieldNamesAndPreservesUnsignedIntegers(t *testing.T) 
 		t.Fatalf("revision = %#v (%T), want uint64(%d)", decoded["revision"], decoded["revision"], uint64(math.MaxUint64))
 	}
 }
+
+func TestV1DeterministicCBORQuoteRequestGoldenVector(t *testing.T) {
+	request := validQuoteRequest(t)
+	canonical, err := request.CanonicalQuoteRequestCBOR()
+	if err != nil {
+		t.Fatalf("CanonicalQuoteRequestCBOR() error = %v", err)
+	}
+	digest, err := request.Digest()
+	if err != nil {
+		t.Fatalf("QuoteRequestV1.Digest() error = %v", err)
+	}
+
+	const wantQuoteRequestCBORBase64 = "qGZyZWdpb25pdXMtZWFzdC0xZ3BsYW5faWRmcGxhbi0xamNhbmRpZGF0ZXOCpWR0aWVyZ2Vjb25vbXlsY2FuZGlkYXRlX2lkcWVjb25vbXktY2FuZGlkYXRlbWluc3RhbmNlX3R5cGVpbTdpLmxhcmdlb3B1cmNoYXNlX29wdGlvbmlvbl9kZW1hbmRyZXN0aW1hdGVkX2Rpc2tfZ2liGFClZHRpZXJrcmVjb21tZW5kZWRsY2FuZGlkYXRlX2lkdXJlY29tbWVuZGVkLWNhbmRpZGF0ZW1pbnN0YW5jZV90eXBlam03aS54bGFyZ2VvcHVyY2hhc2Vfb3B0aW9uaW9uX2RlbWFuZHJlc3RpbWF0ZWRfZGlza19naWIYUG1wbGFuX3JldmlzaW9uB21yZWNpcGVfZGlnZXN0eEdzaGEyNTY6NDY1OWM4MzM5MWFhNjdmZmYyNjRlMGI4NDBjMzgzZmViMzI3ZGQ3NWQwNjZmODQ0NTU4ODQwMmRkNzFhOTYwNm5zY2hlbWFfdmVyc2lvbnVjbG91ZC1vcmNoZXN0cmF0b3IvdjFwcXVvdGVfcmVxdWVzdF9pZG9xdW90ZS1yZXF1ZXN0LTFzY2xvdWRfY29ubmVjdGlvbl9pZGxjb25uZWN0aW9uLTE"
+	const wantQuoteRequestDigest = "sha256:1721e769985d75a110dc33341743312bc3bbeaa07d11b157fc5c6eb709ebb857"
+	if base64.RawStdEncoding.EncodeToString(canonical) != wantQuoteRequestCBORBase64 || digest != wantQuoteRequestDigest {
+		t.Fatalf("update V1 deterministic-CBOR quote request golden vector:\nquote request cbor base64: %s\nquote request digest: %s", base64.RawStdEncoding.EncodeToString(canonical), digest)
+	}
+}

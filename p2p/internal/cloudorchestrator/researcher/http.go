@@ -18,7 +18,10 @@ import (
 )
 
 const (
-	cloudResearchPath    = "/v1/cloud-research"
+	// cloudResearchPath is intentionally versioned independently from the
+	// public ProductCore API. V2 breaks the old researcher response shape: a
+	// model can return only Recipe + ResearchDraft, never a Plan or Quote.
+	cloudResearchPath    = "/v2/cloud-research"
 	maxResearchResponse  = 1_000_000
 	defaultResearchLimit = 75 * time.Second
 )
@@ -113,6 +116,9 @@ func (p *HTTPPlanner) Research(ctx context.Context, input runtime.ResearchInput)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return runtime.ResearchOutput{}, errors.New("cloud researcher returned an invalid response")
+	}
+	if err := output.ValidateFor(input); err != nil {
 		return runtime.ResearchOutput{}, errors.New("cloud researcher returned an invalid response")
 	}
 	return output, nil

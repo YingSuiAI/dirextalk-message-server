@@ -16,6 +16,7 @@ var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	digestPattern     = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 	currencyPattern   = regexp.MustCompile(`^[A-Z]{3}$`)
+	awsRegionPattern  = regexp.MustCompile(`^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9]$`)
 	secretRefPattern  = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
 	secretPatterns    = []*regexp.Regexp{
 		regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`),
@@ -189,6 +190,89 @@ func (l LifecycleContractV1) validate() error {
 	return nil
 }
 
+func (d ResearchDraftV1) Validate() error {
+	if err := validateSchema(d.SchemaVersion); err != nil {
+		return err
+	}
+	if err := validateAWSRegion(d.Region); err != nil {
+		return err
+	}
+	return validateQuoteRequestCandidates("research draft", d.Candidates)
+}
+
+func (q QuoteRequestV1) Validate() error {
+	if err := validateSchema(q.SchemaVersion); err != nil {
+		return err
+	}
+	if err := validateIdentifier("quote_request_id", q.QuoteRequestID); err != nil {
+		return err
+	}
+	if err := validateIdentifier("plan_id", q.PlanID); err != nil {
+		return err
+	}
+	if q.PlanRevision == 0 {
+		return errors.New("plan_revision must be positive")
+	}
+	if err := validateIdentifier("cloud_connection_id", q.CloudConnectionID); err != nil {
+		return err
+	}
+	if err := validateDigest("recipe_digest", q.RecipeDigest); err != nil {
+		return err
+	}
+	if err := validateAWSRegion(q.Region); err != nil {
+		return err
+	}
+	return validateQuoteRequestCandidates("quote request", q.Candidates)
+}
+
+func validateQuoteRequestCandidates(scope string, candidates []QuoteRequestCandidateV1) error {
+	if len(candidates) < 1 || len(candidates) > 3 {
+		return fmt.Errorf("%s candidates must contain 1 to 3 entries", scope)
+	}
+	seenIDs := make(map[string]struct{}, len(candidates))
+	seenTiers := make(map[QuoteTier]struct{}, len(candidates))
+	for index, candidate := range candidates {
+		if err := candidate.validate(); err != nil {
+			return fmt.Errorf("%s candidate %d: %w", scope, index, err)
+		}
+		if _, found := seenIDs[candidate.CandidateID]; found {
+			return fmt.Errorf("%s candidates must not duplicate candidate_id", scope)
+		}
+		if _, found := seenTiers[candidate.Tier]; found {
+			return fmt.Errorf("%s candidates must not duplicate tier", scope)
+		}
+		seenIDs[candidate.CandidateID] = struct{}{}
+		seenTiers[candidate.Tier] = struct{}{}
+	}
+	return nil
+}
+
+func validateAWSRegion(value string) error {
+	if !awsRegionPattern.MatchString(value) {
+		return errors.New("region must be an AWS region")
+	}
+	return nil
+}
+
+func (c QuoteRequestCandidateV1) validate() error {
+	if err := validateIdentifier("candidate_id", c.CandidateID); err != nil {
+		return err
+	}
+	if !validQuoteTier(c.Tier) {
+		return fmt.Errorf("tier %q is invalid", c.Tier)
+	}
+	if err := validateIdentifier("instance_type", c.InstanceType); err != nil {
+		return err
+	}
+	if c.PurchaseOption != PurchaseOnDemand {
+		return errors.New("only on_demand quote request candidates are enabled")
+	}
+	if c.EstimatedDiskGiB < 8 || c.EstimatedDiskGiB > 16384 {
+		return errors.New("estimated_disk_gib must be between 8 and 16384")
+	}
+	return nil
+}
+
 func (q QuoteV1) Validate() error {
 	if err := validateSchema(q.SchemaVersion); err != nil {
 		return err
@@ -229,8 +313,20 @@ func (q QuoteV1) Validate() error {
 		seenIDs[candidate.CandidateID] = struct{}{}
 		seenTiers[candidate.Tier] = struct{}{}
 	}
+	if err := validateStringSet("included_items", q.IncludedItems, 0, 64, 500); err != nil {
+		return err
+	}
 	if err := validateStringSet("unincluded_items", q.UnincludedItems, 0, 64, 500); err != nil {
 		return err
+	}
+	included := make(map[string]struct{}, len(q.IncludedItems))
+	for _, item := range q.IncludedItems {
+		included[item] = struct{}{}
+	}
+	for _, item := range q.UnincludedItems {
+		if _, found := included[item]; found {
+			return errors.New("included_items and unincluded_items must not overlap")
+		}
 	}
 	return nil
 }

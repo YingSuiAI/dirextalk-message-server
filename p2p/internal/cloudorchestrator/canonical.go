@@ -34,6 +34,47 @@ func (r RecipeV1) Digest() (string, error) {
 	return digestCanonicalCBOR(canonical), nil
 }
 
+// CanonicalResearchDraftCBOR emits RFC 8949 Core Deterministic CBOR for the
+// restricted, non-price-bearing model research output.
+func (d ResearchDraftV1) CanonicalResearchDraftCBOR() ([]byte, error) {
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
+	return canonicalCBOR(normalizeResearchDraft(d))
+}
+
+// Digest returns a deterministic-CBOR SHA-256 content digest for stable
+// persistence-side quote_request_id derivation. It is not an approval or
+// Broker payload binding; QuoteRequestV1.Digest provides that binding.
+func (d ResearchDraftV1) Digest() (string, error) {
+	canonical, err := d.CanonicalResearchDraftCBOR()
+	if err != nil {
+		return "", err
+	}
+	return digestCanonicalCBOR(canonical), nil
+}
+
+// CanonicalQuoteRequestCBOR emits RFC 8949 Core Deterministic CBOR for the
+// immutable pre-price quote request binding.
+func (q QuoteRequestV1) CanonicalQuoteRequestCBOR() ([]byte, error) {
+	if err := q.Validate(); err != nil {
+		return nil, err
+	}
+	return canonicalCBOR(normalizeQuoteRequest(q))
+}
+
+// Digest returns the deterministic-CBOR SHA-256 digest used as the typed
+// Broker quote payload's plan_digest. It intentionally does not call or bind
+// PlanV1.Hash: a final approval plan is created only after the Broker returns
+// a verified price estimate.
+func (q QuoteRequestV1) Digest() (string, error) {
+	canonical, err := q.CanonicalQuoteRequestCBOR()
+	if err != nil {
+		return "", err
+	}
+	return digestCanonicalCBOR(canonical), nil
+}
+
 // CanonicalQuoteCBOR emits RFC 8949 Core Deterministic CBOR for quote
 // digests. JSON tags are retained as the canonical cross-language names.
 func (q QuoteV1) CanonicalQuoteCBOR() ([]byte, error) {
@@ -246,6 +287,33 @@ func sourceSortKey(source RecipeSourceV1) string {
 	return source.URL + "\x00" + source.Commit + "\x00" + source.ArtifactDigest + "\x00" + source.Version
 }
 
+func normalizeResearchDraft(draft ResearchDraftV1) ResearchDraftV1 {
+	normalized := draft
+	normalized.Candidates = normalizeQuoteRequestCandidates(draft.Candidates)
+	return normalized
+}
+
+func normalizeQuoteRequest(request QuoteRequestV1) QuoteRequestV1 {
+	normalized := request
+	normalized.Candidates = normalizeQuoteRequestCandidates(request.Candidates)
+	return normalized
+}
+
+func normalizeQuoteRequestCandidates(candidates []QuoteRequestCandidateV1) []QuoteRequestCandidateV1 {
+	if len(candidates) == 0 {
+		return nil
+	}
+	normalized := append([]QuoteRequestCandidateV1(nil), candidates...)
+	sort.Slice(normalized, func(i, j int) bool {
+		left, right := normalized[i], normalized[j]
+		if left.Tier == right.Tier {
+			return left.CandidateID < right.CandidateID
+		}
+		return left.Tier < right.Tier
+	})
+	return normalized
+}
+
 func normalizeQuote(quote QuoteV1) QuoteV1 {
 	normalized := quote
 	normalized.QuotedAt = quote.QuotedAt.UTC()
@@ -261,6 +329,7 @@ func normalizeQuote(quote QuoteV1) QuoteV1 {
 		}
 		return left.Tier < right.Tier
 	})
+	normalized.IncludedItems = canonicalSet(quote.IncludedItems)
 	normalized.UnincludedItems = canonicalSet(quote.UnincludedItems)
 	return normalized
 }

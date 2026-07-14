@@ -296,7 +296,7 @@ func validPlanProjection(value planProjectionPayload) bool {
 
 func validJobProjection(value jobProjectionPayload) bool {
 	return validProjectionIdentifier(value.JobID) && validProjectionIdentifier(value.PlanID) && validOptionalProjectionIdentifier(value.DeploymentID) &&
-		allowedProjectionValue(value.Kind, "research", "provision", "install", "verify", "destroy") &&
+		allowedProjectionValue(value.Kind, "research", "quote", "provision", "install", "verify", "destroy") &&
 		allowedProjectionValue(value.ExecutionStatus, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
 		allowedProjectionValue(value.OutcomeStatus, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		validVisibleProjectionText(value.Checkpoint, 128, true) && validProjectionErrorCode(value.ErrorCode) &&

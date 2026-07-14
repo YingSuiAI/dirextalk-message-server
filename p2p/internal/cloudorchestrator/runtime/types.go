@@ -1,5 +1,5 @@
-// Package runtime owns the independent Cloud Orchestrator's private
-// research-outbox execution loop. It has no AWS SDK or credential API.
+// Package runtime owns the independent Cloud Orchestrator's private outbox
+// execution loops. It has no AWS SDK or credential API.
 package runtime
 
 import (
@@ -15,7 +15,10 @@ import (
 	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
 
-const ResearchGoalRequested = "cloud.goal.research.requested"
+const (
+	ResearchGoalRequested = "cloud.goal.research.requested"
+	QuotePlanRequested    = "cloud.plan.quote.requested"
+)
 
 // Claim is a lease-fenced private outbox record. PayloadJSON remains private
 // to the Orchestrator and must never become a ProductCore realtime payload.
@@ -34,8 +37,9 @@ type Claim struct {
 }
 
 // ResearchInput is the minimum private hand-off to a source researcher. The
-// researcher may return an immutable recipe/quote/plan proposal, but cannot
-// receive credentials or call a provider control plane through this contract.
+// researcher may return only an experimental recipe draft and candidate
+// instance requests. It cannot receive credentials or call a provider control
+// plane through this contract.
 type ResearchInput struct {
 	GoalID       string `json:"goal_id"`
 	PlanID       string `json:"plan_id"`
@@ -44,15 +48,15 @@ type ResearchInput struct {
 	Prompt       string `json:"goal"`
 }
 
-// ResearchOutput is a validated candidate that can transition a plan from
-// researching to ready_for_confirmation. It contains only de-secretsed
-// contracts and a short owner-visible summary.
+// ResearchOutput is a validated, experimental research draft. It deliberately
+// has no PlanV1, price, quote identifier, approval binding, or plan hash: the
+// Store derives the later quote request and an independent Broker obtains the
+// only price that can be displayed to the owner.
 type ResearchOutput struct {
-	Plan    cloudcontracts.PlanV1   `json:"plan"`
-	Recipe  cloudcontracts.RecipeV1 `json:"recipe"`
-	Quote   cloudcontracts.QuoteV1  `json:"quote"`
-	Title   string                  `json:"title"`
-	Summary string                  `json:"summary"`
+	Recipe  cloudcontracts.RecipeV1        `json:"recipe"`
+	Draft   cloudcontracts.ResearchDraftV1 `json:"draft"`
+	Title   string                         `json:"title"`
+	Summary string                         `json:"summary"`
 }
 
 // Validate rejects malformed and secret-bearing research input before a
@@ -77,8 +81,104 @@ type Store interface {
 	FailResearch(context.Context, Claim, string) error
 }
 
-// Planner performs official-source research and produces a candidate. It is
-// deliberately not an AWS client and cannot receive a device approval.
+// QuoteClaim is the independently leased, private quote request. Endpoint
+// metadata is deliberately available only to the Orchestrator; ProductCore
+// projections never contain it. The Node signing key itself is not present in
+// this value and must remain a mounted file owned by the process.
+type QuoteClaim struct {
+	OutboxID      string
+	Kind          string
+	AggregateType string
+	AggregateID   string
+	PlanID        string
+	ConnectionID  string
+	PlanRevision  int64
+	LeaseToken    string
+	Attempt       int
+
+	BrokerEndpoint     string
+	ExpectedGeneration int64
+	NodeKeyID          string
+	Request            cloudcontracts.QuoteRequestV1
+	Command            QuoteCommand
+}
+
+// QuoteCommand is a durable command identity. A retry must replay its exact
+// SignedEnvelope instead of signing the same logical request again.
+type QuoteCommand struct {
+	CommandID          string
+	ConnectionID       string
+	NodeKeyID          string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	Attempt            int
+	IssuedAt           time.Time
+	ExpiresAt          time.Time
+	RequestDigest      string
+	PayloadJSON        string
+	PayloadSHA256      string
+	RequestSHA256      string
+	SignedEnvelope     string
+	State              string
+}
+
+// SignedQuoteCommand is the byte-for-byte command delivered to a Connection
+// Stack. It is persisted before the first network attempt and reused for every
+// indeterminate retry.
+type SignedQuoteCommand struct {
+	EnvelopeJSON  string
+	PayloadJSON   string
+	PayloadSHA256 string
+	RequestSHA256 string
+	IssuedAt      time.Time
+	ExpiresAt     time.Time
+}
+
+// BrokerQuote is a strictly typed, de-secretsed quote receipt returned by the
+// Connection Stack. ReceiptJSON is private Orchestrator audit data and never
+// becomes a ProductCore event or public quote projection.
+type BrokerQuote struct {
+	Schema          string
+	QuoteID         string
+	ConnectionID    string
+	CommandID       string
+	RequestSHA256   string
+	QuoteRequestID  string
+	PlanDigest      string
+	Region          string
+	Currency        string
+	QuotedAt        time.Time
+	ValidUntil      time.Time
+	Candidates      []cloudcontracts.QuoteCandidateV1
+	IncludedItems   []string
+	UnincludedItems []string
+	ReceiptJSON     string
+}
+
+// QuoteStore is the durable quote-execution boundary. It owns counters,
+// command receipts, and quote materialization. The Message Server does not
+// implement or invoke this interface.
+type QuoteStore interface {
+	ClaimQuoteRequest(context.Context, string, time.Duration) (QuoteClaim, bool, error)
+	PersistQuoteCommand(context.Context, QuoteClaim, SignedQuoteCommand) error
+	MarkQuoteStarted(context.Context, QuoteClaim) error
+	CommitQuote(context.Context, QuoteClaim, BrokerQuote) error
+	DeferQuote(context.Context, QuoteClaim, string, time.Time) error
+	ExpireQuoteCommand(context.Context, QuoteClaim) error
+	FailQuote(context.Context, QuoteClaim, string) error
+}
+
+// QuoteTransport knows how to form and send one signed, typed Broker command.
+// It has no provider SDK capability: it can only speak the fixed Connection
+// Stack command endpoint.
+type QuoteTransport interface {
+	BuildQuoteCommand(QuoteCommand, cloudcontracts.QuoteRequestV1) (SignedQuoteCommand, error)
+	RequestQuote(context.Context, string, QuoteCommand, SignedQuoteCommand, cloudcontracts.QuoteRequestV1) (BrokerQuote, error)
+}
+
+// Planner performs official-source research and produces an experimental
+// draft. It is deliberately not an AWS client and cannot receive a device
+// approval.
 type Planner interface {
 	Research(context.Context, ResearchInput) (ResearchOutput, error)
 }
@@ -112,48 +212,19 @@ func retryCode(err error) (string, bool) {
 	return "", false
 }
 
-// ValidateFor confirms that the output advances exactly the leased Plan. It
-// is exported so the PostgreSQL store can repeat validation immediately before
+// ValidateFor confirms that the output can be bound to the leased Plan. It is
+// exported so the PostgreSQL store can repeat validation immediately before
 // its fencing transaction; callers must never treat prior Agent validation as
 // a substitute for this check.
 func (o ResearchOutput) ValidateFor(input ResearchInput) error {
 	if input.PlanID == "" || input.ConnectionID == "" || input.PlanRevision <= 0 {
 		return errors.New("research input is incomplete")
 	}
-	if o.Plan.PlanID != input.PlanID || o.Plan.CloudConnectionID != input.ConnectionID {
-		return errors.New("research output does not bind the claimed plan and connection")
-	}
-	if o.Plan.Revision != uint64(input.PlanRevision+1) || o.Plan.Status != cloudcontracts.PlanReadyForConfirmation {
-		return errors.New("research output must advance the claimed plan one revision to ready_for_confirmation")
-	}
 	if err := o.Recipe.Validate(); err != nil {
 		return fmt.Errorf("invalid recipe: %w", err)
 	}
-	if err := o.Quote.Validate(); err != nil {
-		return fmt.Errorf("invalid quote: %w", err)
-	}
-	if o.Quote.CloudConnectionID != input.ConnectionID {
-		return errors.New("quote does not bind the claimed cloud connection")
-	}
-	recipeDigest, err := o.Recipe.Digest()
-	if err != nil {
-		return fmt.Errorf("digest recipe: %w", err)
-	}
-	quoteDigest, err := o.Quote.Digest()
-	if err != nil {
-		return fmt.Errorf("digest quote: %w", err)
-	}
-	if o.Plan.Recipe.RecipeID != o.Recipe.RecipeID || o.Plan.Recipe.Digest != recipeDigest || o.Plan.Recipe.Maturity != o.Recipe.Maturity {
-		return errors.New("plan recipe binding does not match the researched recipe")
-	}
-	if o.Plan.Quote.QuoteID != o.Quote.QuoteID || o.Plan.Quote.Digest != quoteDigest || !o.Plan.Quote.ValidUntil.Equal(o.Quote.ValidUntil) {
-		return errors.New("plan quote binding does not match the researched quote")
-	}
-	if err := o.Plan.Validate(); err != nil {
-		return fmt.Errorf("invalid plan: %w", err)
-	}
-	if _, err := o.Plan.Hash(); err != nil {
-		return fmt.Errorf("hash plan: %w", err)
+	if err := o.Draft.Validate(); err != nil {
+		return fmt.Errorf("invalid research draft: %w", err)
 	}
 	if err := validateDisplayText("title", o.Title, 160); err != nil {
 		return err
@@ -162,6 +233,35 @@ func (o ResearchOutput) ValidateFor(input ResearchInput) error {
 		return err
 	}
 	return nil
+}
+
+// QuoteRetryable marks a Broker outcome that can be safely replayed with the
+// exact persisted envelope. The error text itself is never persisted.
+func QuoteRetryable(code string, cause error) error {
+	return retryableError{code: normalizedErrorCode(code, "quote_retryable"), cause: cause}
+}
+
+// QuoteCommandExpired marks an exact Broker rejection before a receipt was
+// created. The Store retires that envelope and allocates a new counter only on
+// the next fenced attempt.
+func QuoteCommandExpired(cause error) error {
+	return quoteExpiredError{cause: cause}
+}
+
+type quoteExpiredError struct{ cause error }
+
+func (e quoteExpiredError) Error() string {
+	if e.cause == nil {
+		return "quote_command_expired"
+	}
+	return "quote_command_expired: " + e.cause.Error()
+}
+
+func (e quoteExpiredError) Unwrap() error { return e.cause }
+
+func quoteCommandExpired(err error) bool {
+	var expired quoteExpiredError
+	return errors.As(err, &expired)
 }
 
 func validateDisplayText(label, value string, maximum int) error {

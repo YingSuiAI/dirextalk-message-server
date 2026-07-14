@@ -30,8 +30,15 @@ func TestResearchHTTPHandlerValidatesInputAndReturnsOnlyTypedOutput(t *testing.T
 		t.Fatalf("research handler status=%d calls=%d body=%s", recorder.Code, planner.calls, recorder.Body.String())
 	}
 	var output runtime.ResearchOutput
-	if err := json.NewDecoder(recorder.Body).Decode(&output); err != nil || output.Plan.PlanID != input.PlanID || output.Title == "" {
+	if err := json.NewDecoder(recorder.Body).Decode(&output); err != nil || output.Draft.Region == "" || output.Title == "" {
 		t.Fatalf("research output=%#v err=%v", output, err)
+	}
+	legacyPathRequest := httptest.NewRequest(http.MethodPost, "/v1/cloud-research", bytes.NewReader(body))
+	legacyPathRequest.Header.Set("Content-Type", "application/json")
+	legacyPathRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyPathRecorder, legacyPathRequest)
+	if legacyPathRecorder.Code != http.StatusNotFound || planner.calls != 1 {
+		t.Fatalf("legacy researcher path status=%d calls=%d", legacyPathRecorder.Code, planner.calls)
 	}
 
 	secretRequest := httptest.NewRequest(http.MethodPost, cloudResearchPath, bytes.NewBufferString(`{"goal_id":"goal-1","plan_id":"plan-1","cloud_connection_id":"connection-1","plan_revision":1,"goal":"api_key=sk-0123456789abcdefghijklmnop"}`))
@@ -85,15 +92,13 @@ func validResearchOutput(t *testing.T, now time.Time, input runtime.ResearchInpu
 		Health:       cloudcontracts.HealthContractV1{Liveness: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeHTTP, Target: "/healthz"}, Readiness: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeHTTP, Target: "/readyz"}, Semantic: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeCommand, Target: "verify-service"}},
 		Lifecycle:    cloudcontracts.LifecycleContractV1{Start: "start", Stop: "stop", Restart: "restart", Upgrade: "upgrade", Rollback: "rollback", Backup: "backup", Restore: "restore", Destroy: "destroy"},
 	}
-	recipeDigest, err := recipe.Digest()
-	if err != nil {
-		t.Fatal(err)
+	draft := cloudcontracts.ResearchDraftV1{
+		SchemaVersion: cloudcontracts.SchemaVersionV1,
+		Region:        "ap-south-1",
+		Candidates: []cloudcontracts.QuoteRequestCandidateV1{
+			{CandidateID: "economy", Tier: cloudcontracts.QuoteTierEconomy, InstanceType: "m7i.large", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+			{CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+		},
 	}
-	quote := cloudcontracts.QuoteV1{SchemaVersion: cloudcontracts.SchemaVersionV1, QuoteID: "quote-knowledge-1", CloudConnectionID: input.ConnectionID, Region: "ap-south-1", Currency: "USD", QuotedAt: now, ValidUntil: now.Add(15 * time.Minute), Candidates: []cloudcontracts.QuoteCandidateV1{{CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, HourlyMinor: 2000, ThirtyDayMinor: 1440000, EstimatedDiskGiB: 80, AvailabilityZones: []string{"ap-south-1a"}}}}
-	quoteDigest, err := quote.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := cloudcontracts.PlanV1{SchemaVersion: cloudcontracts.SchemaVersionV1, PlanID: input.PlanID, Revision: uint64(input.PlanRevision + 1), Status: cloudcontracts.PlanReadyForConfirmation, CloudConnectionID: input.ConnectionID, Recipe: cloudcontracts.RecipeBindingV1{RecipeID: recipe.RecipeID, Digest: recipeDigest, Maturity: recipe.Maturity}, Quote: cloudcontracts.QuoteBindingV1{QuoteID: quote.QuoteID, Digest: quoteDigest, ValidUntil: quote.ValidUntil, CandidateID: "recommended"}, ResourceScope: cloudcontracts.ResourceScopeV1{Region: quote.Region, AvailabilityZones: []string{"ap-south-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384, DiskGiB: 80, PurchaseOption: cloudcontracts.PurchaseOnDemand}, NetworkScope: cloudcontracts.NetworkScopeV1{PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone}}
-	return runtime.ResearchOutput{Plan: plan, Recipe: recipe, Quote: quote, Title: "Private knowledge workload", Summary: "Official-source private single-VM proposal; review the quote before creating billable resources."}
+	return runtime.ResearchOutput{Recipe: recipe, Draft: draft, Title: "Private knowledge workload", Summary: "Official-source private single-VM research draft; obtain a broker quote before creating billable resources."}
 }

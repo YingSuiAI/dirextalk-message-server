@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -25,6 +27,37 @@ const cloudJobColumns = `
 	job_id, plan_id, deployment_id, kind, execution_status, outcome_status,
 	checkpoint, error_code, revision, created_at, updated_at
 `
+
+var errCloudQuoteDisplayInvalid = errors.New("cloud quote display record is invalid")
+
+// cloudQuoteDisplay is the only persisted JSON shape that may be projected to
+// ProductCore. It deliberately recognizes a small immutable quote contract;
+// broker envelopes, receipt data, keys, endpoints, and any future unreviewed
+// field make decoding fail closed.
+type cloudQuoteDisplay struct {
+	SchemaVersion     string                       `json:"schema_version"`
+	QuoteID           string                       `json:"quote_id"`
+	CloudConnectionID string                       `json:"cloud_connection_id"`
+	Region            string                       `json:"region"`
+	Currency          string                       `json:"currency"`
+	QuotedAt          time.Time                    `json:"quoted_at"`
+	ValidUntil        time.Time                    `json:"valid_until"`
+	Candidates        []cloudQuoteDisplayCandidate `json:"candidates"`
+	IncludedItems     []string                     `json:"included_items"`
+	UnincludedItems   []string                     `json:"unincluded_items"`
+}
+
+type cloudQuoteDisplayCandidate struct {
+	CandidateID       string   `json:"candidate_id"`
+	Tier              string   `json:"tier"`
+	InstanceType      string   `json:"instance_type"`
+	PurchaseOption    string   `json:"purchase_option"`
+	HourlyMinor       int64    `json:"hourly_minor"`
+	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
+	StartupUpperMinor int64    `json:"startup_upper_minor"`
+	EstimatedDiskGiB  uint32   `json:"estimated_disk_gib"`
+	AvailabilityZones []string `json:"availability_zones"`
+}
 
 func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule.CreateGoalRequest) (cloudmodule.CreateGoalResult, error) {
 	result := cloudmodule.CreateGoalResult{}
@@ -291,6 +324,107 @@ func (s *DatabaseStore) GetCloudPlan(ctx context.Context, id string) (cloudmodul
 		return cloudmodule.Plan{}, false, err
 	}
 	return item, true, nil
+}
+
+// GetCloudQuote reads the persisted display form through a fail-closed
+// allowlist before returning it to ProductCore. Decode errors intentionally do
+// not include the stored JSON because it may contain malformed private data.
+func (s *DatabaseStore) GetCloudQuote(ctx context.Context, id string) (cloudmodule.QuoteView, bool, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT display_json FROM p2p_cloud_quotes WHERE quote_id = $1`, id)
+	var displayJSON string
+	if err := row.Scan(&displayJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cloudmodule.QuoteView{}, false, nil
+		}
+		return cloudmodule.QuoteView{}, false, fmt.Errorf("load cloud quote: %w", err)
+	}
+	view, err := decodeCloudQuoteView(displayJSON, id)
+	if err != nil {
+		return cloudmodule.QuoteView{}, false, err
+	}
+	return view, true, nil
+}
+
+func decodeCloudQuoteView(displayJSON, expectedQuoteID string) (cloudmodule.QuoteView, error) {
+	decoder := json.NewDecoder(strings.NewReader(displayJSON))
+	decoder.DisallowUnknownFields()
+	var display cloudQuoteDisplay
+	if err := decoder.Decode(&display); err != nil {
+		return cloudmodule.QuoteView{}, errCloudQuoteDisplayInvalid
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudmodule.QuoteView{}, errCloudQuoteDisplayInvalid
+	}
+	if !validCloudQuoteDisplay(display, expectedQuoteID) {
+		return cloudmodule.QuoteView{}, errCloudQuoteDisplayInvalid
+	}
+	view := cloudmodule.QuoteView{
+		QuoteID:         display.QuoteID,
+		ConnectionID:    display.CloudConnectionID,
+		Region:          display.Region,
+		Currency:        display.Currency,
+		QuotedAt:        display.QuotedAt,
+		ValidUntil:      display.ValidUntil,
+		Candidates:      make([]cloudmodule.QuoteCandidateView, 0, len(display.Candidates)),
+		IncludedItems:   append([]string(nil), display.IncludedItems...),
+		UnincludedItems: append([]string(nil), display.UnincludedItems...),
+	}
+	for _, candidate := range display.Candidates {
+		view.Candidates = append(view.Candidates, cloudmodule.QuoteCandidateView{
+			Tier:              candidate.Tier,
+			InstanceType:      candidate.InstanceType,
+			PurchaseOption:    candidate.PurchaseOption,
+			HourlyMinor:       candidate.HourlyMinor,
+			ThirtyDayMinor:    candidate.ThirtyDayMinor,
+			StartupUpperMinor: candidate.StartupUpperMinor,
+			EstimatedDiskGiB:  candidate.EstimatedDiskGiB,
+			AvailabilityZones: append([]string(nil), candidate.AvailabilityZones...),
+		})
+	}
+	return view, nil
+}
+
+func validCloudQuoteDisplay(display cloudQuoteDisplay, expectedQuoteID string) bool {
+	if strings.TrimSpace(display.SchemaVersion) == "" || display.QuoteID != expectedQuoteID ||
+		strings.TrimSpace(display.CloudConnectionID) == "" || strings.TrimSpace(display.Region) == "" ||
+		strings.TrimSpace(display.Currency) == "" || display.QuotedAt.IsZero() || display.ValidUntil.IsZero() ||
+		!display.ValidUntil.After(display.QuotedAt) || len(display.Candidates) == 0 || len(display.Candidates) > 3 {
+		return false
+	}
+	candidateIDs := make(map[string]struct{}, len(display.Candidates))
+	tiers := make(map[string]struct{}, len(display.Candidates))
+	for _, candidate := range display.Candidates {
+		if strings.TrimSpace(candidate.CandidateID) == "" || strings.TrimSpace(candidate.InstanceType) == "" ||
+			candidate.HourlyMinor < 0 || candidate.ThirtyDayMinor < 0 || candidate.StartupUpperMinor < 0 ||
+			candidate.EstimatedDiskGiB == 0 {
+			return false
+		}
+		if _, exists := candidateIDs[candidate.CandidateID]; exists {
+			return false
+		}
+		candidateIDs[candidate.CandidateID] = struct{}{}
+		if _, exists := tiers[candidate.Tier]; exists {
+			return false
+		}
+		tiers[candidate.Tier] = struct{}{}
+		if candidate.Tier != "economy" && candidate.Tier != "recommended" && candidate.Tier != "performance" {
+			return false
+		}
+		if candidate.PurchaseOption != "on_demand" && candidate.PurchaseOption != "spot" {
+			return false
+		}
+	}
+	return validCloudQuoteItems(display.IncludedItems) && validCloudQuoteItems(display.UnincludedItems)
+}
+
+func validCloudQuoteItems(items []string) bool {
+	for _, item := range items {
+		if item != strings.TrimSpace(item) || item == "" || len(item) > 128 || strings.IndexByte(item, 0) >= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *DatabaseStore) ListCloudJobs(ctx context.Context) ([]cloudmodule.Job, error) {
