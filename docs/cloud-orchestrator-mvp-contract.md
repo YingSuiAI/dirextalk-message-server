@@ -14,6 +14,12 @@ AWS SDK integration in the message-server process.
   a validated research Goal through a narrow port; it has no pricing,
   approval, AWS, ingress, lifecycle, or credential API. This is not a Codex
   workspace Skill and it is not exposed through external MCP.
+- A request-scoped `cloud_dialogue_mode=true` is a strict capability reduction
+  for Cloud planning acceptance tests and future Cloud dialogue UI. It exposes
+  only `native_agent_cloud_deployment_plan`, forces no-memory operation, and
+  excludes runtime shell/CLI tools, external MCP, dynamic Skill/MCP management,
+  ordinary Dirextalk tools, installed Skill prompts, and request/config prompt
+  injection. It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator will consume
   `p2p_cloud_outbox` with a dedicated database role. This repository now
   establishes its durable hand-off contract; it does not yet ship the

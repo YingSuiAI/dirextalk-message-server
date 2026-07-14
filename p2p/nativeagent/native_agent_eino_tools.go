@@ -30,6 +30,12 @@ func (r *Runtime) enabledNativeEinoTools(ctx context.Context, config map[string]
 		}
 		tools = append(tools, &einoNativeTool{native: nativeTool, info: info})
 	}
+	if cloudDialogueMode(params) {
+		// A cloud conversation is intentionally unable to reach a configured
+		// MCP server, a runtime CLI, or the runtime shell. Prompt instructions
+		// are not the enforcement boundary for those capabilities.
+		return tools, func() {}, nil
+	}
 	mcpTools, cleanup, err := r.enabledOfficialMCPTools(ctx, config, params)
 	if err != nil {
 		return nil, nil, err

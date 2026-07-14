@@ -31,3 +31,10 @@ func TestAgentSystemPromptPrependsNativeProductRules(t *testing.T) {
 		t.Fatalf("native product rules must come before user system prompt, got %q", prompt)
 	}
 }
+
+func TestDeepSeekDefaultsToV4Pro(t *testing.T) {
+	profile := New(Config{}).resolveModelProfile(map[string]any{"provider": "deepseek"}, nil)
+	if profile.Model != "deepseek-v4-pro" {
+		t.Fatalf("default DeepSeek model = %q, want deepseek-v4-pro", profile.Model)
+	}
+}

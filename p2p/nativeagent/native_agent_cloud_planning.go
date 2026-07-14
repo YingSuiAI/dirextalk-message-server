@@ -10,9 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-const nativeAgentCloudDeploymentPlanTool = "native_agent_cloud_deployment_plan"
+const (
+	nativeAgentCloudDeploymentPlanTool = "native_agent_cloud_deployment_plan"
+	nativeAgentCloudDialogueModeParam  = "cloud_dialogue_mode"
+)
 
 type cloudPlanningRequestScopeContextKey struct{}
+
+// cloudDialogueMode is an opt-in, request-scoped capability reduction for a
+// cloud planning conversation. It never grants an additional capability: it
+// removes every tool except the credential-free research-goal tool.
+func cloudDialogueMode(params map[string]any) bool {
+	return boolParam(params[nativeAgentCloudDialogueModeParam])
+}
 
 // withCloudPlanningRequestScope creates the idempotency scope for one Agent
 // chat invocation. A model may retry the same tool call in that invocation,

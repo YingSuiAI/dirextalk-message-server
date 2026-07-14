@@ -24,6 +24,12 @@ func (r *Runtime) enabledTools(ctx context.Context, config map[string]any, param
 	for _, tool := range availableTools {
 		byName[tool.Name] = tool
 	}
+	if cloudDialogueMode(params) {
+		if tool, ok := byName[nativeAgentCloudDeploymentPlanTool]; ok {
+			return []Tool{tool}
+		}
+		return nil
+	}
 	enabled := map[string]bool{}
 	enable := func(tool Tool) {
 		enabled[tool.Name] = true

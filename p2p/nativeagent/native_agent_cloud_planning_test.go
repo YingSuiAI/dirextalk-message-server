@@ -125,6 +125,72 @@ func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 	}
 }
 
+func TestCloudDialogueModeHardRestrictsToolsPromptAndMemory(t *testing.T) {
+	runtime := New(Config{
+		DataDir:      t.TempDir(),
+		CloudPlanner: &recordingCloudPlanner{},
+		Tools: []Tool{{
+			Name:        "dirextalk_messages_send",
+			Description: "Send a message.",
+			Write:       true,
+			Handler: func(context.Context, map[string]any) (any, error) {
+				return map[string]any{"sent": true}, nil
+			},
+		}},
+	})
+	config := map[string]any{
+		"runtime_shell_enabled": true,
+		"runtime_tools": []any{
+			map[string]any{"id": "unsafe", "command": "unsafe-command"},
+		},
+		"system_prompt": "CONFIG_PROMPT_MUST_NOT_REACH_CLOUD_DIALOGUE",
+	}
+	params := map[string]any{
+		"cloud_dialogue_mode": true,
+		"enabled_tools":       []any{"all"},
+		"system_prompt":       "REQUEST_PROMPT_MUST_NOT_REACH_CLOUD_DIALOGUE",
+		"conversation_id":     "cloud-dialogue-test",
+	}
+
+	tools, cleanup, err := runtime.enabledEinoTools(context.Background(), config, params)
+	if err != nil {
+		t.Fatalf("enabled cloud dialogue Eino tools: %v", err)
+	}
+	defer cleanup()
+	if len(tools) != 1 {
+		t.Fatalf("cloud dialogue must expose exactly one tool, got %d", len(tools))
+	}
+	info, err := tools[0].Info(context.Background())
+	if err != nil {
+		t.Fatalf("read cloud dialogue tool info: %v", err)
+	}
+	if info.Name != nativeAgentCloudDeploymentPlanTool {
+		t.Fatalf("cloud dialogue tool = %q, want %q", info.Name, nativeAgentCloudDeploymentPlanTool)
+	}
+
+	profile := nativeModelProfile{ContextWindow: 1024}
+	run, err := runtime.prepareEinoRun(context.Background(), config, params, profile)
+	if err != nil {
+		t.Fatalf("prepare cloud dialogue run: %v", err)
+	}
+	if !run.memoryDisabled {
+		t.Fatal("cloud dialogue must force memory off")
+	}
+	for _, forbidden := range []string{
+		"CONFIG_PROMPT_MUST_NOT_REACH_CLOUD_DIALOGUE",
+		"REQUEST_PROMPT_MUST_NOT_REACH_CLOUD_DIALOGUE",
+		"runtime__shell",
+		"native_agent_skills_",
+	} {
+		if strings.Contains(run.session.systemPrompt, forbidden) {
+			t.Fatalf("cloud dialogue prompt leaked forbidden capability or prompt %q: %q", forbidden, run.session.systemPrompt)
+		}
+	}
+	if !strings.Contains(run.session.systemPrompt, nativeAgentCloudDeploymentPlanTool) {
+		t.Fatalf("cloud dialogue prompt must name the only available tool: %q", run.session.systemPrompt)
+	}
+}
+
 func containsStringValue(value any, want string) bool {
 	values, _ := value.([]string)
 	for _, value := range values {

@@ -25,6 +25,7 @@ This document is the backend-owned current contract for Dirextalk Agent state, N
 - Native Agent is not installed, enabled, configured, or invoked through `plugins.*`. Backend `plugins.*` actions remain for non-Agent plugins.
 - Model API keys are request-scoped inputs. The message server must not persist, return, or inject them into plugin or runtime environment state.
 - The server-side Eino Native Agent includes a built-in Cloud Deployment Planner skill and its `native_agent_cloud_deployment_plan` tool for an explicit cloud-workload request. It writes only a durable `researching` Goal through the narrow Cloud control-plane port, rejects credential-shaped text, and cannot approve spend, call AWS, open ingress, operate a deployment, or destroy resources. Its runtime gets an isolated home and rejects direct or common wrapped AWS CLI invocation. It is not a Codex workspace Skill and it is not an external MCP tool.
+- A request may opt into `cloud_dialogue_mode=true` for a Cloud planning conversation. This is a capability reduction, not an authorization grant: the Eino tool list contains only `native_agent_cloud_deployment_plan`; runtime shell/CLI tools, configured external MCP tools, dynamic Skill/MCP management tools, ordinary Dirextalk tools, request/config system prompts, installed Skill prompts, and conversation memory are excluded. This mode may create only a research Goal and never bypasses device-signed Plan approval or the typed Cloud control plane.
 
 ## Consumer Boundaries
 

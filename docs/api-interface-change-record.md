@@ -2,6 +2,23 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 Restricted Cloud Native Agent Dialogue
+
+Owner `agent.chat` and owner realtime Native Agent stream requests may set
+`cloud_dialogue_mode=true` to enter a request-scoped capability-reduced Cloud
+planning conversation. This is not an approval or mutation flag. The model
+receives exactly one tool when the Cloud planner is configured:
+`native_agent_cloud_deployment_plan`. The server excludes the runtime shell,
+runtime CLI tools, external MCP tools, dynamic Skill/MCP management tools,
+ordinary Dirextalk tools, installed Skill prompts, request/config system
+prompts, and memory. The only resulting write remains the existing validated
+research Goal; billing, ingress, secret delivery, approval, service operation,
+and destroy remain outside the conversation and require their typed control
+plane contracts.
+
+The default model identifier for the `deepseek` provider is now
+`deepseek-v4-pro`, matching the provider's current OpenAI-compatible Chat API.
+
 ## 2026-07-14 Cloud Orchestrator Control-Plane Foundation
 
 Added the owner-only `cloud.*` ProductCore namespace. The read projection
