@@ -29,6 +29,12 @@ MCP server.
   cursor. It is a separate schema from the non-root `execution_probe` task;
   it has no active Stack route, approval consumer, artifact-delivery path, or
   root executor in this stage.
+- `RecipeExecutionApprovalV1` is a separate five-minute, one-time device
+  signing contract for a trusted execution manifest and a deployment revision.
+  It repeats the approved Plan scope and binds the artifact, action, root,
+  checkpoint, and opaque slot surface. It is not `ApprovalV1`, cannot be used
+  by the existing purchase/probe paths, and has no ProductCore or persistence
+  consumer until a trusted manifest registrar is implemented.
 
 No type exposes a secret value. A secret field is accepted only as an opaque
 `secret_ref:<identifier>` reference. The validators reject common credential

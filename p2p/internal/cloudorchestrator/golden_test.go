@@ -1,7 +1,9 @@
 package cloudorchestrator_test
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"math"
 	"testing"
 	"time"
@@ -9,6 +11,44 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/fxamacker/cbor/v2"
 )
+
+func TestV1RecipeExecutionApprovalSigningPayloadGoldenDigest(t *testing.T) {
+	now := time.Date(2026, time.July, 15, 10, 0, 0, 0, time.UTC)
+	plan := validPlan(t, now)
+	plan.Status = cloudorchestrator.PlanApproved
+	manifest := validRecipeExecutionManifest(t)
+	planHash, err := plan.Hash()
+	if err != nil {
+		t.Fatalf("plan.Hash() error = %v", err)
+	}
+	manifest.PlanID = plan.PlanID
+	manifest.PlanHash = planHash
+	manifest.PlanRevision = plan.Revision
+	manifest.RecipeDigest = plan.Recipe.Digest
+	manifest.SecretSlots = []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: "secret_ref:model-token"}}
+	approval, err := cloudorchestrator.NewRecipeExecutionApprovalV1(
+		plan,
+		manifest,
+		cloudorchestrator.RecipeExecutionTargetV1{DeploymentID: manifest.DeploymentID, DeploymentRevision: 3},
+		"recipe-execution-approval-1",
+		"recipe-execution-challenge-1",
+		"owner-device-1",
+		now,
+		now.Add(5*time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("NewRecipeExecutionApprovalV1() error = %v", err)
+	}
+	payload, err := approval.SigningPayload()
+	if err != nil {
+		t.Fatalf("SigningPayload() error = %v", err)
+	}
+	digest := sha256.Sum256(payload)
+	const wantPayloadSHA256 = "7fb7fe5e719863d7d0d922666e38413752d7bcfb042f67957d92daf858bffa6d"
+	if got := hex.EncodeToString(digest[:]); got != wantPayloadSHA256 {
+		t.Fatalf("update RecipeExecutionApprovalV1 payload golden digest: %s", got)
+	}
+}
 
 func TestV1DeterministicCBORPlanAndApprovalGoldenVectors(t *testing.T) {
 	now := time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)

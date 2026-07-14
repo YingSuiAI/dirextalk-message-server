@@ -440,3 +440,59 @@ type ApprovalV1 struct {
 	ExpiresAt         time.Time            `json:"expires_at"`
 	Signature         string               `json:"signature,omitempty"`
 }
+
+// RecipeExecutionApprovalIntentStart is the only user-authorized action
+// represented by RecipeExecutionApprovalV1. It is intentionally separate
+// from purchase-plan approval and cannot authorize an arbitrary lifecycle or
+// cloud-control operation.
+const RecipeExecutionApprovalIntentStart = "recipe_execution_start"
+
+// RecipeExecutionTargetV1 identifies the exact persisted deployment revision
+// to which a later sealed Recipe execution may be attached. The deployment
+// record remains the source of truth; this compact binding is signed so a
+// challenge cannot be replayed after a deployment changes.
+type RecipeExecutionTargetV1 struct {
+	DeploymentID       string `json:"deployment_id"`
+	DeploymentRevision uint64 `json:"deployment_revision"`
+}
+
+// RecipeExecutionApprovalV1 is a one-time device-signable authorization for
+// one sealed RecipeExecutionManifestV1 on one deployment revision. It repeats
+// the reviewed Plan scope for client inspection and binds the manifest's
+// artifact/action/root/checkpoint/slot surface. It carries no artifact bytes,
+// command, URL, host path, secret value, or provider credential.
+//
+// It is not a Worker task and is deliberately not accepted by the existing
+// plan-approval or execution-probe paths. A future dedicated persistence and
+// Broker transition must verify it before any recipe task can be issued.
+type RecipeExecutionApprovalV1 struct {
+	SchemaVersion                 string               `json:"schema_version"`
+	Intent                        string               `json:"intent"`
+	ApprovalID                    string               `json:"approval_id"`
+	ChallengeID                   string               `json:"challenge_id"`
+	SignerKeyID                   string               `json:"signer_key_id"`
+	PlanID                        string               `json:"plan_id"`
+	PlanHash                      string               `json:"plan_hash"`
+	PlanRevision                  uint64               `json:"plan_revision"`
+	CloudConnectionID             string               `json:"cloud_connection_id"`
+	RecipeDigest                  string               `json:"recipe_digest"`
+	ResourceScope                 ResourceScopeV1      `json:"resource_scope"`
+	NetworkScope                  NetworkScopeV1       `json:"network_scope"`
+	SecretScope                   []SecretReferenceV1  `json:"secret_scope"`
+	IntegrationScope              []IntegrationScopeV1 `json:"integration_scope"`
+	DeploymentID                  string               `json:"deployment_id"`
+	DeploymentRevision            uint64               `json:"deployment_revision"`
+	RecipeExecutionManifestDigest string               `json:"recipe_execution_manifest_digest"`
+	WorkerResourceManifestDigest  string               `json:"worker_resource_manifest_digest"`
+	ArtifactDigest                string               `json:"artifact_digest"`
+	ActionID                      string               `json:"action_id"`
+	RootRequired                  bool                 `json:"root_required"`
+	TimeoutSeconds                uint32               `json:"timeout_seconds"`
+	CheckpointSequence            []string             `json:"checkpoint_sequence"`
+	VolumeSlots                   []VolumeSlotV1       `json:"volume_slots,omitempty"`
+	DataSlots                     []DataSlotV1         `json:"data_slots,omitempty"`
+	SecretSlots                   []SecretSlotV1       `json:"secret_slots,omitempty"`
+	IssuedAt                      time.Time            `json:"issued_at"`
+	ExpiresAt                     time.Time            `json:"expires_at"`
+	Signature                     string               `json:"signature,omitempty"`
+}

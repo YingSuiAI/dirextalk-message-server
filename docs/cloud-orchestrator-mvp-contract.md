@@ -90,6 +90,16 @@ AWS SDK integration in the message-server process.
   approval, artifact delivery, or a root executor. Consequently it cannot
   deploy OpenClaw, a knowledge-base node, a website, a model, or any other
   service, and it provides no new API or AWS mutation path.
+- The domain package also defines a distinct, short-lived
+  `RecipeExecutionApprovalV1`. It is intentionally not an extension of the
+  purchase `ApprovalV1`: the device signing payload binds the approved Plan
+  identity and scope, deployment revision, sealed execution-manifest digest,
+  Worker-resource/artifact digests, opaque action, root requirement, timeout,
+  ordered checkpoints, and opaque volume/data/secret slots. It rejects stale
+  Plan/manifest/deployment bindings before a signature can be consumed. This
+  is only a deterministic-CBOR signing contract in the current stage: no
+  ProductCore action, database challenge, Worker task issue, artifact delivery,
+  or AWS mutation consumes it yet.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
