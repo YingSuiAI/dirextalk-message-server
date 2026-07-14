@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
+	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
 type recordingMCPInvoker struct {
@@ -46,5 +48,101 @@ func TestRuntimeActionsUseConfiguredMCPService(t *testing.T) {
 				t.Fatalf("mapped to %q with result %#v, want %q", invoker.action, result, test.want)
 			}
 		})
+	}
+}
+
+type recordingAccountPort struct {
+	password      string
+	session       MatrixSession
+	sessionParams map[string]any
+	config        dirextalkdomain.AgentConfig
+	published     bool
+}
+
+func (p *recordingAccountPort) Password() string { return p.password }
+
+func (p *recordingAccountPort) CreateMatrixSession(_ context.Context, params map[string]any) (MatrixSession, *actionbase.Error) {
+	p.sessionParams = cloneMap(params)
+	return p.session, nil
+}
+
+func (p *recordingAccountPort) Config() dirextalkdomain.AgentConfig { return p.config }
+
+func (p *recordingAccountPort) UpdateConfig(_ context.Context, mutate func(dirextalkdomain.AgentConfig) dirextalkdomain.AgentConfig) (dirextalkdomain.AgentConfig, *actionbase.Error) {
+	p.config = mutate(p.config)
+	return p.config, nil
+}
+
+func (p *recordingAccountPort) PublishOffline(context.Context) *actionbase.Error {
+	p.published = true
+	return nil
+}
+
+func TestAccountHandlersPreserveSessionAndConfigContracts(t *testing.T) {
+	accessToken := "agent-access-token"
+	account := &recordingAccountPort{
+		password: "portal-password",
+		session: MatrixSession{
+			AccessToken: &accessToken,
+			DeviceID:    "AGENT_DEVICE",
+			UserID:      "@agent:example.com",
+			Homeserver:  "https://example.com",
+		},
+		config: dirextalkdomain.AgentConfig{
+			DisplayName:   "Agent",
+			ContextWindow: 30,
+			Enabled:       true,
+			Native:        map[string]any{"api_key": "must-not-return"},
+		},
+	}
+	module := New(Config{Account: account})
+	handlers := module.Handlers()
+
+	password, actionErr := handlers["agent.password"](context.Background(), nil)
+	if actionErr != nil || password.(map[string]any)["password"] != "portal-password" {
+		t.Fatalf("agent.password = %#v, %v", password, actionErr)
+	}
+
+	session, actionErr := handlers["agent.matrix_session.create"](context.Background(), map[string]any{"device_id": "AGENT_DEVICE"})
+	if actionErr != nil {
+		t.Fatalf("agent.matrix_session.create: %v", actionErr)
+	}
+	if got := session.(map[string]any); got["access_token"] != "agent-access-token" || got["device_id"] != "AGENT_DEVICE" || got["user_id"] != "@agent:example.com" || got["homeserver"] != "https://example.com" {
+		t.Fatalf("unexpected agent Matrix session: %#v", got)
+	}
+	if account.sessionParams["device_id"] != "AGENT_DEVICE" {
+		t.Fatalf("expected full session params to reach account port, got %#v", account.sessionParams)
+	}
+	account.session.AccessToken = nil
+	session, actionErr = handlers["agent.matrix_session.create"](context.Background(), nil)
+	if actionErr != nil {
+		t.Fatalf("agent.matrix_session.create without issuer: %v", actionErr)
+	}
+	if accessToken, exists := session.(map[string]any)["access_token"]; !exists || accessToken != nil {
+		t.Fatalf("unconfigured issuer must preserve null access_token, got %#v", session)
+	}
+
+	updated, actionErr := handlers["agent.config.update"](context.Background(), map[string]any{
+		"display_name":         " Ops Agent ",
+		"avatar_url":           "",
+		"context_window":       float64(64),
+		"enabled":              false,
+		"model":                " local-model ",
+		"system_prompt":        " concise ",
+		"mcp_blocked_room_ids": []any{"!secret:example.com", " !secret:example.com ", ""},
+	})
+	if actionErr != nil {
+		t.Fatalf("agent.config.update: %v", actionErr)
+	}
+	config := updated.(map[string]any)
+	if config["display_name"] != "Ops Agent" || config["enabled"] != false || config["model"] != "local-model" || config["system_prompt"] != "concise" {
+		t.Fatalf("unexpected public config: %#v", config)
+	}
+	if _, found := config["api_key"]; found || !account.published {
+		t.Fatalf("config must stay sanitized and disabling must publish offline: %#v published=%v", config, account.published)
+	}
+	blocked := config["mcp_blocked_room_ids"].([]string)
+	if len(blocked) != 1 || blocked[0] != "!secret:example.com" {
+		t.Fatalf("blocked rooms = %#v", blocked)
 	}
 }

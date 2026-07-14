@@ -318,7 +318,7 @@ func TestClientVersionReportUsesNarrowDeviceCASWithoutLosingConcurrentPortalFiel
 	if _, apiErr := service.Handle(context.Background(), "profile.update", map[string]any{"display_name": "Concurrent Profile"}); apiErr != nil {
 		t.Fatalf("concurrent profile update: %#v", apiErr)
 	}
-	if _, apiErr := service.updateAgentConfig(context.Background(), map[string]any{"system_prompt": "Concurrent Agent Config"}); apiErr != nil {
+	if _, apiErr := service.Handle(context.Background(), "agent.config.update", map[string]any{"system_prompt": "Concurrent Agent Config"}); apiErr != nil {
 		t.Fatalf("concurrent agent update: %#v", apiErr)
 	}
 	close(store.releaseNarrow)

@@ -802,6 +802,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		DataDir: cfg.NativeAgentDataDir,
 		Store:   nativeAgentConfigStore{service: service},
 		MCP:     service.mcpCapabilities,
+		Account: serviceAgentAccountPort{service: service},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	agentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
@@ -15,111 +16,67 @@ type NativeAgentRunner interface {
 	Stream(context.Context, string, map[string]any, func(nativeagent.Event) error) error
 }
 
-func (s *Service) agentPassword() any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return map[string]any{"password": s.password}
+// serviceAgentAccountPort retains Service-owned locking, Matrix sessions and
+// durable portal writes while internal/agent owns the ProductCore workflow.
+type serviceAgentAccountPort struct{ service *Service }
+
+func (p serviceAgentAccountPort) Password() string {
+	p.service.mu.Lock()
+	defer p.service.mu.Unlock()
+	return p.service.password
 }
 
-func (s *Service) agentMatrixSession(ctx context.Context, params map[string]any) (any, *apiError) {
-	session, apiErr := s.createAgentMatrixSession(ctx, params)
-	if apiErr != nil {
-		return nil, apiErr
-	}
-	return map[string]any{
-		"access_token": session["access_token"],
-		"device_id":    session["device_id"],
-		"user_id":      session["user_id"],
-		"homeserver":   session["homeserver"],
-	}, nil
-}
-
-func (s *Service) createAgentMatrixSession(ctx context.Context, params map[string]any) (map[string]any, *apiError) {
-	s.matrixSessionMu.Lock()
-	defer s.matrixSessionMu.Unlock()
+func (p serviceAgentAccountPort) CreateMatrixSession(ctx context.Context, params map[string]any) (agentmodule.MatrixSession, *apiError) {
+	p.service.matrixSessionMu.Lock()
+	defer p.service.matrixSessionMu.Unlock()
 
 	requestedDeviceID := requestedMatrixDeviceID(params)
-	s.mu.Lock()
-	issuer := s.sessions
-	userID := s.agentMXIDLocked()
-	displayName := s.agentDisplayNameLocked()
-	homeserver := s.homeserver
-	s.mu.Unlock()
-	session := map[string]any{
-		"device_id":  requestedDeviceID,
-		"user_id":    userID,
-		"homeserver": homeserver,
+	p.service.mu.Lock()
+	issuer := p.service.sessions
+	userID := p.service.agentMXIDLocked()
+	displayName := p.service.agentDisplayNameLocked()
+	homeserver := p.service.homeserver
+	p.service.mu.Unlock()
+	session := agentmodule.MatrixSession{
+		DeviceID:   requestedDeviceID,
+		UserID:     userID,
+		Homeserver: homeserver,
 	}
 	if issuer == nil {
 		return session, nil
 	}
 	token, err := issuer.EnsureMatrixSession(ctx, userID, displayName, "", requestedDeviceID, false)
 	if err != nil {
-		return nil, internalError(err)
+		return agentmodule.MatrixSession{}, internalError(err)
 	}
-	session["access_token"] = token
+	session.AccessToken = &token
 	return session, nil
 }
 
-func (s *Service) getAgentConfig() any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return agentConfigToMap(s.agentConfig)
+func (p serviceAgentAccountPort) Config() agentConfig {
+	p.service.mu.Lock()
+	defer p.service.mu.Unlock()
+	config := p.service.agentConfig
+	config.MCPBlockedRoomIDs = append([]string(nil), config.MCPBlockedRoomIDs...)
+	return config
 }
 
-func (s *Service) updateAgentConfig(ctx context.Context, params map[string]any) (any, *apiError) {
-	disableAgent := false
-	s.mu.Lock()
-	if displayName := trimString(params["display_name"]); displayName != "" {
-		s.agentConfig.DisplayName = displayName
-	}
-	if _, ok := params["avatar_url"]; ok {
-		s.agentConfig.AvatarURL = trimString(params["avatar_url"])
-	}
-	if contextWindow := int64Param(params["context_window"]); contextWindow > 0 {
-		s.agentConfig.ContextWindow = contextWindow
-	}
-	if _, ok := params["enabled"]; ok {
-		s.agentConfig.Enabled = boolParam(params["enabled"])
-		disableAgent = !s.agentConfig.Enabled
-	}
-	if model := trimString(params["model"]); model != "" {
-		s.agentConfig.Model = model
-	}
-	if systemPrompt := trimString(params["system_prompt"]); systemPrompt != "" {
-		s.agentConfig.SystemPrompt = systemPrompt
-	}
-	if _, ok := params["mcp_blocked_room_ids"]; ok {
-		s.agentConfig.MCPBlockedRoomIDs = stringSliceParam(params["mcp_blocked_room_ids"])
-	}
-	s.agentConfig = normalizeAgentConfig(s.agentConfig)
-	result := agentConfigToMap(s.agentConfig)
-	state := s.portalStateLocked()
-	s.mu.Unlock()
-	if store := s.portalStore(); store != nil {
+func (p serviceAgentAccountPort) UpdateConfig(ctx context.Context, mutate func(agentConfig) agentConfig) (agentConfig, *apiError) {
+	p.service.mu.Lock()
+	p.service.agentConfig = mutate(p.service.agentConfig)
+	config := p.service.agentConfig
+	state := p.service.portalStateLocked()
+	p.service.mu.Unlock()
+	if store := p.service.portalStore(); store != nil {
 		if err := store.SavePortal(ctx, state); err != nil {
-			return nil, internalError(err)
+			return agentConfig{}, internalError(err)
 		}
 	}
-	if disableAgent {
-		if err := s.publishCurrentAgentStatusState(ctx); err != nil {
-			return nil, transportWriteError(err)
-		}
-	}
-	return result, nil
+	return config, nil
 }
 
-func agentConfigToMap(cfg agentConfig) map[string]any {
-	blockedRoomIDs := append([]string(nil), cfg.MCPBlockedRoomIDs...)
-	return map[string]any{
-		"display_name":         cfg.DisplayName,
-		"avatar_url":           cfg.AvatarURL,
-		"context_window":       cfg.ContextWindow,
-		"enabled":              cfg.Enabled,
-		"model":                cfg.Model,
-		"system_prompt":        cfg.SystemPrompt,
-		"mcp_blocked_room_ids": blockedRoomIDs,
-	}
+func (p serviceAgentAccountPort) PublishOffline(ctx context.Context) *apiError {
+	return transportWriteError(p.service.publishCurrentAgentStatusState(ctx))
 }
 
 // nativeAgentConfigStore adapts the account-scoped durable portal record to

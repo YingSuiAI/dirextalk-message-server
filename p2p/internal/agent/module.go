@@ -25,11 +25,13 @@ type Config struct {
 	DataDir string
 	Store   nativeagent.ConfigStore
 	MCP     *dirextalkmcp.Service
+	Account AccountPort
 }
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
 type Module struct {
-	runner Runner
+	runner  Runner
+	account AccountPort
 }
 
 func New(cfg Config) *Module {
@@ -41,16 +43,19 @@ func New(cfg Config) *Module {
 			Tools:   Tools(cfg.MCP),
 		})}
 	}
-	return &Module{runner: runner}
+	return &Module{runner: runner, account: cfg.Account}
 }
 
-// Handlers returns the runtime-backed Agent action surface. Account password,
-// Matrix session, and durable config actions remain root cross-domain flows.
+// Handlers returns the complete Agent ProductCore action surface.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+1)
+	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+5)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
 	}
+	handlers[actionPassword] = m.accountPassword
+	handlers[actionMatrixSessionCreate] = m.createMatrixSession
+	handlers[actionConfigGet] = m.getConfig
+	handlers[actionConfigUpdate] = m.updateConfig
 	handlers["agent.chat.stream"] = streamOnly
 	return handlers
 }

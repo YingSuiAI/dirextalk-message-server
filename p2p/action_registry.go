@@ -24,7 +24,6 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "profile", handlers: s.profileModule.Handlers()},
 		s.collectActionHandlerModule("sync", s.registerSyncActions),
 		{name: "conversations", handlers: s.conversationModule.Handlers()},
-		s.collectActionHandlerModule("agent-cross-domain", s.registerAgentActions),
 		{name: "agent", handlers: s.agentModule.Handlers()},
 		{name: "plugins", handlers: s.pluginsModule.Handlers()},
 		{name: "contacts", handlers: s.contactsModule.Handlers()},
@@ -67,20 +66,8 @@ func mustBuildActionHandlers(specs []serviceapi.ActionSpec, routeSpecial []strin
 	return registry.Handlers()
 }
 
-func (s *Service) agentPasswordAction(context.Context, map[string]any) (any, *apiError) {
-	return s.agentPassword(), nil
-}
-
 func (s *Service) syncBootstrapAction(ctx context.Context, _ map[string]any) (any, *apiError) {
 	return s.syncBootstrap(ctx)
-}
-
-func (s *Service) getAgentConfigAction(context.Context, map[string]any) (any, *apiError) {
-	return s.getAgentConfig(), nil
-}
-
-func (s *Service) updateAgentConfigAction(ctx context.Context, params map[string]any) (any, *apiError) {
-	return s.updateAgentConfig(ctx, params)
 }
 
 func (s *Service) registerPortalActions(actions map[string]actionHandler) {
@@ -90,13 +77,6 @@ func (s *Service) registerPortalActions(actions map[string]actionHandler) {
 func (s *Service) registerSyncActions(actions map[string]actionHandler) {
 	actions["sync.bootstrap"] = s.syncBootstrapAction
 	actions["sync.read_marker"] = s.updateReadMarker
-}
-
-func (s *Service) registerAgentActions(actions map[string]actionHandler) {
-	actions["agent.password"] = s.agentPasswordAction
-	actions["agent.matrix_session.create"] = s.agentMatrixSession
-	actions["agent.config.get"] = s.getAgentConfigAction
-	actions["agent.config.update"] = s.updateAgentConfigAction
 }
 
 func (s *Service) registerChannelActions(actions map[string]actionHandler) {
