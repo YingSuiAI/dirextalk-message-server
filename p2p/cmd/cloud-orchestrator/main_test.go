@@ -98,14 +98,16 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	researchFailure := errors.New("research unavailable")
 	registrationFailure := errors.New("connection registration unavailable")
 	quoteFailure := errors.New("quote unavailable")
+	deploymentFailure := errors.New("deployment unavailable")
 	research := &recordingIterationRunner{processed: true, err: researchFailure}
 	registration := &recordingIterationRunner{processed: true, err: registrationFailure}
 	quote := &recordingIterationRunner{processed: true, err: quoteFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote)
-	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 {
-		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d", processed, research.calls, registration.calls, quote.calls)
+	deployment := &recordingIterationRunner{processed: true, err: deploymentFailure}
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment)
+	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 {
+		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls)
 	}
-	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) {
+	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) {
 		t.Fatalf("iteration error = %v, want all runner failures", err)
 	}
 }

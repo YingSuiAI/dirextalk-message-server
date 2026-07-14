@@ -1,6 +1,7 @@
 // cloud-orchestrator is an independently supervised, least-privilege Cloud
-// research-and-quote worker. It has no Matrix config, Native Agent model key,
-// AWS SDK, Docker socket, or product migration capability.
+// coordinator for research, Stack attestation, quotes, and fixed typed
+// deployment.create requests. It has no Matrix config, Native Agent model
+// key, AWS SDK, Docker socket, or product migration capability.
 package main
 
 import (
@@ -215,7 +216,7 @@ func run(ctx context.Context, config commandConfig) error {
 	if err != nil {
 		return errConfigInvalid
 	}
-	quoteTransport, err := brokertransport.New(nodeSigningKey, time.Now)
+	brokerTransport, err := brokertransport.New(nodeSigningKey, time.Now)
 	if err != nil {
 		return errConfigInvalid
 	}
@@ -233,20 +234,23 @@ func run(ctx context.Context, config commandConfig) error {
 	researchRunner := runtime.New(store, planner, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
-	quoteRunner := runtime.NewQuoteRunner(store, quoteTransport, runtime.Config{
+	quoteRunner := runtime.NewQuoteRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
-	registrationRunner := runtime.NewConnectionRegistrationRunner(store, quoteTransport, runtime.Config{
+	registrationRunner := runtime.NewConnectionRegistrationRunner(store, brokerTransport, runtime.Config{
+		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
+	})
+	deploymentRunner := runtime.NewDeploymentProvisionRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -270,13 +274,15 @@ type iterationRunner interface {
 }
 
 // runIteration gives each independent outbox exactly one chance per poll. A
-// failed research or Stack registration must not starve a previously durable
-// read-only quote request; all errors are returned for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner iterationRunner) (bool, error) {
+// failure in research, Stack registration, quoting, or a typed provision
+// request must not starve work in another durable outbox; all errors are
+// returned for the next retry backoff.
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
-	return researched || registered || quoted, errors.Join(researchErr, registrationErr, quoteErr)
+	deployed, deploymentErr := deploymentRunner.RunOnce(ctx)
+	return researched || registered || quoted || deployed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {
