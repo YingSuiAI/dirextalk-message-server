@@ -22,8 +22,6 @@ const (
 	bootstrapManifestFileEnv = "CLOUD_WORKER_BOOTSTRAP_MANIFEST_FILE"
 	expectedConnectionIDEnv  = "CLOUD_WORKER_EXPECTED_CONNECTION_ID"
 	expectedEndpointEnv      = "CLOUD_WORKER_EXPECTED_BOOTSTRAP_ENDPOINT"
-	identityDocumentFileEnv  = "CLOUD_WORKER_IDENTITY_DOCUMENT_FILE"
-	identitySignatureFileEnv = "CLOUD_WORKER_IDENTITY_SIGNATURE_FILE"
 )
 
 var (
@@ -35,11 +33,26 @@ type commandConfig struct {
 	manifestFile       string
 	expectedConnection string
 	expectedEndpoint   string
-	identityDocument   string
-	identitySignature  string
 	once               bool
 	heartbeatInterval  time.Duration
 }
+
+type identityProofProvider interface {
+	Fetch(context.Context) (cloudworker.InstanceIdentityProof, error)
+}
+
+// workerSessionClient is deliberately the small Worker protocol surface that
+// the process needs. Keeping it here lets the command own cancellation and
+// restart behavior without making the cloudworker transport configurable in
+// production.
+type workerSessionClient interface {
+	Claim(context.Context, cloudworker.InstanceIdentityProof) error
+	Heartbeat(context.Context) error
+	RetryPending(context.Context) error
+	Close()
+}
+
+type workerSessionClientFactory func(cloudworker.BootstrapManifest, cloudworker.SessionClientConfig) (workerSessionClient, error)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -63,8 +76,6 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 		manifestFile:       strings.TrimSpace(getenv(bootstrapManifestFileEnv)),
 		expectedConnection: strings.TrimSpace(getenv(expectedConnectionIDEnv)),
 		expectedEndpoint:   strings.TrimSpace(getenv(expectedEndpointEnv)),
-		identityDocument:   strings.TrimSpace(getenv(identityDocumentFileEnv)),
-		identitySignature:  strings.TrimSpace(getenv(identitySignatureFileEnv)),
 		heartbeatInterval:  30 * time.Second,
 	}
 	flags := flag.NewFlagSet("cloud-worker", flag.ContinueOnError)
@@ -74,19 +85,44 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return commandConfig{}, errConfigInvalid
 	}
-	if !validConfigPath(config.manifestFile) || !validConfigPath(config.identityDocument) || !validConfigPath(config.identitySignature) ||
-		config.expectedConnection == "" || config.expectedEndpoint == "" || config.heartbeatInterval <= 0 {
+	if !validConfigPath(config.manifestFile) || config.expectedConnection == "" || config.expectedEndpoint == "" ||
+		config.heartbeatInterval <= 0 {
 		return commandConfig{}, errConfigInvalid
 	}
 	return config, nil
 }
 
 func run(ctx context.Context, config commandConfig) error {
+	provider, err := cloudworker.NewIMDSv2IdentityProvider()
+	if err != nil {
+		return errConfigInvalid
+	}
+	return runWithIdentityProvider(ctx, config, provider)
+}
+
+func runWithIdentityProvider(ctx context.Context, config commandConfig, provider identityProofProvider) error {
+	return runWithDependencies(ctx, config, provider,
+		func(manifest cloudworker.BootstrapManifest, sessionConfig cloudworker.SessionClientConfig) (workerSessionClient, error) {
+			return cloudworker.NewSessionClient(manifest, sessionConfig)
+		},
+		time.Now,
+	)
+}
+
+func runWithDependencies(
+	ctx context.Context,
+	config commandConfig,
+	provider identityProofProvider,
+	newSessionClient workerSessionClientFactory,
+	now func() time.Time,
+) error {
+	if ctx == nil || provider == nil || newSessionClient == nil || now == nil {
+		return errConfigInvalid
+	}
 	manifestBytes, err := readRegularFile(config.manifestFile, 64*1024)
 	if err != nil {
 		return errConfigInvalid
 	}
-	now := time.Now
 	manifest, err := cloudworker.ParseBootstrapManifest(manifestBytes, cloudworker.ManifestValidationContext{
 		Now:                       now().UTC(),
 		MaxLifetime:               10 * time.Minute,
@@ -96,28 +132,36 @@ func run(ctx context.Context, config commandConfig) error {
 	if err != nil {
 		return errConfigInvalid
 	}
-	document, err := readRegularFile(config.identityDocument, 64*1024)
-	if err != nil {
-		return errConfigInvalid
-	}
-	signature, err := readRegularFile(config.identitySignature, 32*1024)
-	if err != nil {
-		return errConfigInvalid
-	}
-	client, err := cloudworker.NewSessionClient(manifest, cloudworker.SessionClientConfig{
+	client, err := newSessionClient(manifest, cloudworker.SessionClientConfig{
 		ExpectedConnectionID:      config.expectedConnection,
 		ExpectedBootstrapEndpoint: config.expectedEndpoint,
 		Now:                       now,
 	})
-	if err != nil {
+	if err != nil || client == nil {
 		return errConfigInvalid
 	}
-	proof := cloudworker.InstanceIdentityProof{DocumentB64: string(document), SignatureB64: string(signature)}
+	defer client.Close()
+	if ctx.Err() != nil {
+		return nil
+	}
+	proof, err := provider.Fetch(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return errRunFailed
+	}
 	if err := client.Claim(ctx, proof); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return errRunFailed
 	}
 	if config.once {
 		if err := client.Heartbeat(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return errRunFailed
 		}
 		return nil
@@ -127,11 +171,16 @@ func run(ctx context.Context, config commandConfig) error {
 	for {
 		select {
 		case <-ctx.Done():
-			client.Close()
 			return nil
 		case <-ticker.C:
 			if err := client.Heartbeat(ctx); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				if retryErr := client.RetryPending(ctx); retryErr != nil {
+					if ctx.Err() != nil {
+						return nil
+					}
 					return errRunFailed
 				}
 			}

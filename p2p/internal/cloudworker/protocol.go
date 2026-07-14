@@ -16,8 +16,8 @@ const (
 var safeCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,95}$`)
 
 // InstanceIdentityProof is the opaque, signed VM identity material obtained
-// by a future bootstrap adapter from IMDSv2. It is not an AWS credential and
-// this package deliberately does not contact or parse AWS metadata.
+// by the narrow IMDSv2 bootstrap adapter. It is not an AWS credential and is
+// carried without interpreting cloud-control credentials or metadata roles.
 type InstanceIdentityProof struct {
 	DocumentB64  string `json:"instance_identity_document_b64"`
 	SignatureB64 string `json:"instance_identity_signature_b64"`

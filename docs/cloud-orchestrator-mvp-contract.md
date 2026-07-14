@@ -29,12 +29,18 @@ AWS SDK integration in the message-server process.
   Its mounted Ed25519 node key signs exact durable envelopes but is never
   persisted or sent to the Message Server. The typed `deployment.create`
   runner is present only as a tested control-plane component: the production
-  main process deliberately leaves provision outbox entries unclaimed until
-  the Connection Stack ships a closed Worker bootstrap claim/events API and
-  instance-identity verification. It is intentionally not part of the default
-  compose stack until its private researcher, node-key mount, Connection Stack
-  registration, and least-privilege database role are deployed. It does not
-  yet ship a Worker session broker or an enabled AWS mutation executor.
+  main process deliberately leaves provision outbox entries unclaimed. The
+  Connection Stack source now has a closed Worker bootstrap claim/events API,
+  IMDSv2 identity verification, and EC2 read-back, but the production
+  Orchestrator remains gated until a reviewed fixed Worker AMI, recipe
+  executor, renewable Worker lease/recovery protocol, service-health evidence,
+  and operational Stack configuration are deployed together. The current
+  bootstrap lease is at most ten minutes and is intentionally insufficient for
+  long-running services or continuous monitoring. It is intentionally not part
+  of the default compose stack until its private researcher, node-key mount,
+  Connection Stack registration, Worker identity certificate, and
+  least-privilege database role are deployed. The Message Server neither hosts
+  that Worker session broker nor enables an AWS mutation executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -138,10 +144,11 @@ marks the Plan `approved`, creates a queued/pending Deployment and provision
 Job/Step, and writes a private `cloud.deployment.provision.requested` outbox
 row. It emits only de-secretsed Plan/Deployment/Job summaries. The provision
 outbox is intentionally unclaimed by the production Orchestrator until the
-Connection Stack can establish a closed Worker bootstrap session; the typed
-Broker `deployment.create` runner must not become active behind an operator
-switch before that boundary exists. This action has not yet created EC2, EBS,
-an ingress rule, or a billable resource.
+reviewed Worker AMI/executor and the deployed Connection Stack identity
+configuration establish the complete execution boundary. The typed Broker
+`deployment.create` runner must not become active behind an operator switch
+merely because the bootstrap claim endpoint exists. This action has not yet
+created EC2, EBS, an ingress rule, or a billable resource.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
