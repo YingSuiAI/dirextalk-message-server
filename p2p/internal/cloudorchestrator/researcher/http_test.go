@@ -62,3 +62,22 @@ func TestHTTPPlannerRejectsUnpinnedEndpointAndClassifiesTemporaryFailure(t *test
 		t.Fatalf("temporary researcher error = %v", err)
 	}
 }
+
+func TestHTTPPlannerRejectsInvalidInputBeforePrivateTransport(t *testing.T) {
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls++
+	}))
+	defer server.Close()
+	planner, err := NewHTTP(HTTPConfig{Endpoint: server.URL + "/v1/cloud-research", Client: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = planner.Research(context.Background(), runtime.ResearchInput{
+		GoalID: "goal-1", PlanID: "plan-1", ConnectionID: "connection-1", PlanRevision: 1,
+		Prompt: "aws_secret_access_key=redacted",
+	})
+	if err == nil || calls != 0 {
+		t.Fatalf("invalid research input was sent=%t err=%v", calls != 0, err)
+	}
+}

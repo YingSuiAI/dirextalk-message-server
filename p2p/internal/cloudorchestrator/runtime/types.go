@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
@@ -36,22 +37,34 @@ type Claim struct {
 // researcher may return an immutable recipe/quote/plan proposal, but cannot
 // receive credentials or call a provider control plane through this contract.
 type ResearchInput struct {
-	GoalID       string
-	PlanID       string
-	ConnectionID string
-	PlanRevision int64
-	Prompt       string
+	GoalID       string `json:"goal_id"`
+	PlanID       string `json:"plan_id"`
+	ConnectionID string `json:"cloud_connection_id"`
+	PlanRevision int64  `json:"plan_revision"`
+	Prompt       string `json:"goal"`
 }
 
 // ResearchOutput is a validated candidate that can transition a plan from
 // researching to ready_for_confirmation. It contains only de-secretsed
 // contracts and a short owner-visible summary.
 type ResearchOutput struct {
-	Plan    cloudcontracts.PlanV1
-	Recipe  cloudcontracts.RecipeV1
-	Quote   cloudcontracts.QuoteV1
-	Title   string
-	Summary string
+	Plan    cloudcontracts.PlanV1   `json:"plan"`
+	Recipe  cloudcontracts.RecipeV1 `json:"recipe"`
+	Quote   cloudcontracts.QuoteV1  `json:"quote"`
+	Title   string                  `json:"title"`
+	Summary string                  `json:"summary"`
+}
+
+// Validate rejects malformed and secret-bearing research input before a
+// private researcher can send an owner goal to a model provider.
+func (i ResearchInput) Validate() error {
+	if !validResearchIdentifier("goal_id", i.GoalID) || !validResearchIdentifier("plan_id", i.PlanID) || !validResearchIdentifier("cloud_connection_id", i.ConnectionID) || i.PlanRevision <= 0 {
+		return errors.New("research input is incomplete")
+	}
+	if strings.TrimSpace(i.Prompt) != i.Prompt || utf8.RuneCountInString(i.Prompt) == 0 || utf8.RuneCountInString(i.Prompt) > 12000 || cloudmodule.ContainsSensitiveGoalMaterial(i.Prompt) {
+		return errors.New("research input goal is invalid")
+	}
+	return nil
 }
 
 // Store isolates the process from PostgreSQL implementation details. Every
@@ -159,6 +172,18 @@ func validateDisplayText(label, value string, maximum int) error {
 		return fmt.Errorf("%s must not contain secret material", label)
 	}
 	return nil
+}
+
+func validResearchIdentifier(_ string, value string) bool {
+	if value == "" || strings.TrimSpace(value) != value || utf8.RuneCountInString(value) > 200 {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return !cloudmodule.ContainsSensitiveGoalMaterial(value)
 }
 
 func normalizedErrorCode(value, fallback string) string {

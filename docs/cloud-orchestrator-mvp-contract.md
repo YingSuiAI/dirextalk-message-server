@@ -23,12 +23,12 @@ AWS SDK integration in the message-server process.
   It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated
-  database role and uses a private, exact-HTTPS research endpoint that returns
-  only typed `ResearchOutput`; the binary has no Matrix config, model key, AWS
-  SDK, Docker socket, or migration capability. It is intentionally not part of
-  the default compose stack until an independently authenticated private
-  researcher endpoint and its least-privilege database role are deployed. It does not yet ship a Worker or
-  AWS executor.
+  database role and uses a private, mTLS-authenticated exact-HTTPS research
+  endpoint that returns only typed `ResearchOutput`; the binary has no Matrix
+  config, model key, AWS SDK, Docker socket, or migration capability. It is
+  intentionally not part of the default compose stack until an independently
+  authenticated private researcher endpoint and its least-privilege database
+  role are deployed. It does not yet ship a Worker or AWS executor.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -186,10 +186,35 @@ It reads its PostgreSQL URL only from the regular file named by
 `CLOUD_ORCHESTRATOR_DATABASE_URL_FILE`, never a CLI flag or log line. Its
 research endpoint is `CLOUD_ORCHESTRATOR_RESEARCHER_URL` and must be exact
 HTTPS `/v1/cloud-research` with no user info, query, fragment, or redirects.
+It also requires a dedicated mounted mTLS CA, client certificate, client key,
+and expected server name (`CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE`,
+`CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE`,
+`CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE`, and
+`CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME`). Its transport disables proxy
+use, requires TLS 1.3, and rejects a researcher certificate that does not
+match the configured name.
+
+`p2p/cmd/cloud-researcher` is the corresponding independently deployable,
+non-root private model boundary. It listens only with TLS 1.3 mutual
+authentication and requires a mounted server certificate/key, trusted client
+CA, exact OpenAI-compatible endpoint/model identifier, and a regular mounted
+model-key file. The model key is read only by this process; it is not accepted
+as a command argument, sent to the Orchestrator, stored in PostgreSQL, or
+included in ProductCore/Matrix events, logs, errors, or recipes. Its default
+model HTTP transport disables environment proxies and redirects. The current
+model-assisted proposal remains `experimental`: typed validation checks the
+contract shape and secret guardrails, but does not independently verify an
+official source, signed artifact, AWS availability, or account-specific price.
+Those checks are prerequisites for any later approval or typed provider
+mutation.
+
 The repository includes `Dockerfile.cloud-orchestrator`, a distinct non-root
 image that contains only this binary and CA certificates; it must be given a
 read-only root filesystem, its one DSN secret file, and no message-server
 volumes, Docker socket, AWS credentials, Matrix configuration, or Agent data.
+`Dockerfile.cloud-researcher` is likewise a non-root image and must receive
+only its read-only mTLS/model-key mounts, not the Orchestrator DSN, Message
+Server data, AWS credentials, Docker socket, or Worker material.
 
 ## Approval and lifecycle gate
 

@@ -23,9 +23,13 @@ import (
 )
 
 const (
-	databaseURLFileEnv = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
-	researcherURLEnv   = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
-	workerIDEnv        = "CLOUD_ORCHESTRATOR_WORKER_ID"
+	databaseURLFileEnv      = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
+	researcherURLEnv        = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
+	researcherCAFileEnv     = "CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"
+	researcherCertFileEnv   = "CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"
+	researcherKeyFileEnv    = "CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"
+	researcherServerNameEnv = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
+	workerIDEnv             = "CLOUD_ORCHESTRATOR_WORKER_ID"
 )
 
 var (
@@ -35,14 +39,18 @@ var (
 )
 
 type commandConfig struct {
-	databaseURLFile string
-	researcherURL   string
-	workerID        string
-	once            bool
-	pollInterval    time.Duration
-	lease           time.Duration
-	attemptTimeout  time.Duration
-	retryDelay      time.Duration
+	databaseURLFile      string
+	researcherURL        string
+	researcherCAFile     string
+	researcherCertFile   string
+	researcherKeyFile    string
+	researcherServerName string
+	workerID             string
+	once                 bool
+	pollInterval         time.Duration
+	lease                time.Duration
+	attemptTimeout       time.Duration
+	retryDelay           time.Duration
 }
 
 func main() {
@@ -72,13 +80,17 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 		defaultWorkerID = configuredWorkerID
 	}
 	config := commandConfig{
-		databaseURLFile: strings.TrimSpace(getenv(databaseURLFileEnv)),
-		researcherURL:   strings.TrimSpace(getenv(researcherURLEnv)),
-		workerID:        defaultWorkerID,
-		pollInterval:    2 * time.Second,
-		lease:           2 * time.Minute,
-		attemptTimeout:  90 * time.Second,
-		retryDelay:      time.Minute,
+		databaseURLFile:      strings.TrimSpace(getenv(databaseURLFileEnv)),
+		researcherURL:        strings.TrimSpace(getenv(researcherURLEnv)),
+		researcherCAFile:     strings.TrimSpace(getenv(researcherCAFileEnv)),
+		researcherCertFile:   strings.TrimSpace(getenv(researcherCertFileEnv)),
+		researcherKeyFile:    strings.TrimSpace(getenv(researcherKeyFileEnv)),
+		researcherServerName: strings.TrimSpace(getenv(researcherServerNameEnv)),
+		workerID:             defaultWorkerID,
+		pollInterval:         2 * time.Second,
+		lease:                2 * time.Minute,
+		attemptTimeout:       90 * time.Second,
+		retryDelay:           time.Minute,
 	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -94,8 +106,12 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	}
 	config.databaseURLFile = strings.TrimSpace(config.databaseURLFile)
 	config.researcherURL = strings.TrimSpace(config.researcherURL)
+	config.researcherCAFile = strings.TrimSpace(config.researcherCAFile)
+	config.researcherCertFile = strings.TrimSpace(config.researcherCertFile)
+	config.researcherKeyFile = strings.TrimSpace(config.researcherKeyFile)
+	config.researcherServerName = strings.TrimSpace(config.researcherServerName)
 	config.workerID = strings.TrimSpace(config.workerID)
-	if config.databaseURLFile == "" || config.researcherURL == "" || !validWorkerID(config.workerID) ||
+	if !validConfigPath(config.databaseURLFile) || config.researcherURL == "" || !validConfigPath(config.researcherCAFile) || !validConfigPath(config.researcherCertFile) || !validConfigPath(config.researcherKeyFile) || !validResearcherServerName(config.researcherServerName) || !validWorkerID(config.workerID) ||
 		config.pollInterval <= 0 || config.lease <= 0 || config.lease > 5*time.Minute ||
 		config.attemptTimeout <= 0 || config.attemptTimeout >= config.lease || config.retryDelay <= 0 {
 		return commandConfig{}, errConfigInvalid
@@ -108,6 +124,22 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 
 func validWorkerID(value string) bool {
 	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func validConfigPath(value string) bool {
+	return value != "" && len(value) <= 4096 && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func validResearcherServerName(value string) bool {
+	if value == "" || len(value) > 253 || strings.ContainsAny(value, " \r\n\t\x00") {
 		return false
 	}
 	for _, character := range value {
@@ -136,7 +168,14 @@ func readDatabaseURL(path string) (string, error) {
 }
 
 func run(ctx context.Context, config commandConfig) error {
-	planner, err := researcher.NewHTTP(researcher.HTTPConfig{Endpoint: config.researcherURL})
+	client, err := researcher.NewMutualTLSClient(researcher.MutualTLSClientConfig{
+		CAFile: config.researcherCAFile, CertificateFile: config.researcherCertFile, KeyFile: config.researcherKeyFile,
+		ServerName: config.researcherServerName,
+	})
+	if err != nil {
+		return errConfigInvalid
+	}
+	planner, err := researcher.NewHTTP(researcher.HTTPConfig{Endpoint: config.researcherURL, Client: client})
 	if err != nil {
 		return errConfigInvalid
 	}

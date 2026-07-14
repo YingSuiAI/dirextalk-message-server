@@ -8,7 +8,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -140,11 +139,12 @@ func researchInputFromClaim(claim Claim) (ResearchInput, error) {
 	if payload.GoalID != claim.GoalID || payload.GoalID != claim.AggregateID || payload.PlanID != claim.PlanID || payload.ConnectionID != claim.ConnectionID {
 		return ResearchInput{}, errors.New("payload does not match the leased aggregate")
 	}
-	if strings.TrimSpace(payload.ConnectionID) == "" || strings.TrimSpace(payload.Goal) != payload.Goal || utf8.RuneCountInString(payload.Goal) == 0 || utf8.RuneCountInString(payload.Goal) > 12000 {
-		return ResearchInput{}, errors.New("payload goal or connection is invalid")
-	}
-	return ResearchInput{
+	input := ResearchInput{
 		GoalID: payload.GoalID, PlanID: payload.PlanID, ConnectionID: payload.ConnectionID,
 		PlanRevision: claim.PlanRevision, Prompt: payload.Goal,
-	}, nil
+	}
+	if err := input.Validate(); err != nil {
+		return ResearchInput{}, err
+	}
+	return input, nil
 }

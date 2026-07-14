@@ -15,14 +15,18 @@ func TestParseConfigUsesOnlySecretFileForDatabaseURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := map[string]string{
-		"CLOUD_ORCHESTRATOR_DATABASE_URL_FILE": secretFile,
-		"CLOUD_ORCHESTRATOR_RESEARCHER_URL":    "https://researcher.example/v1/cloud-research",
+		"CLOUD_ORCHESTRATOR_DATABASE_URL_FILE":      secretFile,
+		"CLOUD_ORCHESTRATOR_RESEARCHER_URL":         "https://researcher.example/v1/cloud-research",
+		"CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE":     "ca.pem",
+		"CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE":   "client.pem",
+		"CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE":    "client.key",
+		"CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME": "researcher.example",
 	}
 	config, err := parseConfig([]string{"--once", "--worker-id", "cloud-worker-a", "--lease", "2m", "--attempt-timeout", "90s", "--poll-interval", "3s"}, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.once || config.workerID != "cloud-worker-a" || config.lease != 2*time.Minute || config.attemptTimeout != 90*time.Second || config.pollInterval != 3*time.Second || config.databaseURLFile != secretFile {
+	if !config.once || config.workerID != "cloud-worker-a" || config.lease != 2*time.Minute || config.attemptTimeout != 90*time.Second || config.pollInterval != 3*time.Second || config.databaseURLFile != secretFile || config.researcherCAFile != "ca.pem" || config.researcherCertFile != "client.pem" || config.researcherKeyFile != "client.key" || config.researcherServerName != "researcher.example" {
 		t.Fatalf("config = %#v", config)
 	}
 	url, err := readDatabaseURL(config.databaseURLFile)
@@ -46,6 +50,13 @@ func TestParseConfigRejectsUnsafeStartupSettings(t *testing.T) {
 		"CLOUD_ORCHESTRATOR_DATABASE_URL_FILE": "missing",
 		"CLOUD_ORCHESTRATOR_RESEARCHER_URL":    "https://researcher.example/v1/cloud-research",
 	}
+	if _, err := parseConfig(nil, func(key string) string { return validEndpointEnv[key] }, func() (string, error) { return "host-a", nil }); err == nil {
+		t.Fatal("orchestrator must require a dedicated mutual-TLS researcher identity")
+	}
+	validEndpointEnv["CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"] = "ca.pem"
+	validEndpointEnv["CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"] = "client.pem"
+	validEndpointEnv["CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"] = "client.key"
+	validEndpointEnv["CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"] = "researcher.example"
 	if _, err := parseConfig([]string{"--worker-id", "unsafe\nworker"}, func(key string) string { return validEndpointEnv[key] }, func() (string, error) { return "host-a", nil }); err == nil {
 		t.Fatal("control characters in a worker id must be rejected before database access")
 	}

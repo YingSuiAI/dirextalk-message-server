@@ -2,6 +2,25 @@
 
 Last updated: 2026-07-14
 
+## 2026-07-14 Private Cloud Researcher mTLS Boundary
+
+The independent private `p2p/cmd/cloud-researcher` runtime and its non-root
+`Dockerfile.cloud-researcher` image now implement the internal typed research
+endpoint used by `cloud-orchestrator`. This is not a ProductCore action, MCP
+tool, Matrix API, or user-facing secret-upload API. The Orchestrator now
+requires a mounted mutual-TLS client identity and expected Researcher server
+name; the Researcher requires TLS 1.3 with verified client certificates. A
+model credential is accepted only from the Researcher's regular mounted file,
+never an environment value, command flag, Agent request, event, or response.
+The endpoint accepts one strict `ResearchInput` JSON shape and returns a
+validated `ResearchOutput` shape; malformed, oversized, secret-bearing, or
+untyped requests are rejected without emitting their content.
+
+This completes only the private research transport boundary. It does not
+activate `cloud.plans.approve`, create a Connection Stack, provision an EC2
+Worker, expose public ingress, use an AWS credential, or create billable
+resources.
+
 ## 2026-07-14 Cloud Orchestrator Research Runtime And Projection Relay
 
 The repository now builds the standalone `p2p/cmd/cloud-orchestrator` process

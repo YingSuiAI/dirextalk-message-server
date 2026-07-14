@@ -61,6 +61,9 @@ func (p *HTTPPlanner) Research(ctx context.Context, input runtime.ResearchInput)
 	if p == nil || p.client == nil || p.endpoint == "" {
 		return runtime.ResearchOutput{}, errors.New("cloud researcher is unavailable")
 	}
+	if err := input.Validate(); err != nil {
+		return runtime.ResearchOutput{}, errors.New("cloud research input is invalid")
+	}
 	body, err := json.Marshal(struct {
 		GoalID       string `json:"goal_id"`
 		PlanID       string `json:"plan_id"`
