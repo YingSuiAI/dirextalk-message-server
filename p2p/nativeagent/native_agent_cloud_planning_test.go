@@ -128,7 +128,8 @@ func TestCloudDeploymentPlanningToolIsEinoNativeAndCredentialFree(t *testing.T) 
 func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 	runtime := New(Config{CloudPlanner: &recordingCloudPlanner{}})
 	prompt := runtime.agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")
-	if !strings.Contains(prompt, "## Built-in Skill: Cloud Deployment Planner") || !strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) {
+	if strings.TrimSpace(cloudDeploymentPlannerSkillPrompt) == "" || !strings.Contains(prompt, "## Built-in Skill: Cloud Deployment Planner") ||
+		!strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) || !strings.Contains(prompt, nativeAgentCloudStatusTool) {
 		t.Fatalf("server-side Eino cloud skill prompt = %q", prompt)
 	}
 	withoutPlanner := New(Config{}).agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")

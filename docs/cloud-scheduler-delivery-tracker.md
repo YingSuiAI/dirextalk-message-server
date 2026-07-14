@@ -22,7 +22,7 @@ resources have been created or that a workload is production-ready.
 - [x] A worker/root executor remains an isolated future execution boundary;
   it is not the existing deployer and is not the current `cloud-worker`
   `execution_probe` process.
-- [ ] Move the built-in Cloud planner from its current inline prompt into the
+- [x] Move the built-in Cloud planner from its current inline prompt into the
   source-controlled Eino asset directory
   `p2p/nativeagent/skills/cloud_deployment_planner/SKILL.md`, loaded by
   the Native Agent runtime. This must remain distinct from user-managed
@@ -54,7 +54,7 @@ resources have been created or that a workload is production-ready.
   and read de-secretsed status.
 - [x] Cloud dialogue mode excludes shell, runtime CLI, external MCP, managed
   skills, AWS credentials, approvals, lifecycle actions, and destruction.
-- [ ] Package the built-in prompt and its capability contract in the dedicated
+- [x] Package the built-in prompt and its capability contract in the dedicated
   Eino `skills/` source directory described above.
 - [ ] Add the next typed planning/status capabilities only through narrow
   Native Agent ports; never grant the model direct AWS, root, secret,
@@ -116,6 +116,7 @@ resources have been created or that a workload is production-ready.
 
 ## Current next action
 
-Package the Eino Cloud planner in its dedicated
-`p2p/nativeagent/skills/` directory before expanding any cloud execution
-capability. Do not modify deployment scripts for that action.
+Classify the historical Connection Stack and Worker artifacts in their owning
+repository before deciding whether to retain and relocate them as standalone
+Cloud Orchestrator assets or safely remove them. They are not Eino Skills and
+must not be coupled to Message Server deploy/release/updater scripts.
