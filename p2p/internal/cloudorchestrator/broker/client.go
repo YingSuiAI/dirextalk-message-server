@@ -40,8 +40,9 @@ type ClientOptions struct {
 }
 
 // Client is a narrow HTTPS-only Connection Stack V2 client. It exposes only
-// the fixed quote.request, connection.registration.verify and private
-// approval-bound deployment.create commands.
+// fixed typed commands: quote/request registration, deployment lifecycle
+// evidence, and the narrow Worker task issue/observe contract. It is not an
+// arbitrary AWS or Worker-control API proxy.
 type Client struct {
 	endpoint         *url.URL
 	httpClient       *http.Client

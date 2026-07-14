@@ -21,10 +21,13 @@ const (
 )
 
 var (
-	ErrSessionNotClaimed = errors.New("worker session is not claimed")
-	ErrSessionClaimed    = errors.New("worker session is already claimed")
-	ErrPendingEvent      = errors.New("worker session has a pending event")
-	ErrNoPendingEvent    = errors.New("worker session has no pending event")
+	ErrSessionNotClaimed  = errors.New("worker session is not claimed")
+	ErrSessionClaimed     = errors.New("worker session is already claimed")
+	ErrPendingEvent       = errors.New("worker session has a pending event")
+	ErrNoPendingEvent     = errors.New("worker session has no pending event")
+	ErrTaskNotClaimed     = errors.New("worker task is not claimed")
+	ErrPendingTaskEvent   = errors.New("worker task has a pending event")
+	ErrNoPendingTaskEvent = errors.New("worker task has no pending event")
 )
 
 type SessionState string
@@ -71,6 +74,9 @@ type SessionClient struct {
 	leaseExpiresAt time.Time
 	lastAck        uint64
 	pending        *SessionEvent
+	claimedTask    *WorkerTask
+	taskLastAck    map[string]uint64
+	pendingTask    *pendingTaskEvent
 }
 
 // NewSessionClient validates the immutable manifest before any HTTP request.
@@ -165,6 +171,9 @@ func (client *SessionClient) claimLocked(ctx context.Context, proof InstanceIden
 	// durable checkpoint recovery separately from this transport reset.
 	client.lastAck = 0
 	client.pending = nil
+	client.claimedTask = nil
+	client.taskLastAck = nil
+	client.pendingTask = nil
 	client.state = SessionStateActive
 	return nil
 }
@@ -207,6 +216,9 @@ func (client *SessionClient) Close() {
 	defer client.mu.Unlock()
 	client.access = ""
 	client.pending = nil
+	client.claimedTask = nil
+	client.taskLastAck = nil
+	client.pendingTask = nil
 	client.state = SessionStateClosed
 }
 

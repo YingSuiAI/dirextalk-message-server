@@ -51,11 +51,25 @@ type recordingWorkerSessionClient struct {
 	heartbeat      func(context.Context) error
 	retry          func(context.Context) error
 	renew          func(context.Context, cloudworker.InstanceIdentityProof) error
+	claimTask      func(context.Context) (cloudworker.WorkerTask, bool, error)
+	retryTask      func(context.Context) error
+	reportTask     func(context.Context, cloudworker.WorkerTask, cloudworker.TaskStatus, string, string, string) error
 	renewProofs    []cloudworker.InstanceIdentityProof
 	retryCalls     int
 	renewCalls     int
 	closeCalls     int
 	heartbeatCalls int
+	claimTaskCalls int
+	retryTaskCalls int
+	taskReports    []recordedTaskReport
+}
+
+type recordedTaskReport struct {
+	task           cloudworker.WorkerTask
+	status         cloudworker.TaskStatus
+	checkpoint     string
+	errorCode      string
+	evidenceDigest string
 }
 
 func (client *recordingWorkerSessionClient) Claim(_ context.Context, proof cloudworker.InstanceIdentityProof) error {
@@ -84,6 +98,36 @@ func (client *recordingWorkerSessionClient) RenewIfDue(ctx context.Context, proo
 	client.renewProofs = append(client.renewProofs, proof)
 	if client.renew != nil {
 		return client.renew(ctx, proof)
+	}
+	return nil
+}
+
+func (client *recordingWorkerSessionClient) ClaimTask(ctx context.Context) (cloudworker.WorkerTask, bool, error) {
+	client.claimTaskCalls++
+	if client.claimTask != nil {
+		return client.claimTask(ctx)
+	}
+	return cloudworker.WorkerTask{}, false, nil
+}
+
+func (client *recordingWorkerSessionClient) RetryPendingTask(ctx context.Context) error {
+	client.retryTaskCalls++
+	if client.retryTask != nil {
+		return client.retryTask(ctx)
+	}
+	return cloudworker.ErrNoPendingTaskEvent
+}
+
+func (client *recordingWorkerSessionClient) ReportTask(ctx context.Context, task cloudworker.WorkerTask, status cloudworker.TaskStatus, checkpoint, errorCode, evidenceDigest string) error {
+	client.taskReports = append(client.taskReports, recordedTaskReport{
+		task:           task,
+		status:         status,
+		checkpoint:     checkpoint,
+		errorCode:      errorCode,
+		evidenceDigest: evidenceDigest,
+	})
+	if client.reportTask != nil {
+		return client.reportTask(ctx, task, status, checkpoint, errorCode, evidenceDigest)
 	}
 	return nil
 }
@@ -263,5 +307,92 @@ func TestRunWithDependenciesRetriesTransientWorkerTransportFailuresUntilShutdown
 	}
 	if client.heartbeatCalls != 2 || client.retryCalls != 1 || client.renewCalls != 1 || len(client.renewProofs) != 1 || client.renewProofs[0] != provider.proof || client.closeCalls != 1 {
 		t.Fatalf("transient failure lifecycle = %#v", client)
+	}
+}
+
+func TestRunWithDependenciesReportsOnlyTheFixedExecutionProbe(t *testing.T) {
+	now := time.Date(2026, 7, 15, 2, 0, 0, 0, time.UTC)
+	baseTask := cloudworker.WorkerTask{
+		Schema:                  cloudworker.WorkerTaskV1Schema,
+		TaskID:                  "worker-task-v2-001",
+		DeploymentID:            "deployment-v2-001",
+		TaskKind:                cloudworker.TaskKindExecutionProbe,
+		ExecutionManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		InputDigest:             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Attempt:                 1,
+	}
+	tests := []struct {
+		name         string
+		lastSequence uint64
+		failFirst    bool
+		wantError    bool
+		wantReports  []recordedTaskReport
+	}{
+		{
+			name:         "new probe emits fixed receive then transport checkpoints",
+			lastSequence: 0,
+			wantReports: []recordedTaskReport{
+				{status: cloudworker.TaskStatusRunning, checkpoint: "execution_manifest_received", evidenceDigest: baseTask.ExecutionManifestDigest},
+				{status: cloudworker.TaskStatusSucceeded, checkpoint: "task_transport_verified", evidenceDigest: baseTask.ExecutionManifestDigest},
+			},
+		},
+		{
+			name:         "reconnected probe continues after accepted running checkpoint",
+			lastSequence: 1,
+			wantReports: []recordedTaskReport{
+				{status: cloudworker.TaskStatusSucceeded, checkpoint: "task_transport_verified", evidenceDigest: baseTask.ExecutionManifestDigest},
+			},
+		},
+		{
+			name:         "completed probe is left untouched after reconnect",
+			lastSequence: 2,
+		},
+		{
+			name:         "indeterminate running event never claims success",
+			lastSequence: 0,
+			failFirst:    true,
+			wantError:    true,
+			wantReports: []recordedTaskReport{
+				{status: cloudworker.TaskStatusRunning, checkpoint: "execution_manifest_received", evidenceDigest: baseTask.ExecutionManifestDigest},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			task := baseTask
+			task.LastSequence = test.lastSequence
+			provider := &recordingIdentityProofProvider{proof: validWorkerIdentityProof()}
+			client := &recordingWorkerSessionClient{}
+			client.claimTask = func(context.Context) (cloudworker.WorkerTask, bool, error) {
+				return task, true, nil
+			}
+			if test.failFirst {
+				client.reportTask = func(_ context.Context, _ cloudworker.WorkerTask, _ cloudworker.TaskStatus, _ string, _ string, _ string) error {
+					return errors.New("transport unavailable")
+				}
+			}
+			err := runWithDependencies(context.Background(), writeWorkerBootstrapConfig(t, now, true, time.Millisecond), provider,
+				func(cloudworker.BootstrapManifest, cloudworker.SessionClientConfig) (workerSessionClient, error) {
+					return client, nil
+				},
+				func() time.Time { return now },
+			)
+			if test.wantError {
+				if !errors.Is(err, errRunFailed) {
+					t.Fatalf("runWithDependencies() error = %v, want %v", err, errRunFailed)
+				}
+			} else if err != nil {
+				t.Fatalf("runWithDependencies() error = %v", err)
+			}
+			if client.claimTaskCalls != 1 || client.retryTaskCalls != 1 || len(client.taskReports) != len(test.wantReports) {
+				t.Fatalf("task lifecycle = %#v", client)
+			}
+			for index, want := range test.wantReports {
+				got := client.taskReports[index]
+				if got.status != want.status || got.checkpoint != want.checkpoint || got.errorCode != "" || got.evidenceDigest != want.evidenceDigest || got.task.TaskKind != cloudworker.TaskKindExecutionProbe {
+					t.Fatalf("task report[%d] = %#v, want %#v", index, got, want)
+				}
+			}
+		})
 	}
 }

@@ -35,7 +35,7 @@ AWS SDK integration in the message-server process.
   start, expose, or destroy a Worker; it advances the private Job checkpoint
   only after the Connection Stack returns current, IID-verified active-lease
   evidence for the receipt-bound instance. The Connection Stack source now has
-  a closed Worker bootstrap claim/events API,
+  a closed Worker bootstrap claim/events and digest-only task transport API,
   IMDSv2 identity verification, and EC2 read-back, but the production
   Orchestrator remains gated until a reviewed fixed Worker AMI, recipe
   executor, service-health evidence, and operational Stack configuration are
@@ -43,7 +43,15 @@ AWS SDK integration in the message-server process.
   reauthentication protocol: a first claim remains limited to the at-most-ten
   minute bootstrap window, while an already active, independently IID-verified
   Worker may rotate its bearer and epoch during a 24-hour recovery-retention
-  fence. It is intentionally not part of the default compose stack until its
+  fence. The only task shape is `execution_probe`: its digest-only document
+  has no command, URL, secret, image, or AWS action; an active Worker can
+  report only `execution_manifest_received` followed by
+  `task_transport_verified`, with the Stack atomically binding the evidence
+  digest to the issued execution manifest. This is a transport/recovery proof,
+  not service readiness or Recipe execution. The Broker has typed
+  `worker.task.issue` and `worker.task.observe` clients, but no production
+  runtime outbox currently creates either command. It is intentionally not
+  part of the default compose stack until its
   private researcher, node-key mount, Connection Stack registration, Worker
   identity certificate, and least-privilege database role are deployed. The
   Message Server neither hosts that Worker session broker nor enables an AWS
@@ -168,6 +176,15 @@ active evidence atomically advances the provision Job from
 `worker_bootstrap_pending` to `worker_bootstrap_verified` and moves execution
 to `verifying`. A read retry reuses its exact persisted envelope; only the
 Stack's explicit `expired_command` result permits a new node counter.
+
+The same Stack exposes a separately typed, active-bearer Worker task channel.
+It stores a de-secreted `(deployment_id, task_id)` record in its own KMS-backed
+DynamoDB table, so a lost Worker response can replay the exact task event but
+cannot change its sequence, lease, checkpoint, or execution-manifest digest.
+The current Orchestrator does not enqueue task issues, and the non-root
+`cloud-worker` only sends the two fixed `execution_probe` transport events.
+No Recipe command, root executor, service health assertion, public ingress, or
+AWS mutation is activated by this channel.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan

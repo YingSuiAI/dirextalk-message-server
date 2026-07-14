@@ -3,7 +3,8 @@
 This package is the provider-neutral, in-process contract library for the
 separately deployed Cloud Orchestrator. It deliberately does **not** implement
 ProductCore actions, PostgreSQL storage, an AWS SDK client, AWS CLI execution,
-credential bootstrap, Worker control, or an MCP server.
+credential bootstrap, direct Worker session/task control or execution, or an
+MCP server.
 
 ## V1 contracts
 

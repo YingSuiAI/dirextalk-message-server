@@ -43,13 +43,16 @@ type identityProofProvider interface {
 
 // workerSessionClient is deliberately the small Worker protocol surface that
 // the process needs. Keeping it here lets the command own cancellation and
-// restart behavior without making the cloudworker transport configurable in
-// production.
+// restart behavior without turning the cloudworker transport into a Recipe
+// executor or configurable command runner.
 type workerSessionClient interface {
 	Claim(context.Context, cloudworker.InstanceIdentityProof) error
 	Heartbeat(context.Context) error
 	RetryPending(context.Context) error
 	RenewIfDue(context.Context, cloudworker.InstanceIdentityProof) error
+	ClaimTask(context.Context) (cloudworker.WorkerTask, bool, error)
+	RetryPendingTask(context.Context) error
+	ReportTask(context.Context, cloudworker.WorkerTask, cloudworker.TaskStatus, string, string, string) error
 	Close()
 }
 
@@ -81,7 +84,7 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 	}
 	flags := flag.NewFlagSet("cloud-worker", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "claim once and send one heartbeat")
+	flags.BoolVar(&config.once, "once", false, "claim one session, send one heartbeat, and process at most one fixed transport probe")
 	flags.DurationVar(&config.heartbeatInterval, "heartbeat-interval", config.heartbeatInterval, "outbound heartbeat interval")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return commandConfig{}, errConfigInvalid
@@ -161,7 +164,7 @@ func runWithDependencies(
 		return errRunFailed
 	}
 	if config.once {
-		if err := client.Heartbeat(ctx); err != nil {
+		if err := runWorkerCycle(ctx, client, proof, true); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -176,24 +179,83 @@ func runWithDependencies(
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := client.Heartbeat(ctx); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				_ = client.RetryPending(ctx)
-				if ctx.Err() != nil {
-					return nil
-				}
-			}
+			_ = runWorkerCycle(ctx, client, proof, false)
 			if ctx.Err() != nil {
 				return nil
 			}
-			if err := client.RenewIfDue(ctx, proof); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-			}
 		}
+	}
+}
+
+// runWorkerCycle keeps regular session telemetry independent from the fixed
+// task transport. In non-once mode each transient transport failure is left
+// for a later retry; it never starts a shell, container, Recipe, AWS call, or
+// dynamic installer as a fallback.
+func runWorkerCycle(ctx context.Context, client workerSessionClient, proof cloudworker.InstanceIdentityProof, failFast bool) error {
+	if err := client.Heartbeat(ctx); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		_ = client.RetryPending(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if failFast {
+			return err
+		}
+	}
+	if err := client.RetryPendingTask(ctx); err != nil && !errors.Is(err, cloudworker.ErrNoPendingTaskEvent) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if failFast {
+			return err
+		}
+	}
+	if err := client.RenewIfDue(ctx, proof); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if failFast {
+			return err
+		}
+	}
+	if err := processFixedTaskProbe(ctx, client); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if failFast {
+			return err
+		}
+	}
+	return nil
+}
+
+// processFixedTaskProbe is intentionally the entire execution behavior of
+// this non-root process. execution_probe reports receipt and transport
+// completion for a digest-only task; it never asserts that a user service is
+// installed, ready, paired, or healthy.
+func processFixedTaskProbe(ctx context.Context, client workerSessionClient) error {
+	task, found, err := client.ClaimTask(ctx)
+	if err != nil || !found {
+		return err
+	}
+	if task.TaskKind != cloudworker.TaskKindExecutionProbe {
+		return errors.New("worker task kind is unsupported")
+	}
+	switch task.LastSequence {
+	case 0:
+		if err := client.ReportTask(ctx, task, cloudworker.TaskStatusRunning, cloudworker.ExecutionProbeReceivedCheckpoint, "", task.ExecutionManifestDigest); err != nil {
+			return err
+		}
+		fallthrough
+	case 1:
+		return client.ReportTask(ctx, task, cloudworker.TaskStatusSucceeded, cloudworker.ExecutionProbeVerifiedCheckpoint, "", task.ExecutionManifestDigest)
+	default:
+		// The closed probe has only two transitions. A later executor needs an
+		// explicit persisted step contract before it can interpret additional
+		// sequence values, so this process safely leaves them untouched.
+		return nil
 	}
 }
 
