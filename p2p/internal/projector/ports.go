@@ -5,6 +5,7 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	productagentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/productagent"
 )
 
 // EventSink is the durable product-event outbox used by projections.
@@ -64,11 +65,16 @@ type BlockPort interface {
 	Exists(context.Context, string, ...string) (bool, error)
 }
 
+type AgentMessageSink interface {
+	Handle(context.Context, productagentmodule.Message)
+}
+
 type IdentitySnapshot struct {
 	OwnerMXID        string
 	OwnerDisplayName string
 	OwnerAvatarURL   string
 	AgentRoomID      string
+	AgentMXID        string
 }
 
 type ReinviteDisposition uint8
@@ -97,5 +103,6 @@ type Dependencies struct {
 	Members        MemberPort
 	Blocks         BlockPort
 	DirectRooms    DirectRoomPort
+	AgentMessages  AgentMessageSink
 	Identity       func() IdentitySnapshot
 }

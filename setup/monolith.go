@@ -93,6 +93,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
 		PushRules:                       m.UserAPI,
 		ReleaseController:               releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
+		ProductAgentURL:                 productAgentURLFromEnv(),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
@@ -131,6 +132,13 @@ func (m *Monolith) AddAllPublicRoutes(
 	if m.RelayAPI != nil {
 		relayapi.AddPublicRoutes(routers, cfg, m.KeyRing, m.RelayAPI)
 	}
+}
+
+func productAgentURLFromEnv() string {
+	if preferred := strings.TrimSpace(os.Getenv("DIREXTALK_PRODUCT_AGENT_URL")); preferred != "" {
+		return preferred
+	}
+	return strings.TrimSpace(os.Getenv("DIREXIO_PRODUCT_AGENT_URL"))
 }
 
 func p2pDatabaseOptions(cfg *config.Dendrite) *config.DatabaseOptions {

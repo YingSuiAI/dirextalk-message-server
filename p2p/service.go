@@ -28,6 +28,7 @@ import (
 	operationsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 	pluginsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	portalmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/portal"
+	productagentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/productagent"
 	profilemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/profile"
 	projectormodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/projector"
 	realtimewsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/realtimews"
@@ -52,6 +53,8 @@ type Config struct {
 	NativeAgentRunner               NativeAgentRunner
 	NativeAgentDataDir              string
 	ReleaseController               releasecontrol.Controller
+	ProductAgentURL                 string
+	ProductAgentHTTPClient          *http.Client
 }
 
 const (
@@ -120,6 +123,7 @@ type Service struct {
 	portalModule         *portalmodule.Module
 	profileModule        *profilemodule.Module
 	projectorModule      *projectormodule.Module
+	productAgentModule   *productagentmodule.Module
 	realtimeModule       *realtimewsmodule.Module
 	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
@@ -565,6 +569,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			portalSessionGeneration: 1,
 		},
 	}
+	service.productAgentModule = newProductAgentModule(cfg, service)
 	service.eventsModule = eventsmodule.New(service.store, eventsmodule.Config{
 		RetentionMaxRows:      cfg.P2PEventRetentionMaxRows,
 		RetentionPruneOnWrite: cfg.P2PEventRetentionPruneOnWrite,
@@ -741,6 +746,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Members:        serviceProjectorMemberPort{service: service},
 		Blocks:         service.blocksModule,
 		DirectRooms:    serviceProjectorDirectRoomPort{service: service},
+		AgentMessages:  service.productAgentModule,
 		Identity: func() projectormodule.IdentitySnapshot {
 			service.mu.Lock()
 			defer service.mu.Unlock()
@@ -749,6 +755,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 				OwnerDisplayName: service.profile.DisplayName,
 				OwnerAvatarURL:   service.profile.AvatarURL,
 				AgentRoomID:      service.agentRoomID,
+				AgentMXID:        service.agentMXIDLocked(),
 			}
 		},
 	}, projectormodule.Config{Now: time.Now})

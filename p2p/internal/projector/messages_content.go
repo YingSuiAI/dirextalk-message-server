@@ -8,6 +8,7 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	productagentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/productagent"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 )
 
@@ -17,6 +18,7 @@ func (m *Module) projectMessage(ctx context.Context, event *types.HeaderedEvent)
 		return err
 	}
 	if m.isAgentRoom(event.RoomID().String()) {
+		m.projectAgentRoomMessage(ctx, event, content)
 		return nil
 	}
 	if !m.shouldProjectRoomMessage(ctx, event.RoomID().String(), content) {
@@ -41,6 +43,35 @@ func (m *Module) projectMessage(ctx context.Context, event *types.HeaderedEvent)
 	default:
 		return nil
 	}
+}
+
+func (m *Module) projectAgentRoomMessage(ctx context.Context, event *types.HeaderedEvent, content map[string]any) {
+	if m.dependencies.AgentMessages == nil || event == nil || !agentRoomMessageTypeSupported(content) {
+		return
+	}
+	identity := m.identity()
+	senderMXID := strings.TrimSpace(string(event.SenderID()))
+	if senderMXID == "" || senderMXID != strings.TrimSpace(identity.OwnerMXID) || senderMXID == strings.TrimSpace(identity.AgentMXID) {
+		return
+	}
+	if boolValue(content["io.dirextalk.agent_gateway"]) {
+		return
+	}
+	body := strings.TrimSpace(textValue(content["body"]))
+	if body == "" {
+		return
+	}
+	m.dependencies.AgentMessages.Handle(ctx, productagentmodule.Message{
+		RoomID:     event.RoomID().String(),
+		EventID:    event.EventID(),
+		SenderMXID: senderMXID,
+		Body:       body,
+	})
+}
+
+func agentRoomMessageTypeSupported(content map[string]any) bool {
+	messageType := strings.ToLower(fallbackText(textValue(content["msgtype"]), textValue(content["client_type"])))
+	return messageType == "" || messageType == "m.text" || messageType == "text"
 }
 
 func (m *Module) isAgentRoom(roomID string) bool {
