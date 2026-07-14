@@ -80,7 +80,7 @@ func (r *DeploymentProvisionRunner) RunOnce(ctx context.Context) (bool, error) {
 		IssuedAt: claim.Command.IssuedAt, ExpiresAt: claim.Command.ExpiresAt,
 	}
 	if signed.EnvelopeJSON == "" {
-		signed, err = r.transport.BuildDeploymentCreateCommand(claim.Command, claim.Request)
+		signed, err = r.transport.BuildDeploymentCreateCommand(claim.Command, claim.Request, claim.ApprovalProofJSON)
 		if err != nil {
 			return true, r.store.FailDeploymentProvision(ctx, claim, invalidDeploymentProvisionClaimCode)
 		}

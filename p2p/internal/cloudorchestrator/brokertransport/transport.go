@@ -1,6 +1,7 @@
-// Package brokertransport adapts the fixed Connection Stack V2 quote contract
-// to the Cloud Orchestrator runtime. It is intentionally unable to issue any
-// provider action other than quote.request.
+// Package brokertransport adapts the closed Connection Stack V2 quote,
+// registration and approval-bound deployment.create contracts to the Cloud
+// Orchestrator runtime. It is intentionally unable to issue arbitrary provider
+// actions or hold AWS credentials.
 package brokertransport
 
 import (
@@ -22,6 +23,7 @@ const commandLifetime = 4 * time.Minute
 
 var _ runtime.QuoteTransport = (*Transport)(nil)
 var _ runtime.ConnectionRegistrationTransport = (*Transport)(nil)
+var _ runtime.DeploymentProvisionTransport = (*Transport)(nil)
 
 // Transport keeps the mounted node key in process memory only. The key is
 // never serialized, returned, or written to PostgreSQL.
@@ -181,6 +183,73 @@ func (t *Transport) RequestConnectionRegistration(ctx context.Context, endpoint 
 	return runtimeRegistration(result)
 }
 
+// BuildDeploymentCreateCommand signs one exact approval-bound create command.
+// ApprovalProofJSON is read only from the private approved-plan record and is
+// serialized only inside the returned durable Broker envelope; it never enters
+// ProductCore, event payloads or logs.
+func (t *Transport) BuildDeploymentCreateCommand(command runtime.DeploymentCreateCommand, request runtime.DeploymentCreateRequest, approvalProofJSON string) (runtime.SignedDeploymentCreateCommand, error) {
+	if t == nil || len(t.privateKey) != ed25519.PrivateKeySize {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("cloud broker node signing key is unavailable")
+	}
+	if err := request.Validate(); err != nil {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("invalid deployment create request")
+	}
+	digest, err := request.Digest()
+	if err != nil || command.RequestDigest != digest || command.CommandID == "" || command.DeploymentID != request.DeploymentID || command.ConnectionID == "" || command.NodeKeyID == "" ||
+		command.ExpectedGeneration <= 0 || command.ExpectedGeneration != request.ConnectionGeneration || command.NodeCounter <= 0 {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("deployment create command does not bind the request")
+	}
+	approvalProof, err := broker.ParseApprovalProof([]byte(approvalProofJSON))
+	if err != nil {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("deployment approval proof is invalid")
+	}
+	issuedAt := t.now().UTC().Truncate(time.Millisecond)
+	expiresAt := issuedAt.Add(commandLifetime)
+	brokerCommand, err := broker.NewDeploymentCommand(broker.DeploymentCommandInput{
+		ConnectionID: command.ConnectionID, CommandID: command.CommandID, NodeKeyID: command.NodeKeyID,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, IssuedAt: issuedAt, ExpiresAt: expiresAt,
+		Request: deploymentRequest(request), ApprovalProof: approvalProof, PrivateKey: t.privateKey,
+	})
+	if err != nil {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("sign deployment create command failed")
+	}
+	payload, err := base64.StdEncoding.DecodeString(brokerCommand.PayloadB64)
+	if err != nil {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("signed deployment payload is invalid")
+	}
+	envelope, err := json.Marshal(brokerCommand)
+	if err != nil {
+		return runtime.SignedDeploymentCreateCommand{}, errors.New("signed deployment envelope is invalid")
+	}
+	return runtime.SignedDeploymentCreateCommand{
+		EnvelopeJSON: string(envelope), PayloadJSON: string(payload), PayloadSHA256: brokerCommand.PayloadSHA256,
+		RequestSHA256: brokerCommand.RequestSHA256(), IssuedAt: issuedAt, ExpiresAt: expiresAt,
+	}, nil
+}
+
+// RequestDeploymentCreate re-parses the exact persisted private envelope and
+// rejects any binding drift before the single Broker HTTP request. Its retry
+// identity is the preserved command ID/node counter/signature, never a new
+// cloud purchase attempt.
+func (t *Transport) RequestDeploymentCreate(ctx context.Context, endpoint string, command runtime.DeploymentCreateCommand, signed runtime.SignedDeploymentCreateCommand, request runtime.DeploymentCreateRequest) (runtime.BrokerDeployment, error) {
+	brokerCommand, err := broker.ParseDeploymentCommand([]byte(signed.EnvelopeJSON))
+	if err != nil {
+		return runtime.BrokerDeployment{}, errors.New("persisted deployment envelope is invalid")
+	}
+	if err := deploymentCommandMatches(command, signed, brokerCommand, request); err != nil {
+		return runtime.BrokerDeployment{}, err
+	}
+	client, err := broker.NewClient(broker.ClientOptions{Endpoint: strings.TrimSpace(endpoint)})
+	if err != nil {
+		return runtime.BrokerDeployment{}, errors.New("cloud broker endpoint is invalid")
+	}
+	result, err := client.SubmitDeployment(ctx, brokerCommand)
+	if err != nil {
+		return runtime.BrokerDeployment{}, classifyDeploymentBrokerError(err)
+	}
+	return runtimeDeployment(result)
+}
+
 func brokerRequest(request cloudcontracts.QuoteRequestV1, digest string) broker.QuoteRequest {
 	candidates := make([]broker.QuoteCandidate, len(request.Candidates))
 	for index, candidate := range request.Candidates {
@@ -202,6 +271,26 @@ func registrationRequest(request runtime.ConnectionRegistrationRequest) broker.R
 		BootstrapID:     request.BootstrapID,
 		RequestedRegion: request.RequestedRegion,
 		StackARN:        request.StackARN,
+	}
+}
+
+func deploymentRequest(request runtime.DeploymentCreateRequest) broker.DeploymentRequest {
+	return broker.DeploymentRequest{
+		Schema:                 request.Schema,
+		DeploymentID:           request.DeploymentID,
+		ConnectionGeneration:   request.ConnectionGeneration,
+		PlanHash:               request.PlanHash,
+		PlanRevision:           request.PlanRevision,
+		QuoteID:                request.QuoteID,
+		QuoteDigest:            request.QuoteDigest,
+		CandidateID:            request.CandidateID,
+		ResourceManifestDigest: request.ResourceManifestDigest,
+		WorkerArtifact: broker.DeploymentWorkerArtifact{
+			Kind: request.WorkerArtifact.Kind, AMIID: request.WorkerArtifact.AMIID,
+		},
+		Network: broker.DeploymentNetwork{
+			VPCID: request.Network.VPCID, SubnetID: request.Network.SubnetID, AvailabilityZone: request.Network.AvailabilityZone,
+		},
 	}
 }
 
@@ -247,6 +336,29 @@ func registrationCommandMatches(command runtime.ConnectionRegistrationCommand, s
 	payload, err := base64.StdEncoding.DecodeString(actual.PayloadB64)
 	if err != nil || string(payload) != signed.PayloadJSON {
 		return errors.New("persisted connection registration envelope payload is invalid")
+	}
+	return nil
+}
+
+func deploymentCommandMatches(command runtime.DeploymentCreateCommand, signed runtime.SignedDeploymentCreateCommand, actual broker.DeploymentCommand, request runtime.DeploymentCreateRequest) error {
+	digest, err := request.Digest()
+	if err != nil || command.RequestDigest != digest || command.DeploymentID != request.DeploymentID || command.ExpectedGeneration != request.ConnectionGeneration {
+		return errors.New("persisted deployment envelope does not bind the deployment request")
+	}
+	if err := actual.ValidateBinding(broker.DeploymentCommandBinding{
+		ConnectionID: command.ConnectionID, CommandID: command.CommandID, NodeKeyID: command.NodeKeyID,
+		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter,
+		IssuedAt: signed.IssuedAt, ExpiresAt: signed.ExpiresAt, Request: deploymentRequest(request), ApprovalProof: actual.ApprovalProof,
+	}); err != nil {
+		return errors.New("persisted deployment envelope does not bind the command")
+	}
+	if actual.PayloadSHA256 != signed.PayloadSHA256 || actual.RequestSHA256() != signed.RequestSHA256 ||
+		(command.RequestSHA256 != "" && actual.RequestSHA256() != command.RequestSHA256) {
+		return errors.New("persisted deployment envelope does not bind the command")
+	}
+	payload, err := base64.StdEncoding.DecodeString(actual.PayloadB64)
+	if err != nil || string(payload) != signed.PayloadJSON {
+		return errors.New("persisted deployment envelope payload is invalid")
 	}
 	return nil
 }
@@ -298,10 +410,31 @@ func runtimeRegistration(result broker.RegistrationResult) (runtime.BrokerRegist
 		BrokerCommandURL:     result.Registration.BrokerCommandURL,
 		NodeKeyID:            result.Registration.NodeKeyID,
 		ConnectionGeneration: result.Registration.ConnectionGeneration,
-		StackARN:             result.Registration.StackARN,
-		CommandID:            result.Registration.CommandID,
-		RequestSHA256:        result.Registration.RequestSHA256,
-		ReceiptJSON:          string(receipt),
+		WorkerArtifact: runtime.WorkerArtifactReferenceV1{
+			Kind: result.Registration.WorkerArtifact.Kind, AMIID: result.Registration.WorkerArtifact.AMIID,
+		},
+		WorkerNetwork: runtime.DeploymentNetworkReference{
+			VPCID: result.Registration.WorkerNetwork.VPCID, SubnetID: result.Registration.WorkerNetwork.SubnetID,
+			AvailabilityZone: result.Registration.WorkerNetwork.AvailabilityZone,
+		},
+		WorkerResourceManifestDigest: result.Registration.WorkerResourceManifestDigest,
+		StackARN:                     result.Registration.StackARN,
+		CommandID:                    result.Registration.CommandID,
+		RequestSHA256:                result.Registration.RequestSHA256,
+		ReceiptJSON:                  string(receipt),
+	}, nil
+}
+
+func runtimeDeployment(result broker.DeploymentResult) (runtime.BrokerDeployment, error) {
+	receipt, err := json.Marshal(result.Receipt)
+	if err != nil {
+		return runtime.BrokerDeployment{}, errors.New("broker deployment receipt cannot be encoded")
+	}
+	return runtime.BrokerDeployment{
+		Schema: result.Deployment.Schema, DeploymentID: result.Deployment.DeploymentID, ConnectionID: result.Deployment.ConnectionID,
+		CommandID: result.Receipt.CommandID, RequestSHA256: result.Deployment.RequestSHA256, ResourceStatus: result.Deployment.ResourceStatus,
+		InstanceID: result.Deployment.InstanceID, VolumeIDs: append([]string(nil), result.Deployment.VolumeIDs...),
+		NetworkInterfaceIDs: append([]string(nil), result.Deployment.NetworkInterfaceIDs...), ReceiptJSON: string(receipt),
 	}, nil
 }
 
@@ -342,6 +475,27 @@ func classifyRegistrationBrokerError(err error) error {
 		return runtime.ConnectionRegistrationRetryable("broker_timeout", err)
 	case "broker_unavailable", "broker_request_unavailable", "broker_response_unavailable":
 		return runtime.ConnectionRegistrationRetryable("broker_unavailable", err)
+	default:
+		return err
+	}
+}
+
+func classifyDeploymentBrokerError(err error) error {
+	var brokerError *broker.Error
+	if !errors.As(err, &brokerError) {
+		return runtime.DeploymentProvisionRetryable("broker_unavailable", err)
+	}
+	if brokerError.Code == "expired_command" {
+		return runtime.DeploymentCreateCommandExpired(err)
+	}
+	if brokerError.StatusCode == 429 || brokerError.StatusCode >= 500 {
+		return runtime.DeploymentProvisionRetryable("broker_unavailable", err)
+	}
+	switch brokerError.Code {
+	case "broker_timeout":
+		return runtime.DeploymentProvisionRetryable("broker_timeout", err)
+	case "broker_unavailable", "broker_request_unavailable", "broker_response_unavailable":
+		return runtime.DeploymentProvisionRetryable("broker_unavailable", err)
 	default:
 		return err
 	}

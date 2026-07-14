@@ -21,7 +21,7 @@ func TestDeploymentProvisionRunnerPersistsExactEnvelopeBeforeBrokerCreate(t *tes
 		if !reflect.DeepEqual(store.persisted[0].signed, signed) {
 			return BrokerDeployment{}, errors.New("broker create did not use the persisted envelope")
 		}
-		if command.CommandID != claim.Command.CommandID || request.DeploymentID != claim.DeploymentID || request.ManifestDigest == "" {
+		if command.CommandID != claim.Command.CommandID || request.DeploymentID != claim.DeploymentID || request.ResourceManifestDigest == "" || request.ConnectionGeneration != claim.ExpectedGeneration {
 			return BrokerDeployment{}, errors.New("broker create lost its approved deployment binding")
 		}
 		return testBrokerDeployment(t, claim, signed), nil
@@ -205,18 +205,18 @@ func (s *fakeDeploymentProvisionStore) FailDeploymentProvision(_ context.Context
 type fakeDeploymentProvisionTransport struct {
 	built    []deploymentBuildRecord
 	requests []deploymentRequestRecord
-	build    func(DeploymentCreateCommand, DeploymentCreateRequest) (SignedDeploymentCreateCommand, error)
+	build    func(DeploymentCreateCommand, DeploymentCreateRequest, string) (SignedDeploymentCreateCommand, error)
 	request  func(context.Context, string, DeploymentCreateCommand, SignedDeploymentCreateCommand, DeploymentCreateRequest) (BrokerDeployment, error)
 	trace    *deploymentTrace
 }
 
-func (t *fakeDeploymentProvisionTransport) BuildDeploymentCreateCommand(command DeploymentCreateCommand, request DeploymentCreateRequest) (SignedDeploymentCreateCommand, error) {
+func (t *fakeDeploymentProvisionTransport) BuildDeploymentCreateCommand(command DeploymentCreateCommand, request DeploymentCreateRequest, approvalProofJSON string) (SignedDeploymentCreateCommand, error) {
 	t.built = append(t.built, deploymentBuildRecord{command: command, request: request})
 	if t.trace != nil {
 		t.trace.events = append(t.trace.events, "built")
 	}
 	if t.build != nil {
-		return t.build(command, request)
+		return t.build(command, request, approvalProofJSON)
 	}
 	return testSignedDeploymentCreateCommand(), nil
 }
@@ -280,14 +280,16 @@ func deploymentProvisionTestConfig(now time.Time) Config {
 func testDeploymentProvisionClaim(t *testing.T) DeploymentProvisionClaim {
 	t.Helper()
 	request := DeploymentCreateRequest{
-		DeploymentID:   "deployment-create-0001",
-		PlanRevision:   4,
-		PlanHash:       testDeploymentDigest('a'),
-		QuoteID:        "quote-create-0001",
-		QuoteDigest:    testDeploymentDigest('b'),
-		CandidateID:    "recommended-create-0001",
-		ManifestDigest: testDeploymentDigest('c'),
-		WorkerArtifact: WorkerArtifactReferenceV1{Kind: "ami", AMIID: "ami-0123456789abcdef0"},
+		Schema:                 DeploymentCreateSchema,
+		DeploymentID:           "deployment-create-0001",
+		ConnectionGeneration:   1,
+		PlanRevision:           4,
+		PlanHash:               testDeploymentDigest('a'),
+		QuoteID:                "quote-create-0001",
+		QuoteDigest:            testDeploymentDigest('b'),
+		CandidateID:            "recommended-create-0001",
+		ResourceManifestDigest: testDeploymentDigest('c'),
+		WorkerArtifact:         WorkerArtifactReferenceV1{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
 		Network: DeploymentNetworkReference{
 			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a",
 		},
@@ -307,6 +309,7 @@ func testDeploymentProvisionClaim(t *testing.T) DeploymentProvisionClaim {
 		Region:             "us-east-1",
 		PlanRevision:       int64(request.PlanRevision),
 		QuoteValidUntil:    time.Date(2026, time.July, 14, 12, 15, 0, 0, time.UTC),
+		ApprovalProofJSON:  `{"approval_id":"approval-create-0001"}`,
 		BrokerEndpoint:     "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com/prod/v2/commands",
 		ExpectedGeneration: 1,
 		NodeKeyID:          "node-key-1",

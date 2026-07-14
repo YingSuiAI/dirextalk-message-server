@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,6 +185,93 @@ func TestRequestConnectionRegistrationRejectsChangedPersistedEnvelopeBeforeNetwo
 	}
 }
 
+func TestBuildDeploymentCreateCommandBindsFixedRequestAndPrivateProof(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	transport, err := New(privateKey, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testDeploymentCreateRequest(t)
+	digest, err := request.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofJSON, err := json.Marshal(testDeploymentApprovalProof(t, now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := runtime.DeploymentCreateCommand{
+		CommandID: "command-deployment-0001", DeploymentID: request.DeploymentID, ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1",
+		ExpectedGeneration: request.ConnectionGeneration, NodeCounter: 7, Attempt: 1, RequestDigest: digest,
+	}
+	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signed.RequestSHA256 == signed.PayloadSHA256 || len(signed.RequestSHA256) != 64 || signed.IssuedAt != now || signed.ExpiresAt != now.Add(commandLifetime) {
+		t.Fatalf("signed deployment command identity = %#v", signed)
+	}
+	if strings.Contains(signed.PayloadJSON, "approval") {
+		t.Fatalf("approval proof leaked into fixed deployment payload: %s", signed.PayloadJSON)
+	}
+	parsed, err := broker.ParseDeploymentCommand([]byte(signed.EnvelopeJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ConnectionID != logical.ConnectionID || parsed.CommandID != logical.CommandID || parsed.NodeKeyID != logical.NodeKeyID ||
+		parsed.ExpectedGeneration != logical.ExpectedGeneration || parsed.NodeCounter != logical.NodeCounter ||
+		parsed.RequestSHA256() != signed.RequestSHA256 || parsed.PayloadSHA256 != signed.PayloadSHA256 || parsed.ApprovalProof.ApprovalID == "" {
+		t.Fatalf("parsed deployment command does not bind logical identity: %#v", parsed)
+	}
+	decoded, err := parsed.DeploymentRequest()
+	if err != nil || !reflect.DeepEqual(decoded, deploymentRequest(request)) {
+		t.Fatalf("decoded deployment request=%#v err=%v", decoded, err)
+	}
+}
+
+func TestRequestDeploymentCreateRejectsChangedPersistedEnvelopeBeforeNetwork(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	transport, err := New(privateKey, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testDeploymentCreateRequest(t)
+	digest, err := request.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofJSON, err := json.Marshal(testDeploymentApprovalProof(t, now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := runtime.DeploymentCreateCommand{
+		CommandID: "command-deployment-0001", DeploymentID: request.DeploymentID, ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1",
+		ExpectedGeneration: request.ConnectionGeneration, NodeCounter: 7, Attempt: 1, RequestDigest: digest,
+	}
+	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical.PayloadJSON = signed.PayloadJSON
+	logical.PayloadSHA256 = signed.PayloadSHA256
+	logical.RequestSHA256 = signed.RequestSHA256
+	logical.SignedEnvelope = signed.EnvelopeJSON
+	logical.IssuedAt = signed.IssuedAt
+	logical.ExpiresAt = signed.ExpiresAt
+	signed.PayloadJSON += " "
+	if _, err := transport.RequestDeploymentCreate(context.Background(), "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com/prod/v2/commands", logical, signed, request); err == nil {
+		t.Fatal("modified persisted deployment payload must be rejected before any HTTP request")
+	}
+}
+
 func testQuoteRequest(t *testing.T) cloudcontracts.QuoteRequestV1 {
 	t.Helper()
 	request := cloudcontracts.QuoteRequestV1{
@@ -211,4 +300,53 @@ func testConnectionRegistrationRequest(t *testing.T) runtime.ConnectionRegistrat
 		t.Fatal(err)
 	}
 	return request
+}
+
+func testDeploymentCreateRequest(t *testing.T) runtime.DeploymentCreateRequest {
+	t.Helper()
+	request := runtime.DeploymentCreateRequest{
+		Schema:                 runtime.DeploymentCreateSchema,
+		DeploymentID:           "deployment-create-0001",
+		ConnectionGeneration:   2,
+		PlanHash:               transportNamedDigest('a'),
+		PlanRevision:           4,
+		QuoteID:                "quote-create-0001",
+		QuoteDigest:            transportNamedDigest('b'),
+		CandidateID:            "candidate-create-0001",
+		ResourceManifestDigest: transportNamedDigest('c'),
+		WorkerArtifact:         runtime.WorkerArtifactReferenceV1{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
+		Network:                runtime.DeploymentNetworkReference{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a"},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func testDeploymentApprovalProof(t *testing.T, now time.Time) cloudcontracts.ApprovalV1 {
+	t.Helper()
+	proof := cloudcontracts.ApprovalV1{
+		SchemaVersion: cloudcontracts.SchemaVersionV1, ApprovalID: "approval-create-0001", ChallengeID: "challenge-create-0001", SignerKeyID: "device-key-1",
+		PlanID: "plan-create-0001", PlanHash: transportNamedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: transportNamedDigest('b'),
+		QuoteValidUntil: now.Add(10 * time.Minute), CloudConnectionID: "connection-create-0001", RecipeDigest: transportNamedDigest('d'),
+		ResourceScope: cloudcontracts.ResourceScopeV1{
+			Region: "us-east-1", AvailabilityZones: []string{"us-east-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64,
+			VCPU: 4, MemoryMiB: 16384, DiskGiB: 80, PurchaseOption: cloudcontracts.PurchaseOnDemand,
+		},
+		NetworkScope: cloudcontracts.NetworkScopeV1{PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone, TLSRequired: false, AuthenticationRequired: false},
+		ExpiresAt:    now.Add(5 * time.Minute),
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := proof.Sign(privateKey, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+func transportNamedDigest(character rune) string {
+	return "sha256:" + strings.Repeat(string(character), 64)
 }

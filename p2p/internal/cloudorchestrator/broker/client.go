@@ -40,7 +40,8 @@ type ClientOptions struct {
 }
 
 // Client is a narrow HTTPS-only Connection Stack V2 client. It exposes only
-// the fixed quote.request and connection.registration.verify commands.
+// the fixed quote.request, connection.registration.verify and private
+// approval-bound deployment.create commands.
 type Client struct {
 	endpoint         *url.URL
 	httpClient       *http.Client

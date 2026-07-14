@@ -19,7 +19,13 @@ import (
 // a public ProductCore or MCP message.
 const DeploymentProvisionRequested = cloudmodule.OutboxKindDeploymentProvisionRequested
 
-const deploymentReceiptSchema = "dirextalk.aws.deployment-receipt/v1"
+const (
+	// DeploymentCreateSchema is the closed, Stack-owned payload contract for
+	// deployment.create. It is intentionally distinct from the generic command
+	// envelope schema.
+	DeploymentCreateSchema  = "dirextalk.aws.deployment-create/v1"
+	deploymentReceiptSchema = "dirextalk.aws.deployment-receipt/v1"
+)
 
 var (
 	deploymentDigestPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -38,16 +44,21 @@ var (
 // QuoteValidUntil is rechecked immediately before signing or network I/O so a
 // disconnected runner cannot purchase from an expired user-approved quote.
 type DeploymentProvisionClaim struct {
-	OutboxID           string
-	Kind               string
-	AggregateType      string
-	AggregateID        string
-	DeploymentID       string
-	PlanID             string
-	ConnectionID       string
-	Region             string
-	PlanRevision       int64
-	QuoteValidUntil    time.Time
+	OutboxID        string
+	Kind            string
+	AggregateType   string
+	AggregateID     string
+	DeploymentID    string
+	PlanID          string
+	ConnectionID    string
+	Region          string
+	PlanRevision    int64
+	QuoteValidUntil time.Time
+	// ApprovalProofJSON is the exact, already device-signed ApprovalV1 JSON
+	// read from the private approved-plan record. It is never projected by
+	// ProductCore, emitted in events, or persisted separately by this runner:
+	// the signed Broker envelope is the single durable private copy.
+	ApprovalProofJSON  string
 	BrokerEndpoint     string
 	ExpectedGeneration int64
 	NodeKeyID          string
@@ -68,15 +79,19 @@ type DeploymentProvisionClaim struct {
 // PlanRevision are the approval keys. The durable Store binds that hash to the
 // private Plan row before it creates this request.
 type DeploymentCreateRequest struct {
-	DeploymentID   string                     `json:"deployment_id"`
-	PlanHash       string                     `json:"plan_hash"`
-	PlanRevision   uint64                     `json:"plan_revision"`
-	QuoteID        string                     `json:"quote_id"`
-	QuoteDigest    string                     `json:"quote_digest"`
-	CandidateID    string                     `json:"candidate_id"`
-	ManifestDigest string                     `json:"manifest_digest"`
-	WorkerArtifact WorkerArtifactReferenceV1  `json:"worker_artifact"`
-	Network        DeploymentNetworkReference `json:"network"`
+	// Keep declaration order in lockstep with the Connection Stack's
+	// canonical JSON field order. json.Marshal preserves this declaration order.
+	Schema                 string                     `json:"schema"`
+	DeploymentID           string                     `json:"deployment_id"`
+	ConnectionGeneration   int64                      `json:"connection_generation"`
+	PlanHash               string                     `json:"plan_hash"`
+	PlanRevision           uint64                     `json:"plan_revision"`
+	QuoteID                string                     `json:"quote_id"`
+	QuoteDigest            string                     `json:"quote_digest"`
+	CandidateID            string                     `json:"candidate_id"`
+	ResourceManifestDigest string                     `json:"resource_manifest_digest"`
+	WorkerArtifact         WorkerArtifactReferenceV1  `json:"worker_artifact"`
+	Network                DeploymentNetworkReference `json:"network"`
 }
 
 // WorkerArtifactReferenceV1 can name only the fixed base AMI selected through
@@ -99,10 +114,10 @@ type DeploymentNetworkReference struct {
 // closed shape makes later ingress, secret, cost, or Worker-session changes a
 // new reviewed contract rather than an invisible optional field.
 func (request DeploymentCreateRequest) Validate() error {
-	if !validResearchIdentifier("deployment_id", request.DeploymentID) || request.PlanRevision == 0 ||
+	if request.Schema != DeploymentCreateSchema || !validResearchIdentifier("deployment_id", request.DeploymentID) || !safeDeploymentGeneration(request.ConnectionGeneration) || request.PlanRevision == 0 ||
 		!deploymentDigestPattern.MatchString(request.PlanHash) || !validResearchIdentifier("quote_id", request.QuoteID) ||
 		!deploymentDigestPattern.MatchString(request.QuoteDigest) || !validResearchIdentifier("candidate_id", request.CandidateID) ||
-		!deploymentDigestPattern.MatchString(request.ManifestDigest) || request.WorkerArtifact.Kind != "ami" ||
+		!deploymentDigestPattern.MatchString(request.ResourceManifestDigest) || request.WorkerArtifact.Kind != "fixed_ami" ||
 		!ec2AMIIdentifierPattern.MatchString(request.WorkerArtifact.AMIID) || !ec2VPCIdentifierPattern.MatchString(request.Network.VPCID) ||
 		!ec2SubnetIdentifierPattern.MatchString(request.Network.SubnetID) || !deploymentAvailabilityZone.MatchString(request.Network.AvailabilityZone) {
 		return errors.New("deployment create request is invalid")
@@ -120,13 +135,15 @@ func (request DeploymentCreateRequest) Digest() (string, error) {
 	hash := sha256.New()
 	parts := []string{
 		"dirextalk.cloud.deployment-create-request/v1",
+		request.Schema,
 		request.DeploymentID,
+		fmt.Sprint(request.ConnectionGeneration),
 		request.PlanHash,
 		fmt.Sprint(request.PlanRevision),
 		request.QuoteID,
 		request.QuoteDigest,
 		request.CandidateID,
-		request.ManifestDigest,
+		request.ResourceManifestDigest,
 		request.WorkerArtifact.Kind,
 		request.WorkerArtifact.AMIID,
 		request.Network.VPCID,
@@ -207,7 +224,7 @@ type DeploymentProvisionStore interface {
 // Broker command. It has no AWS SDK, generic action, credential, or Worker
 // session API.
 type DeploymentProvisionTransport interface {
-	BuildDeploymentCreateCommand(DeploymentCreateCommand, DeploymentCreateRequest) (SignedDeploymentCreateCommand, error)
+	BuildDeploymentCreateCommand(DeploymentCreateCommand, DeploymentCreateRequest, string) (SignedDeploymentCreateCommand, error)
 	RequestDeploymentCreate(context.Context, string, DeploymentCreateCommand, SignedDeploymentCreateCommand, DeploymentCreateRequest) (BrokerDeployment, error)
 }
 
@@ -240,14 +257,14 @@ func DeploymentProvisionRetryable(code string, cause error) error {
 func validateDeploymentProvisionClaim(claim DeploymentProvisionClaim) error {
 	if claim.Kind != DeploymentProvisionRequested || claim.AggregateType != "deployment" || claim.OutboxID == "" || claim.AggregateID != claim.DeploymentID ||
 		!validResearchIdentifier("deployment_id", claim.DeploymentID) || !validResearchIdentifier("plan_id", claim.PlanID) || !validResearchIdentifier("cloud_connection_id", claim.ConnectionID) ||
-		!cloudRegion(claim.Region) || claim.PlanRevision <= 0 || claim.QuoteValidUntil.IsZero() || claim.BrokerEndpoint == "" || !cloudKeyIdentifier(claim.NodeKeyID) ||
+		!cloudRegion(claim.Region) || claim.PlanRevision <= 0 || claim.QuoteValidUntil.IsZero() || strings.TrimSpace(claim.ApprovalProofJSON) == "" || claim.BrokerEndpoint == "" || !cloudKeyIdentifier(claim.NodeKeyID) ||
 		claim.ExpectedGeneration <= 0 || !validResearchIdentifier("job_id", claim.JobID) || claim.LeaseToken == "" {
 		return errors.New("deployment provision claim is invalid")
 	}
 	if err := cloudmodule.ValidateConnectionRegistrationEndpoint(claim.BrokerEndpoint, claim.Region); err != nil {
 		return errors.New("deployment provision endpoint is invalid")
 	}
-	if err := claim.Request.Validate(); err != nil || claim.Request.DeploymentID != claim.DeploymentID || claim.Request.PlanRevision != uint64(claim.PlanRevision) ||
+	if err := claim.Request.Validate(); err != nil || claim.Request.DeploymentID != claim.DeploymentID || claim.Request.ConnectionGeneration != claim.ExpectedGeneration || claim.Request.PlanRevision != uint64(claim.PlanRevision) ||
 		!strings.HasPrefix(claim.Request.Network.AvailabilityZone, claim.Region) {
 		return errors.New("deployment create request does not bind the claim")
 	}
@@ -258,6 +275,10 @@ func validateDeploymentProvisionClaim(claim DeploymentProvisionClaim) error {
 		return errors.New("deployment create command does not bind the claim")
 	}
 	return nil
+}
+
+func safeDeploymentGeneration(value int64) bool {
+	return value > 0 && value <= 9007199254740991 // JavaScript Number.MAX_SAFE_INTEGER
 }
 
 func validateSignedDeploymentCreateCommand(command DeploymentCreateCommand, signed SignedDeploymentCreateCommand) error {
