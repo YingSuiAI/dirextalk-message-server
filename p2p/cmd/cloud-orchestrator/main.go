@@ -240,9 +240,12 @@ func run(ctx context.Context, config commandConfig) error {
 	registrationRunner := runtime.NewConnectionRegistrationRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
-	deploymentRunner := runtime.NewDeploymentProvisionRunner(store, brokerTransport, runtime.Config{
-		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
-	})
+	// The Connection Stack has no Worker bootstrap-session claim/events API
+	// yet. Do not construct or run the EC2 provisioner behind a configuration
+	// switch: until that closed Worker session boundary exists, a provision
+	// outbox must remain unclaimed and no deployment.create command may leave
+	// this process. Runner unit tests exercise the later execution path directly.
+	var deploymentRunner iterationRunner
 	if config.once {
 		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner); err != nil {
 			return errIterationFailed
@@ -281,7 +284,11 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
-	deployed, deploymentErr := deploymentRunner.RunOnce(ctx)
+	var deployed bool
+	var deploymentErr error
+	if deploymentRunner != nil {
+		deployed, deploymentErr = deploymentRunner.RunOnce(ctx)
+	}
 	return researched || registered || quoted || deployed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr)
 }
 

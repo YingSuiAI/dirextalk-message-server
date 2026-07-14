@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,37 +118,70 @@ func TestStoreDeploymentProvisionReplaysIndeterminateCommandAndOnlyExpiryAllocat
 	}
 }
 
-func TestStoreDeploymentProvisionExpiredQuoteFailsWithoutCreatingPrivateResource(t *testing.T) {
-	now, database, store, claim := prepareProvisionClaimWithProvisionDelay(t, 14*time.Minute, 2*time.Minute)
-	store.cfg.Now = func() time.Time { return claim.QuoteValidUntil }
-	if !claim.QuoteValidUntil.After(now) {
-		t.Fatal("test precondition: quote must initially be valid")
+func TestStoreDeploymentProvisionPlanExpiryFailsWithoutCreatingPrivateResource(t *testing.T) {
+	for _, code := range []string{runtime.DeploymentProvisionQuoteExpired, runtime.DeploymentProvisionApprovalExpired} {
+		t.Run(code, func(t *testing.T) {
+			now, database, store, claim := prepareProvisionClaimWithProvisionDelay(t, 14*time.Minute, 2*time.Minute)
+			store.cfg.Now = func() time.Time { return claim.QuoteValidUntil }
+			if !claim.QuoteValidUntil.After(now) {
+				t.Fatal("test precondition: quote must initially be valid")
+			}
+			if err := store.FailDeploymentProvision(context.Background(), claim, code); err != nil {
+				t.Fatal(err)
+			}
+			var execution, outcome, resource string
+			if err := database.DB().QueryRowContext(context.Background(), `
+				SELECT execution_status, outcome_status, resource_status FROM p2p_cloud_deployments WHERE deployment_id = $1
+			`, claim.DeploymentID).Scan(&execution, &outcome, &resource); err != nil {
+				t.Fatal(err)
+			}
+			if execution != "finished" || outcome != "failed" || resource != "none" {
+				t.Fatalf("expired plan deployment state = execution:%q outcome:%q resource:%q", execution, outcome, resource)
+			}
+			var planStatus string
+			if err := database.DB().QueryRowContext(context.Background(), `SELECT status FROM p2p_cloud_plans WHERE plan_id = $1`, claim.PlanID).Scan(&planStatus); err != nil {
+				t.Fatal(err)
+			}
+			if planStatus != "expired" {
+				t.Fatalf("expired plan status = %q", planStatus)
+			}
+			var resourceCount int
+			if err := database.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM p2p_cloud_deployment_resources WHERE deployment_id = $1`, claim.DeploymentID).Scan(&resourceCount); err != nil {
+				t.Fatal(err)
+			}
+			if resourceCount != 0 {
+				t.Fatalf("expired plan must not create a private resource record, got %d", resourceCount)
+			}
+		})
 	}
-	if err := store.FailDeploymentProvision(context.Background(), claim, "quote_expired_before_provision"); err != nil {
-		t.Fatal(err)
-	}
-	var execution, outcome, resource string
-	if err := database.DB().QueryRowContext(context.Background(), `
-		SELECT execution_status, outcome_status, resource_status FROM p2p_cloud_deployments WHERE deployment_id = $1
-	`, claim.DeploymentID).Scan(&execution, &outcome, &resource); err != nil {
-		t.Fatal(err)
-	}
-	if execution != "finished" || outcome != "failed" || resource != "none" {
-		t.Fatalf("expired quote deployment state = execution:%q outcome:%q resource:%q", execution, outcome, resource)
-	}
-	var planStatus string
-	if err := database.DB().QueryRowContext(context.Background(), `SELECT status FROM p2p_cloud_plans WHERE plan_id = $1`, claim.PlanID).Scan(&planStatus); err != nil {
-		t.Fatal(err)
-	}
-	if planStatus != "expired" {
-		t.Fatalf("expired quote plan status = %q", planStatus)
-	}
-	var resourceCount int
-	if err := database.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM p2p_cloud_deployment_resources WHERE deployment_id = $1`, claim.DeploymentID).Scan(&resourceCount); err != nil {
-		t.Fatal(err)
-	}
-	if resourceCount != 0 {
-		t.Fatalf("expired quote must not create a private resource record, got %d", resourceCount)
+}
+
+func TestStoreDeploymentProvisionRejectsDriftedValidityBound(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		drift func(*runtime.DeploymentProvisionClaim)
+	}{
+		{name: "quote", drift: func(claim *runtime.DeploymentProvisionClaim) {
+			claim.QuoteValidUntil = claim.QuoteValidUntil.Add(time.Millisecond)
+		}},
+		{name: "approval", drift: func(claim *runtime.DeploymentProvisionClaim) {
+			claim.ApprovalValidUntil = claim.ApprovalValidUntil.Add(time.Millisecond)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, database, store, claim := prepareProvisionClaim(t)
+			test.drift(&claim)
+			if err := store.FailDeploymentProvision(context.Background(), claim, runtime.DeploymentProvisionApprovalExpired); !errors.Is(err, ErrLeaseLost) {
+				t.Fatalf("drifted validity error = %v, want %v", err, ErrLeaseLost)
+			}
+			var planStatus string
+			if err := database.DB().QueryRowContext(context.Background(), `SELECT status FROM p2p_cloud_plans WHERE plan_id = $1`, claim.PlanID).Scan(&planStatus); err != nil {
+				t.Fatal(err)
+			}
+			if planStatus != "approved" {
+				t.Fatalf("drifted claim must not expire the plan, status=%q", planStatus)
+			}
+		})
 	}
 }
 
@@ -301,7 +335,7 @@ func signedDeploymentCreateCommand(t *testing.T, claim runtime.DeploymentProvisi
 	if err != nil {
 		t.Fatal(err)
 	}
-	signed, err := transport.BuildDeploymentCreateCommand(claim.Command, claim.Request, claim.ApprovalProofJSON)
+	signed, err := transport.BuildDeploymentCreateCommand(claim.Command, claim.Request, claim.ApprovalProofJSON, claim.QuoteValidUntil)
 	if err != nil {
 		t.Fatal(err)
 	}

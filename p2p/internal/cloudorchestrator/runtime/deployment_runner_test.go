@@ -38,6 +38,9 @@ func TestDeploymentProvisionRunnerPersistsExactEnvelopeBeforeBrokerCreate(t *tes
 	if len(store.persisted) != 1 || len(store.committed) != 1 || len(store.deferred) != 0 || len(store.expired) != 0 || len(store.failed) != 0 {
 		t.Fatalf("provision settlement = persisted:%#v committed:%#v deferred:%#v expired:%#v failed:%#v", store.persisted, store.committed, store.deferred, store.expired, store.failed)
 	}
+	if len(transport.built) != 1 || !transport.built[0].quoteValidUntil.Equal(claim.QuoteValidUntil) {
+		t.Fatalf("create envelope must use the claim-bound quote expiry: builds=%#v quote_valid_until=%s", transport.built, claim.QuoteValidUntil)
+	}
 }
 
 func TestDeploymentProvisionRunnerReplaysPersistedEnvelopeAfterIndeterminateFailure(t *testing.T) {
@@ -126,6 +129,52 @@ func TestDeploymentProvisionRunnerDoesNotSignOrSendExpiredQuote(t *testing.T) {
 	}
 }
 
+func TestDeploymentProvisionRunnerDoesNotSignOrSendExpiredApproval(t *testing.T) {
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	claim := testDeploymentProvisionClaim(t)
+	claim.ApprovalValidUntil = now
+	store := &fakeDeploymentProvisionStore{claims: []DeploymentProvisionClaim{claim}}
+	transport := &fakeDeploymentProvisionTransport{}
+	runner := NewDeploymentProvisionRunner(store, transport, deploymentProvisionTestConfig(now))
+
+	processed, err := runner.RunOnce(context.Background())
+	if err != nil || !processed {
+		t.Fatalf("RunOnce = processed:%v err:%v", processed, err)
+	}
+	if len(store.failed) != 1 || store.failed[0].code != DeploymentProvisionApprovalExpired || len(store.started) != 0 || len(transport.built) != 0 || len(transport.requests) != 0 {
+		t.Fatalf("expired approval must not start, sign, or send: failed=%#v started=%#v builds=%#v requests=%#v", store.failed, store.started, transport.built, transport.requests)
+	}
+}
+
+func TestDeploymentProvisionRunnerTreatsStackPlanExpiryAsKnownNoCreate(t *testing.T) {
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name string
+		code string
+	}{
+		{name: "quote", code: DeploymentProvisionQuoteExpired},
+		{name: "approval", code: DeploymentProvisionApprovalExpired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			claim := testDeploymentProvisionClaim(t)
+			store := &fakeDeploymentProvisionStore{claims: []DeploymentProvisionClaim{claim}}
+			transport := &fakeDeploymentProvisionTransport{}
+			transport.request = func(context.Context, string, DeploymentCreateCommand, SignedDeploymentCreateCommand, DeploymentCreateRequest) (BrokerDeployment, error) {
+				return BrokerDeployment{}, DeploymentProvisionPlanExpired(test.code, errors.New(test.code))
+			}
+			runner := NewDeploymentProvisionRunner(store, transport, deploymentProvisionTestConfig(now))
+
+			processed, err := runner.RunOnce(context.Background())
+			if err != nil || !processed {
+				t.Fatalf("RunOnce = processed:%v err:%v", processed, err)
+			}
+			if len(store.failed) != 1 || store.failed[0].code != test.code || len(store.deferred) != 0 || len(store.committed) != 0 {
+				t.Fatalf("Stack plan expiry must be a known no-create failure: failed=%#v deferred=%#v committed=%#v", store.failed, store.deferred, store.committed)
+			}
+		})
+	}
+}
+
 func TestDeploymentProvisionRunnerExpiresOnlyExplicitBrokerExpiredCommand(t *testing.T) {
 	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	claim := testDeploymentProvisionClaim(t)
@@ -210,8 +259,8 @@ type fakeDeploymentProvisionTransport struct {
 	trace    *deploymentTrace
 }
 
-func (t *fakeDeploymentProvisionTransport) BuildDeploymentCreateCommand(command DeploymentCreateCommand, request DeploymentCreateRequest, approvalProofJSON string) (SignedDeploymentCreateCommand, error) {
-	t.built = append(t.built, deploymentBuildRecord{command: command, request: request})
+func (t *fakeDeploymentProvisionTransport) BuildDeploymentCreateCommand(command DeploymentCreateCommand, request DeploymentCreateRequest, approvalProofJSON string, quoteValidUntil time.Time) (SignedDeploymentCreateCommand, error) {
+	t.built = append(t.built, deploymentBuildRecord{command: command, request: request, quoteValidUntil: quoteValidUntil})
 	if t.trace != nil {
 		t.trace.events = append(t.trace.events, "built")
 	}
@@ -235,8 +284,9 @@ func (t *fakeDeploymentProvisionTransport) RequestDeploymentCreate(ctx context.C
 type deploymentTrace struct{ events []string }
 
 type deploymentBuildRecord struct {
-	command DeploymentCreateCommand
-	request DeploymentCreateRequest
+	command         DeploymentCreateCommand
+	request         DeploymentCreateRequest
+	quoteValidUntil time.Time
 }
 
 type deploymentRequestRecord struct {
@@ -309,6 +359,7 @@ func testDeploymentProvisionClaim(t *testing.T) DeploymentProvisionClaim {
 		Region:             "us-east-1",
 		PlanRevision:       int64(request.PlanRevision),
 		QuoteValidUntil:    time.Date(2026, time.July, 14, 12, 15, 0, 0, time.UTC),
+		ApprovalValidUntil: time.Date(2026, time.July, 14, 12, 10, 0, 0, time.UTC),
 		ApprovalProofJSON:  `{"approval_id":"approval-create-0001"}`,
 		BrokerEndpoint:     "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com/prod/v2/commands",
 		ExpectedGeneration: 1,

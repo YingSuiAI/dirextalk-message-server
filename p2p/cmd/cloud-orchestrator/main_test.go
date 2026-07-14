@@ -112,6 +112,20 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	}
 }
 
+func TestRunIterationAllowsProvisioningToRemainDisabledWithoutWorkerBootstrap(t *testing.T) {
+	research := &recordingIterationRunner{processed: true}
+	registration := &recordingIterationRunner{processed: true}
+	quote := &recordingIterationRunner{processed: true}
+
+	processed, err := runIteration(t.Context(), research, registration, quote, nil)
+	if err != nil || !processed {
+		t.Fatalf("iteration = processed:%v err:%v", processed, err)
+	}
+	if research.calls != 1 || registration.calls != 1 || quote.calls != 1 {
+		t.Fatalf("enabled work must continue while provisioning is disabled: research=%d registration=%d quote=%d", research.calls, registration.calls, quote.calls)
+	}
+}
+
 type recordingIterationRunner struct {
 	processed bool
 	err       error

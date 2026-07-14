@@ -145,6 +145,7 @@ func (s *Store) ClaimDeploymentProvision(ctx context.Context, workerID string, l
 		return runtime.DeploymentProvisionClaim{}, false, errors.New("first deployment provision does not permit public ingress")
 	}
 	claim.QuoteValidUntil = time.UnixMilli(quoteValidUntil).UTC()
+	claim.ApprovalValidUntil = approval.ExpiresAt.UTC()
 	claim.ApprovalProofJSON = proofJSON
 	claim.JobID, err = provisionJobID(ctx, s.db, claim.DeploymentID)
 	if err != nil {
@@ -344,7 +345,7 @@ func (s *Store) ExpireDeploymentCreateCommand(ctx context.Context, claim runtime
 
 func (s *Store) FailDeploymentProvision(ctx context.Context, claim runtime.DeploymentProvisionClaim, code string) error {
 	code = durableErrorCode(code, "deployment_provision_transport_failed")
-	knownNoCreate := code == "quote_expired_before_provision" || code == "invalid_deployment_provision_claim"
+	knownNoCreate := code == runtime.DeploymentProvisionQuoteExpired || code == runtime.DeploymentProvisionApprovalExpired || code == "invalid_deployment_provision_claim"
 	return s.withDeploymentProvisionClaimTransaction(ctx, claim, func(tx *sql.Tx, now int64) error {
 		resource := "orphaned"
 		checkpoint := "provision_uncertain"
@@ -374,8 +375,8 @@ func (s *Store) FailDeploymentProvision(ctx context.Context, claim runtime.Deplo
 		if err := requireOneAffected(result); err != nil {
 			return err
 		}
-		if code == "quote_expired_before_provision" {
-			if err := expireApprovedProvisionPlan(ctx, tx, claim.PlanID, now); err != nil {
+		if code == runtime.DeploymentProvisionQuoteExpired || code == runtime.DeploymentProvisionApprovalExpired {
+			if err := expireApprovedProvisionPlan(ctx, tx, claim.PlanID, now, code); err != nil {
 				return err
 			}
 		}
@@ -632,7 +633,7 @@ func verifyDeploymentProvisionClaimFence(ctx context.Context, tx *sql.Tx, claim 
 		workerKind != claim.Request.WorkerArtifact.Kind || workerAMI != claim.Request.WorkerArtifact.AMIID || workerVPC != claim.Request.Network.VPCID || workerSubnet != claim.Request.Network.SubnetID ||
 		workerAZ != claim.Request.Network.AvailabilityZone || workerManifest != claim.Request.ResourceManifestDigest || approvalID != proof.ApprovalID || approvalPlanRevision != claim.PlanRevision || approvalStatus != "approved" ||
 		proofJSON != claim.ApprovalProofJSON || proof.PlanHash != planHash || claim.Request.PlanHash != planHash || claim.Request.QuoteID != quoteID || claim.Request.QuoteDigest != quoteDigest ||
-		claim.QuoteValidUntil.UnixMilli() != quoteValidUntil || claim.Request.ConnectionGeneration != generation {
+		claim.QuoteValidUntil.UnixMilli() != quoteValidUntil || claim.QuoteValidUntil.UTC().UnixMilli() != proof.QuoteValidUntil.UTC().UnixMilli() || claim.ApprovalValidUntil.UTC().UnixMilli() != proof.ExpiresAt.UTC().UnixMilli() || claim.Request.ConnectionGeneration != generation {
 		return ErrLeaseLost
 	}
 	return nil
@@ -719,7 +720,7 @@ func completeDeploymentProvisionOutbox(ctx context.Context, tx *sql.Tx, claim ru
 	return requireOneAffected(result)
 }
 
-func expireApprovedProvisionPlan(ctx context.Context, tx *sql.Tx, planID string, now int64) error {
+func expireApprovedProvisionPlan(ctx context.Context, tx *sql.Tx, planID string, now int64, reason string) error {
 	var goalID, status, title, summary, connectionID, recipeDigest, quoteID, planHash string
 	var revision, createdAt int64
 	if err := tx.QueryRowContext(ctx, `
@@ -746,7 +747,7 @@ func expireApprovedProvisionPlan(ctx context.Context, tx *sql.Tx, planID string,
 		return err
 	}
 	return writeEventAndProjection(ctx, tx,
-		stableID("cloud_event_", planID, fmt.Sprint(nextRevision), "quote_expired_before_provision"),
+		stableID("cloud_event_", planID, fmt.Sprint(nextRevision), reason),
 		"cloud.plan.changed", "plan", planID, nextRevision, map[string]any{
 			"plan_id": planID, "goal_id": goalID, "cloud_connection_id": connectionID, "status": "expired",
 			"title": title, "summary": summary, "recipe_digest": recipeDigest, "quote_id": quoteID, "plan_hash": planHash,

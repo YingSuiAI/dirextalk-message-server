@@ -186,8 +186,11 @@ func (t *Transport) RequestConnectionRegistration(ctx context.Context, endpoint 
 // BuildDeploymentCreateCommand signs one exact approval-bound create command.
 // ApprovalProofJSON is read only from the private approved-plan record and is
 // serialized only inside the returned durable Broker envelope; it never enters
-// ProductCore, event payloads or logs.
-func (t *Transport) BuildDeploymentCreateCommand(command runtime.DeploymentCreateCommand, request runtime.DeploymentCreateRequest, approvalProofJSON string) (runtime.SignedDeploymentCreateCommand, error) {
+// ProductCore, event payloads or logs. quoteValidUntil is the independently
+// durable quote boundary; approval expiry is always derived directly from the
+// parsed signed ApprovalV1 so a caller cannot lengthen a billable envelope by
+// passing a separate, drifted timestamp.
+func (t *Transport) BuildDeploymentCreateCommand(command runtime.DeploymentCreateCommand, request runtime.DeploymentCreateRequest, approvalProofJSON string, quoteValidUntil time.Time) (runtime.SignedDeploymentCreateCommand, error) {
 	if t == nil || len(t.privateKey) != ed25519.PrivateKeySize {
 		return runtime.SignedDeploymentCreateCommand{}, errors.New("cloud broker node signing key is unavailable")
 	}
@@ -204,7 +207,24 @@ func (t *Transport) BuildDeploymentCreateCommand(command runtime.DeploymentCreat
 		return runtime.SignedDeploymentCreateCommand{}, errors.New("deployment approval proof is invalid")
 	}
 	issuedAt := t.now().UTC().Truncate(time.Millisecond)
+	if !approvalProof.ExpiresAt.After(issuedAt) {
+		return runtime.SignedDeploymentCreateCommand{}, runtime.DeploymentProvisionPlanExpired(runtime.DeploymentProvisionApprovalExpired, errors.New("deployment approval expired before envelope issuance"))
+	}
+	quoteValidUntil = quoteValidUntil.UTC().Truncate(time.Millisecond)
+	if !quoteValidUntil.After(issuedAt) {
+		return runtime.SignedDeploymentCreateCommand{}, runtime.DeploymentProvisionPlanExpired(runtime.DeploymentProvisionQuoteExpired, errors.New("deployment quote expired before envelope issuance"))
+	}
 	expiresAt := issuedAt.Add(commandLifetime)
+	if quoteValidUntil.Before(expiresAt) {
+		expiresAt = quoteValidUntil
+	}
+	approvalExpiresAt := approvalProof.ExpiresAt.UTC().Truncate(time.Millisecond)
+	if approvalExpiresAt.Before(expiresAt) {
+		expiresAt = approvalExpiresAt
+	}
+	if !expiresAt.After(issuedAt) {
+		return runtime.SignedDeploymentCreateCommand{}, runtime.DeploymentProvisionPlanExpired(runtime.DeploymentProvisionApprovalExpired, errors.New("deployment approval leaves no envelope lifetime"))
+	}
 	brokerCommand, err := broker.NewDeploymentCommand(broker.DeploymentCommandInput{
 		ConnectionID: command.ConnectionID, CommandID: command.CommandID, NodeKeyID: command.NodeKeyID,
 		ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, IssuedAt: issuedAt, ExpiresAt: expiresAt,
@@ -487,6 +507,17 @@ func classifyDeploymentBrokerError(err error) error {
 	}
 	if brokerError.Code == "expired_command" {
 		return runtime.DeploymentCreateCommandExpired(err)
+	}
+	if brokerError.Code == "quote_expired" {
+		// The closed Stack contract returns quote_expired before it invokes the
+		// dedicated EC2 provisioner, so this is known-no-create rather than an
+		// indeterminate HTTP failure.
+		return runtime.DeploymentProvisionPlanExpired(runtime.DeploymentProvisionQuoteExpired, err)
+	}
+	if brokerError.Code == "approval_expired" {
+		// Like quote_expired, the Stack consumes/verifies the device proof before
+		// EC2 provisioning and never returns this after a cloud mutation.
+		return runtime.DeploymentProvisionPlanExpired(runtime.DeploymentProvisionApprovalExpired, err)
 	}
 	if brokerError.StatusCode == 429 || brokerError.StatusCode >= 500 {
 		return runtime.DeploymentProvisionRetryable("broker_unavailable", err)

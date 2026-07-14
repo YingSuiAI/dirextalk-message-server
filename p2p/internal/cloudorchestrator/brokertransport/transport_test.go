@@ -208,7 +208,7 @@ func TestBuildDeploymentCreateCommandBindsFixedRequestAndPrivateProof(t *testing
 		CommandID: "command-deployment-0001", DeploymentID: request.DeploymentID, ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1",
 		ExpectedGeneration: request.ConnectionGeneration, NodeCounter: 7, Attempt: 1, RequestDigest: digest,
 	}
-	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON))
+	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON), now.Add(10*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +230,74 @@ func TestBuildDeploymentCreateCommandBindsFixedRequestAndPrivateProof(t *testing
 	decoded, err := parsed.DeploymentRequest()
 	if err != nil || !reflect.DeepEqual(decoded, deploymentRequest(request)) {
 		t.Fatalf("decoded deployment request=%#v err=%v", decoded, err)
+	}
+}
+
+func TestBuildDeploymentCreateCommandClampsExpiryToQuoteAndApproval(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	transport, err := New(privateKey, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testDeploymentCreateRequest(t)
+	digest, err := request.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := runtime.DeploymentCreateCommand{
+		CommandID: "command-deployment-0001", DeploymentID: request.DeploymentID, ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1",
+		ExpectedGeneration: request.ConnectionGeneration, NodeCounter: 7, Attempt: 1, RequestDigest: digest,
+	}
+	for _, test := range []struct {
+		name           string
+		approvalExpiry time.Time
+		quoteExpiry    time.Time
+		wantExpiry     time.Time
+	}{
+		{name: "quote", approvalExpiry: now.Add(2 * time.Minute), quoteExpiry: now.Add(2 * time.Minute), wantExpiry: now.Add(2 * time.Minute)},
+		{name: "approval", approvalExpiry: now.Add(2 * time.Minute), quoteExpiry: now.Add(5 * time.Minute), wantExpiry: now.Add(2 * time.Minute)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			proofJSON, err := json.Marshal(testDeploymentApprovalProofWithValidity(t, now, test.approvalExpiry, test.quoteExpiry))
+			if err != nil {
+				t.Fatal(err)
+			}
+			signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON), test.quoteExpiry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !signed.ExpiresAt.Equal(test.wantExpiry) {
+				t.Fatalf("expires_at = %s, want %s", signed.ExpiresAt, test.wantExpiry)
+			}
+			parsed, err := broker.ParseDeploymentCommand([]byte(signed.EnvelopeJSON))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed.ExpiresAt != test.wantExpiry.Format("2006-01-02T15:04:05.000Z") {
+				t.Fatalf("persisted envelope expires_at = %q, want %q", parsed.ExpiresAt, test.wantExpiry.Format("2006-01-02T15:04:05.000Z"))
+			}
+		})
+	}
+}
+
+func TestClassifyDeploymentBrokerPlanExpiryAsKnownNoCreate(t *testing.T) {
+	for _, test := range []struct {
+		stackCode string
+		wantCode  string
+	}{
+		{stackCode: "quote_expired", wantCode: runtime.DeploymentProvisionQuoteExpired},
+		{stackCode: "approval_expired", wantCode: runtime.DeploymentProvisionApprovalExpired},
+	} {
+		t.Run(test.stackCode, func(t *testing.T) {
+			got, ok := runtime.DeploymentProvisionPlanExpiryCode(classifyDeploymentBrokerError(&broker.Error{Code: test.stackCode, StatusCode: 409}))
+			if !ok || got != test.wantCode {
+				t.Fatalf("classification = code:%q known_no_create:%v, want code:%q", got, ok, test.wantCode)
+			}
+		})
 	}
 }
 
@@ -256,7 +324,7 @@ func TestRequestDeploymentCreateRejectsChangedPersistedEnvelopeBeforeNetwork(t *
 		CommandID: "command-deployment-0001", DeploymentID: request.DeploymentID, ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1",
 		ExpectedGeneration: request.ConnectionGeneration, NodeCounter: 7, Attempt: 1, RequestDigest: digest,
 	}
-	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON))
+	signed, err := transport.BuildDeploymentCreateCommand(logical, request, string(proofJSON), now.Add(10*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,17 +392,21 @@ func testDeploymentCreateRequest(t *testing.T) runtime.DeploymentCreateRequest {
 }
 
 func testDeploymentApprovalProof(t *testing.T, now time.Time) cloudcontracts.ApprovalV1 {
+	return testDeploymentApprovalProofWithValidity(t, now, now.Add(5*time.Minute), now.Add(10*time.Minute))
+}
+
+func testDeploymentApprovalProofWithValidity(t *testing.T, now, expiresAt, quoteValidUntil time.Time) cloudcontracts.ApprovalV1 {
 	t.Helper()
 	proof := cloudcontracts.ApprovalV1{
 		SchemaVersion: cloudcontracts.SchemaVersionV1, ApprovalID: "approval-create-0001", ChallengeID: "challenge-create-0001", SignerKeyID: "device-key-1",
 		PlanID: "plan-create-0001", PlanHash: transportNamedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: transportNamedDigest('b'),
-		QuoteValidUntil: now.Add(10 * time.Minute), CloudConnectionID: "connection-create-0001", RecipeDigest: transportNamedDigest('d'),
+		QuoteValidUntil: quoteValidUntil, CloudConnectionID: "connection-create-0001", RecipeDigest: transportNamedDigest('d'),
 		ResourceScope: cloudcontracts.ResourceScopeV1{
 			Region: "us-east-1", AvailabilityZones: []string{"us-east-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64,
 			VCPU: 4, MemoryMiB: 16384, DiskGiB: 80, PurchaseOption: cloudcontracts.PurchaseOnDemand,
 		},
 		NetworkScope: cloudcontracts.NetworkScopeV1{PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone, TLSRequired: false, AuthenticationRequired: false},
-		ExpiresAt:    now.Add(5 * time.Minute),
+		ExpiresAt:    expiresAt,
 	}
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

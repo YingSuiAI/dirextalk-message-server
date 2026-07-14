@@ -25,6 +25,13 @@ const (
 	// envelope schema.
 	DeploymentCreateSchema  = "dirextalk.aws.deployment-create/v1"
 	deploymentReceiptSchema = "dirextalk.aws.deployment-receipt/v1"
+	// DeploymentProvisionQuoteExpired and DeploymentProvisionApprovalExpired
+	// are terminal, known-no-create outcomes. They are intentionally distinct
+	// from an indeterminate transport failure: the Connection Stack emits them
+	// only before it mutates EC2, and local deadline checks fail before an
+	// envelope is signed or sent.
+	DeploymentProvisionQuoteExpired    = "quote_expired_before_provision"
+	DeploymentProvisionApprovalExpired = "approval_expired_before_provision"
 )
 
 var (
@@ -54,6 +61,10 @@ type DeploymentProvisionClaim struct {
 	Region          string
 	PlanRevision    int64
 	QuoteValidUntil time.Time
+	// ApprovalValidUntil is the approved device proof's expiry. It is private
+	// control-plane data and caps the Broker envelope along with the quote.
+	// It is never sent to ProductCore, MCP, events, or the Worker.
+	ApprovalValidUntil time.Time
 	// ApprovalProofJSON is the exact, already device-signed ApprovalV1 JSON
 	// read from the private approved-plan record. It is never projected by
 	// ProductCore, emitted in events, or persisted separately by this runner:
@@ -224,7 +235,7 @@ type DeploymentProvisionStore interface {
 // Broker command. It has no AWS SDK, generic action, credential, or Worker
 // session API.
 type DeploymentProvisionTransport interface {
-	BuildDeploymentCreateCommand(DeploymentCreateCommand, DeploymentCreateRequest, string) (SignedDeploymentCreateCommand, error)
+	BuildDeploymentCreateCommand(DeploymentCreateCommand, DeploymentCreateRequest, string, time.Time) (SignedDeploymentCreateCommand, error)
 	RequestDeploymentCreate(context.Context, string, DeploymentCreateCommand, SignedDeploymentCreateCommand, DeploymentCreateRequest) (BrokerDeployment, error)
 }
 
@@ -250,6 +261,47 @@ func deploymentCreateCommandExpired(err error) bool {
 	return errors.As(err, &expired)
 }
 
+type deploymentProvisionPlanExpiredError struct {
+	code  string
+	cause error
+}
+
+func (e deploymentProvisionPlanExpiredError) Error() string {
+	if e.cause == nil {
+		return e.code
+	}
+	return e.code + ": " + e.cause.Error()
+}
+
+func (e deploymentProvisionPlanExpiredError) Unwrap() error { return e.cause }
+
+// DeploymentProvisionPlanExpired marks an explicit local or Stack rejection
+// that is guaranteed to occur before an EC2 mutation. Only the two closed
+// expiry codes are accepted so an arbitrary broker error cannot be downgraded
+// from uncertain/orphaned to known-no-create.
+func DeploymentProvisionPlanExpired(code string, cause error) error {
+	if !deploymentProvisionPlanExpiryCode(code) {
+		return fmt.Errorf("invalid deployment plan expiry code %q", code)
+	}
+	return deploymentProvisionPlanExpiredError{code: code, cause: cause}
+}
+
+// DeploymentProvisionPlanExpiryCode unwraps one known-no-create plan expiry
+// result. Callers must still persist the resulting state through the fenced
+// DeploymentProvisionStore rather than treating this process-local error as
+// an authoritative resource fact.
+func DeploymentProvisionPlanExpiryCode(err error) (string, bool) {
+	var expired deploymentProvisionPlanExpiredError
+	if !errors.As(err, &expired) || !deploymentProvisionPlanExpiryCode(expired.code) {
+		return "", false
+	}
+	return expired.code, true
+}
+
+func deploymentProvisionPlanExpiryCode(code string) bool {
+	return code == DeploymentProvisionQuoteExpired || code == DeploymentProvisionApprovalExpired
+}
+
 func DeploymentProvisionRetryable(code string, cause error) error {
 	return retryableError{code: normalizedErrorCode(code, "deployment_provision_retryable"), cause: cause}
 }
@@ -257,7 +309,7 @@ func DeploymentProvisionRetryable(code string, cause error) error {
 func validateDeploymentProvisionClaim(claim DeploymentProvisionClaim) error {
 	if claim.Kind != DeploymentProvisionRequested || claim.AggregateType != "deployment" || claim.OutboxID == "" || claim.AggregateID != claim.DeploymentID ||
 		!validResearchIdentifier("deployment_id", claim.DeploymentID) || !validResearchIdentifier("plan_id", claim.PlanID) || !validResearchIdentifier("cloud_connection_id", claim.ConnectionID) ||
-		!cloudRegion(claim.Region) || claim.PlanRevision <= 0 || claim.QuoteValidUntil.IsZero() || strings.TrimSpace(claim.ApprovalProofJSON) == "" || claim.BrokerEndpoint == "" || !cloudKeyIdentifier(claim.NodeKeyID) ||
+		!cloudRegion(claim.Region) || claim.PlanRevision <= 0 || claim.QuoteValidUntil.IsZero() || claim.ApprovalValidUntil.IsZero() || strings.TrimSpace(claim.ApprovalProofJSON) == "" || claim.BrokerEndpoint == "" || !cloudKeyIdentifier(claim.NodeKeyID) ||
 		claim.ExpectedGeneration <= 0 || !validResearchIdentifier("job_id", claim.JobID) || claim.LeaseToken == "" {
 		return errors.New("deployment provision claim is invalid")
 	}

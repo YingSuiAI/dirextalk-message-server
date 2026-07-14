@@ -65,10 +65,12 @@ func (r *DeploymentProvisionRunner) RunOnce(ctx context.Context) (bool, error) {
 	if err := validateDeploymentProvisionClaim(claim); err != nil {
 		return true, r.store.FailDeploymentProvision(ctx, claim, invalidDeploymentProvisionClaimCode)
 	}
-	if !claim.QuoteValidUntil.After(r.now()) {
-		// A quote can expire while an orchestrator is disconnected or waiting
-		// behind another lease. Never sign or send a billable request from it.
-		return true, r.store.FailDeploymentProvision(ctx, claim, "quote_expired_before_provision")
+	expiryCode := deploymentProvisionExpiryCode(claim, r.now())
+	if expiryCode != "" {
+		// A quote or device approval can expire while the Orchestrator is
+		// disconnected or waiting behind another lease. Never sign or send a
+		// billable request from either expired user-approved boundary.
+		return true, r.store.FailDeploymentProvision(ctx, claim, expiryCode)
 	}
 	if err := r.store.MarkDeploymentProvisionStarted(ctx, claim); err != nil {
 		// Do not send a command if the durable job transition was not fenced.
@@ -80,8 +82,11 @@ func (r *DeploymentProvisionRunner) RunOnce(ctx context.Context) (bool, error) {
 		IssuedAt: claim.Command.IssuedAt, ExpiresAt: claim.Command.ExpiresAt,
 	}
 	if signed.EnvelopeJSON == "" {
-		signed, err = r.transport.BuildDeploymentCreateCommand(claim.Command, claim.Request, claim.ApprovalProofJSON)
+		signed, err = r.transport.BuildDeploymentCreateCommand(claim.Command, claim.Request, claim.ApprovalProofJSON, claim.QuoteValidUntil)
 		if err != nil {
+			if code, knownNoCreate := DeploymentProvisionPlanExpiryCode(err); knownNoCreate {
+				return true, r.store.FailDeploymentProvision(ctx, claim, code)
+			}
 			return true, r.store.FailDeploymentProvision(ctx, claim, invalidDeploymentProvisionClaimCode)
 		}
 		if err := r.store.PersistDeploymentCreateCommand(ctx, claim, signed); err != nil {
@@ -110,6 +115,9 @@ func (r *DeploymentProvisionRunner) RunOnce(ctx context.Context) (bool, error) {
 		return true, r.store.DeferDeploymentProvision(ctx, claim, "deployment_provision_attempt_timed_out", r.now().Add(r.cfg.RetryDelay))
 	}
 	if err != nil {
+		if code, knownNoCreate := DeploymentProvisionPlanExpiryCode(err); knownNoCreate {
+			return true, r.store.FailDeploymentProvision(ctx, claim, code)
+		}
 		if deploymentCreateCommandExpired(err) {
 			return true, r.store.ExpireDeploymentCreateCommand(ctx, claim)
 		}
@@ -125,6 +133,16 @@ func (r *DeploymentProvisionRunner) RunOnce(ctx context.Context) (bool, error) {
 		return true, fmt.Errorf("commit cloud deployment provision: %w", err)
 	}
 	return true, nil
+}
+
+func deploymentProvisionExpiryCode(claim DeploymentProvisionClaim, now time.Time) string {
+	if !claim.QuoteValidUntil.After(now) {
+		return DeploymentProvisionQuoteExpired
+	}
+	if !claim.ApprovalValidUntil.After(now) {
+		return DeploymentProvisionApprovalExpired
+	}
+	return ""
 }
 
 func (r *DeploymentProvisionRunner) now() time.Time {
