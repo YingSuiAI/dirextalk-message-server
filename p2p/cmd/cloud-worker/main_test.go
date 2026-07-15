@@ -30,7 +30,7 @@ func TestParseConfigUsesOnlyStrictWorkerBootstrapInputs(t *testing.T) {
 	if !config.once || config.heartbeatInterval.String() != "15s" || config.expectedConnection != "connection-v2-0001" {
 		t.Fatalf("config = %#v", config)
 	}
-	if config.fixedProbeRecipe || config.recipeCheckpointDir != "" {
+	if config.fixedProbeRecipe || config.ociRecipe || config.recipeCheckpointDir != "" || config.ociCatalogFile != "" || config.workerResourceFile != "" {
 		t.Fatalf("fixed Recipe unexpectedly enabled: %#v", config)
 	}
 	environment[recipeCheckpointDirEnv] = filepath.Join(directory, "checkpoints")
@@ -41,6 +41,22 @@ func TestParseConfigUsesOnlyStrictWorkerBootstrapInputs(t *testing.T) {
 	if enabled, err := parseConfig(nil, func(key string) string { return environment[key] }); err != nil || !enabled.fixedProbeRecipe || enabled.recipeCheckpointDir != environment[recipeCheckpointDirEnv] {
 		t.Fatalf("enabled fixed Recipe config=%#v error=%v", enabled, err)
 	}
+	environment[ociRecipeEnv] = "true"
+	environment[ociCatalogFileEnv] = filepath.Join(directory, "oci-catalog.json")
+	environment[workerResourceFileEnv] = filepath.Join(directory, "worker-resource.json")
+	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
+		t.Fatal("parseConfig() accepted fixed and OCI Recipe gates together")
+	}
+	environment[fixedProbeRecipeEnv] = "false"
+	if enabled, err := parseConfig(nil, func(key string) string { return environment[key] }); err != nil || !enabled.ociRecipe || enabled.fixedProbeRecipe {
+		t.Fatalf("enabled OCI Recipe config=%#v error=%v", enabled, err)
+	}
+	delete(environment, workerResourceFileEnv)
+	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
+		t.Fatal("parseConfig() accepted OCI Recipe without a resource manifest")
+	}
+	delete(environment, ociRecipeEnv)
+	delete(environment, ociCatalogFileEnv)
 	environment[fixedProbeRecipeEnv] = "sometimes"
 	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
 		t.Fatal("parseConfig() accepted an ambiguous fixed Recipe gate")

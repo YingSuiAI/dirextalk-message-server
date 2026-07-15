@@ -645,6 +645,32 @@ stage; later checked workboard sections are the authoritative delivery record.
   analysis, Web release build, secret-canary and diff checks; perform one
   accumulated review, update contracts once, and commit both repositories.
 
+### R. Production-shaped generic OCI Recipe execution
+
+- [x] Add a strict, digest-pinned `OCIServiceBundleV1` and a trusted two-phase
+  compiler. Compile the executable bundle before the Worker catalog exists,
+  then finalize the public artifact only after the catalog-derived Worker
+  resource manifest digest is known; reject every bundle drift on finalize.
+- [x] Add an immutable OCI catalog and Worker resource manifest that bind the
+  measured Worker binary, fixed Podman runtime, bundle digest, action IDs and
+  file-secret destinations. Reject tag, catalog, binary, runtime and approved
+  manifest drift before the Worker can claim a Recipe task.
+- [x] Add an install-only typed root Driver with no shell or generic argv. Use
+  deterministic container identity, fixed checkpoint recovery, loopback-only
+  ports, read-only container mode, dropped capabilities and fixed Podman
+  operations; retry liveness, readiness and semantic probes until timeout.
+- [x] Carry scoped service values only through verified tmpfs files mounted
+  read-only beneath `/run/secrets`. The OCI runtime rejects environment-secret
+  targets because Podman would persist expanded values in container metadata.
+- [x] Add a separate default-off OCI Worker gate. Validate strict root-owned
+  catalog/resource files, the running binary and both bootstrap digests before
+  constructing the Recipe loop. Keep the first-validation external readiness
+  contract fixed until a separately versioned catalog-backed probe is added.
+- [x] Prove compiler-to-catalog-to-Executor-to-Driver execution, restart
+  recovery, drift rejection, zero-claim fail-closed behavior and Linux amd64
+  Worker construction; run one accumulated security/spec review and resolve
+  its secret-persistence, checkpoint and startup-probe findings.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -669,11 +695,11 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Implement the first production-shaped **generic OCI Recipe execution** slice:
-compile one internally trusted, digest-pinned OCI service bundle; bind its
-versioned catalog to the Worker resource manifest; execute it through a typed,
-shell-free root driver; and prove checkpoint recovery, fixed external
-readiness, retained resources and verified destruction through the existing
-approval/task chain. Keep Agent and public MCP research/read-only, keep all
-deployment gates default-off, and do not touch release/deployer scripts. Real
-AWS creation remains behind a fresh Region/specification/price confirmation.
+Build the first versioned **Worker OCI artifact and AMI assembly** entirely in
+Go, register compiler output through the internal Orchestrator boundary, and
+exercise one preloaded validation container through the existing fake
+provider from plan approval to retained resources and verified destruction.
+Then deploy the independently versioned Stack/Worker artifacts to the approved
+test environment. Keep Agent and public MCP research/read-only, all mutation
+gates default-off and release/deployer scripts untouched. Real AWS creation
+still requires a fresh Region, specification and live-price confirmation.

@@ -26,9 +26,16 @@ type RecipeTaskLoop struct {
 	executor  recipeTaskExecutor
 }
 
-func NewRecipeTaskLoop(transport *RecipeTaskClient, resolver *recipeexec.FixedBundleResolver, store recipeexec.CheckpointStore, driver recipeexec.ActionDriver) (*RecipeTaskLoop, error) {
+func NewRecipeTaskLoop(transport *RecipeTaskClient, resolver recipeexec.BundleResolver, store recipeexec.CheckpointStore, driver recipeexec.ActionDriver) (*RecipeTaskLoop, error) {
 	executor := recipeexec.Executor{Resolver: resolver, Store: store, Driver: driver}
-	if transport == nil || resolver == nil || !executor.Configured() {
+	return NewRecipeTaskLoopWithExecutor(transport, executor)
+}
+
+// NewRecipeTaskLoopWithExecutor is the closed production injection point for
+// OCI workers that also require scoped secret materialization. The task loop
+// still refuses to claim work until every executor dependency is configured.
+func NewRecipeTaskLoopWithExecutor(transport *RecipeTaskClient, executor recipeexec.Executor) (*RecipeTaskLoop, error) {
+	if transport == nil || !executor.Configured() {
 		return nil, recipeexec.ErrExecutorConfiguration
 	}
 	return &RecipeTaskLoop{transport: transport, executor: executor}, nil

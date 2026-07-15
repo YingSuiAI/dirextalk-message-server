@@ -27,6 +27,9 @@ const (
 	expectedConnectionIDEnv  = "CLOUD_WORKER_EXPECTED_CONNECTION_ID"
 	expectedEndpointEnv      = "CLOUD_WORKER_EXPECTED_BOOTSTRAP_ENDPOINT"
 	fixedProbeRecipeEnv      = "CLOUD_WORKER_FIXED_PROBE_RECIPE_ENABLED"
+	ociRecipeEnv             = "CLOUD_WORKER_OCI_RECIPE_ENABLED"
+	ociCatalogFileEnv        = "CLOUD_WORKER_OCI_CATALOG_FILE"
+	workerResourceFileEnv    = "CLOUD_WORKER_RESOURCE_MANIFEST_FILE"
 	recipeCheckpointDirEnv   = "CLOUD_WORKER_RECIPE_CHECKPOINT_DIR"
 )
 
@@ -41,6 +44,9 @@ type commandConfig struct {
 	expectedEndpoint    string
 	recipeCheckpointDir string
 	fixedProbeRecipe    bool
+	ociRecipe           bool
+	ociCatalogFile      string
+	workerResourceFile  string
 	once                bool
 	heartbeatInterval   time.Duration
 }
@@ -105,13 +111,15 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 		expectedConnection:  strings.TrimSpace(getenv(expectedConnectionIDEnv)),
 		expectedEndpoint:    strings.TrimSpace(getenv(expectedEndpointEnv)),
 		recipeCheckpointDir: strings.TrimSpace(getenv(recipeCheckpointDirEnv)),
+		ociCatalogFile:      strings.TrimSpace(getenv(ociCatalogFileEnv)),
+		workerResourceFile:  strings.TrimSpace(getenv(workerResourceFileEnv)),
 		heartbeatInterval:   30 * time.Second,
 	}
-	switch strings.ToLower(strings.TrimSpace(getenv(fixedProbeRecipeEnv))) {
-	case "", "false", "0":
-	case "true", "1":
-		config.fixedProbeRecipe = true
-	default:
+	var err error
+	if config.fixedProbeRecipe, err = parseStrictGate(getenv(fixedProbeRecipeEnv)); err != nil {
+		return commandConfig{}, errConfigInvalid
+	}
+	if config.ociRecipe, err = parseStrictGate(getenv(ociRecipeEnv)); err != nil {
 		return commandConfig{}, errConfigInvalid
 	}
 	flags := flag.NewFlagSet("cloud-worker", flag.ContinueOnError)
@@ -121,13 +129,28 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return commandConfig{}, errConfigInvalid
 	}
+	recipeEnabled := config.fixedProbeRecipe || config.ociRecipe
 	if !validConfigPath(config.manifestFile) || config.expectedConnection == "" || config.expectedEndpoint == "" ||
 		config.heartbeatInterval <= 0 ||
-		(config.fixedProbeRecipe && (!validConfigPath(config.recipeCheckpointDir) || !filepath.IsAbs(config.recipeCheckpointDir))) ||
-		(!config.fixedProbeRecipe && config.recipeCheckpointDir != "") {
+		config.fixedProbeRecipe && config.ociRecipe ||
+		(recipeEnabled && (!validConfigPath(config.recipeCheckpointDir) || !filepath.IsAbs(config.recipeCheckpointDir))) ||
+		(!recipeEnabled && config.recipeCheckpointDir != "") ||
+		(config.ociRecipe && (!validConfigPath(config.ociCatalogFile) || !filepath.IsAbs(config.ociCatalogFile) || !validConfigPath(config.workerResourceFile) || !filepath.IsAbs(config.workerResourceFile))) ||
+		(!config.ociRecipe && (config.ociCatalogFile != "" || config.workerResourceFile != "")) {
 		return commandConfig{}, errConfigInvalid
 	}
 	return config, nil
+}
+
+func parseStrictGate(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "false", "0":
+		return false, nil
+	case "true", "1":
+		return true, nil
+	default:
+		return false, errConfigInvalid
+	}
 }
 
 func run(ctx context.Context, config commandConfig) error {
@@ -201,6 +224,15 @@ func runWithDependencies(
 	var readiness serviceReadinessProcessor
 	if config.fixedProbeRecipe {
 		recipe, err = newFixedProbeRecipeProcessor(client, config.recipeCheckpointDir)
+		if err != nil {
+			return errRunFailed
+		}
+		readiness, err = newFixedProbeReadinessProcessor(client)
+		if err != nil {
+			return errRunFailed
+		}
+	} else if config.ociRecipe {
+		recipe, err = newOCIRecipeProcessor(client, config, manifest)
 		if err != nil {
 			return errRunFailed
 		}

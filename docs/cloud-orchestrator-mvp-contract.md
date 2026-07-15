@@ -752,10 +752,13 @@ lease and exact active task/manifest, while the Stack resolves the dynamic
 provider version internally by
 `connection + deployment + recipe + artifact + slot + secret_ref`; neither a
 compiled AMI catalog nor the Worker request may contain a provider version.
-The trusted catalog chooses only the slot's fixed file or environment
-destination. A task that reaches the Stack before upload receives a bounded
-pending response and waits within its Recipe timeout instead of failing or
-running without the value.
+The trusted catalog chooses only the slot's fixed destination. The first
+production OCI runtime accepts file destinations only and mounts verified
+tmpfs files read-only beneath `/run/secrets`; it rejects environment targets
+because Podman would persist expanded values in container metadata. A task
+that reaches the Stack before upload receives a bounded pending response and
+waits within its Recipe timeout instead of failing or running without the
+value.
 
 Device-approved destruction binds the complete Recipe-derived `secret_ref`
 set. The Stack terminates EC2, removes ENIs and EBS volumes, force-deletes the
@@ -768,11 +771,16 @@ ephemeral keys, upload tokens and encrypted envelopes in one cancellable
 in-memory flow, suppresses logs and local persistence, and exposes only
 device-signed owner HTTP controls.
 
-Production execution remains disabled by default. The repository still does
-not build or publish a production generic Recipe catalog/typed root driver or
-versioned Worker AMI, deploy the Stack, enable a real-account mutation gate,
-or run the OpenClaw/knowledge-node AWS acceptance. Public ingress and
-GPU/Spot/model-training remain later independently approved stages. Those
-transitions must continue through the typed Connection Stack/Broker path;
-neither the Eino Agent tool, external MCP, nor the Message Server gains
-arbitrary AWS access.
+Production execution remains disabled by default. The repository now has a
+two-phase trusted OCI compiler, a binary/catalog-bound Worker resource
+manifest, and an install-only typed Podman root Driver with restart recovery,
+file-secret staging and bounded health retries. The first-validation Worker
+still requires all three health probes to match the fixed externally witnessed
+readiness contract. The repository does not yet assemble or publish the
+versioned Worker AMI, register compiler output from the production
+Orchestrator, deploy the Stack, enable a real-account mutation gate, or run the
+OpenClaw/knowledge-node AWS acceptance. Generic catalog-backed readiness,
+public ingress and GPU/Spot/model-training remain later independently approved
+stages. Those transitions must continue through the typed Connection
+Stack/Broker path; neither the Eino Agent tool, external MCP, nor the Message
+Server gains arbitrary AWS access.

@@ -16,7 +16,7 @@ import (
 func TestFileSecretStagerWrites0600AndCleansEveryValue(t *testing.T) {
 	root := t.TempDir()
 	stager, err := recipeexec.NewFileSecretStager(root, func(path string) error {
-		if path != root {
+		if path != root && filepath.Dir(path) != root {
 			return errors.New("root")
 		}
 		return nil
@@ -31,6 +31,9 @@ func TestFileSecretStagerWrites0600AndCleansEveryValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if delivery.StagingDirectory != filepath.Dir(delivery.EnvironmentFile) || !filepath.IsAbs(delivery.StagingDirectory) {
+		t.Fatalf("staging directory is not bound: %#v", delivery)
+	}
 	for _, path := range []string{delivery.Files["token-file"], delivery.EnvironmentFile} {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -43,6 +46,12 @@ func TestFileSecretStagerWrites0600AndCleansEveryValue(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(filepath.Dir(delivery.EnvironmentFile)); !os.IsNotExist(err) {
 		t.Fatalf("secret directory survived cleanup: %v", err)
+	}
+}
+
+func TestValidateStagedSecretDeliveryAcceptsEmptyDelivery(t *testing.T) {
+	if err := recipeexec.ValidateStagedSecretDelivery(recipeexec.SecretDelivery{}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -92,6 +101,9 @@ func TestExecutorMaterializesTrustedTargetsAndCleansOnRestartableFailure(t *test
 	materializer := &captureMaterializer{value: []byte("canary"), errs: []error{recipeexec.ErrSecretMaterializePending, recipeexec.ErrSecretMaterializePending, nil}}
 	stager := &captureStager{}
 	driver := &fakeDriver{run: func(ctx context.Context, request recipeexec.ActionRequest, reporter recipeexec.CheckpointReporter) error {
+		if len(request.Artifact.SecretTargets) != 1 || request.Artifact.SecretTargets[0].SlotID != "model-token" || len(request.SecretSlots) != 1 || request.SecretSlots[0].SlotID != "model-token" || request.SecretSlots[0].SecretRef != "" {
+			t.Fatalf("driver secret scope was not de-secreted and preserved: %#v %#v", request.Artifact.SecretTargets, request.SecretSlots)
+		}
 		if request.ResumeAfter == "" {
 			if err := reporter.Checkpoint(ctx, manifest.CheckpointSequence[0]); err != nil {
 				return err

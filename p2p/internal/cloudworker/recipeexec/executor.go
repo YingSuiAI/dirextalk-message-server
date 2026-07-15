@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -90,8 +91,9 @@ type MaterializedSecret struct {
 }
 
 type SecretDelivery struct {
-	Files           map[string]string
-	EnvironmentFile string
+	StagingDirectory string
+	Files            map[string]string
+	EnvironmentFile  string
 }
 
 type SecretStager interface {
@@ -178,8 +180,21 @@ type Executor struct {
 // Transport loops must check this before claiming work; Execute retains the
 // same check as a second fail-closed boundary.
 func (executor Executor) Configured() bool {
-	return executor.Resolver != nil && executor.Store != nil && executor.Driver != nil &&
-		(!executor.RequireSecretMaterialization || (executor.Materializer != nil && executor.SecretStager != nil))
+	return configuredDependency(executor.Resolver) && configuredDependency(executor.Store) && configuredDependency(executor.Driver) &&
+		(!executor.RequireSecretMaterialization || (configuredDependency(executor.Materializer) && configuredDependency(executor.SecretStager)))
+}
+
+func configuredDependency(value any) bool {
+	if value == nil {
+		return false
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !reflected.IsNil()
+	default:
+		return true
+	}
 }
 
 // Result reports only non-secret, durable execution progress. Completed does
@@ -286,8 +301,12 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 	driverBundle := cloneBundle(bundle)
 	driverSecretSlots := append([]cloudorchestrator.SecretSlotV1(nil), manifest.SecretSlots...)
 	if executor.RequireSecretMaterialization {
-		driverBundle.SecretTargets = nil
-		driverSecretSlots = nil
+		// The driver still needs compiler-owned destinations and opaque slot IDs
+		// to mount the staged values. Secret refs are transport inputs only and
+		// must not cross the materializer boundary.
+		for index := range driverSecretSlots {
+			driverSecretSlots[index].SecretRef = ""
+		}
 	}
 	request := ActionRequest{
 		Binding:      binding,
