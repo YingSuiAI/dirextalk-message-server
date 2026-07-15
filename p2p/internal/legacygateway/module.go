@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
@@ -41,6 +42,7 @@ type Module struct {
 	resolveSender     SenderResolver
 	now               func() time.Time
 	newRequestEventID func() (string, error)
+	processMu         sync.Mutex
 }
 
 func New(store Store, ingress Ingress, cfg Config) (*Module, error) {
@@ -100,6 +102,13 @@ func (m *Module) ProcessOutputEvent(ctx context.Context, output roomserverAPI.Ou
 	if roomID == "" || roomID != strings.TrimSpace(identity.AgentRoomID) {
 		return nil
 	}
+	// The JetStream durable is configured with one worker, but callers and
+	// redelivery can still overlap during tests, shutdown, or future consumer
+	// changes. Serialize the reserve -> ingress -> commit window so one source
+	// invocation cannot make two concurrent ingress calls before acceptance is
+	// durable.
+	m.processMu.Lock()
+	defer m.processMu.Unlock()
 	senderUserID, err := m.resolveSender(ctx, event.RoomID(), event.SenderID())
 	if err != nil {
 		return fmt.Errorf("resolve Matrix invocation sender: %w", err)

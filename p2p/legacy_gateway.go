@@ -38,6 +38,29 @@ type LegacyAgentGatewayClientConfig struct {
 	ClientKeyFile  string
 }
 
+// LegacyAgentGatewayCutover is the explicit production feature gate. Merely
+// configuring an ingress or constructing a module never activates a consumer.
+// The Host must attest that the old dirextalk-connect Matrix consumer is
+// stopped and fenced before this process may start the durable consumer.
+type LegacyAgentGatewayCutover struct {
+	Enabled                     bool
+	LegacyConnectConsumerFenced bool
+	Mode                        string
+}
+
+func (cfg LegacyAgentGatewayCutover) Validate() error {
+	if !cfg.Enabled {
+		return errors.New("Legacy Agent Gateway cutover is disabled")
+	}
+	if cfg.Mode != "vnext_gateway" {
+		return errors.New("Legacy Agent Gateway cutover mode must be vnext_gateway")
+	}
+	if !cfg.LegacyConnectConsumerFenced {
+		return errors.New("Legacy Agent Gateway requires the old Connect consumer to be fenced")
+	}
+	return nil
+}
+
 func NewLegacyAgentGatewayClient(
 	cfg LegacyAgentGatewayClientConfig,
 ) (LegacyAgentGatewayIngress, io.Closer, error) {
@@ -122,6 +145,28 @@ func (s *Service) ProcessLegacyAgentGatewayOutputEvent(ctx context.Context, outp
 }
 
 type LegacyAgentGatewayOutputRoomEventConsumer = legacygatewaymodule.OutputRoomEventConsumer
+
+// LegacyAgentGatewayConsumerStarter is the narrow lifecycle boundary used by
+// the host after it has established exclusive ownership of Matrix invokes.
+type LegacyAgentGatewayConsumerStarter interface {
+	Start() error
+}
+
+// StartLegacyAgentGatewayConsumer is the guarded production activation path.
+// It keeps the new durable consumer fail-closed unless the host explicitly
+// fences the old dirextalk-connect Matrix consumer.
+func StartLegacyAgentGatewayConsumer(
+	cutover LegacyAgentGatewayCutover,
+	consumer LegacyAgentGatewayConsumerStarter,
+) error {
+	if err := cutover.Validate(); err != nil {
+		return err
+	}
+	if consumer == nil {
+		return errors.New("Legacy Agent Gateway consumer is required")
+	}
+	return consumer.Start()
+}
 
 // NewLegacyAgentGatewayOutputRoomEventConsumer constructs the independent
 // durable consumer. It is intentionally not wired into the production
