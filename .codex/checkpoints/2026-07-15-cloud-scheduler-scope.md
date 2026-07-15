@@ -51,6 +51,12 @@ host. Before any billable create, query the live Region/specification/quote and
 obtain fresh owner confirmation. Do not use `latest`, formal `v1.0.3`, normal
 deployer/updater scripts, or direct Codex AWS CLI mutation.
 
+Follow-up discovery on the same date confirmed that every locally configured
+AWS CLI profile resolves through STS as a root identity. The only additional
+local SSH key was rejected by the standard AWS Linux user names on the reachable
+host. There is no remaining safe local credential candidate to try; wait for
+the user to provide the non-root AWS identity and matching host SSH access.
+
 ## Last completed stage
 
 Stage M (original-instance retained-volume restore) is complete in the current
