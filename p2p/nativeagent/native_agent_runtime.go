@@ -22,6 +22,7 @@ type Config struct {
 	Tools             []Tool
 	CloudPlanner      CloudPlanner
 	CloudStatusReader CloudStatusReader
+	CloudRecipeReader CloudRecipeReader
 	HTTPClient        *http.Client
 }
 
@@ -45,6 +46,29 @@ type CloudStatusReader interface {
 	ReadCloudStatus(context.Context) (map[string]any, error)
 }
 
+// CloudRecipeReader exposes only owner-scoped, de-secreted private Recipe
+// summaries. It cannot select a Recipe or mutate a Goal, Plan, or resource.
+type CloudRecipeReader interface {
+	ReadCloudRecipes(context.Context) ([]CloudRecipeRecommendation, error)
+}
+
+type CloudRecipeResourceSummary struct {
+	MinVCPU         uint16 `json:"min_vcpu"`
+	MinMemoryMiB    uint32 `json:"min_memory_mib"`
+	MinGPUMemoryMiB uint32 `json:"min_gpu_memory_mib"`
+	MinDiskGiB      uint32 `json:"min_disk_gib"`
+	Architecture    string `json:"architecture"`
+}
+
+type CloudRecipeRecommendation struct {
+	RecipeID  string                     `json:"recipe_id"`
+	Name      string                     `json:"name"`
+	Version   string                     `json:"version"`
+	Maturity  string                     `json:"maturity"`
+	Revision  int64                      `json:"revision"`
+	Resources CloudRecipeResourceSummary `json:"resources"`
+}
+
 type Event struct {
 	Event string
 	Data  map[string]any
@@ -57,6 +81,7 @@ type Runtime struct {
 	tools             []Tool
 	cloudPlanner      CloudPlanner
 	cloudStatusReader CloudStatusReader
+	cloudRecipeReader CloudRecipeReader
 }
 
 func New(config Config) *Runtime {
@@ -78,6 +103,7 @@ func New(config Config) *Runtime {
 		tools:             append([]Tool{}, config.Tools...),
 		cloudPlanner:      config.CloudPlanner,
 		cloudStatusReader: config.CloudStatusReader,
+		cloudRecipeReader: config.CloudRecipeReader,
 	}
 }
 

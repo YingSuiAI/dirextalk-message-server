@@ -101,6 +101,12 @@ Parameters:
     AllowedValues:
       - "false"
       - "true"
+  EnableServiceSecrets:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
 
 Rules:
   DeploymentCreateRequiresWorkerIdentityKey:
@@ -118,6 +124,8 @@ Conditions:
   ServiceBackupEnabled: !Equals [!Ref EnableServiceBackup, "true"]
   ServiceRestorePlanEnabled: !Equals [!Ref EnableServiceRestorePlan, "true"]
   ServiceRestoreEnabled: !Equals [!Ref EnableServiceRestore, "true"]
+  ServiceSecretsEnabled: !Equals [!Ref EnableServiceSecrets, "true"]
+  ServiceSecretDestroyEnabled: !And [!Condition DeploymentDestroyEnabled, !Condition ServiceSecretsEnabled]
 
 Resources:
   WorkerSecurityGroup:
@@ -382,6 +390,77 @@ Resources:
         - AttributeName: task_id
           KeyType: RANGE
 
+  ServiceSecretSealingKey:
+    Type: AWS::KMS::Key
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub "${AWS::StackName} service-secret session sealing key"
+      Enabled: true
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAccountIAMPolicies
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: kms:*
+            Resource: "*"
+
+  ServiceSecretSealingKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AliasName: !Sub "alias/dirextalk/${AWS::StackName}/service-secret-sessions"
+      TargetKeyId: !Ref ServiceSecretSealingKey
+
+  ServiceSecretSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref ServiceSecretSealingKey
+      TimeToLiveSpecification:
+        AttributeName: ttl_epoch_seconds
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: materialization_key
+          AttributeType: S
+        - AttributeName: deployment_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: materialization-key-index
+          KeySchema:
+            - AttributeName: materialization_key
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+        - IndexName: deployment-key-index
+          KeySchema:
+            - AttributeName: deployment_key
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+
   BrokerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -429,6 +508,69 @@ Resources:
                   Resource:
                     - !GetAtt WorkerTasksTable.Arn
                     - !GetAtt ServiceReadinessTasksTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: AccessServiceSecretSessionsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:UpdateItem
+                  Resource: !GetAtt ServiceSecretSessionsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: QueryCompletedServiceSecretMaterializationOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:Query
+                  Resource: !Sub "${ServiceSecretSessionsTable.Arn}/index/materialization-key-index"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: SealServiceSecretSessionMaterialOnly
+                  Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:Encrypt
+                    - kms:GenerateDataKey
+                  Resource: !GetAtt ServiceSecretSealingKey.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: WriteScopedServiceSecretVersionsOnly
+                  Effect: Allow
+                  Action:
+                    - secretsmanager:CreateSecret
+                    - secretsmanager:GetSecretValue
+                    - secretsmanager:PutSecretValue
+                  Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:dirextalk/${ConnectionId}/*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: DeleteTrackedDeploymentServiceSecretsOnly
+                  Effect: Allow
+                  Action:
+                    - secretsmanager:DeleteSecret
+                    - secretsmanager:DescribeSecret
+                  Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:dirextalk/${ConnectionId}/*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: DeleteCompletedServiceSecretBindingsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:DeleteItem
+                  Resource: !GetAtt ServiceSecretSessionsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: QueryDeploymentServiceSecretBindingsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:Query
+                  Resource: !Sub "${ServiceSecretSessionsTable.Arn}/index/deployment-key-index"
                 - !Ref "AWS::NoValue"
               - !If
                 - DeploymentDestroyEnabled
@@ -748,6 +890,9 @@ Resources:
           DIREXTALK_SERVICE_BACKUP_ENABLED: !Ref EnableServiceBackup
           DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED: !Ref EnableServiceRestorePlan
           DIREXTALK_SERVICE_RESTORE_ENABLED: !Ref EnableServiceRestore
+          DIREXTALK_SERVICE_SECRETS_ENABLED: !Ref EnableServiceSecrets
+          DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE: !If [ServiceSecretsEnabled, !Ref ServiceSecretSessionsTable, ""]
+          DIREXTALK_SERVICE_SECRET_KMS_KEY_ID: !If [ServiceSecretsEnabled, !Ref ServiceSecretSealingKey, ""]
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api
@@ -769,6 +914,38 @@ Resources:
     Properties:
       ApiId: !Ref BrokerAPI
       RouteKey: "POST /v2/commands"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/service-secret-sessions"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretUploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "PUT /v2/service-secret-sessions/{session_id}/encrypted-upload"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretCompleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/service-secret-sessions/{session_id}/complete"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerServiceSecretRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/service-secrets/materialize"
       Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
 
   BrokerWorkerClaimRoute:
@@ -849,6 +1026,42 @@ Resources:
       FunctionName: !Ref BrokerFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/commands"
+
+  BrokerServiceSecretCreateInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/service-secret-sessions"
+
+  BrokerServiceSecretUploadInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/PUT/v2/service-secret-sessions/*/encrypted-upload"
+
+  BrokerServiceSecretCompleteInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/service-secret-sessions/*/complete"
+
+  BrokerWorkerServiceSecretInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/service-secrets/materialize"
 
   BrokerWorkerClaimInvokePermission:
     Type: AWS::Lambda::Permission
@@ -945,6 +1158,8 @@ Outputs:
     Value: !GetAtt WorkerSecurityGroup.GroupId
   DeploymentCreateEnabled:
     Value: !Ref EnableDeploymentCreate
+  ServiceSecretsEnabled:
+    Value: !Ref EnableServiceSecrets
   WorkerResourceManifestDigest:
     Value: !Ref WorkerResourceManifestDigest
   BrokerCommandUrl:

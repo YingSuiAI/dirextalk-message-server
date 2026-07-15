@@ -12,7 +12,9 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
 	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/api"
 	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/contract"
@@ -98,6 +100,14 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	var serviceBackupProvider api.ServiceBackupProvider
 	var serviceRestoreProvider api.ServiceRestoreProvider
 	var workerIdentity api.WorkerIdentityVerifier
+	var serviceSecretStore commandstore.ServiceSecretRepository
+	var serviceSecretDestroyStore commandstore.ServiceSecretDestroyRepository
+	var serviceSecretProvider api.ServiceSecretProvider
+	var serviceSecretSealer api.ServiceSecretKeySealer
+	var serviceSecretsClient *secretsmanager.Client
+	if config.serviceSecretsEnabled {
+		serviceSecretsClient = secretsmanager.NewFromConfig(awsConfig)
+	}
 	if config.deploymentEnabled {
 		deploymentProvider, err = provider.NewEC2DeploymentProvider(ec2Client)
 		if err != nil {
@@ -109,7 +119,11 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 		}
 	}
 	if config.deploymentDestroyEnabled {
-		deploymentDestroyProvider, err = provider.NewEC2DeploymentDestroyProvider(ec2Client)
+		var secretDestroyConfig []provider.DeploymentSecretDestroyConfig
+		if config.serviceSecretsEnabled {
+			secretDestroyConfig = append(secretDestroyConfig, provider.DeploymentSecretDestroyConfig{Client: serviceSecretsClient, ConnectionID: config.connectionID})
+		}
+		deploymentDestroyProvider, err = provider.NewEC2DeploymentDestroyProvider(ec2Client, secretDestroyConfig...)
 		if err != nil {
 			return api.Broker{}, err
 		}
@@ -126,6 +140,23 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 			return api.Broker{}, err
 		}
 	}
+	if config.serviceSecretsEnabled {
+		var dynamoServiceSecretStore *commandstore.DynamoServiceSecretStore
+		dynamoServiceSecretStore, err = commandstore.NewDynamoServiceSecretStore(dynamoClient, config.serviceSecretSessionsTable)
+		if err != nil {
+			return api.Broker{}, err
+		}
+		serviceSecretStore = dynamoServiceSecretStore
+		serviceSecretDestroyStore = dynamoServiceSecretStore
+		serviceSecretProvider, err = provider.NewAWSServiceSecretProvider(serviceSecretsClient, config.connectionID, config.serviceSecretKMSKeyID)
+		if err != nil {
+			return api.Broker{}, err
+		}
+		serviceSecretSealer, err = provider.NewAWSServiceSecretKeySealer(kms.NewFromConfig(awsConfig), config.serviceSecretKMSKeyID)
+		if err != nil {
+			return api.Broker{}, err
+		}
+	}
 	return api.Broker{
 		Resolver: resolver, Store: repository, Registration: registration, Quote: quote, ServiceRestorePlanner: restorePlanner,
 		DeploymentEnabled: config.deploymentEnabled, DeploymentDestroyEnabled: config.deploymentDestroyEnabled, ServiceBackupEnabled: config.serviceBackupEnabled, ServiceRestorePlanEnabled: config.serviceRestorePlanEnabled, ServiceRestoreEnabled: config.serviceRestoreEnabled, ApprovalResolver: approvalResolver,
@@ -133,6 +164,7 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 		DeploymentDestroyStore: repository, DeploymentDestroyProvider: deploymentDestroyProvider,
 		ServiceBackupStore: repository, ServiceBackupProvider: serviceBackupProvider,
 		ServiceRestoreStore: repository, ServiceRestoreProvider: serviceRestoreProvider,
+		ServiceSecretsEnabled: config.serviceSecretsEnabled, ServiceSecretStore: serviceSecretStore, ServiceSecretDestroyStore: serviceSecretDestroyStore, ServiceSecretProvider: serviceSecretProvider, ServiceSecretKeySealer: serviceSecretSealer,
 		DeploymentBoundary: api.DeploymentBoundary{
 			WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: config.workerAMIID},
 			WorkerNetwork: contract.WorkerNetworkReference{
@@ -161,6 +193,8 @@ type runtimeConfig struct {
 	serviceBackupEnabled                                                                                                                                                                 bool
 	serviceRestorePlanEnabled                                                                                                                                                            bool
 	serviceRestoreEnabled                                                                                                                                                                bool
+	serviceSecretsEnabled                                                                                                                                                                bool
+	serviceSecretSessionsTable, serviceSecretKMSKeyID                                                                                                                                    string
 }
 
 func runtimeConfigFromEnvironment() (runtimeConfig, error) {
@@ -186,6 +220,8 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 		workerSessionsTable:        requiredEnvironment("DIREXTALK_WORKER_SESSIONS_TABLE"),
 		workerTasksTable:           requiredEnvironment("DIREXTALK_WORKER_TASKS_TABLE"),
 		serviceReadinessTasksTable: requiredEnvironment("DIREXTALK_SERVICE_READINESS_TASKS_TABLE"),
+		serviceSecretSessionsTable: requiredEnvironment("DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE"),
+		serviceSecretKMSKeyID:      requiredEnvironment("DIREXTALK_SERVICE_SECRET_KMS_KEY_ID"),
 	}
 	generation, err := strconv.ParseInt(requiredEnvironment("DIREXTALK_CONNECTION_GENERATION"), 10, 64)
 	if err != nil || generation < 1 || generation > 9007199254740991 {
@@ -235,6 +271,17 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	default:
 		return runtimeConfig{}, errors.New("invalid service restore gate")
 	}
+	switch requiredEnvironment("DIREXTALK_SERVICE_SECRETS_ENABLED") {
+	case "true":
+		config.serviceSecretsEnabled = true
+		if config.serviceSecretSessionsTable == "" || config.serviceSecretKMSKeyID == "" {
+			return runtimeConfig{}, errors.New("service secret resources are required when enabled")
+		}
+	case "false":
+		config.serviceSecretsEnabled = false
+	default:
+		return runtimeConfig{}, errors.New("invalid service secrets gate")
+	}
 	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.workerBootstrapEndpoint == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.deploymentDestroyTable == "" || config.serviceBackupsTable == "" || config.approvalUsesTable == "" || config.workerSessionsTable == "" || config.workerTasksTable == "" || config.serviceReadinessTasksTable == "" {
 		return runtimeConfig{}, errors.New("incomplete broker configuration")
 	}
@@ -262,6 +309,13 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.serviceBackupsTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable} {
 		if config.serviceRestoresTable == existing {
 			return runtimeConfig{}, errors.New("service restore table must be isolated")
+		}
+	}
+	if config.serviceSecretsEnabled {
+		for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.serviceBackupsTable, config.serviceRestoresTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable} {
+			if config.serviceSecretSessionsTable == existing {
+				return runtimeConfig{}, errors.New("service secret session table must be isolated")
+			}
 		}
 	}
 	return config, nil

@@ -5,6 +5,7 @@
 package storepg
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -144,21 +145,39 @@ func (s *Store) ClaimResearchGoal(ctx context.Context, workerID string, lease ti
 		)
 		SELECT claimed.outbox_id, claimed.kind, claimed.aggregate_type, claimed.aggregate_id,
 			goal.goal_id, goal.plan_id, plan.cloud_connection_id, plan.revision,
-			claimed.payload_json, claimed.lease_token, claimed.attempts
+			claimed.payload_json, claimed.lease_token, claimed.attempts,
+			goal.selected_recipe_id,goal.selected_recipe_revision,goal.selected_recipe_digest,COALESCE(version.display_json,''),COALESCE(version.canonical_cbor,'\x'::bytea)
 		FROM claimed
 		JOIN p2p_cloud_goals AS goal ON goal.goal_id = claimed.aggregate_id
 		JOIN p2p_cloud_plans AS plan ON plan.plan_id = goal.plan_id
+		LEFT JOIN p2p_cloud_recipe_versions version ON version.recipe_id=goal.selected_recipe_id AND version.revision=goal.selected_recipe_revision AND version.digest=goal.selected_recipe_digest
+		WHERE plan.recipe_id=goal.selected_recipe_id AND plan.recipe_revision=goal.selected_recipe_revision AND plan.recipe_digest=goal.selected_recipe_digest
 	`, runtime.ResearchGoalRequested, now, workerID, token, now+lease.Milliseconds())
 	var claim runtime.Claim
+	var selectedID, selectedDigest, selectedJSON string
+	var selectedRevision int64
+	var selectedCanonical []byte
 	if err := row.Scan(
 		&claim.OutboxID, &claim.Kind, &claim.AggregateType, &claim.AggregateID,
 		&claim.GoalID, &claim.PlanID, &claim.ConnectionID, &claim.PlanRevision,
-		&claim.PayloadJSON, &claim.LeaseToken, &claim.Attempt,
+		&claim.PayloadJSON, &claim.LeaseToken, &claim.Attempt, &selectedID, &selectedRevision, &selectedDigest, &selectedJSON, &selectedCanonical,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return runtime.Claim{}, false, nil
 		}
 		return runtime.Claim{}, false, fmt.Errorf("claim cloud research outbox: %w", err)
+	}
+	if selectedID != "" {
+		var recipe cloudcontracts.RecipeV1
+		if selectedRevision <= 0 || selectedDigest == "" || selectedJSON == "" || json.Unmarshal([]byte(selectedJSON), &recipe) != nil {
+			return runtime.Claim{}, false, errors.New("claimed selected recipe binding is invalid")
+		}
+		claim.SelectedRecipe = &runtime.SelectedRecipeInput{RecipeID: selectedID, Revision: selectedRevision, Digest: selectedDigest, Recipe: recipe}
+		input := runtime.ResearchInput{GoalID: claim.GoalID, PlanID: claim.PlanID, ConnectionID: claim.ConnectionID, PlanRevision: claim.PlanRevision, Prompt: "validate selected recipe", SelectedRecipe: claim.SelectedRecipe}
+		computedCanonical, canonicalErr := recipe.CanonicalRecipeCBOR()
+		if input.Validate() != nil || canonicalErr != nil || !bytes.Equal(computedCanonical, selectedCanonical) {
+			return runtime.Claim{}, false, errors.New("claimed selected recipe binding is invalid")
+		}
 	}
 	return claim, true, nil
 }
@@ -215,7 +234,7 @@ func (s *Store) FailResearch(ctx context.Context, claim runtime.Claim, code stri
 func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output runtime.ResearchOutput) error {
 	input := runtime.ResearchInput{
 		GoalID: claim.GoalID, PlanID: claim.PlanID, ConnectionID: claim.ConnectionID,
-		PlanRevision: claim.PlanRevision, Prompt: "validated-by-store",
+		PlanRevision: claim.PlanRevision, Prompt: "validated-by-store", SelectedRecipe: claim.SelectedRecipe,
 	}
 	if err := output.ValidateFor(input); err != nil {
 		return fmt.Errorf("validate research output: %w", err)
@@ -255,9 +274,21 @@ func (s *Store) CommitResearch(ctx context.Context, claim runtime.Claim, output 
 	}
 	quoteOutboxID := stableID("cloud_outbox_quote_", quoteRequest.QuoteRequestID)
 	quoteJobID := cloudmodule.QuoteJobID(quoteOutboxID)
+	recipeRevision := int64(1)
+	if claim.SelectedRecipe != nil {
+		recipeRevision = claim.SelectedRecipe.Revision
+	}
 
 	return s.withClaimTransaction(ctx, claim, func(tx *sql.Tx, now int64) error {
-		if err := ensureRecipe(ctx, tx, output.Recipe, recipeDigest, recipeCBOR, recipeJSON, now); err != nil {
+		if claim.SelectedRecipe != nil {
+			var goalRecipeID, goalRecipeDigest, planRecipeID string
+			var goalRecipeRevision, planRecipeRevision int64
+			if err := tx.QueryRowContext(ctx, `SELECT goal.selected_recipe_id,goal.selected_recipe_revision,goal.selected_recipe_digest,plan.recipe_id,plan.recipe_revision FROM p2p_cloud_goals goal JOIN p2p_cloud_plans plan ON plan.plan_id=goal.plan_id WHERE goal.goal_id=$1 AND plan.plan_id=$2 FOR UPDATE OF goal,plan`, claim.GoalID, claim.PlanID).Scan(&goalRecipeID, &goalRecipeRevision, &goalRecipeDigest, &planRecipeID, &planRecipeRevision); err != nil ||
+				goalRecipeID != claim.SelectedRecipe.RecipeID || goalRecipeRevision != claim.SelectedRecipe.Revision || goalRecipeDigest != claim.SelectedRecipe.Digest || planRecipeID != goalRecipeID || planRecipeRevision != goalRecipeRevision {
+				return ErrLeaseLost
+			}
+		}
+		if err := ensureRecipe(ctx, tx, output.Recipe, recipeRevision, claim.SelectedRecipe != nil, recipeDigest, recipeCBOR, recipeJSON, now); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
@@ -501,16 +532,20 @@ func verifyClaimFence(ctx context.Context, tx *sql.Tx, claim runtime.Claim, now 
 	return nil
 }
 
-func ensureRecipe(ctx context.Context, tx *sql.Tx, recipe cloudcontracts.RecipeV1, digest string, canonicalCBOR, displayJSON []byte, now int64) error {
+func ensureRecipe(ctx context.Context, tx *sql.Tx, recipe cloudcontracts.RecipeV1, revision int64, pinned bool, digest string, canonicalCBOR, displayJSON []byte, now int64) error {
 	var existingDigest string
-	err := tx.QueryRowContext(ctx, `SELECT digest FROM p2p_cloud_recipes WHERE recipe_id = $1 FOR UPDATE`, recipe.RecipeID).Scan(&existingDigest)
+	var existingRevision int64
+	err := tx.QueryRowContext(ctx, `SELECT digest,revision FROM p2p_cloud_recipes WHERE recipe_id = $1 FOR UPDATE`, recipe.RecipeID).Scan(&existingDigest, &existingRevision)
 	if err == nil {
-		if existingDigest != digest {
+		if !pinned && (existingDigest != digest || existingRevision != revision) {
 			return errors.New("recipe id is already bound to another digest")
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	} else {
+		if pinned {
+			return errors.New("selected recipe metadata is missing")
+		}
 		var existingRecipeID string
 		err = tx.QueryRowContext(ctx, `SELECT recipe_id FROM p2p_cloud_recipes WHERE digest = $1 FOR UPDATE`, digest).Scan(&existingRecipeID)
 		if err == nil {
@@ -521,25 +556,26 @@ func ensureRecipe(ctx context.Context, tx *sql.Tx, recipe cloudcontracts.RecipeV
 		}
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO p2p_cloud_recipes (recipe_id, name, version, digest, maturity, revision, created_at, updated_at)
-			VALUES ($1, $2, 'v1', $3, $4, 1, $5, $5)
-		`, recipe.RecipeID, recipe.Name, digest, string(recipe.Maturity), now); err != nil {
+			VALUES ($1, $2, 'v1', $3, $4, $5, $6, $6)
+		`, recipe.RecipeID, recipe.Name, digest, string(recipe.Maturity), revision, now); err != nil {
 			return err
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO p2p_cloud_recipe_versions (recipe_id, revision, canonical_cbor, display_json, digest, maturity, created_at)
-		VALUES ($1, 1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (recipe_id, revision) DO NOTHING
-	`, recipe.RecipeID, canonicalCBOR, string(displayJSON), digest, string(recipe.Maturity), now); err != nil {
+	`, recipe.RecipeID, revision, canonicalCBOR, string(displayJSON), digest, string(recipe.Maturity), now); err != nil {
 		return err
 	}
 	var versionDigest string
+	var versionCanonical []byte
 	if err := tx.QueryRowContext(ctx, `
-		SELECT digest FROM p2p_cloud_recipe_versions WHERE recipe_id = $1 AND revision = 1
-	`, recipe.RecipeID).Scan(&versionDigest); err != nil {
+		SELECT digest,canonical_cbor FROM p2p_cloud_recipe_versions WHERE recipe_id = $1 AND revision = $2
+	`, recipe.RecipeID, revision).Scan(&versionDigest, &versionCanonical); err != nil {
 		return err
 	}
-	if versionDigest != digest {
+	if versionDigest != digest || !bytes.Equal(versionCanonical, canonicalCBOR) {
 		return errors.New("recipe version is already bound to another digest")
 	}
 	return nil

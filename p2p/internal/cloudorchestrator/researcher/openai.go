@@ -11,10 +11,13 @@ import (
 	"strings"
 	"unicode"
 
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
 )
 
-const cloudResearchSystemPrompt = `You are the internal Dirextalk Cloud Researcher. Return exactly one JSON object matching the ResearchOutput contract supplied by the caller, with exactly recipe, draft, title, and summary. draft must be a non-price ResearchDraftV1: schema_version, region, and one to three candidate requests containing only candidate_id, tier, instance_type, purchase_option (on_demand), and estimated_disk_gib. Do not include markdown, prose outside that JSON object, credentials, secret values, pairing material, or raw logs. Never generate PlanV1, QuoteV1, a plan, a quote, a quote ID, any price/cost/currency field, approval, approval binding, hash, digest, provider receipt, purchase, deployment, or readiness claim. Produce only an experimental, single-VM recipe with public ingress disabled unless the typed input explicitly requires otherwise. Every recipe source must be an official URL and must include its version, immutable commit or artifact digest, license, and retrieval time.`
+const cloudResearchSystemPrompt = `You are the internal Dirextalk Cloud Researcher. Return exactly one JSON object matching the ResearchOutput contract supplied by the caller, with exactly recipe, draft, title, and summary. draft must be a non-price ResearchDraftV1: schema_version, region, and one to three candidate requests containing only candidate_id, tier, instance_type, purchase_option (on_demand), and estimated_disk_gib. Recipe volume_slots, data_slots, and secret_slots are optional pre-approval schemas; when needed they may contain only slot_id, purpose, read_only or delivery, never a ref, value, path, environment name, command, or URL. Do not include markdown, prose outside that JSON object, credentials, secret values, pairing material, or raw logs. Never generate PlanV1, QuoteV1, a plan, a quote, a quote ID, any price/cost/currency field, approval, approval binding, hash, digest, provider receipt, purchase, deployment, or readiness claim. Produce only an experimental, single-VM recipe with public ingress disabled unless the typed input explicitly requires otherwise. Every recipe source must be an official URL and must include its version, immutable commit or artifact digest, license, and retrieval time.`
+
+const selectedRecipeResearchSystemPrompt = `You are the internal Dirextalk Cloud Researcher. A trusted private Recipe is already selected in the input. Return exactly one JSON object with exactly draft, title, and summary. Do not return, copy, edit, replace, or propose any recipe field. draft must contain schema_version, region, and exactly three non-price candidate requests containing only candidate_id, tier, instance_type, purchase_option (on_demand), and estimated_disk_gib. Do not include markdown, credentials, secrets, prices, quotes, approvals, hashes, deployments, or readiness claims.`
 
 // OpenAICompatibleConfig is intentionally scoped to one process-local model
 // credential. The API key is never serialized into ResearchInput, output,
@@ -76,10 +79,14 @@ func (p *OpenAICompatiblePlanner) Research(ctx context.Context, input runtime.Re
 	if err != nil {
 		return runtime.ResearchOutput{}, errors.New("cloud research input encoding failed")
 	}
+	systemPrompt := cloudResearchSystemPrompt
+	if input.SelectedRecipe != nil {
+		systemPrompt = selectedRecipeResearchSystemPrompt
+	}
 	payload, err := json.Marshal(map[string]any{
 		"model": p.model,
 		"messages": []map[string]string{
-			{"role": "system", "content": cloudResearchSystemPrompt},
+			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": string(inputJSON)},
 		},
 		"temperature": 0,
@@ -129,8 +136,20 @@ func (p *OpenAICompatiblePlanner) Research(ctx context.Context, input runtime.Re
 	decoder := json.NewDecoder(strings.NewReader(envelope.Choices[0].Message.Content))
 	decoder.DisallowUnknownFields()
 	var output runtime.ResearchOutput
-	if err := decoder.Decode(&output); err != nil {
-		return runtime.ResearchOutput{}, errors.New("cloud model returned an invalid research output")
+	if input.SelectedRecipe == nil {
+		if err := decoder.Decode(&output); err != nil {
+			return runtime.ResearchOutput{}, errors.New("cloud model returned an invalid research output")
+		}
+	} else {
+		var selectedOutput struct {
+			Draft   cloudcontracts.ResearchDraftV1 `json:"draft"`
+			Title   string                         `json:"title"`
+			Summary string                         `json:"summary"`
+		}
+		if err := decoder.Decode(&selectedOutput); err != nil {
+			return runtime.ResearchOutput{}, errors.New("cloud model returned an invalid research output")
+		}
+		output = runtime.ResearchOutput{Recipe: input.SelectedRecipe.Recipe, Draft: selectedOutput.Draft, Title: selectedOutput.Title, Summary: selectedOutput.Summary}
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {

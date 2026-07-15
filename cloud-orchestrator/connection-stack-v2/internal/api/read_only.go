@@ -155,6 +155,30 @@ func (b Broker) executeReadOnly(response http.ResponseWriter, request *http.Requ
 			return
 		}
 		resultJSON, err = contract.MarshalCommittedServiceRestorePlanResult(command, plan)
+	case contract.ActionServiceSecretObserve:
+		observeRequest, parseErr := command.ServiceSecretObserveRequest()
+		if parseErr != nil {
+			writeError(response, http.StatusBadRequest, contract.Code(parseErr))
+			return
+		}
+		session, found, lookupErr := b.ServiceSecretStore.LookupServiceSecret(request.Context(), observeRequest.SessionID)
+		if lookupErr != nil {
+			writeStoreError(response, lookupErr)
+			return
+		}
+		if !found || session.ConnectionID != command.ConnectionID || session.DeploymentID != observeRequest.DeploymentID ||
+			session.TaskID != observeRequest.TaskID || session.ExecutionID != observeRequest.ExecutionID ||
+			session.ManifestDigest != observeRequest.ManifestDigest || session.SecretRef != observeRequest.SecretRef ||
+			session.ContextDigest != observeRequest.ContextDigest {
+			writeError(response, http.StatusNotFound, "service_secret_observe_unavailable")
+			return
+		}
+		observation, observeErr := serviceSecretObservation(session, now)
+		if observeErr != nil {
+			writeError(response, http.StatusServiceUnavailable, "service_secret_observe_unavailable")
+			return
+		}
+		resultJSON, err = contract.MarshalServiceSecretObservation(command, observation)
 	default:
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return

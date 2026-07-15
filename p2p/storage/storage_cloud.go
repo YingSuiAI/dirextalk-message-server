@@ -15,12 +15,13 @@ import (
 
 const cloudGoalColumns = `
 	goal_id, owner_mxid, prompt, cloud_connection_id, plan_id, status,
-	idempotency_hash, request_digest, revision, created_at, updated_at
+	idempotency_hash, request_digest, selected_recipe_id, selected_recipe_revision, selected_recipe_digest,
+	revision, created_at, updated_at
 `
 
 const cloudPlanColumns = `
 	plan_id, goal_id, cloud_connection_id, status, title, summary,
-	recipe_digest, quote_id, plan_hash, revision, created_at, updated_at
+	recipe_digest, recipe_id, recipe_revision, quote_id, plan_hash, revision, created_at, updated_at
 `
 
 const cloudJobColumns = `
@@ -81,12 +82,14 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 		err := txn.QueryRowContext(ctx, `
 			INSERT INTO p2p_cloud_goals (
 				goal_id, owner_mxid, prompt, cloud_connection_id, plan_id, status,
-				idempotency_hash, request_digest, revision, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+				idempotency_hash, request_digest, selected_recipe_id, selected_recipe_revision, selected_recipe_digest,
+				revision, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			ON CONFLICT (owner_mxid, idempotency_hash) DO NOTHING
 			RETURNING goal_id
 		`, goal.GoalID, goal.OwnerMXID, goal.Prompt, goal.ConnectionID, goal.PlanID, goal.Status,
-			goal.IdempotencyHash, goal.RequestDigest, goal.Revision, goal.CreatedAt, goal.UpdatedAt).Scan(&insertedGoalID)
+			goal.IdempotencyHash, goal.RequestDigest, goal.SelectedRecipeID, goal.SelectedRecipeRevision, goal.SelectedRecipeDigest,
+			goal.Revision, goal.CreatedAt, goal.UpdatedAt).Scan(&insertedGoalID)
 		switch {
 		case err == nil:
 			// This transaction owns the idempotency slot and can atomically add
@@ -116,14 +119,21 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 		default:
 			return err
 		}
+		// Validate only after this transaction owns the idempotency slot. An
+		// exact replay must return the original aggregate even if the selected
+		// Recipe has since advanced; a newly inserted stale binding still rolls
+		// back atomically with the Goal row.
+		if err := validateSelectedRecipeBindingForGoal(ctx, txn, &request); err != nil {
+			return err
+		}
 		plan := request.Plan
 		if _, err := txn.ExecContext(ctx, `
 			INSERT INTO p2p_cloud_plans (
 				plan_id, goal_id, cloud_connection_id, status, title, summary,
-				recipe_digest, quote_id, plan_hash, revision, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+				recipe_digest, recipe_id, recipe_revision, quote_id, plan_hash, revision, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		`, plan.PlanID, plan.GoalID, plan.ConnectionID, plan.Status, plan.Title, plan.Summary,
-			plan.RecipeDigest, plan.QuoteID, plan.PlanHash, plan.Revision, plan.CreatedAt, plan.UpdatedAt); err != nil {
+			plan.RecipeDigest, plan.RecipeID, plan.RecipeRevision, plan.QuoteID, plan.PlanHash, plan.Revision, plan.CreatedAt, plan.UpdatedAt); err != nil {
 			return err
 		}
 		job := request.Job
@@ -892,12 +902,13 @@ type cloudScanner interface{ Scan(...any) error }
 
 func scanCloudGoal(row cloudScanner, item *cloudmodule.Goal) error {
 	return row.Scan(&item.GoalID, &item.OwnerMXID, &item.Prompt, &item.ConnectionID, &item.PlanID, &item.Status,
-		&item.IdempotencyHash, &item.RequestDigest, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
+		&item.IdempotencyHash, &item.RequestDigest, &item.SelectedRecipeID, &item.SelectedRecipeRevision, &item.SelectedRecipeDigest,
+		&item.Revision, &item.CreatedAt, &item.UpdatedAt)
 }
 
 func scanCloudPlan(row cloudScanner, item *cloudmodule.Plan) error {
 	return row.Scan(&item.PlanID, &item.GoalID, &item.ConnectionID, &item.Status, &item.Title, &item.Summary,
-		&item.RecipeDigest, &item.QuoteID, &item.PlanHash, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
+		&item.RecipeDigest, &item.RecipeID, &item.RecipeRevision, &item.QuoteID, &item.PlanHash, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
 }
 
 func scanCloudJob(row cloudScanner, item *cloudmodule.Job) error {

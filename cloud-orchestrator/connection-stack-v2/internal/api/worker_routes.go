@@ -42,6 +42,8 @@ func parseWorkerRoute(path string) (workerRoute, bool) {
 		return workerRoute{sessionID: parts[0], kind: "service_readiness_claim"}, true
 	case len(parts) == 4 && parts[1] == "service-readiness-tasks" && contract.ValidRecipeTaskID(parts[2]) && parts[3] == "events":
 		return workerRoute{sessionID: parts[0], taskID: parts[2], kind: "service_readiness_event"}, true
+	case len(parts) == 3 && parts[1] == "service-secrets" && parts[2] == "materialize":
+		return workerRoute{sessionID: parts[0], kind: "service_secret_materialize"}, true
 	default:
 		return workerRoute{}, false
 	}
@@ -73,6 +75,10 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
+	if route.kind == "service_secret_materialize" && (!b.ServiceSecretsEnabled || b.ServiceSecretStore == nil || b.ServiceSecretProvider == nil || b.RecipeTasks == nil) {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
 	raw, ok := readWorkerBody(response, request)
 	if !ok {
 		return
@@ -92,6 +98,8 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 		b.serveServiceReadinessClaim(response, request, route, raw)
 	case "service_readiness_event":
 		b.serveServiceReadinessEvent(response, request, route, raw)
+	case "service_secret_materialize":
+		b.serveWorkerServiceSecret(response, request, route, raw)
 	default:
 		writeError(response, http.StatusNotFound, "not_found")
 	}

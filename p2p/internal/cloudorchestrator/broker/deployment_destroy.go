@@ -19,10 +19,12 @@ const (
 )
 
 var (
-	destroyCommandFields  = []string{"schema", "connection_id", "command_id", "node_key_id", "issued_at", "expires_at", "expected_generation", "node_counter", "action", "payload_b64", "payload_sha256", "approval_proof", "signature_b64"}
-	destroyRequestFields  = []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
-	destroyResultFields   = []string{"schema", "status", "receipt", "deployment"}
-	destroyEvidenceFields = []string{"deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	destroyCommandFields             = []string{"schema", "connection_id", "command_id", "node_key_id", "issued_at", "expires_at", "expected_generation", "node_counter", "action", "payload_b64", "payload_sha256", "approval_proof", "signature_b64"}
+	destroyRequestFields             = []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	destroyRequestFieldsWithSecrets  = append(append([]string(nil), destroyRequestFields...), "secret_refs")
+	destroyResultFields              = []string{"schema", "status", "receipt", "deployment"}
+	destroyEvidenceFields            = []string{"deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	destroyEvidenceFieldsWithSecrets = append(append([]string(nil), destroyEvidenceFields...), "secret_refs")
 )
 
 type DeploymentDestroyRequest struct {
@@ -32,6 +34,7 @@ type DeploymentDestroyRequest struct {
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
 	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+	SecretRefs          []string `json:"secret_refs,omitempty"`
 }
 
 type DeploymentDestroyCommandInput struct {
@@ -80,6 +83,7 @@ type DeploymentDestroyEvidence struct {
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
 	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+	SecretRefs          []string `json:"secret_refs,omitempty"`
 }
 
 type DeploymentDestroyResult struct {
@@ -183,7 +187,8 @@ func ValidateDeploymentDestroyResult(command DeploymentDestroyCommand, result De
 	request, err := command.Request()
 	result.Deployment.VolumeIDs = sortedCopy(result.Deployment.VolumeIDs)
 	result.Deployment.NetworkInterfaceIDs = sortedCopy(result.Deployment.NetworkInterfaceIDs)
-	if err != nil || result.Deployment.DeploymentID != request.DeploymentID || result.Deployment.InstanceID != request.InstanceID || !reflect.DeepEqual(result.Deployment.VolumeIDs, request.VolumeIDs) || !reflect.DeepEqual(result.Deployment.NetworkInterfaceIDs, request.NetworkInterfaceIDs) {
+	result.Deployment.SecretRefs = sortedCopy(result.Deployment.SecretRefs)
+	if err != nil || result.Deployment.DeploymentID != request.DeploymentID || result.Deployment.InstanceID != request.InstanceID || !reflect.DeepEqual(result.Deployment.VolumeIDs, request.VolumeIDs) || !reflect.DeepEqual(result.Deployment.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !reflect.DeepEqual(result.Deployment.SecretRefs, request.SecretRefs) {
 		return newError("invalid_deployment_destroy_receipt", err)
 	}
 	return nil
@@ -226,7 +231,7 @@ func validateDestroyCommand(command DeploymentDestroyCommand, requireSignature b
 }
 
 func validateDestroyRequest(request DeploymentDestroyRequest) error {
-	if request.Schema != DeploymentDestroySchema || !idPattern.MatchString(request.ServiceID) || !idPattern.MatchString(request.DeploymentID) || !instanceIDPattern.MatchString(request.InstanceID) || !canonicalStrings(request.VolumeIDs, volumeIDPattern, true) || !canonicalStrings(request.NetworkInterfaceIDs, interfaceIDPattern, true) {
+	if request.Schema != DeploymentDestroySchema || !idPattern.MatchString(request.ServiceID) || !idPattern.MatchString(request.DeploymentID) || !instanceIDPattern.MatchString(request.InstanceID) || !canonicalStrings(request.VolumeIDs, volumeIDPattern, true) || !canonicalStrings(request.NetworkInterfaceIDs, interfaceIDPattern, true) || len(request.SecretRefs) > 32 || len(request.SecretRefs) > 0 && !canonicalStrings(request.SecretRefs, serviceSecretRefPattern, true) {
 		return newError("invalid_deployment_destroy_request", nil)
 	}
 	return nil
@@ -241,14 +246,14 @@ func validateDestroyApproval(proof cloudcontracts.ServiceDestroyApprovalV1, requ
 		return newError("invalid_command", err)
 	}
 	expires, err := parseCanonicalInstant(expiresAt)
-	if err != nil || !proof.ExpiresAt.After(issued) || proof.ExpiresAt.Before(expires) || proof.CloudConnectionID != connectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !reflect.DeepEqual(sortedCopy(proof.VolumeIDs), request.VolumeIDs) || !reflect.DeepEqual(sortedCopy(proof.NetworkInterfaceIDs), request.NetworkInterfaceIDs) {
+	if err != nil || !proof.ExpiresAt.After(issued) || proof.ExpiresAt.Before(expires) || proof.CloudConnectionID != connectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !reflect.DeepEqual(sortedCopy(proof.VolumeIDs), request.VolumeIDs) || !reflect.DeepEqual(sortedCopy(proof.NetworkInterfaceIDs), request.NetworkInterfaceIDs) || !reflect.DeepEqual(sortedCopy(proof.SecretRefs), request.SecretRefs) {
 		return newError("approval_proof_mismatch", err)
 	}
 	return nil
 }
 
 func decodeDestroyRequest(raw []byte) (DeploymentDestroyRequest, error) {
-	object, err := exactJSONObject(raw, destroyRequestFields)
+	object, err := exactDestroyJSONObject(raw, destroyRequestFields, destroyRequestFieldsWithSecrets)
 	if err != nil {
 		return DeploymentDestroyRequest{}, err
 	}
@@ -274,7 +279,7 @@ func decodeDestroyResult(raw []byte) (DeploymentDestroyResult, error) {
 	if _, err := exactJSONObject(object["receipt"], deploymentCommandReceiptFields); err != nil {
 		return DeploymentDestroyResult{}, err
 	}
-	evidence, err := exactJSONObject(object["deployment"], destroyEvidenceFields)
+	evidence, err := exactDestroyJSONObject(object["deployment"], destroyEvidenceFields, destroyEvidenceFieldsWithSecrets)
 	if err != nil {
 		return DeploymentDestroyResult{}, err
 	}
@@ -294,7 +299,16 @@ func decodeDestroyResult(raw []byte) (DeploymentDestroyResult, error) {
 func normalizeDestroyRequest(request DeploymentDestroyRequest) DeploymentDestroyRequest {
 	request.VolumeIDs = sortedCopy(request.VolumeIDs)
 	request.NetworkInterfaceIDs = sortedCopy(request.NetworkInterfaceIDs)
+	request.SecretRefs = sortedCopy(request.SecretRefs)
 	return request
+}
+
+func exactDestroyJSONObject(raw []byte, legacy, withSecrets []string) (map[string]json.RawMessage, error) {
+	object, err := exactJSONObject(raw, legacy)
+	if err == nil {
+		return object, nil
+	}
+	return exactJSONObject(raw, withSecrets)
 }
 
 func sortedCopy(values []string) []string {

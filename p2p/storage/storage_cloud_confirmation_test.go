@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,10 @@ func TestDatabaseStoreCloudPlanConfirmationBindsCapacitySignatureAndProvisionOut
 	quoteID := "quote-confirmation-1"
 	privateKey, publicSPKI := cloudConfirmationDeviceKey(t)
 	recipe, quote := cloudConfirmationFixtures(t, now, connectionID, quoteID)
+	recipe.SecretSlots = []cloudcontracts.RecipeSecretSlotRequirementV1{
+		{SlotID: "github_app", Purpose: "private source access", Delivery: cloudcontracts.SecretDeliveryFile},
+		{SlotID: "model_token", Purpose: "model provider access", Delivery: cloudcontracts.SecretDeliveryEnvironment},
+	}
 	seedCloudConfirmationState(t, store, owner, connectionID, planID, recipe, quote, publicSPKI)
 
 	prepare := cloudmodule.PreparePlanConfirmationRequest{
@@ -49,15 +54,19 @@ func TestDatabaseStoreCloudPlanConfirmationBindsCapacitySignatureAndProvisionOut
 		approval.ResourceScope.InstanceType != "m7i.xlarge" || approval.ResourceScope.Architecture != cloudcontracts.ArchitectureAMD64 ||
 		approval.ResourceScope.VCPU != 4 || approval.ResourceScope.MemoryMiB != 16384 || approval.ResourceScope.DiskGiB != 80 ||
 		approval.NetworkScope.PublicIngress || approval.NetworkScope.EntryPoint != cloudcontracts.EntryPointNone ||
-		len(approval.SecretScope) != 0 || len(approval.IntegrationScope) != 0 {
+		len(approval.SecretScope) != 2 || len(approval.IntegrationScope) != 0 {
 		t.Fatalf("approval scope = %#v", approval)
+	}
+	wantScope, err := cloudcontracts.SecretScopeForRecipe(planID, recipe.SecretSlots)
+	if err != nil || !reflect.DeepEqual(approval.SecretScope, wantScope) {
+		t.Fatalf("approval secret scope=%#v want=%#v err=%v", approval.SecretScope, wantScope, err)
 	}
 	if strings.Contains(mustCloudConfirmationJSON(t, confirmed), "private-key") || strings.Contains(mustCloudConfirmationJSON(t, confirmed), "credential") {
 		t.Fatalf("confirmation leaked secret-like material: %s", mustCloudConfirmationJSON(t, confirmed))
 	}
 
 	replay, err := store.PrepareCloudPlanConfirmation(ctx, prepare)
-	if err != nil || replay.Created || replay.Confirmation.Approval.ApprovalID != approval.ApprovalID {
+	if err != nil || replay.Created || replay.Confirmation.Approval.ApprovalID != approval.ApprovalID || replay.Confirmation.Approval.PlanHash != approval.PlanHash || !reflect.DeepEqual(replay.Confirmation.Approval.SecretScope, approval.SecretScope) {
 		t.Fatalf("prepare replay = %#v, err=%v", replay, err)
 	}
 	conflict := prepare
@@ -185,6 +194,7 @@ func TestDatabaseStoreRecipeExecutionConfirmationBindsTrustedManifestAndQueuesOn
 	store := newCloudConfirmationStore(t)
 	now := time.Date(2026, time.July, 15, 9, 0, 0, 0, time.UTC)
 	owner, deployment, privateKey, manifest := seedCloudRecipeExecutionReadyDeployment(t, store, now)
+	registerTrustedArtifactForExecutionManifest(t, store, manifest, now.Add(90*time.Second).UnixMilli())
 
 	registered, err := store.RegisterTrustedCloudRecipeExecutionManifest(ctx, cloudmodule.RegisterTrustedRecipeExecutionManifestRequest{
 		Manifest: manifest, RegisteredAt: now.Add(2 * time.Minute).UnixMilli(),
@@ -336,6 +346,10 @@ func seedCloudRecipeExecutionReadyDeployment(t *testing.T, store *DatabaseStore,
 	quoteID := "quote-recipe-execution-1"
 	privateKey, publicSPKI := cloudConfirmationDeviceKey(t)
 	recipe, quote := cloudConfirmationFixtures(t, now, connectionID, quoteID)
+	recipe.SecretSlots = []cloudcontracts.RecipeSecretSlotRequirementV1{
+		{SlotID: "github_app", Purpose: "private source access", Delivery: cloudcontracts.SecretDeliveryFile},
+		{SlotID: "model_token", Purpose: "model provider access", Delivery: cloudcontracts.SecretDeliveryEnvironment},
+	}
 	seedCloudConfirmationState(t, store, owner, connectionID, planID, recipe, quote, publicSPKI)
 	prepared, err := store.PrepareCloudPlanConfirmation(ctx, cloudmodule.PreparePlanConfirmationRequest{
 		OwnerMXID: owner, PlanID: planID, ExpectedRevision: 3, QuoteID: quoteID, CandidateTier: "recommended",
@@ -413,6 +427,13 @@ func seedCloudRecipeExecutionReadyDeployment(t *testing.T, store *DatabaseStore,
 		PlanID: planV1.PlanID, PlanHash: planHash, PlanRevision: planV1.Revision, RecipeDigest: planV1.Recipe.Digest,
 		WorkerResourceManifestDigest: workerResourceDigest, ArtifactDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+	}
+	for _, requirement := range recipe.SecretSlots {
+		reference, err := cloudcontracts.SecretReferenceForRecipeSlot(planV1.PlanID, requirement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.SecretSlots = append(manifest.SecretSlots, cloudcontracts.SecretSlotV1{SlotID: requirement.SlotID, SecretRef: reference.SecretRef})
 	}
 	if err := manifest.ValidateForPlan(planV1); err != nil {
 		t.Fatalf("recipe execution manifest fixture = %v", err)

@@ -312,7 +312,6 @@ func validManifest() cloudorchestrator.RecipeExecutionManifestV1 {
 		CheckpointSequence:           []string{"artifact_verified", "install_complete", "health_verified"},
 		VolumeSlots:                  []cloudorchestrator.VolumeSlotV1{{SlotID: "data", VolumeRef: "volume_ref:data-a"}},
 		DataSlots:                    []cloudorchestrator.DataSlotV1{{SlotID: "dataset", DataRef: "data_ref:dataset-a", ReadOnly: true}},
-		SecretSlots:                  []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: "secret_ref:model-token-a"}},
 	}
 }
 

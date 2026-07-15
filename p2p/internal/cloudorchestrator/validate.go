@@ -71,6 +71,45 @@ func (r RecipeV1) Validate() error {
 	if err := r.Lifecycle.validate(); err != nil {
 		return fmt.Errorf("recipe lifecycle contract: %w", err)
 	}
+	if err := validateRecipeSlotRequirements(r.VolumeSlots, r.DataSlots, r.SecretSlots); err != nil {
+		return fmt.Errorf("recipe slot requirements: %w", err)
+	}
+	return nil
+}
+
+func validateRecipeSlotRequirements(volumes []RecipeVolumeSlotRequirementV1, data []RecipeDataSlotRequirementV1, secrets []RecipeSecretSlotRequirementV1) error {
+	if len(volumes) > 32 || len(data) > 32 || len(secrets) > 32 {
+		return errors.New("each slot requirement list may contain at most 32 entries")
+	}
+	seen := make(map[string]struct{}, len(volumes)+len(data)+len(secrets))
+	validate := func(slotID, purpose string) error {
+		if validateCompiledRecipeIdentifier("slot_id", slotID) != nil || validateCompiledRecipePurpose(purpose) != nil {
+			return errors.New("slot id or purpose is invalid")
+		}
+		if _, exists := seen[slotID]; exists {
+			return errors.New("slot_id must be unique across volume, data, and secret requirements")
+		}
+		seen[slotID] = struct{}{}
+		return nil
+	}
+	for _, slot := range volumes {
+		if err := validate(slot.SlotID, slot.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, slot := range data {
+		if err := validate(slot.SlotID, slot.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, slot := range secrets {
+		if err := validate(slot.SlotID, slot.Purpose); err != nil {
+			return err
+		}
+		if slot.Delivery != SecretDeliveryFile && slot.Delivery != SecretDeliveryEnvironment {
+			return errors.New("secret slot delivery is invalid")
+		}
+	}
 	return nil
 }
 
@@ -486,8 +525,8 @@ func (m RecipeExecutionManifestV1) Validate() error {
 	return validateSecretSlots(m.SecretSlots)
 }
 
-// ValidateForPlan verifies that the immutable identifiers and any secret slot
-// references are already bound by the reviewed Plan. Artifact delivery,
+// ValidateForPlan verifies that the immutable identifiers and the complete
+// deterministic secret slot/reference set are bound by the reviewed Plan. Artifact delivery,
 // volume/data realization, and execution remain separate typed control-plane
 // responsibilities.
 func (m RecipeExecutionManifestV1) ValidateForPlan(plan PlanV1) error {
@@ -501,11 +540,18 @@ func (m RecipeExecutionManifestV1) ValidateForPlan(plan PlanV1) error {
 	if m.PlanID != plan.PlanID || m.PlanRevision != plan.Revision || m.PlanHash != planHash || m.RecipeDigest != plan.Recipe.Digest {
 		return errors.New("recipe execution manifest does not match the reviewed plan")
 	}
+	if len(m.SecretSlots) != len(plan.SecretScope) {
+		return errors.New("recipe execution manifest secret slots do not exactly match the reviewed plan")
+	}
 	allowedSecrets := make(map[string]struct{}, len(plan.SecretScope))
 	for _, reference := range plan.SecretScope {
 		allowedSecrets[reference.SecretRef] = struct{}{}
 	}
 	for _, slot := range m.SecretSlots {
+		expected, err := SecretReferenceForRecipeSlot(plan.PlanID, RecipeSecretSlotRequirementV1{SlotID: slot.SlotID, Purpose: "scope validation", Delivery: SecretDeliveryFile})
+		if err != nil || slot.SecretRef != expected.SecretRef {
+			return errors.New("recipe execution manifest secret slot reference is not deterministic")
+		}
 		if _, found := allowedSecrets[slot.SecretRef]; !found {
 			return errors.New("recipe execution manifest references a secret outside the reviewed plan")
 		}

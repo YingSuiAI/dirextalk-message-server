@@ -12,9 +12,12 @@ import (
 )
 
 type DeploymentDestroySpec struct {
+	ConnectionID        string
+	DeploymentID        string
 	InstanceID          string
 	VolumeIDs           []string
 	NetworkInterfaceIDs []string
+	SecretRefs          []string
 }
 
 type DeploymentDestroyProvider interface {
@@ -38,6 +41,10 @@ func (broker Broker) executeDeploymentDestroy(response http.ResponseWriter, requ
 	destroyRequest, err := command.DeploymentDestroyRequest()
 	if err != nil {
 		writeError(response, http.StatusBadRequest, contract.Code(err))
+		return
+	}
+	if len(destroyRequest.SecretRefs) != 0 && broker.ServiceSecretDestroyStore == nil {
+		writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
 		return
 	}
 	proof, err := command.ServiceDestroyApproval()
@@ -98,7 +105,7 @@ func (broker Broker) executeDeploymentDestroy(response http.ResponseWriter, requ
 }
 
 func (broker Broker) resumeDeploymentDestroy(response http.ResponseWriter, request *http.Request, command contract.Command, identity commandstore.Record, reservation commandstore.DeploymentDestroyReservation, destroyRequest contract.DeploymentDestroyRequest) {
-	complete, err := broker.DeploymentDestroyProvider.EnsureVerifiedDestroyed(request.Context(), DeploymentDestroySpec{InstanceID: destroyRequest.InstanceID, VolumeIDs: destroyRequest.VolumeIDs, NetworkInterfaceIDs: destroyRequest.NetworkInterfaceIDs})
+	complete, err := broker.DeploymentDestroyProvider.EnsureVerifiedDestroyed(request.Context(), DeploymentDestroySpec{ConnectionID: command.ConnectionID, DeploymentID: destroyRequest.DeploymentID, InstanceID: destroyRequest.InstanceID, VolumeIDs: destroyRequest.VolumeIDs, NetworkInterfaceIDs: destroyRequest.NetworkInterfaceIDs, SecretRefs: destroyRequest.SecretRefs})
 	if err != nil {
 		writeProviderError(response, err)
 		return
@@ -107,7 +114,17 @@ func (broker Broker) resumeDeploymentDestroy(response http.ResponseWriter, reque
 		writeError(response, http.StatusConflict, "deployment_destroy_in_progress")
 		return
 	}
-	resultJSON, err := contract.MarshalCommittedDeploymentDestroyResult(command, contract.DeploymentDestroyEvidence{DeploymentID: destroyRequest.DeploymentID, InstanceID: destroyRequest.InstanceID, VolumeIDs: destroyRequest.VolumeIDs, NetworkInterfaceIDs: destroyRequest.NetworkInterfaceIDs})
+	if len(destroyRequest.SecretRefs) != 0 {
+		if broker.ServiceSecretDestroyStore == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		if err = broker.ServiceSecretDestroyStore.DeleteCompletedServiceSecretBindings(request.Context(), command.ConnectionID, destroyRequest.DeploymentID, destroyRequest.SecretRefs); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+	}
+	resultJSON, err := contract.MarshalCommittedDeploymentDestroyResult(command, contract.DeploymentDestroyEvidence{DeploymentID: destroyRequest.DeploymentID, InstanceID: destroyRequest.InstanceID, VolumeIDs: destroyRequest.VolumeIDs, NetworkInterfaceIDs: destroyRequest.NetworkInterfaceIDs, SecretRefs: destroyRequest.SecretRefs})
 	if err != nil {
 		writeError(response, http.StatusBadGateway, "provider_readback_invalid")
 		return

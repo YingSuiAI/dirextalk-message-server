@@ -320,6 +320,12 @@ func run(ctx context.Context, config commandConfig) error {
 	executionProbeRunner := runtime.NewExecutionProbeRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
+	// Secret observation is read-only and only claims an already-approved,
+	// pending bootstrap ledger entry. It never creates a session, uploads
+	// material, or broadens the ProductCore action surface.
+	serviceSecretObserver := runtime.NewServiceSecretObserver(store, brokerTransport, runtime.Config{
+		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
+	})
 	var recipeInstallRunner iterationRunner
 	var serviceReadinessRunner iterationRunner
 	var serviceDestroyRunner iterationRunner
@@ -349,13 +355,13 @@ func run(ctx context.Context, config commandConfig) error {
 		serviceRestoreRunner = runtime.NewServiceRestoreRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -381,7 +387,7 @@ type iterationRunner interface {
 // runIteration gives each independent control-plane loop one chance per poll.
 // A failure in one durable control-plane runner must not starve the others;
 // all errors are returned together for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -435,7 +441,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if serviceRestoreRunner != nil {
 		serviceRestored, serviceRestoreErr = serviceRestoreRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceRestorePlanned || serviceRestored || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceRestorePlanErr, serviceRestoreErr, serviceDestroyErr)
+	var secretObserved bool
+	var secretObserveErr error
+	if serviceSecretObserver != nil {
+		secretObserved, secretObserveErr = serviceSecretObserver.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceRestorePlanned || serviceRestored || serviceDestroyed || secretObserved, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceRestorePlanErr, serviceRestoreErr, serviceDestroyErr, secretObserveErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

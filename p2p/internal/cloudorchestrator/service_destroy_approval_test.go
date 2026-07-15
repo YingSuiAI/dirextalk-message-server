@@ -2,6 +2,7 @@ package cloudorchestrator_test
 
 import (
 	"crypto/ed25519"
+	"fmt"
 	"testing"
 	"time"
 
@@ -18,12 +19,13 @@ func TestServiceDestroyApprovalBindsExactTrackedResourcesAndRevision(t *testing.
 		InstanceID:          "i-0123456789abcdef0",
 		VolumeIDs:           []string{"vol-0bbbbbbbbbbbbbbbb", "vol-0aaaaaaaaaaaaaaaa"},
 		NetworkInterfaceIDs: []string{"eni-0bbbbbbbbbbbbbbbb", "eni-0aaaaaaaaaaaaaaaa"},
+		SecretRefs:          []string{"secret_ref:plan/registry", "secret_ref:plan/model"},
 	}
 	approval, err := cloudorchestrator.NewServiceDestroyApprovalV1(target, "destroy-approval-0001", "destroy-challenge-0001", "owner-device-0001", now, now.Add(5*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if approval.VolumeIDs[0] != "vol-0aaaaaaaaaaaaaaaa" || approval.NetworkInterfaceIDs[0] != "eni-0aaaaaaaaaaaaaaaa" {
+	if approval.VolumeIDs[0] != "vol-0aaaaaaaaaaaaaaaa" || approval.NetworkInterfaceIDs[0] != "eni-0aaaaaaaaaaaaaaaa" || approval.SecretRefs[0] != "secret_ref:plan/model" {
 		t.Fatalf("resource identifiers were not canonicalized: %#v", approval)
 	}
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
@@ -44,6 +46,11 @@ func TestServiceDestroyApprovalBindsExactTrackedResourcesAndRevision(t *testing.
 	tampered.InstanceID = "i-0ffffffffffffffff"
 	if err := tampered.Verify(publicKey, now.Add(time.Minute)); err == nil {
 		t.Fatal("destroy approval signature did not bind the instance")
+	}
+	tampered = signed
+	tampered.SecretRefs = []string{"secret_ref:plan/forged"}
+	if err := tampered.Verify(publicKey, now.Add(time.Minute)); err == nil {
+		t.Fatal("destroy approval signature did not bind secret refs")
 	}
 	changed := target
 	changed.DeploymentRevision++
@@ -67,6 +74,18 @@ func TestServiceDestroyApprovalRejectsUnsafeOrExpiredTargets(t *testing.T) {
 			value.VolumeIDs = []string{value.VolumeIDs[0], value.VolumeIDs[0]}
 		},
 		"credential shaped id": func(value *cloudorchestrator.ServiceDestroyTargetV1) { value.InstanceID = "AKIAABCDEFGHIJKLMNOP" },
+		"duplicate secret ref": func(value *cloudorchestrator.ServiceDestroyTargetV1) {
+			value.SecretRefs = []string{"secret_ref:plan/model", "secret_ref:plan/model"}
+		},
+		"secret value": func(value *cloudorchestrator.ServiceDestroyTargetV1) {
+			value.SecretRefs = []string{"sk-secret-material"}
+		},
+		"33 secret refs": func(value *cloudorchestrator.ServiceDestroyTargetV1) {
+			value.SecretRefs = make([]string, 33)
+			for index := range value.SecretRefs {
+				value.SecretRefs[index] = fmt.Sprintf("secret_ref:plan/slot-%02d", index)
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			target := valid

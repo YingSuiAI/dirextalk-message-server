@@ -174,7 +174,6 @@ func approvedExecutionScope(t *testing.T, now time.Time) (cloudorchestrator.Plan
 	manifest.PlanHash = planHash
 	manifest.PlanRevision = plan.Revision
 	manifest.RecipeDigest = plan.Recipe.Digest
-	manifest.SecretSlots = []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: "secret_ref:model-token"}}
 	if err := manifest.ValidateForPlan(plan); err != nil {
 		t.Fatalf("manifest.ValidateForPlan() error = %v", err)
 	}

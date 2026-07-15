@@ -110,6 +110,9 @@ func (s *DatabaseStore) RegisterTrustedCloudRecipeExecutionManifest(ctx context.
 		if request.Manifest.PlanHash != approvedPlanHash || request.Manifest.ValidateForPlan(approvedPlan) != nil {
 			return cloudmodule.ErrRecipeExecutionManifestInvalid
 		}
+		if _, err := lockVerifiedRecipeArtifactForExecution(ctx, tx, request.Manifest, approvedPlan); err != nil {
+			return err
+		}
 
 		execution := cloudmodule.RecipeExecution{
 			ExecutionID: request.Manifest.ExecutionID, DeploymentID: deployment.DeploymentID, PlanID: plan.PlanID,

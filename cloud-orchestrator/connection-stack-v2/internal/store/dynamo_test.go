@@ -99,6 +99,53 @@ func TestDynamoRepositoryReservesCounterDeploymentApprovalAndChallengeAtomically
 	if client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil || client.transactInput.TransactItems[2].Put == nil || client.transactInput.TransactItems[3].Put == nil || client.transactInput.TransactItems[4].Put == nil {
 		t.Fatalf("reserve transaction shape=%#v", client.transactInput.TransactItems)
 	}
+	item := client.transactInput.TransactItems[1].Put.Item
+	if value, ok := item["approved_plan_hash"].(*dynamodbtypes.AttributeValueMemberS); !ok || value.Value != reservation.PlanHash {
+		t.Fatalf("approved_plan_hash=%#v", item["approved_plan_hash"])
+	}
+	if value, ok := item["approved_recipe_digest"].(*dynamodbtypes.AttributeValueMemberS); !ok || value.Value != reservation.RecipeDigest {
+		t.Fatalf("approved_recipe_digest=%#v", item["approved_recipe_digest"])
+	}
+	if value, ok := item["approved_secret_scope_json"].(*dynamodbtypes.AttributeValueMemberS); !ok || !strings.Contains(value.Value, "secret_ref:model-token-001") || !strings.Contains(value.Value, "model inference") || !strings.Contains(value.Value, "environment") {
+		t.Fatalf("approved_secret_scope_json=%#v", item["approved_secret_scope_json"])
+	}
+}
+
+func TestDeploymentReservationLegacyItemRemainsReadableWithEmptyApprovedScope(t *testing.T) {
+	legacy := validDeploymentReservation()
+	legacy.PlanHash, legacy.RecipeDigest, legacy.SecretScope = "", "", nil
+	item := deploymentItem(legacy)
+	if _, found := item["approved_plan_hash"]; found {
+		t.Fatal("legacy item unexpectedly persisted approved scope")
+	}
+	stored, err := deploymentFromItem(item)
+	if err != nil || stored.PlanHash != "" || stored.RecipeDigest != "" || len(stored.SecretScope) != 0 {
+		t.Fatalf("deploymentFromItem()=(%#v,%v)", stored, err)
+	}
+}
+
+func TestDeploymentReservationRejectsPartialOrNoncanonicalApprovedScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]dynamodbtypes.AttributeValue)
+	}{
+		{name: "missing recipe digest", mutate: func(item map[string]dynamodbtypes.AttributeValue) { delete(item, "approved_recipe_digest") }},
+		{name: "null scope", mutate: func(item map[string]dynamodbtypes.AttributeValue) {
+			item["approved_secret_scope_json"] = &dynamodbtypes.AttributeValueMemberS{Value: `null`}
+		}},
+		{name: "unknown scope field", mutate: func(item map[string]dynamodbtypes.AttributeValue) {
+			item["approved_secret_scope_json"] = &dynamodbtypes.AttributeValueMemberS{Value: `[{"secret_ref":"secret_ref:model-token-001","purpose":"model inference","delivery":"environment","path":"/tmp/secret"}]`}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			item := deploymentItem(validDeploymentReservation())
+			test.mutate(item)
+			if _, err := deploymentFromItem(item); Code(err) != "deployment_store_invalid" {
+				t.Fatalf("deploymentFromItem() error=%v code=%s", err, Code(err))
+			}
+		})
+	}
 }
 
 func TestDynamoRepositoryRejectsConsumedApprovalOnReservationRace(t *testing.T) {
@@ -271,7 +318,7 @@ func recordItem(record Record) map[string]dynamodbtypes.AttributeValue {
 
 func validDeploymentReservation() DeploymentReservation {
 	session := WorkerSession{BootstrapSessionID: "bootstrap-" + strings.Repeat("f", 32), ConnectionID: "connection-0001", DeploymentID: "deployment-0001", RequestSHA256: strings.Repeat("d", 64), WorkerImageDigest: "sha256:" + strings.Repeat("a", 64), ArtifactManifestDigest: "sha256:" + strings.Repeat("b", 64), BootstrapEndpoint: "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/worker-sessions", ExpectedAMIID: "ami-0123456789abcdef0", ExpectedInstanceType: "m7i.xlarge", ExpectedArchitecture: "x86_64", ExpectedVPCID: "vpc-0123456789abcdef0", ExpectedSubnetID: "subnet-0123456789abcdef0", ExpectedAvailabilityZone: "us-east-1a", ExpectedSecurityGroupID: "sg-0123456789abcdef0", State: "issued", ExpiresAt: "2026-07-14T12:10:00.123Z"}
-	return DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", CommandID: "command-deployment-0001", RequestSHA256: strings.Repeat("d", 64), ExpectedGeneration: 1, NodeCounter: 8, ApprovalID: "approval-0001", ChallengeID: "challenge-0001", SignerKeyID: "device-key-1", QuoteID: "quote-00000000000000000000000000000000", ClientToken: "dtx-" + strings.Repeat("e", 60), BootstrapSessionID: session.BootstrapSessionID, WorkerSession: session, SpecJSON: []byte(`{"deployment_id":"deployment-0001"}`), State: "reserved"}
+	return DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", CommandID: "command-deployment-0001", RequestSHA256: strings.Repeat("d", 64), ExpectedGeneration: 1, NodeCounter: 8, ApprovalID: "approval-0001", ChallengeID: "challenge-0001", SignerKeyID: "device-key-1", QuoteID: "quote-00000000000000000000000000000000", PlanHash: "sha256:" + strings.Repeat("1", 64), RecipeDigest: "sha256:" + strings.Repeat("2", 64), SecretScope: []ApprovedSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}, ClientToken: "dtx-" + strings.Repeat("e", 60), BootstrapSessionID: session.BootstrapSessionID, WorkerSession: session, SpecJSON: []byte(`{"deployment_id":"deployment-0001"}`), State: "reserved"}
 }
 
 func validDeploymentRecord(reservation DeploymentReservation) Record {

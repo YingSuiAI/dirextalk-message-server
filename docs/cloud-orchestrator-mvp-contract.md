@@ -315,15 +315,16 @@ Cloud mutation.
 | `cloud.bootstrap` | returns owner projections (`goals`, `plans`, `jobs`, `connections`, `deployments`, `services`, `recipes`, `alerts`) | HTTP + WS request |
 | `cloud.{connections,plans,deployments,services,recipes}.list/get` | typed owner-only projection reads; only `cloud.plans.get` may attach a de-secretsed quote detail | HTTP + WS request |
 | `cloud.events.list` | de-secretsed durable Cloud audit events; `limit` is 1–200 | HTTP + WS request |
-| `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request | HTTP-only |
+| `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request; an owner may bind one current private Recipe by id and expected revision | HTTP-only |
 | `cloud.connections.role_plan` | creates/replays a short-lived private Stack bootstrap and returns a safe CloudFormation Role Plan | HTTP-only |
 | `cloud.connections.registration.complete` | records Stack outputs as a private pending verification and returns its safe Job binding; it cannot activate a Connection directly | HTTP-only |
-| `cloud.plans.confirmation.prepare` | binds a quoted capacity tier into an immutable no-ingress/no-secret/no-integration PlanV1 and returns a short-lived device challenge | HTTP-only |
+| `cloud.plans.confirmation.prepare` | binds a quoted capacity tier and the selected Recipe's derived volume/data/secret slots into an immutable no-ingress PlanV1 and returns a short-lived device challenge | HTTP-only |
 | `cloud.plans.approve` | verifies that exact device signature, then atomically queues the private provision intent; it does not create an AWS resource itself | HTTP-only |
 | `cloud.deployments.recipe_execution.confirmation.prepare` | resolves only a privately registered trusted manifest for the deployment and returns a short-lived device challenge | HTTP-only |
 | `cloud.deployments.recipe_execution.approve` | verifies that exact device signature, then atomically queues a private `install` intent; it does not issue a Worker task or execute the recipe | HTTP-only |
+| `cloud.secrets.bootstrap.plan` | derives one active Recipe task's exact secret slot and returns a ten-minute device-signed upload proof plus a transient strict Stack base URL; it accepts no secret value, endpoint, provider version or reference from the caller | HTTP-only |
 | `cloud.services.operation.plan/approve` | device-approves one exact compiled `start`/`stop`/`restart` Worker action or one exact retained encrypted `backup`; each queues only its private typed intent | HTTP-only |
-| `cloud.services.destroy.plan/approve` | device-approves the exact tracked EC2/EBS/ENI set and queues only a private verified-destroy intent | HTTP-only |
+| `cloud.services.destroy.plan/approve` | device-approves the exact tracked EC2/EBS/ENI and Recipe-derived secret-reference set and queues only a private verified-destroy intent | HTTP-only |
 | `cloud.deployments.pairing.resume` | declared high-risk contract; returns `503 cloud_orchestrator_unavailable` until its independent transition is installed | HTTP-only |
 
 `cloud.connections.role_plan` accepts exactly:
@@ -432,9 +433,11 @@ The response is:
 ```
 
 Clients must not put AWS keys, GitHub credentials, model tokens, or pairing
-codes in `goal`. The later secure bootstrap channel uploads client-encrypted
+codes in `goal`. The service-secret bootstrap channel uploads client-encrypted
 material directly to the AWS Connection Stack KMS/Secrets Manager path and
-returns only `secret_ref` values to ProductCore.
+returns only `secret_ref` values to ProductCore. AWS account bootstrap
+credentials remain outside this channel and are not accepted by the Message
+Server.
 
 `cloud.plans.confirmation.prepare` accepts exactly:
 
@@ -596,20 +599,25 @@ separate plan and confirmation.
 
 ## Explicitly gated or not enabled yet
 
-The current slice does not upload credentials or deploy a Connection Stack on
-the owner's behalf or expose a network endpoint. It can issue a reviewed
-CloudFormation handoff. The Go Broker enables signed registration verification,
-read-only On-Demand quotes and `deployment.observe`; `deployment.create`, the
-IID-verified Worker claim and fixed task channels remain behind the existing
-disabled-by-default mutation gate.
+The current slice does not upload AWS account credentials, deploy a Connection
+Stack on the owner's behalf or expose a network endpoint. It can issue a
+reviewed CloudFormation handoff. A separate owner/device-approved service
+secret channel sends encrypted workload material directly to a Stack that the
+owner has already deployed; no secret value passes through ProductCore. The Go
+Broker enables signed registration verification, read-only On-Demand quotes
+and `deployment.observe`; `deployment.create`, the IID-verified Worker claim,
+fixed task channels and service-secret routes remain behind independent
+disabled-by-default gates.
 
 Owner HTTP-only `cloud.services.destroy.plan/approve` now authorize exactly one
-tracked Service revision and its persisted EC2/EBS/ENI set. The independent
+tracked Service revision and its persisted EC2/EBS/ENI plus Recipe-derived
+`secret_ref` set. The independent
 Orchestrator and Stack each have a separate default-off destroy gate. When both
 are explicitly enabled, the Stack consumes the signed approval/challenge before
 provider mutation, resumes the same durable reservation after response loss,
-and emits success only after AWS read-back proves every approved identifier
-absent. The Orchestrator independently validates that receipt before publishing
+and emits success only after AWS read-back proves every approved EC2 and
+Secrets Manager identifier absent. The Orchestrator independently validates
+that receipt before publishing
 `destroyed`/`verified_destroyed`; all unverified terminal failures remain
 `degraded`/`blocked` with `destroy_blocked`. Agent, MCP and Worker receive no
 destroy capability or AWS credential.
@@ -724,12 +732,47 @@ expired challenges, signature/key mismatch, and concurrent Service lifecycle
 work fail closed without promoting maturity. Agent tokens, public MCP and
 WebSocket requests cannot call either action.
 
-The stage is in progress until the server persistence/projection and Flutter
-device-signing boundary checks pass and section P of the delivery tracker is
-closed. Secret delivery, selectable Recipes, OpenClaw/knowledge services and
-ingress still return `operation_not_enabled`. The repository
-does not yet deploy a researcher endpoint, build or publish the versioned
-Worker AMI containing the fixed binaries, deploy the Stack, enable either
-restore mutation gate, or run a real-account AWS integration test. Those
-transitions must use the typed Connection Stack/Broker path; neither the Eino
-Agent tool, external MCP, nor the Message Server gains arbitrary AWS access.
+Section P is complete. The next slice adds selectable private Recipes and a
+scoped service-secret lifecycle without granting a new mutation surface to the
+Eino Agent or public MCP. `cloud.goals.create` may bind one owner Recipe and
+revision; the researcher may recommend and quote around that immutable Recipe
+but cannot replace it. The current Recipe, its verified compiled artifact and
+its execution manifest must agree exactly on every volume, data and secret
+slot. A device-signed `cloud.secrets.bootstrap.plan` proof then authorizes one
+client-encrypted value to travel directly to the owner's Connection Stack.
+ProductCore stores only the opaque `secret_ref` and non-secret audit bindings;
+it never receives the value, upload token, encryption key, ciphertext,
+provider path or provider version.
+
+The Stack uses X25519, HKDF-SHA256, AES-256-GCM, KMS and Secrets Manager. Its
+ten-minute bootstrap expiry applies only to creation/upload authorization. A
+completed deployment secret remains materializable across Worker and Broker
+restarts until the owner approves destruction. The Worker proves its current
+lease and exact active task/manifest, while the Stack resolves the dynamic
+provider version internally by
+`connection + deployment + recipe + artifact + slot + secret_ref`; neither a
+compiled AMI catalog nor the Worker request may contain a provider version.
+The trusted catalog chooses only the slot's fixed file or environment
+destination. A task that reaches the Stack before upload receives a bounded
+pending response and waits within its Recipe timeout instead of failing or
+running without the value.
+
+Device-approved destruction binds the complete Recipe-derived `secret_ref`
+set. The Stack terminates EC2, removes ENIs and EBS volumes, force-deletes the
+deterministically scoped Secrets Manager resources, verifies `NotFound`, and
+only then commits its durable receipt and purges the non-secret binding
+records. Access denial remains `destroy_blocked`; it can never project
+`verified_destroyed`. Completed secret records do not use the bootstrap TTL,
+while unfinished sessions remain short-lived. Flutter keeps plaintext,
+ephemeral keys, upload tokens and encrypted envelopes in one cancellable
+in-memory flow, suppresses logs and local persistence, and exposes only
+device-signed owner HTTP controls.
+
+Production execution remains disabled by default. The repository still does
+not build or publish a production generic Recipe catalog/typed root driver or
+versioned Worker AMI, deploy the Stack, enable a real-account mutation gate,
+or run the OpenClaw/knowledge-node AWS acceptance. Public ingress and
+GPU/Spot/model-training remain later independently approved stages. Those
+transitions must continue through the typed Connection Stack/Broker path;
+neither the Eino Agent tool, external MCP, nor the Message Server gains
+arbitrary AWS access.

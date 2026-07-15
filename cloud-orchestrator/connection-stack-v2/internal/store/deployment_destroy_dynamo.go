@@ -77,7 +77,7 @@ func (s *DynamoRepository) FinalizeDeploymentDestroy(ctx context.Context, reserv
 		result.Schema != contract.DeploymentDestroyResultSchema || result.Status != "verified_destroyed" ||
 		result.Receipt.Schema != contract.ReceiptSchema || result.Receipt.Disposition != "committed" ||
 		result.Receipt.ConnectionID != receipt.ConnectionID || result.Receipt.CommandID != receipt.CommandID || result.Receipt.RequestSHA256 != receipt.RequestSHA256 || result.Receipt.ExpectedGeneration != receipt.ExpectedGeneration || result.Receipt.NodeCounter != receipt.NodeCounter || result.Receipt.Action != contract.ActionDeploymentDestroy ||
-		result.Deployment.DeploymentID != request.DeploymentID || result.Deployment.InstanceID != request.InstanceID || !sameDestroyIDs(result.Deployment.VolumeIDs, request.VolumeIDs) || !sameDestroyIDs(result.Deployment.NetworkInterfaceIDs, request.NetworkInterfaceIDs) {
+		result.Deployment.DeploymentID != request.DeploymentID || result.Deployment.InstanceID != request.InstanceID || !sameDestroyIDs(result.Deployment.VolumeIDs, request.VolumeIDs) || !sameDestroyIDs(result.Deployment.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameDestroyIDs(result.Deployment.SecretRefs, request.SecretRefs) {
 		return Record{}, false, NewError("deployment_destroy_store_invalid")
 	}
 	items := []dynamodbtypes.TransactWriteItem{

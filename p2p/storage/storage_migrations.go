@@ -1692,6 +1692,100 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: trusted compiled recipe artifacts v59",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_artifacts (
+					artifact_digest TEXT PRIMARY KEY NOT NULL, descriptor_digest TEXT NOT NULL UNIQUE,
+					recipe_id TEXT NOT NULL, recipe_revision BIGINT NOT NULL CHECK(recipe_revision>0), recipe_digest TEXT NOT NULL,
+					worker_resource_manifest_digest TEXT NOT NULL, canonical_cbor BYTEA NOT NULL, descriptor_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK(status='verified'), revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0),
+					created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(recipe_id,recipe_revision)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_recipe_artifacts_recipe_digest_idx ON p2p_cloud_recipe_artifacts(recipe_digest,artifact_digest)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: service secret bootstrap approvals v60",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// This is a non-secret confirmation journal. It deliberately stores
+				// no Broker URL, session token, ciphertext, envelope, provider path,
+				// provider version, or secret value.
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_secret_bootstrap_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL, challenge_id TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE,
+					owner_mxid TEXT NOT NULL, deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0),
+					plan_id TEXT NOT NULL, plan_revision BIGINT NOT NULL CHECK(plan_revision>0), cloud_connection_id TEXT NOT NULL,
+					task_id TEXT NOT NULL, execution_id TEXT NOT NULL, manifest_digest TEXT NOT NULL, recipe_digest TEXT NOT NULL, artifact_digest TEXT NOT NULL,
+					slot_id TEXT NOT NULL, secret_ref TEXT NOT NULL, purpose TEXT NOT NULL, delivery TEXT NOT NULL CHECK(delivery IN('file','environment')),
+					context_digest TEXT NOT NULL, signer_key_id TEXT NOT NULL, approval_json TEXT NOT NULL, signing_payload_cbor BYTEA NOT NULL,
+					status TEXT NOT NULL CHECK(status IN('pending','expired')), prepare_idempotency_hash TEXT NOT NULL, prepare_request_digest TEXT NOT NULL,
+					expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_secret_bootstrap_pending_slot_idx ON p2p_cloud_service_secret_bootstrap_approvals(deployment_id,slot_id) WHERE status='pending'`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: selectable private recipe research v61",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_goals ADD COLUMN IF NOT EXISTS selected_recipe_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_goals ADD COLUMN IF NOT EXISTS selected_recipe_revision BIGINT NOT NULL DEFAULT 0 CHECK(selected_recipe_revision>=0)`,
+				`ALTER TABLE p2p_cloud_goals ADD COLUMN IF NOT EXISTS selected_recipe_digest TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_goals ADD CONSTRAINT p2p_cloud_goals_selected_recipe_check CHECK ((selected_recipe_id='' AND selected_recipe_revision=0 AND selected_recipe_digest='') OR (selected_recipe_id<>'' AND selected_recipe_revision>0 AND selected_recipe_digest<>''))`,
+				`ALTER TABLE p2p_cloud_plans ADD COLUMN IF NOT EXISTS recipe_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_plans ADD COLUMN IF NOT EXISTS recipe_revision BIGINT NOT NULL DEFAULT 0 CHECK(recipe_revision>=0)`,
+				`ALTER TABLE p2p_cloud_plans ADD CONSTRAINT p2p_cloud_plans_selected_recipe_check CHECK ((recipe_id='' AND recipe_revision=0) OR (recipe_id<>'' AND recipe_revision>0))`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: service secret observer journal v62",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`DROP INDEX IF EXISTS p2p_cloud_service_secret_bootstrap_pending_slot_idx`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals DROP CONSTRAINT IF EXISTS p2p_cloud_service_secret_bootstrap_approvals_status_check`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD CONSTRAINT p2p_cloud_service_secret_bootstrap_approvals_status_check CHECK(status IN('pending','observing','ready','expired','failed'))`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS updated_marker TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0)`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS available_at BIGINT NOT NULL DEFAULT 0`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS lease_owner TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS lease_token TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS lease_until BIGINT NOT NULL DEFAULT 0`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0)`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD COLUMN IF NOT EXISTS last_error_code TEXT NOT NULL DEFAULT ''`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_secret_bootstrap_active_slot_idx ON p2p_cloud_service_secret_bootstrap_approvals(deployment_id,slot_id) WHERE status IN('pending','observing','ready')`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_secret_bootstrap_updated_marker_idx ON p2p_cloud_service_secret_bootstrap_approvals(updated_marker) WHERE updated_marker<>''`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_secret_bootstrap_observe_claim_idx ON p2p_cloud_service_secret_bootstrap_approvals(status,available_at,lease_until,expires_at)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_secret_observe_commands(
+					command_id TEXT PRIMARY KEY NOT NULL,approval_id TEXT NOT NULL,session_id TEXT NOT NULL,deployment_id TEXT NOT NULL,task_id TEXT NOT NULL,execution_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL,manifest_digest TEXT NOT NULL,secret_ref TEXT NOT NULL,context_digest TEXT NOT NULL,request_digest TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK(command_attempt>0),action TEXT NOT NULL CHECK(action='service.secret.observe'),node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK(expected_generation>0),node_counter BIGINT NOT NULL CHECK(node_counter>0),canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '',request_sha256 TEXT NOT NULL DEFAULT '',signed_envelope_json TEXT NOT NULL DEFAULT '',issued_at BIGINT NOT NULL DEFAULT 0,expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK(state IN('allocated','signed','indeterminate','accepted','expired','failed')),last_error_code TEXT NOT NULL DEFAULT '',created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(approval_id,request_digest,command_attempt),UNIQUE(cloud_connection_id,node_counter)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_secret_observe_commands_approval_idx ON p2p_cloud_service_secret_observe_commands(approval_id,command_attempt DESC)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: service destroy secret references v63",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals DROP COLUMN IF EXISTS provider_version`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals DROP CONSTRAINT IF EXISTS p2p_cloud_service_secret_bootstrap_approvals_status_check`,
+				`ALTER TABLE p2p_cloud_service_secret_bootstrap_approvals ADD CONSTRAINT p2p_cloud_service_secret_bootstrap_approvals_status_check CHECK(status IN('pending','observing','ready','expired','failed','destroyed'))`,
+				`ALTER TABLE p2p_cloud_service_destroy_approvals ADD COLUMN IF NOT EXISTS secret_refs_json TEXT NOT NULL DEFAULT '[]'`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

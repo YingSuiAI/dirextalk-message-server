@@ -99,15 +99,38 @@ const (
 // deployment contract, not an executable shell script. A worker may adapt
 // only inside the explicitly declared recipe boundary.
 type RecipeV1 struct {
-	SchemaVersion string                 `json:"schema_version"`
-	RecipeID      string                 `json:"recipe_id"`
-	Name          string                 `json:"name"`
-	Maturity      RecipeMaturity         `json:"maturity"`
-	Sources       []RecipeSourceV1       `json:"sources"`
-	Requirements  ResourceRequirementsV1 `json:"requirements"`
-	Install       InstallContractV1      `json:"install"`
-	Health        HealthContractV1       `json:"health"`
-	Lifecycle     LifecycleContractV1    `json:"lifecycle"`
+	SchemaVersion string                          `json:"schema_version"`
+	RecipeID      string                          `json:"recipe_id"`
+	Name          string                          `json:"name"`
+	Maturity      RecipeMaturity                  `json:"maturity"`
+	Sources       []RecipeSourceV1                `json:"sources"`
+	Requirements  ResourceRequirementsV1          `json:"requirements"`
+	Install       InstallContractV1               `json:"install"`
+	Health        HealthContractV1                `json:"health"`
+	Lifecycle     LifecycleContractV1             `json:"lifecycle"`
+	VolumeSlots   []RecipeVolumeSlotRequirementV1 `json:"volume_slots,omitempty"`
+	DataSlots     []RecipeDataSlotRequirementV1   `json:"data_slots,omitempty"`
+	SecretSlots   []RecipeSecretSlotRequirementV1 `json:"secret_slots,omitempty"`
+}
+
+// Recipe slot requirements are pre-approval capability schemas. They contain
+// no runtime reference, value, path, environment name, command, or URL.
+type RecipeVolumeSlotRequirementV1 struct {
+	SlotID   string `json:"slot_id"`
+	Purpose  string `json:"purpose"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type RecipeDataSlotRequirementV1 struct {
+	SlotID   string `json:"slot_id"`
+	Purpose  string `json:"purpose"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type RecipeSecretSlotRequirementV1 struct {
+	SlotID   string         `json:"slot_id"`
+	Purpose  string         `json:"purpose"`
+	Delivery SecretDelivery `json:"delivery"`
 }
 
 // RecipeSourceV1 records provenance for a candidate recipe artifact.
@@ -408,8 +431,9 @@ type IngressRuleV1 struct {
 	Purpose  string `json:"purpose"`
 }
 
-// SecretReferenceV1 deliberately has no value field. SecretRef must use the
-// opaque secret_ref: namespace produced by the encrypted bootstrap channel.
+// SecretReferenceV1 deliberately has no value field. Plan confirmation
+// preallocates its opaque secret_ref: identity from the Recipe slot; the
+// encrypted bootstrap channel may later populate that exact reference.
 type SecretReferenceV1 struct {
 	SecretRef string         `json:"secret_ref"`
 	Purpose   string         `json:"purpose"`

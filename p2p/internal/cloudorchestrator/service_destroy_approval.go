@@ -37,6 +37,7 @@ type ServiceDestroyTargetV1 struct {
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
 	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+	SecretRefs          []string `json:"secret_refs,omitempty"`
 }
 
 // ServiceDestroyApprovalV1 is the sole owner authorization for destroying
@@ -58,6 +59,7 @@ type ServiceDestroyApprovalV1 struct {
 	InstanceID          string    `json:"instance_id"`
 	VolumeIDs           []string  `json:"volume_ids"`
 	NetworkInterfaceIDs []string  `json:"network_interface_ids"`
+	SecretRefs          []string  `json:"secret_refs,omitempty"`
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 	Signature           string    `json:"signature,omitempty"`
@@ -81,6 +83,7 @@ type serviceDestroyApprovalSigningPayloadV1 struct {
 	InstanceID          string    `json:"instance_id"`
 	VolumeIDs           []string  `json:"volume_ids"`
 	NetworkInterfaceIDs []string  `json:"network_interface_ids"`
+	SecretRefs          []string  `json:"secret_refs,omitempty"`
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 }
@@ -98,7 +101,7 @@ func NewServiceDestroyApprovalV1(target ServiceDestroyTargetV1, approvalID, chal
 		ServiceID: target.ServiceID, ServiceRevision: target.ServiceRevision,
 		DeploymentID: target.DeploymentID, DeploymentRevision: target.DeploymentRevision,
 		CloudConnectionID: target.CloudConnectionID, RecipeID: target.RecipeID, RecipeDigest: target.RecipeDigest,
-		InstanceID: target.InstanceID, VolumeIDs: target.VolumeIDs, NetworkInterfaceIDs: target.NetworkInterfaceIDs,
+		InstanceID: target.InstanceID, VolumeIDs: target.VolumeIDs, NetworkInterfaceIDs: target.NetworkInterfaceIDs, SecretRefs: target.SecretRefs,
 		IssuedAt: issuedAt.UTC(), ExpiresAt: expiresAt.UTC(),
 	}
 	if err := approval.Validate(); err != nil {
@@ -128,7 +131,27 @@ func (target ServiceDestroyTargetV1) Validate() error {
 	if err := validateProviderResourceIDs("volume_ids", target.VolumeIDs, ebsVolumeIDPattern); err != nil {
 		return err
 	}
-	return validateProviderResourceIDs("network_interface_ids", target.NetworkInterfaceIDs, ec2NetworkInterfaceIDPattern)
+	if err := validateProviderResourceIDs("network_interface_ids", target.NetworkInterfaceIDs, ec2NetworkInterfaceIDPattern); err != nil {
+		return err
+	}
+	return validateServiceDestroySecretRefs(target.SecretRefs)
+}
+
+func validateServiceDestroySecretRefs(values []string) error {
+	if len(values) > 32 {
+		return errors.New("secret_refs may contain at most 32 references")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !secretRefPattern.MatchString(value) || rejectSecretMaterial("secret_ref", value) != nil {
+			return errors.New("secret_refs contains an invalid opaque reference")
+		}
+		if _, ok := seen[value]; ok {
+			return errors.New("secret_refs must not contain duplicates")
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
 }
 
 func validateProviderResourceIDs(label string, values []string, pattern *regexp.Regexp) error {
@@ -195,7 +218,7 @@ func (approval ServiceDestroyApprovalV1) Target() ServiceDestroyTargetV1 {
 		ServiceID: approval.ServiceID, ServiceRevision: approval.ServiceRevision,
 		DeploymentID: approval.DeploymentID, DeploymentRevision: approval.DeploymentRevision,
 		CloudConnectionID: approval.CloudConnectionID, RecipeID: approval.RecipeID, RecipeDigest: approval.RecipeDigest,
-		InstanceID: approval.InstanceID, VolumeIDs: approval.VolumeIDs, NetworkInterfaceIDs: approval.NetworkInterfaceIDs,
+		InstanceID: approval.InstanceID, VolumeIDs: approval.VolumeIDs, NetworkInterfaceIDs: approval.NetworkInterfaceIDs, SecretRefs: approval.SecretRefs,
 	})
 }
 
@@ -210,7 +233,7 @@ func (approval ServiceDestroyApprovalV1) SigningPayload() ([]byte, error) {
 		ServiceID: approval.ServiceID, ServiceRevision: approval.ServiceRevision,
 		DeploymentID: approval.DeploymentID, DeploymentRevision: approval.DeploymentRevision,
 		CloudConnectionID: approval.CloudConnectionID, RecipeID: approval.RecipeID, RecipeDigest: approval.RecipeDigest,
-		InstanceID: approval.InstanceID, VolumeIDs: approval.VolumeIDs, NetworkInterfaceIDs: approval.NetworkInterfaceIDs,
+		InstanceID: approval.InstanceID, VolumeIDs: approval.VolumeIDs, NetworkInterfaceIDs: approval.NetworkInterfaceIDs, SecretRefs: approval.SecretRefs,
 		IssuedAt: approval.IssuedAt, ExpiresAt: approval.ExpiresAt,
 	})
 }
@@ -265,8 +288,10 @@ func (approval ServiceDestroyApprovalV1) ValidateAgainst(target ServiceDestroyTa
 func normalizeServiceDestroyTarget(target ServiceDestroyTargetV1) ServiceDestroyTargetV1 {
 	target.VolumeIDs = append([]string(nil), target.VolumeIDs...)
 	target.NetworkInterfaceIDs = append([]string(nil), target.NetworkInterfaceIDs...)
+	target.SecretRefs = append([]string(nil), target.SecretRefs...)
 	sort.Strings(target.VolumeIDs)
 	sort.Strings(target.NetworkInterfaceIDs)
+	sort.Strings(target.SecretRefs)
 	return target
 }
 
@@ -276,5 +301,6 @@ func normalizeServiceDestroyApproval(approval ServiceDestroyApprovalV1) ServiceD
 	target := approval.Target()
 	approval.VolumeIDs = target.VolumeIDs
 	approval.NetworkInterfaceIDs = target.NetworkInterfaceIDs
+	approval.SecretRefs = target.SecretRefs
 	return approval
 }

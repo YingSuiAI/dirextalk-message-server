@@ -67,6 +67,7 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.plans.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.recipe_execution.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.recipe_execution.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.secrets.bootstrap.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.pairing.resume", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

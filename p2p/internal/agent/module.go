@@ -28,6 +28,7 @@ type Config struct {
 	Account           AccountPort
 	CloudPlanner      nativeagent.CloudPlanner
 	CloudStatusReader nativeagent.CloudStatusReader
+	CloudRecipeReader nativeagent.CloudRecipeReader
 }
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
@@ -45,6 +46,7 @@ func New(cfg Config) *Module {
 			Tools:             Tools(cfg.MCP),
 			CloudPlanner:      cfg.CloudPlanner,
 			CloudStatusReader: cfg.CloudStatusReader,
+			CloudRecipeReader: cfg.CloudRecipeReader,
 		})}
 	}
 	return &Module{runner: runner, account: cfg.Account}

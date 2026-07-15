@@ -94,6 +94,14 @@ func (b Broker) executeRecipeTaskIssue(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusConflict, "recipe_task_worker_binding_mismatch")
 		return
 	}
+	secretRefs := make([]string, len(issue.Manifest.SecretSlots))
+	for index, slot := range issue.Manifest.SecretSlots {
+		secretRefs[index] = slot.SecretRef
+	}
+	if !reservation.MatchesApprovedRecipeScope(issue.Manifest.PlanHash, issue.Manifest.RecipeDigest, secretRefs) {
+		writeError(response, http.StatusConflict, "recipe_task_approval_scope_mismatch")
+		return
+	}
 	issuedAt, parseErr := time.Parse("2006-01-02T15:04:05.000Z", command.IssuedAt)
 	if parseErr != nil {
 		writeError(response, http.StatusBadRequest, "invalid_command")

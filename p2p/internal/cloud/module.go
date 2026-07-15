@@ -39,6 +39,7 @@ const (
 	actionPlansApprove                                  = "cloud.plans.approve"
 	actionDeploymentsRecipeExecutionConfirmationPrepare = "cloud.deployments.recipe_execution.confirmation.prepare"
 	actionDeploymentsRecipeExecutionApprove             = "cloud.deployments.recipe_execution.approve"
+	actionSecretsBootstrapPlan                          = "cloud.secrets.bootstrap.plan"
 	actionDeploymentsPairingResume                      = "cloud.deployments.pairing.resume"
 	actionServicesOperationPlan                         = "cloud.services.operation.plan"
 	actionServicesOperationApprove                      = "cloud.services.operation.approve"
@@ -71,6 +72,8 @@ const (
 	cloudRecipeExecutionConfirmationConflictCode        = "cloud_recipe_execution_confirmation_conflict"
 	cloudRecipeExecutionApprovalExpiredCode             = "cloud_recipe_execution_approval_expired"
 	cloudRecipeExecutionApprovalSignatureCode           = "cloud_recipe_execution_approval_signature_invalid"
+	cloudServiceSecretBootstrapInvalidCode              = "cloud_service_secret_bootstrap_invalid"
+	cloudServiceSecretBootstrapConflictCode             = "cloud_service_secret_bootstrap_conflict"
 	cloudServiceDestroyConfirmationInvalidCode          = "cloud_service_destroy_confirmation_invalid"
 	cloudServiceDestroyConfirmationConflictCode         = "cloud_service_destroy_confirmation_conflict"
 	cloudServiceDestroyApprovalExpiredCode              = "cloud_service_destroy_approval_expired"
@@ -129,6 +132,7 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionPlansApprove:                    m.approvePlan,
 		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
 		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
+		actionSecretsBootstrapPlan:                          m.prepareServiceSecretBootstrap,
 		actionDeploymentsPairingResume:                      m.unavailableWrite,
 		actionServicesOperationPlan:                         m.prepareServiceOperation,
 		actionServicesOperationApprove:                      m.approveServiceOperation,
@@ -566,6 +570,57 @@ func (m *Module) prepareRecipeExecutionConfirmation(ctx context.Context, params 
 		return nil, recipeExecutionConfirmationError(err)
 	}
 	return map[string]any{"confirmation": prepared.Confirmation}, nil
+}
+
+// prepareServiceSecretBootstrap creates only a short-lived device approval
+// challenge for one pre-approved Recipe secret slot. The caller cannot provide
+// a reference, task evidence, artifact identity, context digest, endpoint, or
+// secret material; every binding is re-derived under the Store transaction.
+func (m *Module) prepareServiceSecretBootstrap(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "deployment_id", "slot_id", "expected_revision", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceSecretBootstrapStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	deploymentID, slotID := values.String("deployment_id"), values.String("slot_id")
+	expectedRevision := values.Int64("expected_revision")
+	idempotencyKey := values.String("idempotency_key")
+	if !cloudIdentifierPattern.MatchString(deploymentID) || !cloudIdentifierPattern.MatchString(slotID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceSecretBootstrapInvalidCode, "cloud service secret bootstrap plan is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC().Truncate(time.Second)
+	result, err := store.PrepareCloudServiceSecretBootstrap(ctx, PrepareServiceSecretBootstrapRequest{
+		OwnerMXID: ownerMXID, DeploymentID: deploymentID, SlotID: slotID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: digestFields(deploymentID, slotID, fmt.Sprint(expectedRevision)),
+		SessionID: m.newID("service_secret_session"), ApprovalID: m.newID("service_secret_approval"), ChallengeID: m.newID("service_secret_challenge"),
+		CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(10 * time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrIdempotencyConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different service secret bootstrap plan")
+		case errors.Is(err, ErrServiceSecretBootstrapConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudServiceSecretBootstrapConflictCode, "cloud service secret bootstrap plan conflicts with current deployment state")
+		case errors.Is(err, ErrServiceSecretBootstrapInvalid):
+			return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceSecretBootstrapInvalidCode, "cloud service secret bootstrap plan is invalid")
+		default:
+			return nil, actionbase.InternalError(err)
+		}
+	}
+	return map[string]any{"confirmation": result.Confirmation, "stack_base_url": result.StackBaseURL}, nil
 }
 
 // approveRecipeExecution verifies the exact device signature for a trusted
@@ -1399,7 +1454,7 @@ func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 }
 
 func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
-	if err := only(params, "goal", "cloud_connection_id", "idempotency_key"); err != nil {
+	if err := only(params, "goal", "cloud_connection_id", "idempotency_key", "recipe_id", "expected_recipe_revision"); err != nil {
 		return nil, err
 	}
 	values := actionbase.Params(params)
@@ -1442,6 +1497,28 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 	if ownerMXID == "" {
 		return nil, actionbase.InternalError(context.Canceled)
 	}
+	_, hasRecipeID := params["recipe_id"]
+	_, hasRecipeRevision := params["expected_recipe_revision"]
+	if hasRecipeID != hasRecipeRevision {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudGoalInvalidCode, "recipe_id and expected_recipe_revision must be provided together")
+	}
+	var selected *SelectedRecipeBinding
+	if hasRecipeID {
+		recipeID := values.String("recipe_id")
+		recipeRevision := values.Int64("expected_recipe_revision")
+		resolver, ok := m.store.(SelectableRecipeStore)
+		if !ok || !cloudIdentifierPattern.MatchString(recipeID) || recipeRevision <= 0 {
+			return nil, actionbase.CodedError(http.StatusBadRequest, cloudGoalInvalidCode, "selected recipe binding is invalid")
+		}
+		binding, found, resolveErr := resolver.ResolveCloudRecipeSelection(ctx, ownerMXID, connectionID, recipeID, recipeRevision)
+		if resolveErr != nil {
+			return nil, actionbase.InternalError(resolveErr)
+		}
+		if !found {
+			return nil, actionbase.CodedError(http.StatusConflict, "cloud_selected_recipe_conflict", "selected recipe is not current or is not available for this connection")
+		}
+		selected = &binding
+	}
 	now := m.now().UnixMilli()
 	goalID := m.newID("goal")
 	planID := m.newID("plan")
@@ -1457,13 +1534,22 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 		PlanID: planID, GoalID: goalID, ConnectionID: connectionID, Status: PlanStatusResearching,
 		Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
+	if selected != nil {
+		goal.SelectedRecipeID, goal.SelectedRecipeRevision, goal.SelectedRecipeDigest = selected.RecipeID, selected.Revision, selected.Digest
+		plan.RecipeID, plan.RecipeRevision, plan.RecipeDigest = selected.RecipeID, selected.Revision, selected.Digest
+		goal.RequestDigest = digestFields(goalText, connectionID, selected.RecipeID, fmt.Sprint(selected.Revision), selected.Digest)
+	}
 	job := Job{
 		JobID: jobID, PlanID: planID, Kind: "research", Execution: "queued", Outcome: "pending",
 		Checkpoint: "research_queued", Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
-	payload, err := json.Marshal(map[string]string{
+	payloadFields := map[string]any{
 		"goal_id": goalID, "plan_id": planID, "cloud_connection_id": connectionID, "goal": goalText,
-	})
+	}
+	if selected != nil {
+		payloadFields["recipe_id"], payloadFields["recipe_revision"], payloadFields["recipe_digest"] = selected.RecipeID, selected.Revision, selected.Digest
+	}
+	payload, err := json.Marshal(payloadFields)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
@@ -1480,11 +1566,15 @@ func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *a
 			OutboxID: outboxID, Kind: OutboxKindResearchGoalRequested,
 			AggregateType: "goal", AggregateID: goalID, PayloadJSON: string(payload), CreatedAt: now,
 		},
+		SelectedRecipe: selected,
 	}
 	created, err := m.store.CreateCloudGoal(ctx, request)
 	if err != nil {
 		if err == ErrIdempotencyConflict {
 			return nil, actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud goal")
+		}
+		if errors.Is(err, ErrSelectedRecipeConflict) {
+			return nil, actionbase.CodedError(http.StatusConflict, "cloud_selected_recipe_conflict", "selected recipe changed before the goal was created")
 		}
 		return nil, actionbase.InternalError(err)
 	}
@@ -1665,7 +1755,12 @@ func (m *Module) recipesGet(ctx context.Context, params map[string]any) (any, *a
 	if id == "" {
 		return nil, actionbase.BadRequest("recipe_id is required")
 	}
-	item, ok, err := m.store.GetCloudRecipe(ctx, id)
+	store, configured := m.store.(RecipeDetailStore)
+	ownerMXID := m.ownerMXID()
+	if !configured || ownerMXID == "" {
+		return nil, unavailableError()
+	}
+	item, ok, err := store.GetCloudRecipeDetail(ctx, ownerMXID, id)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}

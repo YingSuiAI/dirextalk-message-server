@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strconv"
 
@@ -117,7 +118,7 @@ func (s *DynamoRepository) reconcileDeploymentReservation(ctx context.Context, r
 }
 
 func (s *DynamoRepository) FinalizeDeployment(ctx context.Context, r DeploymentReservation, receipt Record) (Record, bool, error) {
-	if validateDeploymentReservation(r) != nil || receipt.Action != contract.ActionDeploymentCreate || !r.SameIdentity(DeploymentReservation{ConnectionID: receipt.ConnectionID, DeploymentID: r.DeploymentID, CommandID: receipt.CommandID, RequestSHA256: receipt.RequestSHA256, ExpectedGeneration: receipt.ExpectedGeneration, NodeCounter: receipt.NodeCounter, ApprovalID: r.ApprovalID, ChallengeID: r.ChallengeID, SignerKeyID: r.SignerKeyID, QuoteID: r.QuoteID, ClientToken: r.ClientToken, BootstrapSessionID: r.BootstrapSessionID, WorkerSession: r.WorkerSession, SpecJSON: r.SpecJSON}) || validateRecord(receipt) != nil {
+	if validateDeploymentReservation(r) != nil || receipt.Action != contract.ActionDeploymentCreate || !r.SameIdentity(DeploymentReservation{ConnectionID: receipt.ConnectionID, DeploymentID: r.DeploymentID, CommandID: receipt.CommandID, RequestSHA256: receipt.RequestSHA256, ExpectedGeneration: receipt.ExpectedGeneration, NodeCounter: receipt.NodeCounter, ApprovalID: r.ApprovalID, ChallengeID: r.ChallengeID, SignerKeyID: r.SignerKeyID, QuoteID: r.QuoteID, PlanHash: r.PlanHash, RecipeDigest: r.RecipeDigest, SecretScope: r.SecretScope, ClientToken: r.ClientToken, BootstrapSessionID: r.BootstrapSessionID, WorkerSession: r.WorkerSession, SpecJSON: r.SpecJSON}) || validateRecord(receipt) != nil {
 		return Record{}, false, NewError("deployment_store_invalid")
 	}
 	instanceID, resultErr := deploymentInstanceID(receipt.ResultJSON)
@@ -152,7 +153,18 @@ func approvalUsePut(table string, r DeploymentReservation, useID string) *dynamo
 	return &dynamodbtypes.Put{TableName: &table, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(use_id)"), Item: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "use_id": &dynamodbtypes.AttributeValueMemberS{Value: useID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}}}
 }
 func deploymentItem(r DeploymentReservation) map[string]dynamodbtypes.AttributeValue {
-	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: r.SignerKeyID}, "quote_id": &dynamodbtypes.AttributeValueMemberS{Value: r.QuoteID}, "client_token": &dynamodbtypes.AttributeValueMemberS{Value: r.ClientToken}, "bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}, "spec_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.SpecJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: r.State}}
+	item := map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: r.SignerKeyID}, "quote_id": &dynamodbtypes.AttributeValueMemberS{Value: r.QuoteID}, "client_token": &dynamodbtypes.AttributeValueMemberS{Value: r.ClientToken}, "bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}, "spec_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.SpecJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: r.State}}
+	if r.PlanHash != "" || r.RecipeDigest != "" || len(r.SecretScope) != 0 {
+		scope := r.SecretScope
+		if scope == nil {
+			scope = []ApprovedSecretReference{}
+		}
+		scopeJSON, _ := json.Marshal(scope)
+		item["approved_plan_hash"] = &dynamodbtypes.AttributeValueMemberS{Value: r.PlanHash}
+		item["approved_recipe_digest"] = &dynamodbtypes.AttributeValueMemberS{Value: r.RecipeDigest}
+		item["approved_secret_scope_json"] = &dynamodbtypes.AttributeValueMemberS{Value: string(scopeJSON)}
+	}
+	return item
 }
 func recordItemForStore(r Record) map[string]dynamodbtypes.AttributeValue {
 	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "action": &dynamodbtypes.AttributeValueMemberS{Value: r.Action}, "result_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.ResultJSON)}}
@@ -191,6 +203,21 @@ func deploymentFromItem(item map[string]dynamodbtypes.AttributeValue) (Deploymen
 	if r.QuoteID, err = stringAttribute(item, "quote_id"); err != nil {
 		return r, err
 	}
+	planHash, hasPlanHash := item["approved_plan_hash"].(*dynamodbtypes.AttributeValueMemberS)
+	recipeDigest, hasRecipeDigest := item["approved_recipe_digest"].(*dynamodbtypes.AttributeValueMemberS)
+	secretScope, hasSecretScope := item["approved_secret_scope_json"].(*dynamodbtypes.AttributeValueMemberS)
+	if hasPlanHash || hasRecipeDigest || hasSecretScope {
+		var decodedScope []ApprovedSecretReference
+		if !hasPlanHash || !hasRecipeDigest || !hasSecretScope || json.Unmarshal([]byte(secretScope.Value), &decodedScope) != nil || decodedScope == nil {
+			return r, NewError("deployment_store_invalid")
+		}
+		canonicalScope, marshalErr := json.Marshal(decodedScope)
+		if marshalErr != nil || string(canonicalScope) != secretScope.Value {
+			return r, NewError("deployment_store_invalid")
+		}
+		r.SecretScope = decodedScope
+		r.PlanHash, r.RecipeDigest = planHash.Value, recipeDigest.Value
+	}
 	if r.ClientToken, err = stringAttribute(item, "client_token"); err != nil {
 		return r, err
 	}
@@ -221,12 +248,14 @@ func validateDeploymentReservation(r DeploymentReservation) error {
 }
 
 func validateDeploymentReservationIdentity(r DeploymentReservation) error {
-	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.CommandID) || !validSHA256(r.RequestSHA256) || r.ExpectedGeneration < 1 || r.NodeCounter < 0 || r.ApprovalID == "" || r.ChallengeID == "" || r.SignerKeyID == "" || !contract.ValidID(r.QuoteID) || !clientTokenPattern.MatchString(r.ClientToken) || !contract.ValidID(r.BootstrapSessionID) || len(r.SpecJSON) == 0 || len(r.SpecJSON) > contract.MaxCommandBytes || (r.State != "reserved" && r.State != "finalized") {
+	legacyScope := r.PlanHash == "" && r.RecipeDigest == "" && len(r.SecretScope) == 0
+	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.CommandID) || !validSHA256(r.RequestSHA256) || r.ExpectedGeneration < 1 || r.NodeCounter < 0 || r.ApprovalID == "" || r.ChallengeID == "" || r.SignerKeyID == "" || !contract.ValidID(r.QuoteID) || (!legacyScope && !validApprovedRecipeScope(r.PlanHash, r.RecipeDigest, r.SecretScope)) || !clientTokenPattern.MatchString(r.ClientToken) || !contract.ValidID(r.BootstrapSessionID) || len(r.SpecJSON) == 0 || len(r.SpecJSON) > contract.MaxCommandBytes || (r.State != "reserved" && r.State != "finalized") {
 		return NewError("deployment_store_invalid")
 	}
 	return nil
 }
 func cloneDeployment(r DeploymentReservation) DeploymentReservation {
+	r.SecretScope = append([]ApprovedSecretReference(nil), r.SecretScope...)
 	r.SpecJSON = append([]byte(nil), r.SpecJSON...)
 	r.ResultJSON = append([]byte(nil), r.ResultJSON...)
 	return r

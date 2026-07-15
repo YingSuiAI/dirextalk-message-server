@@ -48,6 +48,7 @@ type ServiceDestroyResult struct {
 	Status                                string
 	DeploymentID, InstanceID, ReceiptJSON string
 	VolumeIDs, NetworkInterfaceIDs        []string
+	SecretRefs                            []string
 	CommandID, RequestSHA256              string
 }
 
@@ -102,6 +103,9 @@ func ValidateServiceDestroyClaim(claim ServiceDestroyClaim) error {
 		!sameStrings(target.VolumeIDs, claim.Request.VolumeIDs) || !sameStrings(target.NetworkInterfaceIDs, claim.Request.NetworkInterfaceIDs) {
 		return errors.New("service destroy command does not bind claim")
 	}
+	if !sameStrings(target.SecretRefs, claim.Request.SecretRefs) {
+		return errors.New("service destroy command does not bind claim")
+	}
 	return nil
 }
 
@@ -118,7 +122,7 @@ func ValidateServiceDestroyResult(claim ServiceDestroyClaim, signed SignedServic
 	if ValidateServiceDestroyClaim(claim) != nil || ValidateSignedServiceDestroyCommand(signed) != nil || result.Status != "verified_destroyed" ||
 		result.DeploymentID != claim.DeploymentID || result.InstanceID != claim.Request.InstanceID || result.CommandID != claim.Command.CommandID ||
 		result.RequestSHA256 != signed.RequestSHA256 || result.ReceiptJSON == "" || !sameStrings(result.VolumeIDs, claim.Request.VolumeIDs) ||
-		!sameStrings(result.NetworkInterfaceIDs, claim.Request.NetworkInterfaceIDs) {
+		!sameStrings(result.NetworkInterfaceIDs, claim.Request.NetworkInterfaceIDs) || !sameStrings(result.SecretRefs, claim.Request.SecretRefs) {
 		return errors.New("service destroy result does not bind claim")
 	}
 	return nil

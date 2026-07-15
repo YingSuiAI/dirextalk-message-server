@@ -105,6 +105,46 @@ func TestRunnerRejectsAttemptTimeoutThatCanOutliveItsLease(t *testing.T) {
 	}
 }
 
+func TestRunnerSelectedRecipeIsTrustedInputAndCannotBeReplaced(t *testing.T) {
+	now := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
+	claim := testResearchClaim()
+	output := validResearchOutput(t, now, claim)
+	digest, err := output.Recipe.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim.SelectedRecipe = &SelectedRecipeInput{RecipeID: output.Recipe.RecipeID, Revision: 3, Digest: digest, Recipe: output.Recipe}
+	claim.PayloadJSON = `{"goal_id":"goal-1","plan_id":"plan-1","cloud_connection_id":"connection-1","goal":"Deploy a private knowledge workload.","recipe_id":"` + output.Recipe.RecipeID + `","recipe_revision":3,"recipe_digest":"` + digest + `"}`
+	output.Draft.Candidates = []cloudcontracts.QuoteRequestCandidateV1{
+		{CandidateID: "economic", Tier: cloudcontracts.QuoteTierEconomy, InstanceType: "m7i.large", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+		{CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+		{CandidateID: "performance", Tier: cloudcontracts.QuoteTierPerformance, InstanceType: "m7i.2xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+	}
+	t.Run("exact", func(t *testing.T) {
+		store := &fakeStore{claims: []Claim{claim}}
+		planner := &fakePlanner{research: func(_ context.Context, input ResearchInput) (ResearchOutput, error) {
+			if input.SelectedRecipe == nil || input.SelectedRecipe.Digest != digest {
+				t.Fatalf("selected input missing: %#v", input)
+			}
+			return output, nil
+		}}
+		processed, runErr := New(store, planner, Config{WorkerID: "orchestrator-1", Now: func() time.Time { return now }}).RunOnce(t.Context())
+		if runErr != nil || !processed || len(store.committed) != 1 {
+			t.Fatalf("processed=%v committed=%d err=%v", processed, len(store.committed), runErr)
+		}
+	})
+	t.Run("replacement", func(t *testing.T) {
+		tampered := output
+		tampered.Recipe.Name = "model replaced recipe"
+		store := &fakeStore{claims: []Claim{claim}}
+		planner := &fakePlanner{research: func(context.Context, ResearchInput) (ResearchOutput, error) { return tampered, nil }}
+		_, runErr := New(store, planner, Config{WorkerID: "orchestrator-1", Now: func() time.Time { return now }}).RunOnce(t.Context())
+		if runErr != nil || len(store.committed) != 0 || len(store.failed) != 1 || store.failed[0].code != invalidResearchOutputCode {
+			t.Fatalf("committed=%d failed=%#v err=%v", len(store.committed), store.failed, runErr)
+		}
+	})
+}
+
 func TestRunnerFailsInvalidPayloadAndOutputWithoutLeakingPlannerError(t *testing.T) {
 	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	t.Run("payload", func(t *testing.T) {
@@ -242,7 +282,9 @@ func validResearchOutput(t *testing.T, now time.Time, claim Claim) ResearchOutpu
 			Readiness: cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeHTTP, Target: "/readyz"},
 			Semantic:  cloudcontracts.ProbeV1{Kind: cloudcontracts.ProbeCommand, Target: "verify-service"},
 		},
-		Lifecycle: cloudcontracts.LifecycleContractV1{Start: "start", Stop: "stop", Restart: "restart", Upgrade: "upgrade", Rollback: "rollback", Backup: "backup", Restore: "restore", Destroy: "destroy"},
+		Lifecycle:   cloudcontracts.LifecycleContractV1{Start: "start", Stop: "stop", Restart: "restart", Upgrade: "upgrade", Rollback: "rollback", Backup: "backup", Restore: "restore", Destroy: "destroy"},
+		DataSlots:   []cloudcontracts.RecipeDataSlotRequirementV1{{SlotID: "knowledge", Purpose: "knowledge corpus", ReadOnly: true}},
+		SecretSlots: []cloudcontracts.RecipeSecretSlotRequirementV1{{SlotID: "model_token", Purpose: "model provider access", Delivery: cloudcontracts.SecretDeliveryFile}},
 	}
 	return ResearchOutput{
 		Recipe: recipe,

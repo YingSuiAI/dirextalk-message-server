@@ -42,6 +42,7 @@ const (
 	ActionServiceBackup            = "service.backup"
 	ActionServiceRestorePlan       = "service.restore.plan"
 	ActionServiceRestore           = "service.restore"
+	ActionServiceSecretObserve     = "service.secret.observe"
 
 	maxCommandLifetime = 5 * time.Minute
 	maxClockSkew       = time.Minute
@@ -382,7 +383,8 @@ func knownAction(action string) bool {
 		ActionDeploymentDestroy,
 		ActionServiceBackup,
 		ActionServiceRestorePlan,
-		ActionServiceRestore:
+		ActionServiceRestore,
+		ActionServiceSecretObserve:
 		return true
 	default:
 		return false

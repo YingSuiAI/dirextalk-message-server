@@ -31,8 +31,14 @@ func TestServiceOperationApprovalBindsExactActionAndServiceRevision(t *testing.T
 		v.Operation = cloudorchestrator.ServiceOperationStop
 	}, func(v *cloudorchestrator.ServiceOperationTargetV1) { v.ServiceRevision++ }, func(v *cloudorchestrator.ServiceOperationTargetV1) {
 		v.ActionID = "dirextalk_fixed_probe_service_stop_v1"
-	}, func(v *cloudorchestrator.ServiceOperationTargetV1) { v.CheckpointSequence = []string{"other"} }} {
-		changed := target
+	}, func(v *cloudorchestrator.ServiceOperationTargetV1) { v.CheckpointSequence = []string{"other"} }, func(v *cloudorchestrator.ServiceOperationTargetV1) {
+		v.VolumeSlots[0].VolumeRef = "volume_ref:other"
+	}, func(v *cloudorchestrator.ServiceOperationTargetV1) {
+		v.DataSlots = append(v.DataSlots, cloudorchestrator.DataSlotV1{SlotID: "extra", DataRef: "data_ref:extra", ReadOnly: true})
+	}, func(v *cloudorchestrator.ServiceOperationTargetV1) {
+		v.SecretSlots[0].SecretRef = "secret_ref:other"
+	}} {
+		changed := operationTarget()
 		mutate(&changed)
 		if !errors.Is(signed.ValidateAgainst(changed, now), cloudorchestrator.ErrServiceOperationApprovalBinding) {
 			t.Fatal("mutated operation target was accepted")
@@ -51,12 +57,12 @@ func TestServiceOperationApprovalGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(payload)
-	const want = "9f75e71117618a524da731e8dd0d33ad7288ea2a5660c766431f311fb3c65755"
+	const want = "28a1750c4c5e2eca8db191380c187c9e66f01379952a0de255b01c0080d78f33"
 	if got := hex.EncodeToString(sum[:]); got != want {
 		t.Fatalf("operation payload digest=%s", got)
 	}
 }
 
 func operationTarget() cloudorchestrator.ServiceOperationTargetV1 {
-	return cloudorchestrator.ServiceOperationTargetV1{Operation: cloudorchestrator.ServiceOperationRestart, ServiceID: "service-operation-0001", ServiceRevision: 3, ExpectedServiceStatus: "active", DeploymentID: "deployment-operation-0001", DeploymentRevision: 8, CloudConnectionID: "connection-operation-0001", RecipeID: "recipe-operation-0001", RecipeDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InstalledManifestDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ArtifactDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ActionID: "dirextalk_fixed_probe_service_restart_v1", RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_service_restarted", "probe_health_verified"}}
+	return cloudorchestrator.ServiceOperationTargetV1{Operation: cloudorchestrator.ServiceOperationRestart, ServiceID: "service-operation-0001", ServiceRevision: 3, ExpectedServiceStatus: "active", DeploymentID: "deployment-operation-0001", DeploymentRevision: 8, CloudConnectionID: "connection-operation-0001", RecipeID: "recipe-operation-0001", RecipeDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InstalledManifestDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ArtifactDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ActionID: "dirextalk_fixed_probe_service_restart_v1", RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_service_restarted", "probe_health_verified"}, VolumeSlots: []cloudorchestrator.VolumeSlotV1{{SlotID: "data", VolumeRef: "volume_ref:data"}}, DataSlots: []cloudorchestrator.DataSlotV1{{SlotID: "knowledge", DataRef: "data_ref:knowledge", ReadOnly: true}}, SecretSlots: []cloudorchestrator.SecretSlotV1{{SlotID: "model", SecretRef: "secret_ref:model"}}}
 }

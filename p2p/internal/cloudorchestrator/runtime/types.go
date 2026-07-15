@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,17 +24,25 @@ const (
 // Claim is a lease-fenced private outbox record. PayloadJSON remains private
 // to the Orchestrator and must never become a ProductCore realtime payload.
 type Claim struct {
-	OutboxID      string
-	Kind          string
-	AggregateType string
-	AggregateID   string
-	GoalID        string
-	PlanID        string
-	ConnectionID  string
-	PlanRevision  int64
-	PayloadJSON   string
-	LeaseToken    string
-	Attempt       int
+	OutboxID       string
+	Kind           string
+	AggregateType  string
+	AggregateID    string
+	GoalID         string
+	PlanID         string
+	ConnectionID   string
+	PlanRevision   int64
+	PayloadJSON    string
+	LeaseToken     string
+	Attempt        int
+	SelectedRecipe *SelectedRecipeInput
+}
+
+type SelectedRecipeInput struct {
+	RecipeID string                  `json:"recipe_id"`
+	Revision int64                   `json:"recipe_revision"`
+	Digest   string                  `json:"recipe_digest"`
+	Recipe   cloudcontracts.RecipeV1 `json:"recipe"`
 }
 
 // ResearchInput is the minimum private hand-off to a source researcher. The
@@ -41,11 +50,12 @@ type Claim struct {
 // instance requests. It cannot receive credentials or call a provider control
 // plane through this contract.
 type ResearchInput struct {
-	GoalID       string `json:"goal_id"`
-	PlanID       string `json:"plan_id"`
-	ConnectionID string `json:"cloud_connection_id"`
-	PlanRevision int64  `json:"plan_revision"`
-	Prompt       string `json:"goal"`
+	GoalID         string               `json:"goal_id"`
+	PlanID         string               `json:"plan_id"`
+	ConnectionID   string               `json:"cloud_connection_id"`
+	PlanRevision   int64                `json:"plan_revision"`
+	Prompt         string               `json:"goal"`
+	SelectedRecipe *SelectedRecipeInput `json:"selected_recipe,omitempty"`
 }
 
 // ResearchOutput is a validated, experimental research draft. It deliberately
@@ -67,6 +77,16 @@ func (i ResearchInput) Validate() error {
 	}
 	if strings.TrimSpace(i.Prompt) != i.Prompt || utf8.RuneCountInString(i.Prompt) == 0 || utf8.RuneCountInString(i.Prompt) > 12000 || cloudmodule.ContainsSensitiveGoalMaterial(i.Prompt) {
 		return errors.New("research input goal is invalid")
+	}
+	if i.SelectedRecipe != nil {
+		selected := i.SelectedRecipe
+		if selected.Revision <= 0 || selected.RecipeID == "" || selected.Digest == "" || selected.Recipe.Validate() != nil || selected.Recipe.RecipeID != selected.RecipeID {
+			return errors.New("selected research recipe is invalid")
+		}
+		digest, digestErr := selected.Recipe.Digest()
+		if digestErr != nil || digest != selected.Digest {
+			return errors.New("selected research recipe is invalid")
+		}
 	}
 	return nil
 }
@@ -223,8 +243,19 @@ func (o ResearchOutput) ValidateFor(input ResearchInput) error {
 	if err := o.Recipe.Validate(); err != nil {
 		return fmt.Errorf("invalid recipe: %w", err)
 	}
+	if input.SelectedRecipe != nil {
+		expected, actual := input.SelectedRecipe.Recipe, o.Recipe
+		expectedCBOR, expectedErr := expected.CanonicalRecipeCBOR()
+		actualCBOR, actualErr := actual.CanonicalRecipeCBOR()
+		if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedCBOR, actualCBOR) {
+			return errors.New("research output replaced the selected recipe")
+		}
+	}
 	if err := o.Draft.Validate(); err != nil {
 		return fmt.Errorf("invalid research draft: %w", err)
+	}
+	if input.SelectedRecipe != nil && len(o.Draft.Candidates) != 3 {
+		return errors.New("selected recipe research requires exactly three candidates")
 	}
 	if err := validateDisplayText("title", o.Title, 160); err != nil {
 		return err

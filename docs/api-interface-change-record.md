@@ -1292,3 +1292,43 @@ and approve retries are independently idempotent;
 stale revisions, expired challenges, changed evidence, signature/key mismatch
 or conflicting work fail closed without promoting maturity. Agent tokens,
 public MCP and WebSocket `client.request` cannot call either action.
+
+## 2026-07-15 — Selectable private Recipe and scoped service secrets v1
+
+`cloud.goals.create` now accepts the optional pair `recipe_id` and
+`expected_recipe_revision`. Both fields must be present together. The owner may
+select only a current private Recipe; the server binds its digest and revision
+to the Goal/Plan and revalidates them when research is claimed and committed.
+Omitting both fields preserves the previous research flow. Native Agent tools
+cannot supply either field. `cloud.recipes.get` now returns a strict owner-only,
+de-secreted Recipe detail used by the Flutter Recipe page; list summaries and
+public MCP projections remain unchanged.
+
+The new owner-authenticated, HTTP-only `cloud.secrets.bootstrap.plan` accepts
+exactly `deployment_id`, `slot_id`, `expected_revision`, and a UUID
+`idempotency_key`. It derives the current Plan, Recipe, verified compiled
+artifact, active Recipe task, manifest, `secret_ref`, purpose and delivery
+under one transaction and returns `{confirmation, stack_base_url}`. The URL is
+transient and restricted to one HTTPS origin plus an optional canonical API
+Gateway stage. The confirmation contains a ten-minute
+`ServiceSecretApprovalV1` for device signing; it contains no value, upload
+token, encryption key, ciphertext, provider path or provider version. Agent,
+MCP and WebSocket requests cannot invoke the action.
+
+Flutter signs that proof and sends X25519/HKDF-SHA256/AES-256-GCM ciphertext
+directly to fixed Connection Stack create/upload/complete routes. The upload
+flow is memory-only, cancellable and response-loss idempotent. It suppresses
+ProductCore/API logging, local persistence, autofill and personalized IME
+learning, and clears plaintext and capability buffers on completion,
+cancellation or late response. Re-entering a different value cannot silently
+replay an earlier encrypted envelope.
+
+`cloud.services.destroy.plan/approve` keeps its request shape but its returned
+device approval now includes an optional canonical `secret_refs` array derived
+only from the locked Plan/Recipe/artifact/manifest. Flutter displays only its
+count. The signed `deployment.destroy` command and verified receipt bind the
+same refs. A service with no secret slots preserves the previous JSON and CBOR
+golden. Success now means the Stack has read back the approved EC2 instance,
+ENIs, EBS volumes and deterministic Secrets Manager resources as absent and
+has removed their non-secret binding ledger. Access denial remains blocked and
+cannot become `verified_destroyed`.

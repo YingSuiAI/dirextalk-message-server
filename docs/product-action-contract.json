@@ -173,6 +173,11 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.secrets.bootstrap.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.deployments.pairing.resume",
       "auth": "owner",
       "transport": "http_only"

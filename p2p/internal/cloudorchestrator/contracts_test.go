@@ -203,15 +203,20 @@ func validPlan(t *testing.T, now time.Time) cloudorchestrator.PlanV1 {
 			TLSRequired:            false,
 			AuthenticationRequired: false,
 		},
-		SecretScope: []cloudorchestrator.SecretReferenceV1{
-			{SecretRef: "secret_ref:model-token", Purpose: "model-access", Delivery: cloudorchestrator.SecretDeliveryFile},
-			{SecretRef: "secret_ref:github-app", Purpose: "source-access", Delivery: cloudorchestrator.SecretDeliveryFile},
-		},
+		SecretScope: []cloudorchestrator.SecretReferenceV1{},
 		IntegrationScope: []cloudorchestrator.IntegrationScopeV1{
 			{Kind: cloudorchestrator.IntegrationMCP, Name: "mcp"},
 			{Kind: cloudorchestrator.IntegrationWeb, Name: "web-ui"},
 		},
 	}
+	secretScope, err := cloudorchestrator.SecretScopeForRecipe(plan.PlanID, []cloudorchestrator.RecipeSecretSlotRequirementV1{
+		{SlotID: "registry-token", Purpose: "source-access", Delivery: cloudorchestrator.SecretDeliveryFile},
+		{SlotID: "model-token", Purpose: "model-access", Delivery: cloudorchestrator.SecretDeliveryFile},
+	})
+	if err != nil {
+		t.Fatalf("SecretScopeForRecipe() error = %v", err)
+	}
+	plan.SecretScope = secretScope
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("plan.Validate() error = %v", err)
 	}

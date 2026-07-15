@@ -17,6 +17,7 @@ type DeploymentDestroyRequest struct {
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
 	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+	SecretRefs          []string `json:"secret_refs,omitempty"`
 }
 
 type DeploymentDestroyEvidence struct {
@@ -24,6 +25,7 @@ type DeploymentDestroyEvidence struct {
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
 	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+	SecretRefs          []string `json:"secret_refs,omitempty"`
 }
 
 type DeploymentDestroyResult struct {
@@ -42,18 +44,22 @@ func (command Command) DeploymentDestroyRequest() (DeploymentDestroyRequest, err
 		return DeploymentDestroyRequest{}, errCode("invalid_payload")
 	}
 	fields, err := exactJSONObject(payload)
-	if err != nil || !exactFields(fields, []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}) {
+	legacyFields := []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	if err != nil || (!exactFields(fields, legacyFields) && !exactFields(fields, append(legacyFields, "secret_refs"))) {
 		return DeploymentDestroyRequest{}, errCode("invalid_payload")
 	}
 	var request DeploymentDestroyRequest
 	if decodeSingle(payload, &request) != nil || request.validate() != nil {
 		return DeploymentDestroyRequest{}, errCode("invalid_payload")
 	}
+	if _, present := fields["secret_refs"]; present && len(request.SecretRefs) == 0 {
+		return DeploymentDestroyRequest{}, errCode("invalid_payload")
+	}
 	return normalizeDeploymentDestroyRequest(request), nil
 }
 
 func (request DeploymentDestroyRequest) validate() error {
-	if request.Schema != DeploymentDestroySchema || !approvalIdentifierPattern.MatchString(request.ServiceID) || !approvalIdentifierPattern.MatchString(request.DeploymentID) || !destroyInstanceIDPattern.MatchString(request.InstanceID) || !validDestroyResourceIDs(request.VolumeIDs, destroyVolumeIDPattern) || !validDestroyResourceIDs(request.NetworkInterfaceIDs, destroyNetworkInterfaceIDPattern) {
+	if request.Schema != DeploymentDestroySchema || !approvalIdentifierPattern.MatchString(request.ServiceID) || !approvalIdentifierPattern.MatchString(request.DeploymentID) || !destroyInstanceIDPattern.MatchString(request.InstanceID) || !validDestroyResourceIDs(request.VolumeIDs, destroyVolumeIDPattern) || !validDestroyResourceIDs(request.NetworkInterfaceIDs, destroyNetworkInterfaceIDPattern) || !validOptionalDestroySecretRefs(request.SecretRefs) {
 		return errCode("invalid_payload")
 	}
 	return nil
@@ -71,7 +77,7 @@ func (command Command) ValidateDeploymentDestroyBinding() error {
 		return err
 	}
 	proof = normalizeServiceDestroyApprovalProof(proof)
-	if proof.CloudConnectionID != command.ConnectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !sameStrings(proof.VolumeIDs, request.VolumeIDs) || !sameStrings(proof.NetworkInterfaceIDs, request.NetworkInterfaceIDs) {
+	if proof.CloudConnectionID != command.ConnectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !sameStrings(proof.VolumeIDs, request.VolumeIDs) || !sameStrings(proof.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameStrings(proof.SecretRefs, request.SecretRefs) {
 		return errCode("approval_scope_mismatch")
 	}
 	return nil
@@ -92,9 +98,11 @@ func MarshalCommittedDeploymentDestroyResult(command Command, evidence Deploymen
 	request, _ := command.DeploymentDestroyRequest()
 	evidence.VolumeIDs = append([]string(nil), evidence.VolumeIDs...)
 	evidence.NetworkInterfaceIDs = append([]string(nil), evidence.NetworkInterfaceIDs...)
+	evidence.SecretRefs = append([]string(nil), evidence.SecretRefs...)
 	sort.Strings(evidence.VolumeIDs)
 	sort.Strings(evidence.NetworkInterfaceIDs)
-	if evidence.DeploymentID != request.DeploymentID || evidence.InstanceID != request.InstanceID || !sameStrings(evidence.VolumeIDs, request.VolumeIDs) || !sameStrings(evidence.NetworkInterfaceIDs, request.NetworkInterfaceIDs) {
+	sort.Strings(evidence.SecretRefs)
+	if evidence.DeploymentID != request.DeploymentID || evidence.InstanceID != request.InstanceID || !sameStrings(evidence.VolumeIDs, request.VolumeIDs) || !sameStrings(evidence.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameStrings(evidence.SecretRefs, request.SecretRefs) {
 		return nil, errCode("provider_readback_invalid")
 	}
 	requestSHA, _ := command.RequestSHA256()
@@ -113,9 +121,11 @@ func ValidateDeploymentDestroyResult(command Command, result DeploymentDestroyRe
 	}
 	volumes := append([]string(nil), result.Deployment.VolumeIDs...)
 	interfaces := append([]string(nil), result.Deployment.NetworkInterfaceIDs...)
+	secretRefs := append([]string(nil), result.Deployment.SecretRefs...)
 	sort.Strings(volumes)
 	sort.Strings(interfaces)
-	if !sameStrings(volumes, request.VolumeIDs) || !sameStrings(interfaces, request.NetworkInterfaceIDs) {
+	sort.Strings(secretRefs)
+	if !sameStrings(volumes, request.VolumeIDs) || !sameStrings(interfaces, request.NetworkInterfaceIDs) || !sameStrings(secretRefs, request.SecretRefs) {
 		return errCode("invalid_result")
 	}
 	return nil
@@ -124,7 +134,9 @@ func ValidateDeploymentDestroyResult(command Command, result DeploymentDestroyRe
 func normalizeDeploymentDestroyRequest(request DeploymentDestroyRequest) DeploymentDestroyRequest {
 	request.VolumeIDs = append([]string(nil), request.VolumeIDs...)
 	request.NetworkInterfaceIDs = append([]string(nil), request.NetworkInterfaceIDs...)
+	request.SecretRefs = append([]string(nil), request.SecretRefs...)
 	sort.Strings(request.VolumeIDs)
 	sort.Strings(request.NetworkInterfaceIDs)
+	sort.Strings(request.SecretRefs)
 	return request
 }

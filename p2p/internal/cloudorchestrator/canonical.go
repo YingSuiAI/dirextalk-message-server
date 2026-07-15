@@ -390,6 +390,12 @@ func normalizeRecipe(recipe RecipeV1) RecipeV1 {
 	normalized.Install.CheckpointNames = canonicalSet(recipe.Install.CheckpointNames)
 	normalized.Install.AllowedAdaptations = canonicalSet(recipe.Install.AllowedAdaptations)
 	normalized.Install.Steps = append([]InstallStepV1(nil), recipe.Install.Steps...)
+	normalized.VolumeSlots = append([]RecipeVolumeSlotRequirementV1(nil), recipe.VolumeSlots...)
+	sort.Slice(normalized.VolumeSlots, func(i, j int) bool { return normalized.VolumeSlots[i].SlotID < normalized.VolumeSlots[j].SlotID })
+	normalized.DataSlots = append([]RecipeDataSlotRequirementV1(nil), recipe.DataSlots...)
+	sort.Slice(normalized.DataSlots, func(i, j int) bool { return normalized.DataSlots[i].SlotID < normalized.DataSlots[j].SlotID })
+	normalized.SecretSlots = append([]RecipeSecretSlotRequirementV1(nil), recipe.SecretSlots...)
+	sort.Slice(normalized.SecretSlots, func(i, j int) bool { return normalized.SecretSlots[i].SlotID < normalized.SecretSlots[j].SlotID })
 	return normalized
 }
 

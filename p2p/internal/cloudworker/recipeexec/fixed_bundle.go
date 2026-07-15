@@ -3,6 +3,12 @@ package recipeexec
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"regexp"
+)
+
+var (
+	environmentKeyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 )
 
 // ErrBundleCatalogInvalid means the fixed AMI did not explicitly register a
@@ -41,9 +47,27 @@ func NewFixedBundleResolver(catalog []Bundle) (*FixedBundleResolver, error) {
 			seen[actionID] = struct{}{}
 			actions[index] = actionID
 		}
-		bundles[candidate.ArtifactDigest] = Bundle{ArtifactDigest: candidate.ArtifactDigest, ActionIDs: actions}
+		secretTargets := make([]SecretTarget, len(candidate.SecretTargets))
+		seenSlots := make(map[string]struct{}, len(candidate.SecretTargets))
+		for index, target := range candidate.SecretTargets {
+			if !validBindingIdentifier(target.SlotID) || !validSecretDestination(target) {
+				return nil, ErrBundleCatalogInvalid
+			}
+			if _, duplicate := seenSlots[target.SlotID]; duplicate {
+				return nil, ErrBundleCatalogInvalid
+			}
+			seenSlots[target.SlotID] = struct{}{}
+			secretTargets[index] = target
+		}
+		bundles[candidate.ArtifactDigest] = Bundle{ArtifactDigest: candidate.ArtifactDigest, ActionIDs: actions, SecretTargets: secretTargets}
 	}
 	return &FixedBundleResolver{bundles: bundles}, nil
+}
+
+func validSecretDestination(target SecretTarget) bool {
+	fileTarget := target.FileName != "" && target.FileName != "." && target.FileName != ".." && target.FileName != "environment" && target.EnvironmentKey == "" && filepath.Base(target.FileName) == target.FileName
+	envTarget := target.FileName == "" && environmentKeyPattern.MatchString(target.EnvironmentKey)
+	return fileTarget || envTarget
 }
 
 func (resolver *FixedBundleResolver) Resolve(ctx context.Context, artifactDigest string) (Bundle, error) {

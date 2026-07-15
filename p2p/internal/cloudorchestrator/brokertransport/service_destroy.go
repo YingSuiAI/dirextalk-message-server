@@ -69,7 +69,7 @@ func (t *Transport) RequestServiceDestroy(ctx context.Context, endpoint string, 
 	if err != nil {
 		return runtime.ServiceDestroyResult{}, errors.New("service destroy receipt cannot be encoded")
 	}
-	return runtime.ServiceDestroyResult{Status: result.Status, DeploymentID: result.Deployment.DeploymentID, InstanceID: result.Deployment.InstanceID, VolumeIDs: append([]string(nil), result.Deployment.VolumeIDs...), NetworkInterfaceIDs: append([]string(nil), result.Deployment.NetworkInterfaceIDs...), CommandID: result.Receipt.CommandID, RequestSHA256: result.Receipt.RequestSHA256, ReceiptJSON: string(receipt)}, nil
+	return runtime.ServiceDestroyResult{Status: result.Status, DeploymentID: result.Deployment.DeploymentID, InstanceID: result.Deployment.InstanceID, VolumeIDs: append([]string(nil), result.Deployment.VolumeIDs...), NetworkInterfaceIDs: append([]string(nil), result.Deployment.NetworkInterfaceIDs...), SecretRefs: append([]string(nil), result.Deployment.SecretRefs...), CommandID: result.Receipt.CommandID, RequestSHA256: result.Receipt.RequestSHA256, ReceiptJSON: string(receipt)}, nil
 }
 
 func classifyServiceDestroyBrokerError(err error) error {

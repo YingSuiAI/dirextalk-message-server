@@ -49,13 +49,62 @@ func TestDeploymentDestroyConsumesApprovalResumesAndCommitsOnlyAfterReadBack(t *
 	}
 }
 
+func TestDeploymentDestroyCommitsSecretEvidenceOnlyAfterBindingCleanup(t *testing.T) {
+	broker, createdStore, _, createCommand := deploymentTestBroker(t)
+	if response := serve(t, broker, http.MethodPost, commandPath, createCommand); response.Code != http.StatusOK {
+		t.Fatalf("seed deployment: %d %s", response.Code, response.Body.String())
+	}
+	store := &memoryDestroyRepository{memoryCommandStore: createdStore, destroys: map[string]commandstore.DeploymentDestroyReservation{}}
+	provider := &recordingDestroyProvider{}
+	broker.DeploymentDestroyEnabled = true
+	broker.DeploymentDestroyStore = store
+	broker.DeploymentDestroyProvider = provider
+	broker.ServiceSecretDestroyStore = store
+	raw := signedDestroyCommand(t, "secret_ref:model-token")
+	response := serve(t, broker, http.MethodPost, commandPath, raw)
+	if response.Code != http.StatusOK || provider.calls != 1 || store.secretDeletes != 1 || len(provider.last.SecretRefs) != 1 || provider.last.SecretRefs[0] != "secret_ref:model-token" {
+		t.Fatalf("destroy=%d provider=%#v cleanup=%d refs=%v body=%s", response.Code, provider.last, store.secretDeletes, store.deletedRefs, response.Body.String())
+	}
+	var result contract.DeploymentDestroyResult
+	if json.Unmarshal(response.Body.Bytes(), &result) != nil || len(result.Deployment.SecretRefs) != 1 || result.Deployment.SecretRefs[0] != "secret_ref:model-token" {
+		t.Fatalf("secret destroy evidence=%#v", result)
+	}
+	replay := serve(t, broker, http.MethodPost, commandPath, raw)
+	if replay.Code != http.StatusOK || provider.calls != 1 || store.secretDeletes != 1 {
+		t.Fatalf("receipt replay=%d provider=%d cleanup=%d", replay.Code, provider.calls, store.secretDeletes)
+	}
+}
+
+func TestDeploymentDestroyAccessDeniedDoesNotCommitOrCleanupBinding(t *testing.T) {
+	broker, createdStore, _, createCommand := deploymentTestBroker(t)
+	if response := serve(t, broker, http.MethodPost, commandPath, createCommand); response.Code != http.StatusOK {
+		t.Fatalf("seed deployment: %d %s", response.Code, response.Body.String())
+	}
+	store := &memoryDestroyRepository{memoryCommandStore: createdStore, destroys: map[string]commandstore.DeploymentDestroyReservation{}}
+	provider := &recordingDestroyProvider{err: NewError("deployment_destroy_forbidden", http.StatusForbidden)}
+	broker.DeploymentDestroyEnabled = true
+	broker.DeploymentDestroyStore = store
+	broker.DeploymentDestroyProvider = provider
+	broker.ServiceSecretDestroyStore = store
+	response := serve(t, broker, http.MethodPost, commandPath, signedDestroyCommand(t, "secret_ref:model-token"))
+	if response.Code != http.StatusForbidden || store.secretDeletes != 0 || len(createdStore.records) != 1 {
+		t.Fatalf("AccessDenied=%d cleanup=%d receipts=%d body=%s", response.Code, store.secretDeletes, len(createdStore.records), response.Body.String())
+	}
+}
+
 type recordingDestroyProvider struct {
 	calls      int
 	inProgress bool
+	last       DeploymentDestroySpec
+	err        error
 }
 
-func (provider *recordingDestroyProvider) EnsureVerifiedDestroyed(_ context.Context, _ DeploymentDestroySpec) (bool, error) {
+func (provider *recordingDestroyProvider) EnsureVerifiedDestroyed(_ context.Context, spec DeploymentDestroySpec) (bool, error) {
 	provider.calls++
+	provider.last = spec
+	if provider.err != nil {
+		return false, provider.err
+	}
 	if provider.inProgress {
 		return false, NewError("deployment_destroy_in_progress", 409)
 	}
@@ -64,7 +113,15 @@ func (provider *recordingDestroyProvider) EnsureVerifiedDestroyed(_ context.Cont
 
 type memoryDestroyRepository struct {
 	*memoryCommandStore
-	destroys map[string]commandstore.DeploymentDestroyReservation
+	destroys      map[string]commandstore.DeploymentDestroyReservation
+	secretDeletes int
+	deletedRefs   []string
+}
+
+func (store *memoryDestroyRepository) DeleteCompletedServiceSecretBindings(_ context.Context, _, _ string, refs []string) error {
+	store.secretDeletes++
+	store.deletedRefs = append([]string(nil), refs...)
+	return nil
 }
 
 func (store *memoryDestroyRepository) LookupDeploymentDestroy(_ context.Context, connectionID, deploymentID string) (commandstore.DeploymentDestroyReservation, bool, error) {
@@ -106,17 +163,17 @@ func (store *memoryDestroyRepository) FinalizeDeploymentDestroy(_ context.Contex
 	return receipt, true, nil
 }
 
-func signedDestroyCommand(t *testing.T) []byte {
+func signedDestroyCommand(t *testing.T, secretRefs ...string) []byte {
 	t.Helper()
 	now := time.Date(2026, time.July, 14, 12, 1, 0, 0, time.UTC)
-	proof := contract.ServiceDestroyApprovalProof{SchemaVersion: "cloud-orchestrator/v1", Intent: "service_destroy", ApprovalID: "approval-destroy-0001", ChallengeID: "challenge-destroy-0001", SignerKeyID: "device-key-1", ServiceID: "service-destroy-0001", ServiceRevision: 2, DeploymentID: "deployment-create-0001", DeploymentRevision: 5, CloudConnectionID: "connection-create-0001", RecipeID: "recipe-destroy-0001", RecipeDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InstanceID: "i-0123456789abcdef0", VolumeIDs: []string{"vol-0123456789abcdef0"}, NetworkInterfaceIDs: []string{"eni-0123456789abcdef0"}, IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute), Signature: base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))}
+	proof := contract.ServiceDestroyApprovalProof{SchemaVersion: "cloud-orchestrator/v1", Intent: "service_destroy", ApprovalID: "approval-destroy-0001", ChallengeID: "challenge-destroy-0001", SignerKeyID: "device-key-1", ServiceID: "service-destroy-0001", ServiceRevision: 2, DeploymentID: "deployment-create-0001", DeploymentRevision: 5, CloudConnectionID: "connection-create-0001", RecipeID: "recipe-destroy-0001", RecipeDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InstanceID: "i-0123456789abcdef0", VolumeIDs: []string{"vol-0123456789abcdef0"}, NetworkInterfaceIDs: []string{"eni-0123456789abcdef0"}, SecretRefs: secretRefs, IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute), Signature: base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))}
 	payloadToSign, err := proof.SigningPayload()
 	if err != nil {
 		t.Fatal(err)
 	}
 	deviceKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x4f}, ed25519.SeedSize))
 	proof.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(deviceKey, payloadToSign))
-	request := contract.DeploymentDestroyRequest{Schema: contract.DeploymentDestroySchema, ServiceID: proof.ServiceID, DeploymentID: proof.DeploymentID, InstanceID: proof.InstanceID, VolumeIDs: proof.VolumeIDs, NetworkInterfaceIDs: proof.NetworkInterfaceIDs}
+	request := contract.DeploymentDestroyRequest{Schema: contract.DeploymentDestroySchema, ServiceID: proof.ServiceID, DeploymentID: proof.DeploymentID, InstanceID: proof.InstanceID, VolumeIDs: proof.VolumeIDs, NetworkInterfaceIDs: proof.NetworkInterfaceIDs, SecretRefs: proof.SecretRefs}
 	payload, _ := json.Marshal(request)
 	payloadDigest := sha256.Sum256(payload)
 	proofJSON, _ := json.Marshal(proof)

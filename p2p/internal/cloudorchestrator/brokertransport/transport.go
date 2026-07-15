@@ -7,6 +7,7 @@ package brokertransport
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,7 @@ var _ runtime.ServiceRestorePlanTransport = (*Transport)(nil)
 type Transport struct {
 	privateKey ed25519.PrivateKey
 	now        func() time.Time
+	rootCAs    *x509.CertPool
 }
 
 func New(privateKey ed25519.PrivateKey, now func() time.Time) (*Transport, error) {

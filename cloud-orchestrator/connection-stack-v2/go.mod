@@ -8,7 +8,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.30
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.60.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.316.1
+	github.com/aws/aws-sdk-go-v2/service/kms v1.54.1
 	github.com/aws/aws-sdk-go-v2/service/pricing v1.43.1
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.43.1
+	github.com/aws/smithy-go v1.27.3
 	github.com/fxamacker/cbor/v2 v2.9.2
 )
 
@@ -25,6 +28,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.32.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.37.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.44.1 // indirect
-	github.com/aws/smithy-go v1.27.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 )

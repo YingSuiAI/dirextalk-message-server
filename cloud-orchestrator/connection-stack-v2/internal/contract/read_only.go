@@ -436,6 +436,13 @@ func IdempotentResult(command Command, raw []byte) ([]byte, error) {
 		}
 		result.Status, result.Receipt.Disposition = "idempotent", "idempotent"
 		return json.Marshal(result)
+	case ActionServiceSecretObserve:
+		var result ServiceSecretObservation
+		request, err := command.ServiceSecretObserveRequest()
+		if err != nil || decodeServiceSecretObservation(raw, &result) != nil || validateServiceSecretObservation(request, result) != nil {
+			return nil, errCode("receipt_store_invalid")
+		}
+		return append([]byte(nil), raw...), nil
 	default:
 		return nil, errCode("operation_not_enabled")
 	}
@@ -466,6 +473,13 @@ func ValidateCommittedResult(command Command, raw []byte) error {
 	case ActionServiceRestorePlan:
 		var result ServiceRestorePlanResult
 		if err := decodeServiceRestorePlanResult(raw, &result); err != nil || result.Status != "restore_plan_ready" || result.Receipt.Disposition != "committed" || ValidateServiceRestorePlanResult(command, result) != nil {
+			return errCode("receipt_store_invalid")
+		}
+		return nil
+	case ActionServiceSecretObserve:
+		var result ServiceSecretObservation
+		request, err := command.ServiceSecretObserveRequest()
+		if err != nil || decodeServiceSecretObservation(raw, &result) != nil || validateServiceSecretObservation(request, result) != nil {
 			return errCode("receipt_store_invalid")
 		}
 		return nil

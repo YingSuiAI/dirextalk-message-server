@@ -119,6 +119,11 @@ func TestRecipeExecutionManifestRejectsUnsafeMaterialAndUnboundPlan(t *testing.T
 	}
 
 	plan := validPlan(t, time.Date(2026, time.July, 15, 10, 0, 0, 0, time.UTC))
+	expectedSecret, err := cloudorchestrator.SecretReferenceForRecipeSlot(plan.PlanID, cloudorchestrator.RecipeSecretSlotRequirementV1{SlotID: "model-token", Purpose: "model-access", Delivery: cloudorchestrator.SecretDeliveryFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SecretScope = []cloudorchestrator.SecretReferenceV1{expectedSecret}
 	planHash, err := plan.Hash()
 	if err != nil {
 		t.Fatalf("PlanV1.Hash() error = %v", err)
@@ -127,7 +132,7 @@ func TestRecipeExecutionManifestRejectsUnsafeMaterialAndUnboundPlan(t *testing.T
 	manifest.PlanHash = planHash
 	manifest.PlanRevision = plan.Revision
 	manifest.RecipeDigest = plan.Recipe.Digest
-	manifest.SecretSlots = []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: "secret_ref:model-token"}}
+	manifest.SecretSlots = []cloudorchestrator.SecretSlotV1{{SlotID: "model-token", SecretRef: expectedSecret.SecretRef}}
 	if err := manifest.ValidateForPlan(plan); err != nil {
 		t.Fatalf("ValidateForPlan() error = %v", err)
 	}
@@ -165,8 +170,8 @@ func TestRecipeExecutionManifestCanonicalizesUnorderedSlotsButNotCheckpointOrder
 		{SlotID: "bootstrap", DataRef: "data_ref:bootstrap-a", ReadOnly: true},
 	}
 	reorderedSlots.SecretSlots = []cloudorchestrator.SecretSlotV1{
-		{SlotID: "model-token", SecretRef: "secret_ref:model-token-a"},
-		{SlotID: "registry-token", SecretRef: "secret_ref:registry-token-a"},
+		manifest.SecretSlots[1],
+		manifest.SecretSlots[0],
 	}
 	digest, err := reorderedSlots.Digest()
 	if err != nil {
@@ -194,6 +199,13 @@ func validRecipeExecutionManifest(t *testing.T) cloudorchestrator.RecipeExecutio
 	if err != nil {
 		t.Fatalf("PlanV1.Hash() error = %v", err)
 	}
+	secretScope, err := cloudorchestrator.SecretScopeForRecipe(plan.PlanID, []cloudorchestrator.RecipeSecretSlotRequirementV1{
+		{SlotID: "registry-token", Purpose: "source-access", Delivery: cloudorchestrator.SecretDeliveryFile},
+		{SlotID: "model-token", Purpose: "model-access", Delivery: cloudorchestrator.SecretDeliveryFile},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return cloudorchestrator.RecipeExecutionManifestV1{
 		SchemaVersion:                cloudorchestrator.RecipeExecutionManifestV1Schema,
 		ExecutionID:                  "execution-recipe-1",
@@ -217,8 +229,8 @@ func validRecipeExecutionManifest(t *testing.T) cloudorchestrator.RecipeExecutio
 			{SlotID: "dataset", DataRef: "data_ref:dataset-a", ReadOnly: true},
 		},
 		SecretSlots: []cloudorchestrator.SecretSlotV1{
-			{SlotID: "registry-token", SecretRef: "secret_ref:registry-token-a"},
-			{SlotID: "model-token", SecretRef: "secret_ref:model-token-a"},
+			{SlotID: "registry-token", SecretRef: secretScope[0].SecretRef},
+			{SlotID: "model-token", SecretRef: secretScope[1].SecretRef},
 		},
 	}
 }

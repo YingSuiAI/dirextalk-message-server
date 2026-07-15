@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,9 @@ func TestDatabaseStoreServiceOperationApprovalDerivesManagedActionAtomically(t *
 		WorkerResourceManifestDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		ArtifactDigest:               cloudcontracts.FixedProbeManagedArtifactDigest, ActionID: cloudcontracts.FixedProbeInstallActionID,
 		RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_binary_installed", "probe_service_installed", "probe_health_verified"},
+		VolumeSlots: []cloudcontracts.VolumeSlotV1{{SlotID: "data", VolumeRef: "volume_ref:data"}},
+		DataSlots:   []cloudcontracts.DataSlotV1{{SlotID: "knowledge", DataRef: "data_ref:knowledge", ReadOnly: true}},
+		SecretSlots: []cloudcontracts.SecretSlotV1{{SlotID: "model", SecretRef: "secret_ref:model"}},
 	}
 	manifestDigest, err := manifest.Digest()
 	if err != nil {
@@ -35,13 +40,14 @@ func TestDatabaseStoreServiceOperationApprovalDerivesManagedActionAtomically(t *
 		t.Fatal(err)
 	}
 
-	prepare := cloudmodule.PrepareServiceOperationRequest{OwnerMXID: "@owner:example.com", ServiceID: "service-destroy-0001", ExpectedRevision: 2, Operation: cloudcontracts.ServiceOperationStop, IdempotencyHash: "prepare-operation-idem", RequestDigest: "prepare-operation-request", ApprovalID: "approval-operation-0001", ChallengeID: "challenge-operation-0001", CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli()}
+	prepare := cloudmodule.PrepareServiceOperationRequest{OwnerMXID: "@owner:example.com", ServiceID: "service-destroy-0001", ExpectedRevision: 2, Operation: cloudcontracts.ServiceOperationRestart, IdempotencyHash: "prepare-operation-idem", RequestDigest: "prepare-operation-request", ApprovalID: "approval-operation-0001", ChallengeID: "challenge-operation-0001", CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli()}
 	prepared, err := store.PrepareCloudServiceOperation(ctx, prepare)
 	if err != nil || !prepared.Created {
 		t.Fatalf("prepare operation=%#v err=%v", prepared, err)
 	}
 	approval := prepared.Confirmation.Approval
-	if approval.ActionID != cloudcontracts.FixedProbeStopActionID || approval.ArtifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || approval.ExpectedServiceStatus != "experimental" || approval.Signature != "" {
+	if approval.ActionID != cloudcontracts.FixedProbeRestartActionID || approval.ArtifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || approval.ExpectedServiceStatus != "experimental" || approval.Signature != "" ||
+		!reflect.DeepEqual(approval.VolumeSlots, manifest.VolumeSlots) || !reflect.DeepEqual(approval.DataSlots, manifest.DataSlots) || !reflect.DeepEqual(approval.SecretSlots, manifest.SecretSlots) {
 		t.Fatalf("derived approval=%#v", approval)
 	}
 	replay, err := store.PrepareCloudServiceOperation(ctx, prepare)
@@ -59,14 +65,29 @@ func TestDatabaseStoreServiceOperationApprovalDerivesManagedActionAtomically(t *
 		t.Fatal(err)
 	}
 	tampered := signed
-	tampered.ActionID = cloudcontracts.FixedProbeRestartActionID
+	tampered.ActionID = cloudcontracts.FixedProbeStopActionID
 	bad := serviceOperationApprovalRequest(tampered, now.Add(time.Minute).UnixMilli())
 	if _, err = store.ApproveCloudServiceOperation(ctx, bad); !errors.Is(err, cloudmodule.ErrServiceOperationConfirmationInvalid) && !errors.Is(err, cloudmodule.ErrServiceOperationApprovalSignature) {
 		t.Fatalf("tampered operation=%v", err)
 	}
+	tamperedSlots := approval
+	tamperedSlots.SecretSlots = append(tamperedSlots.SecretSlots, cloudcontracts.SecretSlotV1{SlotID: "extra", SecretRef: "secret_ref:extra"})
+	tamperedSlots, err = tamperedSlots.Sign(privateKey, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tamperedSlotRequest := serviceOperationApprovalRequest(tamperedSlots, now.Add(time.Minute).UnixMilli())
+	tamperedSlotRequest.IdempotencyHash = "approve-operation-tampered-slot-idem"
+	if _, err = store.ApproveCloudServiceOperation(ctx, tamperedSlotRequest); !errors.Is(err, cloudmodule.ErrServiceOperationConfirmationInvalid) {
+		t.Fatalf("tampered operation slots=%v", err)
+	}
+	var queuedAfterTamper int
+	if err = store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE approval_id=$1`, approval.ApprovalID).Scan(&queuedAfterTamper); err != nil || queuedAfterTamper != 0 {
+		t.Fatalf("tampered slots entered issue path count=%d err=%v", queuedAfterTamper, err)
+	}
 	request := serviceOperationApprovalRequest(signed, now.Add(time.Minute).UnixMilli())
 	approved, err := store.ApproveCloudServiceOperation(ctx, request)
-	if err != nil || !approved.Created || approved.Job.Kind != "stop" || approved.Job.Checkpoint != "service_operation_queued" || approved.Service.Revision != 2 {
+	if err != nil || !approved.Created || approved.Job.Kind != "restart" || approved.Job.Checkpoint != "service_operation_queued" || approved.Service.Revision != 2 {
 		t.Fatalf("approved operation=%#v err=%v", approved, err)
 	}
 	var actionID, taskStatus, artifactDigest string
@@ -78,15 +99,25 @@ func TestDatabaseStoreServiceOperationApprovalDerivesManagedActionAtomically(t *
 		t.Fatal("decode operation manifest")
 	}
 	actionID, artifactDigest = operationManifest.ActionID, operationManifest.ArtifactDigest
-	if actionID != cloudcontracts.FixedProbeStopActionID || artifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || taskStatus != "queued" || len(operationManifest.SecretSlots) != 0 {
+	if actionID != cloudcontracts.FixedProbeRestartActionID || artifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || taskStatus != "queued" ||
+		!reflect.DeepEqual(operationManifest.VolumeSlots, manifest.VolumeSlots) || !reflect.DeepEqual(operationManifest.DataSlots, manifest.DataSlots) || !reflect.DeepEqual(operationManifest.SecretSlots, manifest.SecretSlots) {
 		t.Fatalf("sealed task action=%s artifact=%s status=%s", actionID, artifactDigest, taskStatus)
 	}
-	if _, err = store.PrepareCloudServiceDestroy(ctx, cloudmodule.PrepareServiceDestroyRequest{OwnerMXID: "@owner:example.com", ServiceID: approval.ServiceID, ExpectedRevision: int64(approval.ServiceRevision), IdempotencyHash: "destroy-during-operation-idem", RequestDigest: "destroy-during-operation-request", ApprovalID: "destroy-during-operation-approval", ChallengeID: "destroy-during-operation-challenge", CreatedAt: now.Add(2*time.Minute).UnixMilli(), ExpiresAt: now.Add(5*time.Minute).UnixMilli()}); !errors.Is(err, cloudmodule.ErrServiceDestroyConfirmationInvalid) {
+	if _, err = store.PrepareCloudServiceDestroy(ctx, cloudmodule.PrepareServiceDestroyRequest{OwnerMXID: "@owner:example.com", ServiceID: approval.ServiceID, ExpectedRevision: int64(approval.ServiceRevision), IdempotencyHash: "destroy-during-operation-idem", RequestDigest: "destroy-during-operation-request", ApprovalID: "destroy-during-operation-approval", ChallengeID: "destroy-during-operation-challenge", CreatedAt: now.Add(2 * time.Minute).UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli()}); !errors.Is(err, cloudmodule.ErrServiceDestroyConfirmationInvalid) {
 		t.Fatalf("destroy while managed operation is active = %v", err)
 	}
 	approvedReplay, err := store.ApproveCloudServiceOperation(ctx, request)
 	if err != nil || approvedReplay.Created || approvedReplay.Job.JobID != approved.Job.JobID {
 		t.Fatalf("approve replay=%#v err=%v", approvedReplay, err)
+	}
+}
+
+func TestServiceOperationManifestKeepsFixedProbeEmptySlots(t *testing.T) {
+	installed := cloudcontracts.RecipeExecutionManifestV1{DeploymentID: "deployment-fixed-probe", PlanID: "plan-fixed-probe", PlanHash: "sha256:" + strings.Repeat("a", 64), PlanRevision: 1, WorkerResourceManifestDigest: "sha256:" + strings.Repeat("b", 64)}
+	target := cloudcontracts.ServiceOperationTargetV1{RecipeDigest: "sha256:" + strings.Repeat("c", 64), ArtifactDigest: cloudcontracts.FixedProbeManagedArtifactDigest, ActionID: cloudcontracts.FixedProbeRestartActionID, RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_service_restarted", "probe_health_verified"}}
+	manifest := serviceOperationManifest(installed, "operation-fixed-probe", target)
+	if len(manifest.VolumeSlots) != 0 || len(manifest.DataSlots) != 0 || len(manifest.SecretSlots) != 0 {
+		t.Fatalf("fixed probe empty slots changed: %#v", manifest)
 	}
 }
 

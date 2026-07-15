@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
 )
 
@@ -63,6 +64,60 @@ func TestOpenAICompatiblePlannerUsesSecretOnlyForAuthorization(t *testing.T) {
 	output, err := planner.Research(context.Background(), input)
 	if err != nil || output.Draft.Region != want.Draft.Region || output.Recipe.RecipeID != want.Recipe.RecipeID {
 		t.Fatalf("model research output valid=%t err=%v", output.Draft.Region == want.Draft.Region, err)
+	}
+}
+
+func TestOpenAICompatiblePlannerSelectedRecipeRejectsModelRecipeFieldAndInjectsTrustedRecipe(t *testing.T) {
+	now := time.Now().UTC()
+	baseInput := runtime.ResearchInput{GoalID: "goal-selected-1", PlanID: "plan-selected-1", ConnectionID: "connection-selected-1", PlanRevision: 1, Prompt: "Deploy selected recipe."}
+	want := validResearchOutput(t, now, baseInput)
+	digest, err := want.Recipe.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseInput.SelectedRecipe = &runtime.SelectedRecipeInput{RecipeID: want.Recipe.RecipeID, Revision: 2, Digest: digest, Recipe: want.Recipe}
+	want.Draft.Candidates = []cloudcontracts.QuoteRequestCandidateV1{
+		{CandidateID: "economy", Tier: cloudcontracts.QuoteTierEconomy, InstanceType: "m7i.large", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+		{CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+		{CandidateID: "performance", Tier: cloudcontracts.QuoteTierPerformance, InstanceType: "m7i.2xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80},
+	}
+	for _, tc := range []struct {
+		name          string
+		includeRecipe bool
+		wantErr       bool
+	}{{"trusted injection", false, false}, {"model recipe rejected", true, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var requestPayload map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&requestPayload)
+				if !strings.Contains(mustJSON(t, requestPayload), `selected_recipe`) {
+					t.Fatal("full selected recipe missing from model input")
+				}
+				model := map[string]any{"draft": want.Draft, "title": want.Title, "summary": want.Summary}
+				if tc.includeRecipe {
+					model["recipe"] = want.Recipe
+				}
+				content, _ := json.Marshal(model)
+				encoded, _ := json.Marshal(string(content))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":` + string(encoded) + `}}]}`))
+			}))
+			defer server.Close()
+			planner, e := NewOpenAICompatiblePlanner(OpenAICompatibleConfig{Endpoint: server.URL + "/v1/chat/completions", Model: "research-model", APIKey: "private", Client: server.Client()})
+			if e != nil {
+				t.Fatal(e)
+			}
+			output, e := planner.Research(t.Context(), baseInput)
+			if tc.wantErr {
+				if e == nil {
+					t.Fatal("model recipe field accepted")
+				}
+				return
+			}
+			if e != nil || output.Recipe.RecipeID != want.Recipe.RecipeID {
+				t.Fatalf("output=%#v err=%v", output, e)
+			}
+		})
 	}
 }
 

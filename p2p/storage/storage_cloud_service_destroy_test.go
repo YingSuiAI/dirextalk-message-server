@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -79,6 +80,63 @@ func TestDatabaseStoreServiceDestroyApprovalIsRevisionBoundAtomicAndIdempotent(t
 	approvedReplay, err := store.ApproveCloudServiceDestroy(ctx, request)
 	if err != nil || approvedReplay.Created || mustCloudConfirmationJSON(t, approvedReplay) != mustCloudConfirmationJSON(t, cloudmodule.ApproveServiceDestroyResult{Service: approved.Service, Deployment: approved.Deployment, Job: approved.Job}) {
 		t.Fatalf("approval exact replay = %#v err=%v", approvedReplay, err)
+	}
+}
+
+func TestDatabaseStoreServiceDestroyDerivesSecretRefsFromApprovedPlanAndManifest(t *testing.T) {
+	ctx := context.Background()
+	store := newCloudConfirmationStore(t)
+	now := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
+	owner, deployment, privateKey, manifest := seedCloudRecipeExecutionReadyDeployment(t, store, now)
+	registerTrustedArtifactForExecutionManifest(t, store, manifest, now.Add(90*time.Second).UnixMilli())
+	if _, err := store.RegisterTrustedCloudRecipeExecutionManifest(ctx, cloudmodule.RegisterTrustedRecipeExecutionManifestRequest{Manifest: manifest, RegisteredAt: now.Add(2 * time.Minute).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	volumes, _ := json.Marshal([]string{"vol-0aaaaaaaaaaaaaaaa"})
+	interfaces, _ := json.Marshal([]string{"eni-0aaaaaaaaaaaaaaaa"})
+	if _, err := store.DB().ExecContext(ctx, `UPDATE p2p_cloud_recipe_execution_manifests SET status='approved',revision=2 WHERE deployment_id=$1`, deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE p2p_cloud_deployments SET execution_status='finished',outcome_status='succeeded',resource_status='active',revision=5 WHERE deployment_id=$1`, deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE p2p_cloud_deployment_resources SET volume_ids_json=$1,network_interface_ids_json=$2 WHERE deployment_id=$3`, string(volumes), string(interfaces), deployment.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO p2p_cloud_services(service_id,deployment_id,recipe_id,name,service_status,integration_status,revision,created_at,updated_at) VALUES('service-destroy-secret-scope',$1,'recipe-confirmation-1','Secret scope service','experimental','not_requested',2,$2,$2)`, deployment.DeploymentID, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareCloudServiceDestroy(ctx, cloudmodule.PrepareServiceDestroyRequest{OwnerMXID: owner, ServiceID: "service-destroy-secret-scope", ExpectedRevision: 2, IdempotencyHash: "destroy-secret-scope-prepare", RequestDigest: "destroy-secret-scope-request", ApprovalID: "destroy-secret-scope-approval", ChallengeID: "destroy-secret-scope-challenge", CreatedAt: now.Add(3 * time.Minute).UnixMilli(), ExpiresAt: now.Add(8 * time.Minute).UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{manifest.SecretSlots[0].SecretRef, manifest.SecretSlots[1].SecretRef}
+	sort.Strings(want)
+	if !sameServiceDestroyRefs(prepared.Confirmation.Approval.SecretRefs, want) {
+		t.Fatalf("secret refs=%v want=%v", prepared.Confirmation.Approval.SecretRefs, want)
+	}
+	var ledgerRefs string
+	if err = store.DB().QueryRowContext(ctx, `SELECT secret_refs_json FROM p2p_cloud_service_destroy_approvals WHERE approval_id=$1`, prepared.Confirmation.Approval.ApprovalID).Scan(&ledgerRefs); err != nil || ledgerRefs != mustCloudConfirmationJSON(t, want) {
+		t.Fatalf("ledger refs=%q err=%v", ledgerRefs, err)
+	}
+	signed, err := prepared.Confirmation.Approval.Sign(privateKey, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := store.ApproveCloudServiceDestroy(ctx, serviceDestroyApprovalRequest(signed, now.Add(4*time.Minute).UnixMilli()))
+	if err != nil || !approved.Created {
+		t.Fatalf("approve secret destroy=%#v err=%v", approved, err)
+	}
+	var outboxPayload string
+	if err = store.DB().QueryRowContext(ctx, `SELECT payload_json FROM p2p_cloud_outbox WHERE outbox_id='outbox-destroy-0001'`).Scan(&outboxPayload); err != nil {
+		t.Fatal(err)
+	}
+	wantOutbox, _ := json.Marshal(struct {
+		ServiceID  string   `json:"service_id"`
+		SecretRefs []string `json:"secret_refs,omitempty"`
+	}{signed.ServiceID, want})
+	if outboxPayload != string(wantOutbox) {
+		t.Fatalf("outbox=%s want=%s", outboxPayload, wantOutbox)
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/broker"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
@@ -40,10 +42,11 @@ func (s *Store) ClaimServiceDestroy(ctx context.Context, workerID string, lease 
 	if token == "" {
 		return claim, false, errors.New("service destroy lease token is invalid")
 	}
-	var approvalJSON, signature, volumesJSON, interfacesJSON string
+	var approvalJSON, signature, volumesJSON, interfacesJSON, secretRefsJSON, outboxPayload string
 	err = tx.QueryRowContext(ctx, `SELECT outbox.outbox_id,outbox.kind,outbox.aggregate_type,outbox.aggregate_id,outbox.attempts,
+		outbox.payload_json,
 		service.service_id,service.deployment_id,service.revision,deployment.plan_id,deployment.cloud_connection_id,deployment.revision,
-		approval.job_id,approval.approval_json,approval.signature,approval.instance_id,approval.volume_ids_json,approval.network_interface_ids_json,
+		approval.job_id,approval.approval_json,approval.signature,approval.instance_id,approval.volume_ids_json,approval.network_interface_ids_json,approval.secret_refs_json,
 		connection.region,broker.broker_command_url,broker.node_key_id,broker.connection_generation
 		FROM p2p_cloud_outbox outbox JOIN p2p_cloud_services service ON service.service_id=outbox.aggregate_id
 		JOIN p2p_cloud_deployments deployment ON deployment.deployment_id=service.deployment_id
@@ -59,8 +62,8 @@ func (s *Store) ClaimServiceDestroy(ctx context.Context, workerID string, lease 
 		AND resource.instance_id=approval.instance_id AND resource.volume_ids_json=approval.volume_ids_json AND resource.network_interface_ids_json=approval.network_interface_ids_json
 		AND connection.status='active' AND connection.region=broker.broker_region AND job.execution_status IN('queued','provisioning') AND job.outcome_status='pending'
 		ORDER BY outbox.created_at,outbox.outbox_id FOR UPDATE OF outbox SKIP LOCKED LIMIT 1`, runtime.ServiceDestroyRequested, now).Scan(
-		&claim.OutboxID, &claim.Kind, &claim.AggregateType, &claim.AggregateID, &claim.Attempt, &claim.ServiceID, &claim.DeploymentID, &claim.ServiceRevision,
-		&claim.PlanID, &claim.ConnectionID, &claim.DeploymentRevision, &claim.JobID, &approvalJSON, &signature, &claim.Request.InstanceID, &volumesJSON, &interfacesJSON,
+		&claim.OutboxID, &claim.Kind, &claim.AggregateType, &claim.AggregateID, &claim.Attempt, &outboxPayload, &claim.ServiceID, &claim.DeploymentID, &claim.ServiceRevision,
+		&claim.PlanID, &claim.ConnectionID, &claim.DeploymentRevision, &claim.JobID, &approvalJSON, &signature, &claim.Request.InstanceID, &volumesJSON, &interfacesJSON, &secretRefsJSON,
 		&claim.Region, &claim.BrokerEndpoint, &claim.NodeKeyID, &claim.ExpectedGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Rollback()
@@ -80,6 +83,22 @@ func (s *Store) ClaimServiceDestroy(ctx context.Context, workerID string, lease 
 	}
 	if err = json.Unmarshal([]byte(interfacesJSON), &claim.Request.NetworkInterfaceIDs); err != nil {
 		return claim, false, errors.New("service destroy interfaces are invalid")
+	}
+	if err = json.Unmarshal([]byte(secretRefsJSON), &claim.Request.SecretRefs); err != nil {
+		return claim, false, errors.New("service destroy secret references are invalid")
+	}
+	var privateOutbox struct {
+		ServiceID  string   `json:"service_id"`
+		SecretRefs []string `json:"secret_refs,omitempty"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(outboxPayload))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&privateOutbox) != nil || privateOutbox.ServiceID != claim.ServiceID || !sameDestroyStrings(privateOutbox.SecretRefs, claim.Request.SecretRefs) || !sameDestroyStrings(claim.Approval.SecretRefs, claim.Request.SecretRefs) {
+		return claim, false, errors.New("service destroy private outbox binding is invalid")
+	}
+	var trailing any
+	if err = decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return claim, false, errors.New("service destroy private outbox contains trailing JSON")
 	}
 	claim.Request.Schema, claim.Request.ServiceID, claim.Request.DeploymentID = broker.DeploymentDestroySchema, claim.ServiceID, claim.DeploymentID
 	result, err := tx.ExecContext(ctx, `UPDATE p2p_cloud_outbox SET lease_owner=$1,lease_token=$2,lease_until=$3,attempts=attempts+1,last_error_code='' WHERE outbox_id=$4 AND completed_at=0 AND lease_until<=$5`, workerID, token, now+lease.Milliseconds(), claim.OutboxID, now)
@@ -214,13 +233,18 @@ func (s *Store) CompleteServiceDestroy(ctx context.Context, claim runtime.Servic
 		if err = requireOneAffected(r); err != nil {
 			return err
 		}
+		if len(claim.Request.SecretRefs) > 0 {
+			if _, err = tx.ExecContext(ctx, `UPDATE p2p_cloud_service_secret_bootstrap_approvals SET status='destroyed',lease_owner='',lease_token='',lease_until=0,last_error_code='',revision=revision+1,updated_at=$1 WHERE deployment_id=$2 AND status='ready' AND secret_ref=ANY($3)`, now, claim.DeploymentID, pq.Array(claim.Request.SecretRefs)); err != nil {
+				return err
+			}
+		}
 		if _, err = transitionServiceDestroyStatus(ctx, tx, claim.ServiceID, now, "destroyed"); err != nil {
 			return err
 		}
 		if _, err = transitionDeployment(ctx, tx, claim.DeploymentID, claim.PlanID, claim.ConnectionID, now, "finished", "succeeded", "verified_destroyed"); err != nil {
 			return err
 		}
-		if _, err = transitionCloudJob(ctx, tx, claim.JobID, claim.PlanID, claim.DeploymentID, "destroy", "destroy", now, researchJobTransition{execution: "finished", outcome: "succeeded", checkpoint: "verified_destroyed", stepStatus: "finished", stepSummary: "AWS read-back verified that the approved instance, interfaces, and volumes no longer exist."}); err != nil {
+		if _, err = transitionCloudJob(ctx, tx, claim.JobID, claim.PlanID, claim.DeploymentID, "destroy", "destroy", now, researchJobTransition{execution: "finished", outcome: "succeeded", checkpoint: "verified_destroyed", stepStatus: "finished", stepSummary: serviceDestroyCompletionSummary(claim.Request.SecretRefs)}); err != nil {
 			return err
 		}
 		return completeServiceDestroyOutbox(ctx, tx, claim, now)
@@ -330,8 +354,27 @@ func validateDestroyReceipt(claim runtime.ServiceDestroyClaim, signed runtime.Si
 	}
 	return broker.ValidateDeploymentDestroyResult(command, broker.DeploymentDestroyResult{
 		Schema: broker.DeploymentDestroyResultSchema, Status: result.Status, Receipt: receipt,
-		Deployment: broker.DeploymentDestroyEvidence{DeploymentID: result.DeploymentID, InstanceID: result.InstanceID, VolumeIDs: result.VolumeIDs, NetworkInterfaceIDs: result.NetworkInterfaceIDs},
+		Deployment: broker.DeploymentDestroyEvidence{DeploymentID: result.DeploymentID, InstanceID: result.InstanceID, VolumeIDs: result.VolumeIDs, NetworkInterfaceIDs: result.NetworkInterfaceIDs, SecretRefs: result.SecretRefs},
 	})
+}
+
+func sameDestroyStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func serviceDestroyCompletionSummary(secretRefs []string) string {
+	if len(secretRefs) == 0 {
+		return "AWS read-back verified that the approved instance, interfaces, and volumes no longer exist."
+	}
+	return "AWS read-back verified that the approved instance, interfaces, volumes, and service secrets no longer exist."
 }
 
 func loadServiceDestroySigned(ctx context.Context, tx *sql.Tx, id string) (runtime.SignedServiceDestroyCommand, error) {

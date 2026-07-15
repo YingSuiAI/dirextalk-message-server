@@ -13,6 +13,7 @@ import (
 const (
 	nativeAgentCloudDeploymentPlanTool = "native_agent_cloud_deployment_plan"
 	nativeAgentCloudStatusTool         = "native_agent_cloud_status"
+	nativeAgentCloudRecipesTool        = "native_agent_cloud_recipes"
 	nativeAgentCloudDialogueModeParam  = "cloud_dialogue_mode"
 	nativeAgentCloudConnectionIDParam  = "cloud_connection_id"
 )
@@ -184,6 +185,15 @@ func (r *Runtime) cloudPlanningToolsForRequest(connectionSelectedByClient bool) 
 			Handler:    r.readCloudStatus,
 		})
 	}
+	if connectionSelectedByClient && r.cloudRecipeReader != nil {
+		tools = append(tools, Tool{
+			Name:        nativeAgentCloudRecipesTool,
+			Description: "List owner-scoped, de-secreted private Recipes for recommendation only. The model cannot select a Recipe, purchase resources, or upload a secret.",
+			Write:       false,
+			Parameters:  objectSchema(map[string]any{}),
+			Handler:     r.readCloudRecipes,
+		})
+	}
 	return tools
 }
 
@@ -247,4 +257,18 @@ func (r *Runtime) readCloudStatus(ctx context.Context, args map[string]any) (any
 		return nil, fmt.Errorf("cloud status does not accept parameters")
 	}
 	return r.cloudStatusReader.ReadCloudStatus(ctx)
+}
+
+func (r *Runtime) readCloudRecipes(ctx context.Context, args map[string]any) (any, error) {
+	if r == nil || r.cloudRecipeReader == nil {
+		return nil, fmt.Errorf("cloud recipe recommendations are not configured")
+	}
+	if len(args) != 0 {
+		return nil, fmt.Errorf("cloud recipe recommendations do not accept parameters")
+	}
+	items, err := r.cloudRecipeReader.ReadCloudRecipes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"recipes": items}, nil
 }

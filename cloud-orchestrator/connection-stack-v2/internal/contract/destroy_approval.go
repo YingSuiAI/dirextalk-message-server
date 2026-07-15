@@ -19,6 +19,7 @@ var (
 	destroyInstanceIDPattern         = regexp.MustCompile(`^i-[0-9a-f]{8,17}$`)
 	destroyVolumeIDPattern           = regexp.MustCompile(`^vol-[0-9a-f]{8,17}$`)
 	destroyNetworkInterfaceIDPattern = regexp.MustCompile(`^eni-[0-9a-f]{8,17}$`)
+	destroySecretRefPattern          = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
 )
 
 type ServiceDestroyApprovalProof struct {
@@ -37,6 +38,7 @@ type ServiceDestroyApprovalProof struct {
 	InstanceID          string    `json:"instance_id"`
 	VolumeIDs           []string  `json:"volume_ids"`
 	NetworkInterfaceIDs []string  `json:"network_interface_ids"`
+	SecretRefs          []string  `json:"secret_refs,omitempty"`
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 	Signature           string    `json:"signature"`
@@ -60,17 +62,22 @@ type serviceDestroyApprovalSigningPayload struct {
 	InstanceID          string    `json:"instance_id"`
 	VolumeIDs           []string  `json:"volume_ids"`
 	NetworkInterfaceIDs []string  `json:"network_interface_ids"`
+	SecretRefs          []string  `json:"secret_refs,omitempty" cbor:"secret_refs,omitempty"`
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 }
 
 func ParseServiceDestroyApprovalProof(raw []byte) (ServiceDestroyApprovalProof, error) {
 	fields, err := exactJSONObject(raw)
-	if err != nil || !exactFields(fields, []string{"schema_version", "intent", "approval_id", "challenge_id", "signer_key_id", "service_id", "service_revision", "deployment_id", "deployment_revision", "cloud_connection_id", "recipe_id", "recipe_digest", "instance_id", "volume_ids", "network_interface_ids", "issued_at", "expires_at", "signature"}) {
+	legacyFields := []string{"schema_version", "intent", "approval_id", "challenge_id", "signer_key_id", "service_id", "service_revision", "deployment_id", "deployment_revision", "cloud_connection_id", "recipe_id", "recipe_digest", "instance_id", "volume_ids", "network_interface_ids", "issued_at", "expires_at", "signature"}
+	if err != nil || (!exactFields(fields, legacyFields) && !exactFields(fields, append(legacyFields, "secret_refs"))) {
 		return ServiceDestroyApprovalProof{}, errCode("invalid_approval_proof")
 	}
 	var proof ServiceDestroyApprovalProof
 	if decodeSingle(raw, &proof) != nil || proof.validate() != nil {
+		return ServiceDestroyApprovalProof{}, errCode("invalid_approval_proof")
+	}
+	if _, present := fields["secret_refs"]; present && len(proof.SecretRefs) == 0 {
 		return ServiceDestroyApprovalProof{}, errCode("invalid_approval_proof")
 	}
 	return proof, nil
@@ -83,6 +90,9 @@ func (proof ServiceDestroyApprovalProof) validate() error {
 	if !validDestroyResourceIDs(proof.VolumeIDs, destroyVolumeIDPattern) || !validDestroyResourceIDs(proof.NetworkInterfaceIDs, destroyNetworkInterfaceIDPattern) {
 		return errCode("invalid_approval_proof")
 	}
+	if !validOptionalDestroySecretRefs(proof.SecretRefs) {
+		return errCode("invalid_approval_proof")
+	}
 	if proof.IssuedAt.IsZero() || proof.ExpiresAt.IsZero() || proof.IssuedAt.Location() != time.UTC || proof.ExpiresAt.Location() != time.UTC || !proof.ExpiresAt.After(proof.IssuedAt) || proof.ExpiresAt.Sub(proof.IssuedAt) > 5*time.Minute {
 		return errCode("invalid_approval_proof")
 	}
@@ -91,6 +101,23 @@ func (proof ServiceDestroyApprovalProof) validate() error {
 		return errCode("invalid_approval_proof")
 	}
 	return nil
+}
+
+func validOptionalDestroySecretRefs(values []string) bool {
+	if len(values) > 32 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !destroySecretRefPattern.MatchString(value) {
+			return false
+		}
+		if _, ok := seen[value]; ok {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
 }
 
 func validDestroyResourceIDs(values []string, pattern *regexp.Regexp) bool {
@@ -120,7 +147,7 @@ func (proof ServiceDestroyApprovalProof) SigningPayload() ([]byte, error) {
 		Intent: proof.Intent, ApprovalID: proof.ApprovalID, ChallengeID: proof.ChallengeID, SignerKeyID: proof.SignerKeyID,
 		ServiceID: proof.ServiceID, ServiceRevision: proof.ServiceRevision, DeploymentID: proof.DeploymentID, DeploymentRevision: proof.DeploymentRevision,
 		CloudConnectionID: proof.CloudConnectionID, RecipeID: proof.RecipeID, RecipeDigest: proof.RecipeDigest,
-		InstanceID: proof.InstanceID, VolumeIDs: proof.VolumeIDs, NetworkInterfaceIDs: proof.NetworkInterfaceIDs,
+		InstanceID: proof.InstanceID, VolumeIDs: proof.VolumeIDs, NetworkInterfaceIDs: proof.NetworkInterfaceIDs, SecretRefs: proof.SecretRefs,
 		IssuedAt: proof.IssuedAt, ExpiresAt: proof.ExpiresAt,
 	})
 }
@@ -156,8 +183,10 @@ func normalizeServiceDestroyApprovalProof(proof ServiceDestroyApprovalProof) Ser
 	proof.IssuedAt, proof.ExpiresAt = proof.IssuedAt.UTC(), proof.ExpiresAt.UTC()
 	proof.VolumeIDs = append([]string(nil), proof.VolumeIDs...)
 	proof.NetworkInterfaceIDs = append([]string(nil), proof.NetworkInterfaceIDs...)
+	proof.SecretRefs = append([]string(nil), proof.SecretRefs...)
 	sort.Strings(proof.VolumeIDs)
 	sort.Strings(proof.NetworkInterfaceIDs)
+	sort.Strings(proof.SecretRefs)
 	return proof
 }
 

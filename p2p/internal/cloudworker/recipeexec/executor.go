@@ -40,7 +40,11 @@ var (
 	ErrCheckpointConflict = errors.New("recipe checkpoint compare-and-swap conflict")
 	// ErrExecutionIncomplete means a driver returned successfully without
 	// persisting the terminal declared checkpoint.
-	ErrExecutionIncomplete = errors.New("recipe action returned before the terminal checkpoint")
+	ErrExecutionIncomplete      = errors.New("recipe action returned before the terminal checkpoint")
+	ErrSecretScope              = errors.New("recipe secret scope does not match the trusted bundle")
+	ErrSecretMaterialize        = errors.New("recipe secret materialization failed")
+	ErrSecretMaterializePending = errors.New("recipe secret materialization is pending")
+	ErrSecretStage              = errors.New("recipe secret staging failed")
 )
 
 // Binding is the durable identity for one execution attempt. The manifest
@@ -56,6 +60,42 @@ type Binding struct {
 type Bundle struct {
 	ArtifactDigest string
 	ActionIDs      []string
+	SecretTargets  []SecretTarget
+}
+
+// SecretTarget is trusted local catalog data. Neither the sealed manifest nor
+// an Agent may select a host path or environment variable name.
+type SecretTarget struct {
+	SlotID         string
+	FileName       string
+	EnvironmentKey string
+}
+
+type SecretMaterializeRequest struct {
+	TaskID         string
+	ExecutionID    string
+	ManifestDigest string
+	ArtifactDigest string
+	SlotID         string
+	SecretRef      string
+}
+
+type SecretMaterializer interface {
+	Materialize(context.Context, SecretMaterializeRequest) ([]byte, error)
+}
+
+type MaterializedSecret struct {
+	Target SecretTarget
+	Value  []byte
+}
+
+type SecretDelivery struct {
+	Files           map[string]string
+	EnvironmentFile string
+}
+
+type SecretStager interface {
+	Stage(context.Context, string, string, []MaterializedSecret) (SecretDelivery, func(), error)
 }
 
 // BundleResolver must authenticate and pin a compiled artifact before
@@ -104,6 +144,7 @@ type ActionRequest struct {
 	VolumeSlots  []cloudorchestrator.VolumeSlotV1
 	DataSlots    []cloudorchestrator.DataSlotV1
 	SecretSlots  []cloudorchestrator.SecretSlotV1
+	Secrets      SecretDelivery
 }
 
 // CheckpointReporter is the sole way an ActionDriver advances durable
@@ -124,16 +165,21 @@ type ActionDriver interface {
 // but the production cloud-worker deliberately provides no resolver, store, or
 // driver until a separately audited fixed bundle is available.
 type Executor struct {
-	Resolver BundleResolver
-	Store    CheckpointStore
-	Driver   ActionDriver
+	Resolver                     BundleResolver
+	Store                        CheckpointStore
+	Driver                       ActionDriver
+	RequireSecretMaterialization bool
+	Materializer                 SecretMaterializer
+	SecretStager                 SecretStager
+	SecretRetryDelay             time.Duration
 }
 
 // Configured reports whether every trusted execution dependency was supplied.
 // Transport loops must check this before claiming work; Execute retains the
 // same check as a second fail-closed boundary.
 func (executor Executor) Configured() bool {
-	return executor.Resolver != nil && executor.Store != nil && executor.Driver != nil
+	return executor.Resolver != nil && executor.Store != nil && executor.Driver != nil &&
+		(!executor.RequireSecretMaterialization || (executor.Materializer != nil && executor.SecretStager != nil))
 }
 
 // Result reports only non-secret, durable execution progress. Completed does
@@ -161,9 +207,9 @@ func (executor Executor) Execute(ctx context.Context, manifest cloudorchestrator
 // of trusted local state before it can call an ActionDriver. Local state may
 // be ahead after an accepted action checkpoint whose HTTP event response was
 // lost; that safe prefix is returned so transport can replay the missing
-// de-secreted events without re-running the action. It still does not
-// perform artifact delivery, secret retrieval, process execution, or cloud
-// control; those remain dependencies of a later isolated executor.
+// de-secreted events without re-running the action. Secret retrieval is used
+// only when the caller explicitly injects the closed materializer and tmpfs
+// stager; process execution and cloud control remain outside this coordinator.
 func (executor Executor) ExecuteTask(ctx context.Context, task TaskV1, manifest cloudorchestrator.RecipeExecutionManifestV1) (Result, error) {
 	if err := task.ValidateForManifest(manifest); err != nil {
 		return Result{}, err
@@ -220,6 +266,13 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 	if state.Completed {
 		return result, nil
 	}
+	secrets, cleanup, err := executor.prepareSecrets(runContext, task, binding, manifest, bundle)
+	if err != nil {
+		return result, err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if err := runContext.Err(); err != nil {
 		return result, err
 	}
@@ -230,9 +283,15 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 		checkpoints:      manifest.CheckpointSequence,
 		state:            state,
 	}
+	driverBundle := cloneBundle(bundle)
+	driverSecretSlots := append([]cloudorchestrator.SecretSlotV1(nil), manifest.SecretSlots...)
+	if executor.RequireSecretMaterialization {
+		driverBundle.SecretTargets = nil
+		driverSecretSlots = nil
+	}
 	request := ActionRequest{
 		Binding:      binding,
-		Artifact:     cloneBundle(bundle),
+		Artifact:     driverBundle,
 		DeploymentID: manifest.DeploymentID,
 		ActionID:     manifest.ActionID,
 		RootRequired: manifest.RootRequired,
@@ -240,7 +299,8 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 		ResumeAfter:  state.Checkpoint,
 		VolumeSlots:  append([]cloudorchestrator.VolumeSlotV1(nil), manifest.VolumeSlots...),
 		DataSlots:    append([]cloudorchestrator.DataSlotV1(nil), manifest.DataSlots...),
-		SecretSlots:  append([]cloudorchestrator.SecretSlotV1(nil), manifest.SecretSlots...),
+		SecretSlots:  driverSecretSlots,
+		Secrets:      secrets,
 	}
 	if err := executor.Driver.Execute(runContext, request, reporter); err != nil {
 		return resultForState(binding, reporter.state, resumed), fmt.Errorf("execute recipe action: %w", err)
@@ -335,5 +395,83 @@ func bundleSupportsAction(bundle Bundle, actionID string) bool {
 func cloneBundle(bundle Bundle) Bundle {
 	clone := bundle
 	clone.ActionIDs = append([]string(nil), bundle.ActionIDs...)
+	clone.SecretTargets = append([]SecretTarget(nil), bundle.SecretTargets...)
 	return clone
+}
+
+func (executor Executor) prepareSecrets(ctx context.Context, task *TaskV1, binding Binding, manifest cloudorchestrator.RecipeExecutionManifestV1, bundle Bundle) (SecretDelivery, func(), error) {
+	if !executor.RequireSecretMaterialization {
+		if len(manifest.SecretSlots) != 0 {
+			return SecretDelivery{}, nil, ErrSecretScope
+		}
+		return SecretDelivery{}, nil, nil
+	}
+	if len(manifest.SecretSlots) == 0 && len(bundle.SecretTargets) == 0 {
+		return SecretDelivery{}, nil, nil
+	}
+	if task == nil || executor.Materializer == nil || executor.SecretStager == nil || len(manifest.SecretSlots) != len(bundle.SecretTargets) {
+		return SecretDelivery{}, nil, ErrSecretScope
+	}
+	bySlot := make(map[string]cloudorchestrator.SecretSlotV1, len(manifest.SecretSlots))
+	for _, slot := range manifest.SecretSlots {
+		bySlot[slot.SlotID] = slot
+	}
+	materialized := make([]MaterializedSecret, 0, len(bundle.SecretTargets))
+	defer func() {
+		for i := range materialized {
+			clear(materialized[i].Value)
+		}
+	}()
+	for _, target := range bundle.SecretTargets {
+		slot, ok := bySlot[target.SlotID]
+		if !ok {
+			return SecretDelivery{}, nil, ErrSecretScope
+		}
+		value, err := executor.materializeSecret(ctx, SecretMaterializeRequest{
+			TaskID: task.TaskID, ExecutionID: manifest.ExecutionID, ManifestDigest: binding.ManifestDigest,
+			ArtifactDigest: manifest.ArtifactDigest, SlotID: target.SlotID, SecretRef: slot.SecretRef,
+		})
+		if err != nil {
+			return SecretDelivery{}, nil, err
+		}
+		if len(value) == 0 {
+			clear(value)
+			return SecretDelivery{}, nil, ErrSecretMaterialize
+		}
+		materialized = append(materialized, MaterializedSecret{Target: target, Value: value})
+	}
+	delivery, cleanup, err := executor.SecretStager.Stage(ctx, manifest.DeploymentID, manifest.ExecutionID, materialized)
+	if err != nil || cleanup == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return SecretDelivery{}, nil, ErrSecretStage
+	}
+	return delivery, cleanup, nil
+}
+
+func (executor Executor) materializeSecret(ctx context.Context, request SecretMaterializeRequest) ([]byte, error) {
+	delay := executor.SecretRetryDelay
+	if delay <= 0 {
+		delay = 250 * time.Millisecond
+	}
+	for {
+		value, err := executor.Materializer.Materialize(ctx, request)
+		if err == nil {
+			return value, nil
+		}
+		clear(value)
+		if !errors.Is(err, ErrSecretMaterializePending) {
+			return nil, ErrSecretMaterialize
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

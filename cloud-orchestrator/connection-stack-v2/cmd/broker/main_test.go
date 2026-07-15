@@ -4,6 +4,24 @@ import "testing"
 
 func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T) {
 	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_SECRETS_ENABLED", "true")
+	if _, err := runtimeConfigFromEnvironment(); err == nil {
+		t.Fatal("service secrets enabled without isolated AWS resources")
+	}
+	t.Setenv("DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE", "service-secret-sessions")
+	t.Setenv("DIREXTALK_SERVICE_SECRET_KMS_KEY_ID", "alias/dirextalk-service-secrets")
+	if config, err := runtimeConfigFromEnvironment(); err != nil || !config.serviceSecretsEnabled {
+		t.Fatalf("service secret gate=%#v err=%v", config, err)
+	}
+	for _, invalid := range []string{"", "TRUE", "1"} {
+		setValidRuntimeEnvironment(t)
+		t.Setenv("DIREXTALK_SERVICE_SECRETS_ENABLED", invalid)
+		if _, err := runtimeConfigFromEnvironment(); err == nil {
+			t.Fatalf("service secret gate %q accepted", invalid)
+		}
+	}
+
+	setValidRuntimeEnvironment(t)
 	t.Setenv("DIREXTALK_DEPLOYMENT_DESTROY_ENABLED", "true")
 	config, err := runtimeConfigFromEnvironment()
 	if err != nil || !config.deploymentDestroyEnabled {
@@ -143,6 +161,9 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_SERVICE_BACKUP_ENABLED":              "false",
 		"DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED":        "false",
 		"DIREXTALK_SERVICE_RESTORE_ENABLED":             "false",
+		"DIREXTALK_SERVICE_SECRETS_ENABLED":             "false",
+		"DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE":       "",
+		"DIREXTALK_SERVICE_SECRET_KMS_KEY_ID":           "",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

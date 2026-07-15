@@ -10,6 +10,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
 
 const (
@@ -71,6 +73,7 @@ const (
 
 var (
 	ErrIdempotencyConflict                  = errors.New("cloud idempotency key was reused with a different request")
+	ErrSelectedRecipeConflict               = errors.New("selected cloud recipe conflicts with current authoritative state")
 	ErrConnectionBootstrapConflict          = errors.New("cloud connection bootstrap conflicts with the requested revision")
 	ErrConnectionBootstrapExpired           = errors.New("cloud connection bootstrap has expired")
 	ErrConnectionBootstrapInvalid           = errors.New("cloud connection bootstrap is not in a completable state")
@@ -84,6 +87,8 @@ var (
 	ErrPlanApprovalSignature                = errors.New("cloud plan approval signature is invalid")
 	ErrRecipeExecutionManifestConflict      = errors.New("cloud recipe execution manifest conflicts with the current deployment")
 	ErrRecipeExecutionManifestInvalid       = errors.New("cloud recipe execution manifest is invalid")
+	ErrRecipeArtifactConflict               = errors.New("cloud compiled recipe artifact conflicts with the current recipe revision")
+	ErrRecipeArtifactInvalid                = errors.New("cloud compiled recipe artifact is invalid")
 	ErrRecipeExecutionConfirmationConflict  = errors.New("cloud recipe execution confirmation conflicts with the requested deployment")
 	ErrRecipeExecutionConfirmationInvalid   = errors.New("cloud recipe execution confirmation is invalid")
 	ErrRecipeExecutionApprovalExpired       = errors.New("cloud recipe execution approval has expired")
@@ -112,17 +117,20 @@ var (
 // from every realtime/event projection; it is only delivered to the isolated
 // orchestrator through the private outbox payload.
 type Goal struct {
-	GoalID          string
-	OwnerMXID       string
-	Prompt          string
-	ConnectionID    string
-	PlanID          string
-	Status          string
-	IdempotencyHash string
-	RequestDigest   string
-	Revision        int64
-	CreatedAt       int64
-	UpdatedAt       int64
+	GoalID                 string
+	OwnerMXID              string
+	Prompt                 string
+	ConnectionID           string
+	PlanID                 string
+	Status                 string
+	IdempotencyHash        string
+	RequestDigest          string
+	SelectedRecipeID       string
+	SelectedRecipeRevision int64
+	SelectedRecipeDigest   string
+	Revision               int64
+	CreatedAt              int64
+	UpdatedAt              int64
 }
 
 type GoalSummary struct {
@@ -182,19 +190,21 @@ type QuoteCandidateView struct {
 // until the external planner supplies a deterministic-CBOR digest; approval
 // handlers will not accept a plan without it.
 type Plan struct {
-	PlanID       string     `json:"plan_id"`
-	GoalID       string     `json:"goal_id"`
-	ConnectionID string     `json:"cloud_connection_id,omitempty"`
-	Status       string     `json:"status"`
-	Title        string     `json:"title,omitempty"`
-	Summary      string     `json:"summary,omitempty"`
-	RecipeDigest string     `json:"recipe_digest,omitempty"`
-	QuoteID      string     `json:"quote_id,omitempty"`
-	Quote        *QuoteView `json:"quote,omitempty"`
-	PlanHash     string     `json:"plan_hash,omitempty"`
-	Revision     int64      `json:"revision"`
-	CreatedAt    int64      `json:"created_at"`
-	UpdatedAt    int64      `json:"updated_at"`
+	PlanID         string     `json:"plan_id"`
+	GoalID         string     `json:"goal_id"`
+	ConnectionID   string     `json:"cloud_connection_id,omitempty"`
+	Status         string     `json:"status"`
+	Title          string     `json:"title,omitempty"`
+	Summary        string     `json:"summary,omitempty"`
+	RecipeDigest   string     `json:"recipe_digest,omitempty"`
+	RecipeID       string     `json:"recipe_id,omitempty"`
+	RecipeRevision int64      `json:"recipe_revision,omitempty"`
+	QuoteID        string     `json:"quote_id,omitempty"`
+	Quote          *QuoteView `json:"quote,omitempty"`
+	PlanHash       string     `json:"plan_hash,omitempty"`
+	Revision       int64      `json:"revision"`
+	CreatedAt      int64      `json:"created_at"`
+	UpdatedAt      int64      `json:"updated_at"`
 }
 
 type Connection struct {
@@ -432,11 +442,23 @@ type OutboxEntry struct {
 }
 
 type CreateGoalRequest struct {
-	Goal   Goal
-	Plan   Plan
-	Job    Job
-	Events []Event
-	Outbox OutboxEntry
+	Goal           Goal
+	Plan           Plan
+	Job            Job
+	Events         []Event
+	Outbox         OutboxEntry
+	SelectedRecipe *SelectedRecipeBinding
+}
+
+type SelectedRecipeBinding struct {
+	RecipeID string
+	Revision int64
+	Digest   string
+	Recipe   cloudcontracts.RecipeV1
+}
+
+type SelectableRecipeStore interface {
+	ResolveCloudRecipeSelection(context.Context, string, string, string, int64) (SelectedRecipeBinding, bool, error)
 }
 
 type CreateGoalResult struct {

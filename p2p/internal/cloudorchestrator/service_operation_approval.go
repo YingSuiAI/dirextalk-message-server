@@ -36,6 +36,9 @@ type ServiceOperationTargetV1 struct {
 	RootRequired            bool             `json:"root_required"`
 	TimeoutSeconds          uint32           `json:"timeout_seconds"`
 	CheckpointSequence      []string         `json:"checkpoint_sequence"`
+	VolumeSlots             []VolumeSlotV1   `json:"volume_slots"`
+	DataSlots               []DataSlotV1     `json:"data_slots"`
+	SecretSlots             []SecretSlotV1   `json:"secret_slots"`
 }
 
 type ServiceOperationApprovalV1 struct {
@@ -91,7 +94,16 @@ func (target ServiceOperationTargetV1) Validate() error {
 	if target.TimeoutSeconds == 0 || target.TimeoutSeconds > 3600 {
 		return errors.New("service operation timeout must be between 1 and 3600 seconds")
 	}
-	return validateCheckpointSequence(target.CheckpointSequence)
+	if err := validateCheckpointSequence(target.CheckpointSequence); err != nil {
+		return err
+	}
+	if err := validateVolumeSlots(target.VolumeSlots); err != nil {
+		return err
+	}
+	if err := validateDataSlots(target.DataSlots); err != nil {
+		return err
+	}
+	return validateSecretSlots(target.SecretSlots)
 }
 
 func validServiceOperationStatus(operation ServiceOperation, status string) bool {
@@ -193,5 +205,8 @@ func (a ServiceOperationApprovalV1) ValidateAgainst(target ServiceOperationTarge
 }
 func cloneServiceOperationTarget(target ServiceOperationTargetV1) ServiceOperationTargetV1 {
 	target.CheckpointSequence = append([]string(nil), target.CheckpointSequence...)
+	target.VolumeSlots = append([]VolumeSlotV1(nil), target.VolumeSlots...)
+	target.DataSlots = append([]DataSlotV1(nil), target.DataSlots...)
+	target.SecretSlots = append([]SecretSlotV1(nil), target.SecretSlots...)
 	return target
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -202,6 +203,68 @@ func TestStoreCommitResearchAtomicallyQueuesVerifiedQuote(t *testing.T) {
 	}
 	if err := store.CommitResearch(ctx, claim, output); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("replayed commit error=%v, want ErrLeaseLost", err)
+	}
+}
+
+func TestStoreCommitResearchReusesExactManagedSelectedRecipe(t *testing.T) {
+	ctx, database, closeDatabase := openMigratedStore(t)
+	defer closeDatabase()
+	seedResearchGoal(t, ctx, database)
+	now := time.Date(2026, 7, 15, 15, 0, 0, 0, time.UTC)
+	output := testResearchOutput(t, now)
+	output.Recipe.Maturity = cloudcontracts.RecipeManaged
+	digest, err := output.Recipe.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := output.Recipe.CanonicalRecipeCBOR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	display, _ := json.Marshal(output.Recipe)
+	if _, err = database.DB().ExecContext(ctx, `INSERT INTO p2p_cloud_recipes(recipe_id,name,version,digest,maturity,revision,created_at,updated_at)VALUES($1,$2,'v2',$3,'managed',2,$4,$4)`, output.Recipe.RecipeID, output.Recipe.Name, digest, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.DB().ExecContext(ctx, `INSERT INTO p2p_cloud_recipe_versions(recipe_id,revision,canonical_cbor,display_json,digest,maturity,created_at)VALUES($1,2,$2,$3,$4,'managed',$5)`, output.Recipe.RecipeID, canonical, string(display), digest, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"goal_id":"goal-1","plan_id":"plan-1","cloud_connection_id":"connection-1","goal":"private deployment intent","recipe_id":"%s","recipe_revision":2,"recipe_digest":"%s"}`, output.Recipe.RecipeID, digest)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE p2p_cloud_goals SET selected_recipe_id=$1,selected_recipe_revision=2,selected_recipe_digest=$2 WHERE goal_id='goal-1'`, []any{output.Recipe.RecipeID, digest}},
+		{`UPDATE p2p_cloud_plans SET recipe_id=$1,recipe_revision=2,recipe_digest=$2 WHERE plan_id='plan-1'`, []any{output.Recipe.RecipeID, digest}},
+		{`UPDATE p2p_cloud_outbox SET payload_json=$1 WHERE outbox_id='outbox-1'`, []any{payload}},
+	} {
+		if _, err = database.DB().ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := New(database.DB(), Config{Now: func() time.Time { return now }})
+	claim, found, err := store.ClaimResearchGoal(ctx, "orchestrator-selected", time.Minute)
+	if err != nil || !found || claim.SelectedRecipe == nil || claim.SelectedRecipe.Revision != 2 {
+		t.Fatalf("claim=%#v found=%v err=%v", claim, found, err)
+	}
+	if err = store.MarkResearchStarted(ctx, claim); err != nil {
+		t.Fatal(err)
+	}
+	output.Draft.Candidates = []cloudcontracts.QuoteRequestCandidateV1{{CandidateID: "economy", Tier: cloudcontracts.QuoteTierEconomy, InstanceType: "m7i.large", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80}, {CandidateID: "recommended", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80}, {CandidateID: "performance", Tier: cloudcontracts.QuoteTierPerformance, InstanceType: "m7i.2xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, EstimatedDiskGiB: 80}}
+	if _, err = database.DB().ExecContext(ctx, `UPDATE p2p_cloud_recipe_versions SET canonical_cbor=$2 WHERE recipe_id=$1 AND revision=2`, output.Recipe.RecipeID, []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CommitResearch(ctx, claim, output); err == nil {
+		t.Fatal("commit accepted a tampered authoritative selected recipe")
+	}
+	if _, err = database.DB().ExecContext(ctx, `UPDATE p2p_cloud_recipe_versions SET canonical_cbor=$2 WHERE recipe_id=$1 AND revision=2`, output.Recipe.RecipeID, canonical); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CommitResearch(ctx, claim, output); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err = database.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_recipe_versions WHERE recipe_id=$1`, output.Recipe.RecipeID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("managed versions=%d err=%v", count, err)
 	}
 }
 

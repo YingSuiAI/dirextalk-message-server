@@ -181,7 +181,20 @@ func (b Broker) deploymentReservation(command contract.Command, request contract
 		workerArchitecture = "arm64"
 	}
 	workerSession := commandstore.WorkerSession{BootstrapSessionID: bootstrapSessionID, ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, RequestSHA256: requestSHA, WorkerImageDigest: spec.WorkerImageDigest, ArtifactManifestDigest: spec.ArtifactManifestDigest, BootstrapEndpoint: spec.BootstrapEndpoint, ExpectedAMIID: spec.AMIId, ExpectedInstanceType: spec.InstanceType, ExpectedArchitecture: workerArchitecture, ExpectedVPCID: spec.VPCID, ExpectedSubnetID: spec.SubnetID, ExpectedAvailabilityZone: spec.AvailabilityZone, ExpectedSecurityGroupID: spec.SecurityGroupID, State: "issued", ExpiresAt: spec.BootstrapExpiresAt}
-	reservation := commandstore.DeploymentReservation{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, CommandID: command.CommandID, RequestSHA256: requestSHA, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, ApprovalID: proof.ApprovalID, ChallengeID: proof.ChallengeID, SignerKeyID: proof.SignerKeyID, QuoteID: proof.QuoteID, ClientToken: clientToken, BootstrapSessionID: bootstrapSessionID, WorkerSession: workerSession, SpecJSON: specJSON, State: "reserved"}
+	secretScope := make([]commandstore.ApprovedSecretReference, len(proof.SecretScope))
+	for index, reference := range proof.SecretScope {
+		secretScope[index] = commandstore.ApprovedSecretReference{SecretRef: reference.SecretRef, Purpose: reference.Purpose, Delivery: reference.Delivery}
+	}
+	sort.Slice(secretScope, func(left, right int) bool {
+		if secretScope[left].SecretRef != secretScope[right].SecretRef {
+			return secretScope[left].SecretRef < secretScope[right].SecretRef
+		}
+		if secretScope[left].Purpose != secretScope[right].Purpose {
+			return secretScope[left].Purpose < secretScope[right].Purpose
+		}
+		return secretScope[left].Delivery < secretScope[right].Delivery
+	})
+	reservation := commandstore.DeploymentReservation{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, CommandID: command.CommandID, RequestSHA256: requestSHA, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, ApprovalID: proof.ApprovalID, ChallengeID: proof.ChallengeID, SignerKeyID: proof.SignerKeyID, QuoteID: proof.QuoteID, PlanHash: proof.PlanHash, RecipeDigest: proof.RecipeDigest, SecretScope: secretScope, ClientToken: clientToken, BootstrapSessionID: bootstrapSessionID, WorkerSession: workerSession, SpecJSON: specJSON, State: "reserved"}
 	if now == nil {
 		return reservation, spec, nil
 	}

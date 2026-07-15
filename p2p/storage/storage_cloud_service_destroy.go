@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ var _ cloudmodule.ServiceDestroyConfirmationStore = (*DatabaseStore)(nil)
 type storedServiceDestroyApproval struct {
 	ApprovalID, OwnerMXID, ServiceID, DeploymentID, ConnectionID, RecipeID, RecipeDigest string
 	SignerKeyID, ApprovalJSON, ServiceJSON, DeploymentJSON                               string
+	SecretRefsJSON                                                                       string
 	ResultServiceJSON, ResultDeploymentJSON, ResultJobJSON                               string
 	Status, PrepareRequestDigest                                                         string
 	ApproveRequestDigest                                                                 sql.NullString
@@ -37,6 +39,7 @@ type serviceDestroyState struct {
 	InstanceID            string
 	VolumeIDs             []string
 	NetworkInterfaceIDs   []string
+	SecretRefs            []string
 	PrivateResourceStatus string
 }
 
@@ -97,15 +100,16 @@ func (s *DatabaseStore) PrepareCloudServiceDestroy(ctx context.Context, request 
 		}
 		volumesJSON, _ := json.Marshal(target.VolumeIDs)
 		interfacesJSON, _ := json.Marshal(target.NetworkInterfaceIDs)
+		secretRefsJSON, _ := json.Marshal(target.SecretRefs)
 		_, err = tx.ExecContext(ctx, `INSERT INTO p2p_cloud_service_destroy_approvals (
 			approval_id,challenge_id,owner_mxid,service_id,service_revision,deployment_id,deployment_revision,
-			cloud_connection_id,recipe_id,recipe_digest,instance_id,volume_ids_json,network_interface_ids_json,
+			cloud_connection_id,recipe_id,recipe_digest,instance_id,volume_ids_json,network_interface_ids_json,secret_refs_json,
 			signer_key_id,approval_json,signing_payload,service_json,deployment_json,status,
 			prepare_idempotency_hash,prepare_request_digest,expires_at,created_at,updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$20,$21,$22,$22)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending',$20,$21,$22,$23,$23)`,
 			request.ApprovalID, request.ChallengeID, request.OwnerMXID, target.ServiceID, target.ServiceRevision,
 			target.DeploymentID, target.DeploymentRevision, target.CloudConnectionID, target.RecipeID, target.RecipeDigest,
-			target.InstanceID, string(volumesJSON), string(interfacesJSON), keyID, string(approvalJSON), payload,
+			target.InstanceID, string(volumesJSON), string(interfacesJSON), string(secretRefsJSON), keyID, string(approvalJSON), payload,
 			string(serviceJSON), string(deploymentJSON), request.IdempotencyHash, request.RequestDigest, request.ExpiresAt, request.CreatedAt)
 		if err != nil {
 			if sqlutil.IsUniqueConstraintViolationErr(err) {
@@ -166,6 +170,10 @@ func (s *DatabaseStore) ApproveCloudServiceDestroy(ctx context.Context, request 
 		if err != nil {
 			return cloudmodule.ErrServiceDestroyConfirmationInvalid
 		}
+		var storedSecretRefs []string
+		if json.Unmarshal([]byte(stored.SecretRefsJSON), &storedSecretRefs) != nil || !sameServiceDestroyRefs(storedSecretRefs, storedApproval.SecretRefs) {
+			return cloudmodule.ErrServiceDestroyConfirmationInvalid
+		}
 		incomingPayload, err := request.Approval.SigningPayload()
 		if err != nil || !bytes.Equal(incomingPayload, stored.SigningPayload) {
 			return cloudmodule.ErrServiceDestroyConfirmationInvalid
@@ -217,7 +225,10 @@ func (s *DatabaseStore) ApproveCloudServiceDestroy(ctx context.Context, request 
 		if _, err := tx.ExecContext(ctx, `INSERT INTO p2p_cloud_job_steps(job_id,step_id,status,summary,checkpoint,error_code,revision,created_at,updated_at) VALUES($1,'destroy','queued','Device-approved typed resource destruction is queued; resources remain billable until AWS read-back verifies deletion.','destroy_queued','',1,$2,$2)`, job.JobID, request.CreatedAt); err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]string{"service_id": service.ServiceID})
+		payload, _ := json.Marshal(struct {
+			ServiceID  string   `json:"service_id"`
+			SecretRefs []string `json:"secret_refs,omitempty"`
+		}{ServiceID: service.ServiceID, SecretRefs: request.Approval.SecretRefs})
 		if _, err := tx.ExecContext(ctx, `INSERT INTO p2p_cloud_outbox(outbox_id,kind,aggregate_type,aggregate_id,payload_json,created_at) VALUES($1,$2,'service',$3,$4,$5)`, request.OutboxID, cloudmodule.OutboxKindServiceDestroyRequested, service.ServiceID, string(payload), request.CreatedAt); err != nil {
 			return err
 		}
@@ -290,7 +301,62 @@ func lockServiceDestroyState(ctx context.Context, tx *sql.Tx, serviceID string) 
 	if json.Unmarshal([]byte(volumeJSON), &state.VolumeIDs) != nil || json.Unmarshal([]byte(interfaceJSON), &state.NetworkInterfaceIDs) != nil {
 		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
 	}
+	plan, err := lockCloudPlanForRecipeExecution(ctx, tx, state.Deployment.PlanID)
+	if err != nil {
+		if legacyServiceDestroyHasNoSecretState(ctx, tx, state.Deployment.DeploymentID) {
+			return state, nil
+		}
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	approvedPlan, approvedHash, err := loadApprovedPlanV1ForRecipeExecution(ctx, tx, plan)
+	if err != nil {
+		if legacyServiceDestroyHasNoSecretState(ctx, tx, state.Deployment.DeploymentID) {
+			return state, nil
+		}
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	if approvedPlan.CloudConnectionID != state.Deployment.ConnectionID || approvedPlan.Recipe.RecipeID != state.Service.RecipeID || approvedPlan.Recipe.Digest != state.RecipeDigest {
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	manifest, err := lockRecipeExecutionManifestByDeploymentID(ctx, tx, state.Deployment.DeploymentID)
+	if err != nil || manifest.Execution.Status != recipeExecutionStatusApproved || manifest.PlanHash != approvedHash || validateServiceDestroyManifestBinding(state.Deployment, approvedPlan, manifest) != nil {
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	artifact, err := lockVerifiedRecipeArtifactForExecution(ctx, tx, manifest.Manifest, approvedPlan)
+	if err != nil || artifact.RecipeID != state.Service.RecipeID || artifact.RecipeDigest != state.RecipeDigest {
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	recipe, err := lockExactCurrentCloudRecipe(ctx, tx, artifact.RecipeID, artifact.RecipeRevision, artifact.RecipeDigest)
+	if err != nil || validateCompiledArtifactAgainstRecipe(artifact, recipe) != nil {
+		return state, cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	state.SecretRefs = make([]string, 0, len(approvedPlan.SecretScope))
+	for _, reference := range approvedPlan.SecretScope {
+		state.SecretRefs = append(state.SecretRefs, reference.SecretRef)
+	}
+	sort.Strings(state.SecretRefs)
 	return state, nil
+}
+
+func validateServiceDestroyManifestBinding(deployment cloudmodule.Deployment, plan cloudcontracts.PlanV1, manifest storedRecipeExecutionManifest) error {
+	manifestDigest, err := manifest.Manifest.Digest()
+	if err != nil || manifestDigest != manifest.Execution.RecipeExecutionManifestDigest || manifest.PlanRevision != int64(plan.Revision) ||
+		manifest.PlanHash == "" || manifest.Manifest.ValidateForPlan(plan) != nil || manifest.Manifest.DeploymentID != deployment.DeploymentID ||
+		manifest.Execution.PlanID != plan.PlanID || manifest.Execution.DeploymentID != deployment.DeploymentID || deployment.ConnectionID != plan.CloudConnectionID {
+		return cloudmodule.ErrServiceDestroyConfirmationInvalid
+	}
+	return nil
+}
+
+func legacyServiceDestroyHasNoSecretState(ctx context.Context, tx *sql.Tx, deploymentID string) bool {
+	// Deployments created before recipe execution manifests and service-secret
+	// bootstrap existed can only carry the legacy empty secret set. The first
+	// record from either feature permanently disables this compatibility path.
+	var count int
+	err := tx.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM p2p_cloud_recipe_execution_manifests WHERE deployment_id=$1) +
+		(SELECT COUNT(*) FROM p2p_cloud_service_secret_bootstrap_approvals WHERE deployment_id=$1)`, deploymentID).Scan(&count)
+	return err == nil && count == 0
 }
 
 func serviceDestroyStateReady(state serviceDestroyState) bool {
@@ -315,7 +381,7 @@ func serviceHasActiveOperation(ctx context.Context, tx *sql.Tx, serviceID string
 }
 
 func serviceDestroyTarget(state serviceDestroyState) cloudcontracts.ServiceDestroyTargetV1 {
-	return cloudcontracts.ServiceDestroyTargetV1{ServiceID: state.Service.ServiceID, ServiceRevision: uint64(state.Service.Revision), DeploymentID: state.Deployment.DeploymentID, DeploymentRevision: uint64(state.Deployment.Revision), CloudConnectionID: state.Deployment.ConnectionID, RecipeID: state.Service.RecipeID, RecipeDigest: state.RecipeDigest, InstanceID: state.InstanceID, VolumeIDs: state.VolumeIDs, NetworkInterfaceIDs: state.NetworkInterfaceIDs}
+	return cloudcontracts.ServiceDestroyTargetV1{ServiceID: state.Service.ServiceID, ServiceRevision: uint64(state.Service.Revision), DeploymentID: state.Deployment.DeploymentID, DeploymentRevision: uint64(state.Deployment.Revision), CloudConnectionID: state.Deployment.ConnectionID, RecipeID: state.Service.RecipeID, RecipeDigest: state.RecipeDigest, InstanceID: state.InstanceID, VolumeIDs: state.VolumeIDs, NetworkInterfaceIDs: state.NetworkInterfaceIDs, SecretRefs: state.SecretRefs}
 }
 
 func loadServiceDestroyPrepareReplay(ctx context.Context, tx *sql.Tx, request cloudmodule.PrepareServiceDestroyRequest) (cloudmodule.PrepareServiceDestroyResult, bool, error) {
@@ -341,8 +407,8 @@ func loadServiceDestroyPrepareReplay(ctx context.Context, tx *sql.Tx, request cl
 
 func lockServiceDestroyApproval(ctx context.Context, tx *sql.Tx, approvalID string) (storedServiceDestroyApproval, error) {
 	var value storedServiceDestroyApproval
-	err := tx.QueryRowContext(ctx, `SELECT approval_id,owner_mxid,service_id,service_revision,deployment_id,deployment_revision,cloud_connection_id,recipe_id,recipe_digest,signer_key_id,approval_json,signing_payload,service_json,deployment_json,result_service_json,result_deployment_json,result_job_json,status,prepare_request_digest,approve_request_digest,expires_at,job_id FROM p2p_cloud_service_destroy_approvals WHERE approval_id=$1 FOR UPDATE`, approvalID).Scan(
-		&value.ApprovalID, &value.OwnerMXID, &value.ServiceID, &value.ServiceRevision, &value.DeploymentID, &value.DeploymentRevision, &value.ConnectionID, &value.RecipeID, &value.RecipeDigest, &value.SignerKeyID, &value.ApprovalJSON, &value.SigningPayload, &value.ServiceJSON, &value.DeploymentJSON, &value.ResultServiceJSON, &value.ResultDeploymentJSON, &value.ResultJobJSON, &value.Status, &value.PrepareRequestDigest, &value.ApproveRequestDigest, &value.ExpiresAt, &value.JobID)
+	err := tx.QueryRowContext(ctx, `SELECT approval_id,owner_mxid,service_id,service_revision,deployment_id,deployment_revision,cloud_connection_id,recipe_id,recipe_digest,secret_refs_json,signer_key_id,approval_json,signing_payload,service_json,deployment_json,result_service_json,result_deployment_json,result_job_json,status,prepare_request_digest,approve_request_digest,expires_at,job_id FROM p2p_cloud_service_destroy_approvals WHERE approval_id=$1 FOR UPDATE`, approvalID).Scan(
+		&value.ApprovalID, &value.OwnerMXID, &value.ServiceID, &value.ServiceRevision, &value.DeploymentID, &value.DeploymentRevision, &value.ConnectionID, &value.RecipeID, &value.RecipeDigest, &value.SecretRefsJSON, &value.SignerKeyID, &value.ApprovalJSON, &value.SigningPayload, &value.ServiceJSON, &value.DeploymentJSON, &value.ResultServiceJSON, &value.ResultDeploymentJSON, &value.ResultJobJSON, &value.Status, &value.PrepareRequestDigest, &value.ApproveRequestDigest, &value.ExpiresAt, &value.JobID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return value, cloudmodule.ErrServiceDestroyConfirmationInvalid
 	}
@@ -379,6 +445,22 @@ func decodeStoredServiceDestroyApproval(raw string) (cloudcontracts.ServiceDestr
 		return cloudcontracts.ServiceDestroyApprovalV1{}, errors.New("stored service destroy approval is invalid")
 	}
 	return approval, nil
+}
+
+func sameServiceDestroyRefs(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	left = append([]string(nil), left...)
+	right = append([]string(nil), right...)
+	sort.Strings(left)
+	sort.Strings(right)
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func serviceDestroyApprovalRequestDigest(request cloudmodule.ApproveServiceDestroyRequest) (string, error) {

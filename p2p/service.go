@@ -845,6 +845,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Account:           serviceAgentAccountPort{service: service},
 		CloudPlanner:      serviceNativeCloudPlannerPort{service: service},
 		CloudStatusReader: serviceNativeCloudPlannerPort{service: service},
+		CloudRecipeReader: serviceNativeCloudPlannerPort{service: service},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

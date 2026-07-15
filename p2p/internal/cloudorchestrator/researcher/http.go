@@ -67,16 +67,7 @@ func (p *HTTPPlanner) Research(ctx context.Context, input runtime.ResearchInput)
 	if err := input.Validate(); err != nil {
 		return runtime.ResearchOutput{}, errors.New("cloud research input is invalid")
 	}
-	body, err := json.Marshal(struct {
-		GoalID       string `json:"goal_id"`
-		PlanID       string `json:"plan_id"`
-		ConnectionID string `json:"cloud_connection_id"`
-		PlanRevision int64  `json:"plan_revision"`
-		Goal         string `json:"goal"`
-	}{
-		GoalID: input.GoalID, PlanID: input.PlanID, ConnectionID: input.ConnectionID,
-		PlanRevision: input.PlanRevision, Goal: input.Prompt,
-	})
+	body, err := json.Marshal(input)
 	if err != nil {
 		return runtime.ResearchOutput{}, errors.New("cloud research request encoding failed")
 	}

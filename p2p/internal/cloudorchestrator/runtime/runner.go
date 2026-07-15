@@ -116,10 +116,13 @@ func (r *Runner) now() time.Time {
 }
 
 type researchPayload struct {
-	GoalID       string `json:"goal_id"`
-	PlanID       string `json:"plan_id"`
-	ConnectionID string `json:"cloud_connection_id"`
-	Goal         string `json:"goal"`
+	GoalID         string `json:"goal_id"`
+	PlanID         string `json:"plan_id"`
+	ConnectionID   string `json:"cloud_connection_id"`
+	Goal           string `json:"goal"`
+	RecipeID       string `json:"recipe_id,omitempty"`
+	RecipeRevision int64  `json:"recipe_revision,omitempty"`
+	RecipeDigest   string `json:"recipe_digest,omitempty"`
 }
 
 func researchInputFromClaim(claim Claim) (ResearchInput, error) {
@@ -139,9 +142,16 @@ func researchInputFromClaim(claim Claim) (ResearchInput, error) {
 	if payload.GoalID != claim.GoalID || payload.GoalID != claim.AggregateID || payload.PlanID != claim.PlanID || payload.ConnectionID != claim.ConnectionID {
 		return ResearchInput{}, errors.New("payload does not match the leased aggregate")
 	}
+	if claim.SelectedRecipe == nil {
+		if payload.RecipeID != "" || payload.RecipeRevision != 0 || payload.RecipeDigest != "" {
+			return ResearchInput{}, errors.New("payload selected recipe does not match the leased aggregate")
+		}
+	} else if payload.RecipeID != claim.SelectedRecipe.RecipeID || payload.RecipeRevision != claim.SelectedRecipe.Revision || payload.RecipeDigest != claim.SelectedRecipe.Digest {
+		return ResearchInput{}, errors.New("payload selected recipe does not match the leased aggregate")
+	}
 	input := ResearchInput{
 		GoalID: payload.GoalID, PlanID: payload.PlanID, ConnectionID: payload.ConnectionID,
-		PlanRevision: claim.PlanRevision, Prompt: payload.Goal,
+		PlanRevision: claim.PlanRevision, Prompt: payload.Goal, SelectedRecipe: claim.SelectedRecipe,
 	}
 	if err := input.Validate(); err != nil {
 		return ResearchInput{}, err

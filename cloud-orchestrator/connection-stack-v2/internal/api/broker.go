@@ -109,6 +109,12 @@ type Broker struct {
 	WorkerTasks               commandstore.WorkerTaskRepository
 	RecipeTasks               commandstore.RecipeTaskRepository
 	ServiceReadiness          commandstore.ServiceReadinessRepository
+	ServiceSecretsEnabled     bool
+	ServiceSecretStore        commandstore.ServiceSecretRepository
+	ServiceSecretDestroyStore commandstore.ServiceSecretDestroyRepository
+	ServiceSecretProvider     ServiceSecretProvider
+	ServiceSecretKeySealer    ServiceSecretKeySealer
+	ServiceSecretRandom       io.Reader
 	ReadinessChallenges       ReadinessChallengeGenerator
 	WorkerSessionEvents       commandstore.WorkerSessionEventRepository
 	Now                       func() time.Time
@@ -117,6 +123,10 @@ type Broker struct {
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
+	if serviceSecretRoute(request.URL.Path) {
+		b.serveServiceSecret(response, request)
+		return
+	}
 	if bootstrapSessionID, ok := workerClaimSessionID(request.URL.Path); ok {
 		b.serveWorkerClaim(response, request, bootstrapSessionID)
 		return
@@ -180,6 +190,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if command.Action == contract.ActionServiceRestore && !b.ServiceRestoreEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
+	if command.Action == contract.ActionServiceSecretObserve && !b.ServiceSecretsEnabled {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
@@ -261,7 +275,11 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		b.executeServiceReadiness(response, request, command, now)
 		return
 	}
-	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest && command.Action != contract.ActionServiceRestorePlan {
+	if command.Action == contract.ActionServiceSecretObserve && b.ServiceSecretStore == nil {
+		writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+		return
+	}
+	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest && command.Action != contract.ActionServiceRestorePlan && command.Action != contract.ActionServiceSecretObserve {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}

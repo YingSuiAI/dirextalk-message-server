@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -27,11 +28,12 @@ func TestRecipeTaskSignedIssueClaimProgressReplayAndObserve(t *testing.T) {
 	workerManifestDigest := "sha256:" + strings.Repeat("3", 64)
 	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: hex.EncodeToString(tokenDigest[:])}
 	store.workerSessions[session.BootstrapSessionID] = session
-	store.deployments["connection-0001\x00deployment-0001"] = commandstore.DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", BootstrapSessionID: session.BootstrapSessionID, State: "finalized", WorkerSession: session}
+	store.deployments["connection-0001\x00deployment-0001"] = commandstore.DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", BootstrapSessionID: session.BootstrapSessionID, State: "finalized", WorkerSession: session, PlanHash: "sha256:" + strings.Repeat("1", 64), RecipeDigest: "sha256:" + strings.Repeat("2", 64), SecretScope: []commandstore.ApprovedSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}}
 	now := time.Date(2026, 7, 15, 1, 3, 0, 0, time.UTC)
 	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: "connection-0001", NodeKeyID: "node-key-01", Generation: 1, PublicKey: publicKey}, Store: store, DeploymentStore: store, DeploymentEnabled: true, RecipeTasks: recipes, Now: func() time.Time { return now }}
 
 	manifest := recipeManifestAPI(t)
+	manifest.SecretSlots = []contract.RecipeSecretSlotV1{{SlotID: "model_token", SecretRef: "secret_ref:model-token-001"}}
 	manifestDigest, err := manifest.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +76,99 @@ func TestRecipeTaskSignedIssueClaimProgressReplayAndObserve(t *testing.T) {
 	observePayload := []byte(`{"deployment_id":"deployment-0001","task_id":"recipe-task-0001"}`)
 	observe := signedReadOnlyCommand(t, privateKey, "command-recipe-observe-0001", 2, contract.ActionWorkerRecipeTaskObserve, observePayload)
 	assertRecipeTaskStatus(t, serve(t, broker, http.MethodPost, commandPath, observe), "recipe_task_observed", "succeeded")
+}
+
+func TestRecipeTaskIssueRejectsManifestOutsideDeploymentApprovalScopeBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*contract.RecipeExecutionManifestV1, *commandstore.DeploymentReservation)
+	}{
+		{name: "plan hash", mutate: func(manifest *contract.RecipeExecutionManifestV1, _ *commandstore.DeploymentReservation) {
+			manifest.PlanHash = "sha256:" + strings.Repeat("8", 64)
+		}},
+		{name: "recipe digest", mutate: func(manifest *contract.RecipeExecutionManifestV1, _ *commandstore.DeploymentReservation) {
+			manifest.RecipeDigest = "sha256:" + strings.Repeat("8", 64)
+		}},
+		{name: "unapproved ref", mutate: func(manifest *contract.RecipeExecutionManifestV1, _ *commandstore.DeploymentReservation) {
+			manifest.SecretSlots[0].SecretRef = "secret_ref:other-token-001"
+		}},
+		{name: "extra slot", mutate: func(manifest *contract.RecipeExecutionManifestV1, _ *commandstore.DeploymentReservation) {
+			manifest.SecretSlots = append(manifest.SecretSlots, contract.RecipeSecretSlotV1{SlotID: "other_token", SecretRef: "secret_ref:other-token-001"})
+		}},
+		{name: "missing slot", mutate: func(manifest *contract.RecipeExecutionManifestV1, _ *commandstore.DeploymentReservation) {
+			manifest.SecretSlots = nil
+		}},
+		{name: "invalid approved purpose", mutate: func(_ *contract.RecipeExecutionManifestV1, reservation *commandstore.DeploymentReservation) {
+			reservation.SecretScope[0].Purpose = ""
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			broker, store, recipes, privateKey, manifest := scopedRecipeTaskBroker(t)
+			reservation := store.deployments["connection-0001\x00deployment-0001"]
+			test.mutate(&manifest, &reservation)
+			store.deployments["connection-0001\x00deployment-0001"] = reservation
+			response := issueRecipeManifest(t, broker, privateKey, manifest)
+			if response.Code != http.StatusConflict {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if len(recipes.tasks) != 0 || len(store.records) != 0 {
+				t.Fatalf("out-of-scope issue mutated tasks=%d receipts=%d", len(recipes.tasks), len(store.records))
+			}
+		})
+	}
+}
+
+func TestRecipeTaskIssueLegacyReservationAcceptsOnlyEmptySecretSlots(t *testing.T) {
+	broker, store, recipes, privateKey, manifest := scopedRecipeTaskBroker(t)
+	reservation := store.deployments["connection-0001\x00deployment-0001"]
+	reservation.PlanHash, reservation.RecipeDigest, reservation.SecretScope = "", "", nil
+	store.deployments["connection-0001\x00deployment-0001"] = reservation
+	manifest.SecretSlots = nil
+	if response := issueRecipeManifest(t, broker, privateKey, manifest); response.Code != http.StatusOK {
+		t.Fatalf("legacy empty scope status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	broker, store, recipes, privateKey, manifest = scopedRecipeTaskBroker(t)
+	reservation = store.deployments["connection-0001\x00deployment-0001"]
+	reservation.PlanHash, reservation.RecipeDigest, reservation.SecretScope = "", "", nil
+	store.deployments["connection-0001\x00deployment-0001"] = reservation
+	if response := issueRecipeManifest(t, broker, privateKey, manifest); response.Code != http.StatusConflict {
+		t.Fatalf("legacy secret scope status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(recipes.tasks) != 0 || len(store.records) != 0 {
+		t.Fatalf("legacy out-of-scope issue mutated tasks=%d receipts=%d", len(recipes.tasks), len(store.records))
+	}
+}
+
+func scopedRecipeTaskBroker(t *testing.T) (Broker, *memoryCommandStore, *memoryRecipeTaskStore, ed25519.PrivateKey, contract.RecipeExecutionManifestV1) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryCommandStore()
+	recipes := &memoryRecipeTaskStore{tasks: map[string]commandstore.RecipeTaskRecord{}, receipts: store}
+	workerManifestDigest := "sha256:" + strings.Repeat("3", 64)
+	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: strings.Repeat("a", 64)}
+	store.workerSessions[session.BootstrapSessionID] = session
+	store.deployments["connection-0001\x00deployment-0001"] = commandstore.DeploymentReservation{ConnectionID: session.ConnectionID, DeploymentID: session.DeploymentID, BootstrapSessionID: session.BootstrapSessionID, State: "finalized", WorkerSession: session, PlanHash: "sha256:" + strings.Repeat("1", 64), RecipeDigest: "sha256:" + strings.Repeat("2", 64), SecretScope: []commandstore.ApprovedSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}}
+	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: session.ConnectionID, NodeKeyID: "node-key-01", Generation: 1, PublicKey: publicKey}, Store: store, DeploymentStore: store, DeploymentEnabled: true, RecipeTasks: recipes, Now: func() time.Time { return time.Date(2026, 7, 15, 1, 3, 0, 0, time.UTC) }}
+	manifest := recipeManifestAPI(t)
+	manifest.SecretSlots = []contract.RecipeSecretSlotV1{{SlotID: "model_token", SecretRef: "secret_ref:model-token-001"}}
+	return broker, store, recipes, privateKey, manifest
+}
+
+func issueRecipeManifest(t *testing.T, broker Broker, privateKey ed25519.PrivateKey, manifest contract.RecipeExecutionManifestV1) *httptest.ResponseRecorder {
+	t.Helper()
+	digest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := contract.RecipeTaskIssueRequest{Schema: contract.RecipeTaskIssueSchema, TaskID: "recipe-task-0001", ExecutionID: manifest.ExecutionID, DeploymentID: manifest.DeploymentID, TaskKind: contract.RecipeTaskKindExecution, RecipeExecutionManifestDigest: digest, InputDigest: "sha256:" + strings.Repeat("b", 64), CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...), Manifest: manifest}
+	payload, _ := json.Marshal(request)
+	command := signedReadOnlyCommand(t, privateKey, "command-recipe-issue-0001", 1, contract.ActionWorkerRecipeTaskIssue, payload)
+	return serve(t, broker, http.MethodPost, commandPath, command)
 }
 
 func recipeTaskEventJSON(t *testing.T, status, checkpoint, errorCode, evidence string, sequence int) string {

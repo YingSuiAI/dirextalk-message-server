@@ -36,6 +36,70 @@ func TestDeploymentCreateCommitsReadBackAndReplaysWithoutProvider(t *testing.T) 
 	}
 }
 
+func TestDeploymentReservationPersistsExactApprovedRecipeAndSecretScope(t *testing.T) {
+	broker, store, _, raw := deploymentTestBroker(t)
+	scope := []contract.ApprovalSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}, {SecretRef: "secret_ref:github-app-001", Purpose: "source checkout", Delivery: "file"}}
+	raw = resignDeploymentApprovalScope(t, raw, scope)
+	response := serve(t, broker, http.MethodPost, "/v2/commands", raw)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	reservation := store.deployments["connection-create-0001\x00deployment-create-0001"]
+	proof, err := contract.ParseApprovalProof(mustCommand(t, raw).ApprovalProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.PlanHash != proof.PlanHash || reservation.RecipeDigest != proof.RecipeDigest || len(reservation.SecretScope) != len(proof.SecretScope) {
+		t.Fatalf("reservation scope=%#v proof=%#v", reservation, proof.SecretScope)
+	}
+	want := []commandstore.ApprovedSecretReference{{SecretRef: "secret_ref:github-app-001", Purpose: "source checkout", Delivery: "file"}, {SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}
+	for index := range want {
+		if reservation.SecretScope[index] != want[index] {
+			t.Fatalf("secret scope[%d]=%#v want %#v", index, reservation.SecretScope[index], want[index])
+		}
+	}
+}
+
+func resignDeploymentApprovalScope(t *testing.T, raw []byte, scope []contract.ApprovalSecretReference) []byte {
+	t.Helper()
+	command := mustCommand(t, raw)
+	proof, err := command.Approval()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.SecretScope = append([]contract.ApprovalSecretReference(nil), scope...)
+	payload, err := proof.SigningPayload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x4f}, ed25519.SeedSize))
+	proof.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(deviceKey, payload))
+	command.ApprovalProof, err = json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := command.SignatureBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x6a}, ed25519.SeedSize))
+	command.SignatureB64 = base64.StdEncoding.EncodeToString(ed25519.Sign(nodeKey, []byte(base)))
+	encoded, err := json.Marshal(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func mustCommand(t *testing.T, raw []byte) contract.Command {
+	t.Helper()
+	command, err := contract.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return command
+}
+
 func TestDeploymentCreateResumesReservationAfterReadBackFailure(t *testing.T) {
 	broker, store, provider, raw := deploymentTestBroker(t)
 	provider.readErr = NewError("provider_readback_unavailable", 503)

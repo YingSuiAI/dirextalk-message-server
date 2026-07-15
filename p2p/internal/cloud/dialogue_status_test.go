@@ -116,6 +116,38 @@ func TestBootstrapRetainsOwnerCloudProjectionAfterDialogueStatusIsolation(t *tes
 	}
 }
 
+func TestReadCloudRecipeRecommendationsIsOwnerScopedAndDesecreted(t *testing.T) {
+	store := &dialogueRecipeRecommendationStore{items: []RecipeRecommendation{{
+		RecipeID: "recipe-private-1", Name: "Private knowledge node", Version: "v1", Maturity: "managed", Revision: 4,
+		Resources: RecipeResourceSummary{MinVCPU: 4, MinMemoryMiB: 8192, MinGPUMemoryMiB: 24576, MinDiskGiB: 120, Architecture: "amd64"},
+	}}}
+	module := New(store, Config{OwnerMXID: func() string { return "@owner:example.com" }})
+	items, err := module.ReadCloudRecipeRecommendations(context.Background())
+	if err != nil || store.owner != "@owner:example.com" || len(items) != 1 {
+		t.Fatalf("recipe recommendations=%#v owner=%q err=%v", items, store.owner, err)
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"digest", "source_url", "commit", "artifact", "secret_ref", "data_ref", "volume_ref", "connection", "owner"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("recipe recommendation leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+type dialogueRecipeRecommendationStore struct {
+	Store
+	items []RecipeRecommendation
+	owner string
+}
+
+func (s *dialogueRecipeRecommendationStore) ListCloudRecipeRecommendations(_ context.Context, owner string) ([]RecipeRecommendation, error) {
+	s.owner = owner
+	return s.items, nil
+}
+
 type dialogueStatusStore struct {
 	Store
 	goals       []Goal

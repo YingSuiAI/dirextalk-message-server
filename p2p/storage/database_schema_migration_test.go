@@ -101,6 +101,10 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_cloud_service_backup_approvals_service_idx",
 		"p2p_cloud_service_backups_claim_idx",
 		"p2p_cloud_service_backup_commands_backup_idx",
+		"p2p_cloud_service_secret_bootstrap_active_slot_idx",
+		"p2p_cloud_service_secret_bootstrap_updated_marker_idx",
+		"p2p_cloud_service_secret_bootstrap_observe_claim_idx",
+		"p2p_cloud_service_secret_observe_commands_approval_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {
@@ -109,6 +113,10 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 				t.Fatalf("expected index %s to exist: %v", indexName, err)
 			}
 		})
+	}
+	var providerVersionColumns int
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='p2p_cloud_service_secret_bootstrap_approvals' AND column_name='provider_version'`).Scan(&providerVersionColumns); err != nil || providerVersionColumns != 0 {
+		t.Fatalf("service secret provider metadata column count=%d err=%v", providerVersionColumns, err)
 	}
 	var contactPeerIndex string
 	if err := store.DB().QueryRowContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'p2p_contacts_peer_idx'`).Scan(&contactPeerIndex); err != nil {

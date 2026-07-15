@@ -86,6 +86,10 @@ func (s *DatabaseStore) PrepareCloudPlanConfirmation(ctx context.Context, reques
 		}
 
 		confirmedRevision := plan.Revision + 1
+		secretScope, err := cloudcontracts.SecretScopeForRecipe(plan.PlanID, recipe.SecretSlots)
+		if err != nil {
+			return cloudmodule.ErrPlanConfirmationInvalid
+		}
 		planV1 := cloudcontracts.PlanV1{
 			SchemaVersion:     cloudcontracts.SchemaVersionV1,
 			PlanID:            plan.PlanID,
@@ -119,7 +123,7 @@ func (s *DatabaseStore) PrepareCloudPlanConfirmation(ctx context.Context, reques
 				PublicIngress: false, EntryPoint: cloudcontracts.EntryPointNone,
 				TLSRequired: false, AuthenticationRequired: false,
 			},
-			SecretScope:      []cloudcontracts.SecretReferenceV1{},
+			SecretScope:      secretScope,
 			IntegrationScope: []cloudcontracts.IntegrationScopeV1{},
 		}
 		planHash, err := planV1.Hash()

@@ -20,6 +20,13 @@ type recordingCloudStatusReader struct {
 	calls int
 }
 
+type recordingCloudRecipeReader struct{ calls int }
+
+func (r *recordingCloudRecipeReader) ReadCloudRecipes(context.Context) ([]CloudRecipeRecommendation, error) {
+	r.calls++
+	return []CloudRecipeRecommendation{{RecipeID: "recipe-private-1", Name: "Private knowledge node", Version: "v1", Maturity: "managed", Revision: 3, Resources: CloudRecipeResourceSummary{MinVCPU: 4, MinMemoryMiB: 8192, MinDiskGiB: 80, Architecture: "amd64"}}}, nil
+}
+
 func (r *recordingCloudStatusReader) ReadCloudStatus(context.Context) (map[string]any, error) {
 	r.calls++
 	return map[string]any{
@@ -139,7 +146,7 @@ func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 	runtime := New(Config{CloudPlanner: &recordingCloudPlanner{}})
 	prompt := runtime.agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")
 	if strings.TrimSpace(cloudDeploymentPlannerSkillPrompt) == "" || !strings.Contains(prompt, "## Built-in Skill: Cloud Deployment Planner") ||
-		!strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) || !strings.Contains(prompt, nativeAgentCloudStatusTool) {
+		!strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) || !strings.Contains(prompt, nativeAgentCloudStatusTool) || !strings.Contains(prompt, nativeAgentCloudRecipesTool) || !strings.Contains(prompt, "secret slots") {
 		t.Fatalf("server-side Eino cloud skill prompt = %q", prompt)
 	}
 	withoutPlanner := New(Config{}).agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")
@@ -158,9 +165,11 @@ func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 func TestCloudDialogueModeExposesOnlyPlanningAndReadOnlyStatus(t *testing.T) {
 	planner := &recordingCloudPlanner{}
 	reader := &recordingCloudStatusReader{}
+	recipeReader := &recordingCloudRecipeReader{}
 	runtime := New(Config{
 		CloudPlanner:      planner,
 		CloudStatusReader: reader,
+		CloudRecipeReader: recipeReader,
 		Tools: []Tool{{
 			Name: "runtime_shell",
 			Handler: func(context.Context, map[string]any) (any, error) {
@@ -169,7 +178,7 @@ func TestCloudDialogueModeExposesOnlyPlanningAndReadOnlyStatus(t *testing.T) {
 		}},
 	})
 	tools := runtime.enabledTools(context.Background(), map[string]any{"enabled_tools": []any{"all"}}, map[string]any{"cloud_dialogue_mode": true})
-	if len(tools) != 2 || tools[0].Name != nativeAgentCloudDeploymentPlanTool || tools[1].Name != nativeAgentCloudStatusTool || tools[1].Write {
+	if len(tools) != 3 || tools[0].Name != nativeAgentCloudDeploymentPlanTool || tools[1].Name != nativeAgentCloudStatusTool || tools[2].Name != nativeAgentCloudRecipesTool || tools[1].Write || tools[2].Write {
 		t.Fatalf("cloud dialogue tools = %#v", tools)
 	}
 	properties, _ := tools[0].Parameters["properties"].(map[string]any)
@@ -182,6 +191,36 @@ func TestCloudDialogueModeExposesOnlyPlanningAndReadOnlyStatus(t *testing.T) {
 	}
 	if _, err := tools[1].Handler(context.Background(), map[string]any{"destroy": true}); err == nil {
 		t.Fatal("cloud status tool must reject mutation-shaped arguments")
+	}
+	recipes, err := tools[2].Handler(context.Background(), map[string]any{})
+	if err != nil || recipeReader.calls != 1 || len(recipes.(map[string]any)["recipes"].([]CloudRecipeRecommendation)) != 1 {
+		t.Fatalf("cloud recipes result=%#v calls=%d err=%v", recipes, recipeReader.calls, err)
+	}
+	if _, err := tools[2].Handler(context.Background(), map[string]any{"recipe_id": "forged"}); err == nil {
+		t.Fatal("cloud recipe recommendation tool accepted a model-selected recipe_id")
+	}
+	if _, found := nativeToolByName(runtime.availableTools(), nativeAgentCloudRecipesTool); found {
+		t.Fatal("cloud recipe recommendation tool escaped the cloud dialogue fixed allowlist")
+	}
+}
+
+func TestCloudDialogueCannotTurnForgedRecipeIDIntoAWrite(t *testing.T) {
+	planner := &recordingCloudPlanner{}
+	runtime := New(Config{CloudPlanner: planner, CloudRecipeReader: &recordingCloudRecipeReader{}})
+	tools := runtime.cloudDialoguePlanningTools()
+	planning, _ := nativeToolByName(tools, nativeAgentCloudDeploymentPlanTool)
+	recipes, _ := nativeToolByName(tools, nativeAgentCloudRecipesTool)
+	if _, err := recipes.Handler(context.Background(), map[string]any{"recipe_id": "recipe-attacker"}); err == nil {
+		t.Fatal("recipe reader accepted a selection argument")
+	}
+	if _, err := planning.Handler(context.Background(), map[string]any{"goal": "deploy it", "recipe_id": "recipe-attacker"}); err == nil {
+		t.Fatal("planning tool accepted a model-selected recipe_id")
+	}
+	if _, err := planning.Handler(context.Background(), map[string]any{"goal": "deploy it", "secret_scope": []any{"secret_ref:attacker"}}); err == nil {
+		t.Fatal("planning tool accepted a model-supplied secret_scope")
+	}
+	if planner.calls != 0 {
+		t.Fatalf("forged recipe selection reached the only cloud write port, calls=%d", planner.calls)
 	}
 }
 
@@ -299,6 +338,9 @@ func TestCloudDialogueModeHardRestrictsToolsPromptAndMemory(t *testing.T) {
 	}
 	if !strings.Contains(run.session.systemPrompt, nativeAgentCloudStatusTool) {
 		t.Fatalf("cloud dialogue prompt must explain the read-only status tool: %q", run.session.systemPrompt)
+	}
+	if !strings.Contains(run.session.systemPrompt, nativeAgentCloudRecipesTool) {
+		t.Fatalf("cloud dialogue prompt must explain the read-only Recipe recommendation tool: %q", run.session.systemPrompt)
 	}
 }
 

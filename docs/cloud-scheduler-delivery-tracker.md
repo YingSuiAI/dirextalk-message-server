@@ -608,6 +608,43 @@ stage; later checked workboard sections are the authoritative delivery record.
   regenerate the public action artifact, perform one accumulated stage review,
   and commit the two owning repositories independently.
 
+### Q. Selectable private Recipe and scoped service-secret lifecycle
+
+- [x] Let only the owner bind one current private Recipe id/revision when a
+  research Goal is created. Revalidate the immutable Recipe at claim and
+  commit, allow the Eino Cloud Skill to recommend only de-secreted Recipe
+  summaries, and keep Agent/MCP unable to select, approve or mutate resources.
+- [x] Register one verified `CompiledRecipeArtifactV1` internally and require
+  exact Plan/Recipe/artifact/manifest agreement for volume, data and secret
+  slots. Preserve legacy no-slot hashes and expose no artifact registrar to
+  ProductCore, Agent or public MCP.
+- [x] Add owner HTTP-only `cloud.secrets.bootstrap.plan`, deterministic
+  Ed25519/CBOR and X25519/HKDF/AES-GCM Go/Dart vectors, and a cancellable
+  Flutter upload flow whose plaintext, token, keys, ciphertext and Stack URL
+  never enter logs, persistence, Matrix, Agent prompts or ProductCore events.
+- [x] Add the default-off Go Connection Stack service-secret session,
+  KMS/Secrets Manager provider and completed-only Dynamo binding. Keep the
+  ten-minute bootstrap authorization separate from deployment-secret
+  retention and resolve the dynamic provider version only inside the Stack.
+- [x] Materialize only for an active Worker lease and exact current task,
+  deployment, Recipe, artifact, slot and `secret_ref`. The trusted Worker
+  catalog may choose only a fixed file/environment destination; an upload race
+  must wait with a bounded retry, survive restart, and never run the driver
+  without the value.
+- [x] Persist the node-signed `service.secret.observe` command before I/O with
+  a fenced PostgreSQL lease and exact replay. Reconcile observe-before-create
+  and completed-at-expiry races without storing provider versions, endpoints,
+  tokens, ciphertext or secret values in the Message Server database.
+- [x] Extend device-approved Service destruction and Flutter confirmation to
+  bind the exact Recipe-derived `secret_ref` set. Delete deterministic Secrets
+  Manager resources only after EC2/ENI/EBS dependency cleanup, require
+  `NotFound` read-back, purge Stack bindings, and leave AccessDenied as
+  `destroy_blocked` rather than `verified_destroyed`.
+- [x] Run the affected root/nested Go tests and vet, real PostgreSQL recovery
+  tests, Linux Orchestrator/Worker/Broker builds, focused Flutter tests,
+  analysis, Web release build, secret-canary and diff checks; perform one
+  accumulated review, update contracts once, and commit both repositories.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -632,9 +669,11 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Begin the next independently approved stage for **selectable private Recipe
-execution and scoped service-secret delivery**. Keep Agent and public MCP
-research/read-only, bind the exact Recipe/secret slots into device approval,
-and keep public ingress, local AWS credentials, Stack deployment and
-real-account tests disabled until their independent approval/provider stages
-are complete.
+Implement the first production-shaped **generic OCI Recipe execution** slice:
+compile one internally trusted, digest-pinned OCI service bundle; bind its
+versioned catalog to the Worker resource manifest; execute it through a typed,
+shell-free root driver; and prove checkpoint recovery, fixed external
+readiness, retained resources and verified destruction through the existing
+approval/task chain. Keep Agent and public MCP research/read-only, keep all
+deployment gates default-off, and do not touch release/deployer scripts. Real
+AWS creation remains behind a fresh Region/specification/price confirmation.

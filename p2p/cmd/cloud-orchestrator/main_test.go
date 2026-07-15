@@ -146,6 +146,7 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	executionProbeFailure := errors.New("execution probe unavailable")
 	readinessFailure := errors.New("service readiness unavailable")
 	destroyFailure := errors.New("service destroy unavailable")
+	secretObserveFailure := errors.New("service secret observation unavailable")
 	research := &recordingIterationRunner{processed: true, err: researchFailure}
 	registration := &recordingIterationRunner{processed: true, err: registrationFailure}
 	quote := &recordingIterationRunner{processed: true, err: quoteFailure}
@@ -154,11 +155,12 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	executionProbe := &recordingIterationRunner{processed: true, err: executionProbeFailure}
 	readiness := &recordingIterationRunner{processed: true, err: readinessFailure}
 	destroy := &recordingIterationRunner{processed: true, err: destroyFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil, readiness, nil, nil, nil, nil, destroy)
-	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 || readiness.calls != 1 || destroy.calls != 1 {
+	secretObserver := &recordingIterationRunner{processed: true, err: secretObserveFailure}
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil, readiness, nil, nil, nil, nil, destroy, secretObserver)
+	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 || readiness.calls != 1 || destroy.calls != 1 || secretObserver.calls != 1 {
 		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d execution_probe_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls, executionProbe.calls)
 	}
-	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) || !errors.Is(err, executionProbeFailure) || !errors.Is(err, readinessFailure) || !errors.Is(err, destroyFailure) {
+	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) || !errors.Is(err, executionProbeFailure) || !errors.Is(err, readinessFailure) || !errors.Is(err, destroyFailure) || !errors.Is(err, secretObserveFailure) {
 		t.Fatalf("iteration error = %v, want all runner failures", err)
 	}
 }
@@ -170,7 +172,7 @@ func TestRunIterationAllowsProvisioningToRemainDisabledWhileRestrictedWorkersRun
 	observation := &recordingIterationRunner{processed: true}
 	executionProbe := &recordingIterationRunner{processed: true}
 
-	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil, nil, nil, nil, nil, nil, nil)
+	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil || !processed {
 		t.Fatalf("iteration = processed:%v err:%v", processed, err)
 	}

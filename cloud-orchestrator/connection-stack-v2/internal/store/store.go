@@ -6,6 +6,13 @@ package store
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
+)
+
+var (
+	approvedDigestPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	approvedSecretRefPattern = regexp.MustCompile(`^secret_ref:[A-Za-z0-9._/-]{1,120}$`)
 )
 
 type Record struct {
@@ -50,6 +57,9 @@ type DeploymentReservation struct {
 	ChallengeID        string
 	SignerKeyID        string
 	QuoteID            string
+	PlanHash           string
+	RecipeDigest       string
+	SecretScope        []ApprovedSecretReference
 	ClientToken        string
 	BootstrapSessionID string
 	WorkerSession      WorkerSession
@@ -58,8 +68,101 @@ type DeploymentReservation struct {
 	State              string
 }
 
+// ApprovedSecretReference is the non-secret scope copied from the verified
+// deployment approval. It deliberately contains no secret value, provider
+// identifier, environment variable, or file path.
+type ApprovedSecretReference struct {
+	SecretRef string `json:"secret_ref"`
+	Purpose   string `json:"purpose"`
+	Delivery  string `json:"delivery"`
+}
+
 func (r DeploymentReservation) SameIdentity(other DeploymentReservation) bool {
-	return r.ConnectionID == other.ConnectionID && r.DeploymentID == other.DeploymentID && r.CommandID == other.CommandID && r.RequestSHA256 == other.RequestSHA256 && r.ExpectedGeneration == other.ExpectedGeneration && r.NodeCounter == other.NodeCounter && r.ApprovalID == other.ApprovalID && r.ChallengeID == other.ChallengeID && r.SignerKeyID == other.SignerKeyID && r.QuoteID == other.QuoteID && r.ClientToken == other.ClientToken && r.BootstrapSessionID == other.BootstrapSessionID && sameWorkerSession(r.WorkerSession, other.WorkerSession) && string(r.SpecJSON) == string(other.SpecJSON)
+	return r.ConnectionID == other.ConnectionID && r.DeploymentID == other.DeploymentID && r.CommandID == other.CommandID && r.RequestSHA256 == other.RequestSHA256 && r.ExpectedGeneration == other.ExpectedGeneration && r.NodeCounter == other.NodeCounter && r.ApprovalID == other.ApprovalID && r.ChallengeID == other.ChallengeID && r.SignerKeyID == other.SignerKeyID && r.QuoteID == other.QuoteID && r.PlanHash == other.PlanHash && r.RecipeDigest == other.RecipeDigest && sameApprovedSecretScope(r.SecretScope, other.SecretScope) && r.ClientToken == other.ClientToken && r.BootstrapSessionID == other.BootstrapSessionID && sameWorkerSession(r.WorkerSession, other.WorkerSession) && string(r.SpecJSON) == string(other.SpecJSON)
+}
+
+// MatchesApprovedRecipeScope revalidates the sealed manifest immediately
+// before a Recipe task is persisted. Reservations created before this scope
+// existed remain readable, but may issue only manifests with no secret slots.
+func (r DeploymentReservation) MatchesApprovedRecipeScope(planHash, recipeDigest string, secretRefs []string) bool {
+	legacy := r.PlanHash == "" && r.RecipeDigest == "" && len(r.SecretScope) == 0
+	if legacy {
+		return len(secretRefs) == 0
+	}
+	if !validApprovedRecipeScope(r.PlanHash, r.RecipeDigest, r.SecretScope) || planHash != r.PlanHash || recipeDigest != r.RecipeDigest || len(secretRefs) != len(r.SecretScope) {
+		return false
+	}
+	approved := make(map[string]struct{}, len(r.SecretScope))
+	for _, reference := range r.SecretScope {
+		approved[reference.SecretRef] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(secretRefs))
+	for _, reference := range secretRefs {
+		if _, ok := approved[reference]; !ok {
+			return false
+		}
+		if _, duplicate := seen[reference]; duplicate {
+			return false
+		}
+		seen[reference] = struct{}{}
+	}
+	return true
+}
+
+// MatchesApprovedServiceSecret prevents a later secret upload from widening
+// the device-approved deployment scope. Legacy reservations have no secret
+// delivery authority.
+func (r DeploymentReservation) MatchesApprovedServiceSecret(recipeDigest, secretRef, purpose, delivery string) bool {
+	if r.RecipeDigest != recipeDigest || !validApprovedRecipeScope(r.PlanHash, r.RecipeDigest, r.SecretScope) {
+		return false
+	}
+	for _, reference := range r.SecretScope {
+		if reference.SecretRef == secretRef {
+			return reference.Purpose == purpose && reference.Delivery == delivery
+		}
+	}
+	return false
+}
+
+func validApprovedRecipeScope(planHash, recipeDigest string, scope []ApprovedSecretReference) bool {
+	if !approvedDigestPattern.MatchString(planHash) || !approvedDigestPattern.MatchString(recipeDigest) || len(scope) > 64 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(scope))
+	for _, reference := range scope {
+		if !approvedSecretRefPattern.MatchString(reference.SecretRef) || !safeApprovedPurpose(reference.Purpose) || (reference.Delivery != "file" && reference.Delivery != "environment") {
+			return false
+		}
+		if _, duplicate := seen[reference.SecretRef]; duplicate {
+			return false
+		}
+		seen[reference.SecretRef] = struct{}{}
+	}
+	return true
+}
+
+func safeApprovedPurpose(value string) bool {
+	if value == "" || len(value) > 160 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func sameApprovedSecretScope(left, right []ApprovedSecretReference) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func sameWorkerSession(left, right WorkerSession) bool {
@@ -128,6 +231,47 @@ type DeploymentRepository interface {
 	LookupDeployment(ctx context.Context, connectionID, deploymentID string) (DeploymentReservation, bool, error)
 	ReserveDeployment(ctx context.Context, reservation DeploymentReservation) (stored DeploymentReservation, created bool, err error)
 	FinalizeDeployment(ctx context.Context, reservation DeploymentReservation, receipt Record) (stored Record, created bool, err error)
+}
+
+const (
+	ServiceSecretPending    = "pending_upload"
+	ServiceSecretProcessing = "processing"
+	ServiceSecretUploaded   = "uploaded"
+	ServiceSecretCompleted  = "completed"
+)
+
+// ServiceSecretSession contains only opaque or non-secret durable state. In
+// particular, neither the upload token, envelope nor decrypted bytes belong
+// here. SealedPrivateKey is expected to be a KMS-sealed X25519 private key.
+type ServiceSecretSession struct {
+	SessionID, ConnectionID, DeploymentID, TaskID, ExecutionID     string
+	ManifestDigest, RecipeDigest, ArtifactDigest                   string
+	SlotID, SecretRef, Purpose, Delivery, ContextDigest, ExpiresAt string
+	TokenSHA256, SealedPrivateKey, SealedUploadToken               string
+	State, EnvelopeDigest, ProviderVersion                         string
+}
+
+func (session ServiceSecretSession) SameBinding(other ServiceSecretSession) bool {
+	return session.SessionID == other.SessionID && session.ConnectionID == other.ConnectionID && session.DeploymentID == other.DeploymentID && session.TaskID == other.TaskID && session.ExecutionID == other.ExecutionID && session.ManifestDigest == other.ManifestDigest && session.RecipeDigest == other.RecipeDigest && session.ArtifactDigest == other.ArtifactDigest && session.SlotID == other.SlotID && session.SecretRef == other.SecretRef && session.Purpose == other.Purpose && session.Delivery == other.Delivery && session.ContextDigest == other.ContextDigest && session.ExpiresAt == other.ExpiresAt
+}
+
+// ServiceSecretRepository operations are CAS boundaries. ClaimEnvelope must
+// accept an exact digest replay and reject a different digest after the first
+// successful claim.
+type ServiceSecretRepository interface {
+	LookupServiceSecret(ctx context.Context, sessionID string) (ServiceSecretSession, bool, error)
+	LookupCompletedServiceSecret(ctx context.Context, connectionID, deploymentID, recipeDigest, artifactDigest, slotID, secretRef string) (ServiceSecretSession, bool, error)
+	CreateServiceSecret(ctx context.Context, session ServiceSecretSession) (stored ServiceSecretSession, created bool, err error)
+	ClaimServiceSecretEnvelope(ctx context.Context, sessionID, envelopeDigest string) (stored ServiceSecretSession, claimed bool, err error)
+	FinalizeServiceSecretUpload(ctx context.Context, sessionID, envelopeDigest, providerVersion string) (ServiceSecretSession, error)
+	CompleteServiceSecret(ctx context.Context, sessionID, envelopeDigest string) (ServiceSecretSession, error)
+}
+
+// ServiceSecretDestroyRepository removes only completed, exact deployment
+// bindings after the provider has read back the corresponding AWS secret as
+// absent. It never receives secret values or provider credentials.
+type ServiceSecretDestroyRepository interface {
+	DeleteCompletedServiceSecretBindings(ctx context.Context, connectionID, deploymentID string, secretRefs []string) error
 }
 
 // DeploymentDestroyReservation consumes a device approval before the first
