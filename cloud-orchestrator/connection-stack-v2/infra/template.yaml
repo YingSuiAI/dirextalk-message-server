@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Dirextalk Connection Stack V2 Go Broker. This stage enables only durable
-  connection registration verification and read-only On-Demand quotes; it
-  cannot create or mutate EC2 resources.
+  Dirextalk Connection Stack V2 Go Broker. Typed EC2 creation and Worker
+  bootstrap remain disabled unless the deployment gate and identity
+  verification key are explicitly configured.
 
 Parameters:
   BrokerArtifactBucket:
@@ -63,12 +63,29 @@ Parameters:
   WorkerAvailabilityZone:
     Type: String
     AllowedPattern: "^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9][a-z]$"
+  WorkerIdentityRsaPublicKeyPem:
+    Type: String
+    Default: ""
+    NoEcho: true
+    MaxLength: 2048
+    Description: >-
+      Pinned RSA public key used only to verify AWS EC2 instance identity
+      document signatures. Required when deployment creation is enabled.
   EnableDeploymentCreate:
     Type: String
     Default: "false"
     AllowedValues:
       - "false"
       - "true"
+
+Rules:
+  DeploymentCreateRequiresWorkerIdentityKey:
+    RuleCondition: !Equals [!Ref EnableDeploymentCreate, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref WorkerIdentityRsaPublicKeyPem, ""]]
+        AssertDescription: >-
+          Worker bootstrap identity verification key must be configured when
+          deployment creation is enabled.
 
 Conditions:
   HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
@@ -206,6 +223,27 @@ Resources:
         - AttributeName: use_id
           KeyType: RANGE
 
+  WorkerSessionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl_epoch_seconds
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: bootstrap_session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bootstrap_session_id
+          KeyType: HASH
+
   BrokerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -227,7 +265,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-connection-broker:*"
-              - Sid: PersistCommandFencesOnly
+              - Sid: PersistCommandFencesAndWorkerLeasesOnly
                 Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -238,6 +276,7 @@ Resources:
                   - !GetAtt IssuedQuotesTable.Arn
                   - !GetAtt DeploymentReservationsTable.Arn
                   - !GetAtt ApprovalUsesTable.Arn
+                  - !GetAtt WorkerSessionsTable.Arn
               - Sid: ReadInstanceOfferingsAndCapacityOnly
                 Effect: Allow
                 Action:
@@ -337,6 +376,9 @@ Resources:
           DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
           DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
           DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
+          DIREXTALK_WORKER_SESSIONS_TABLE: !Ref WorkerSessionsTable
+          DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/worker-sessions"
+          DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM: !Ref WorkerIdentityRsaPublicKeyPem
           DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
 
   BrokerAPI:
@@ -361,6 +403,14 @@ Resources:
       RouteKey: "POST /v2/commands"
       Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
 
+  BrokerWorkerClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
   BrokerStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -375,6 +425,15 @@ Resources:
       FunctionName: !Ref BrokerFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/commands"
+
+  BrokerWorkerClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/claim"
 
 Outputs:
   ConnectionId:
@@ -404,5 +463,8 @@ Outputs:
   BrokerCommandUrl:
     Description: Exact endpoint submitted to Dirextalk for signed verification.
     Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/commands"
+  WorkerBootstrapEndpoint:
+    Description: Fixed base endpoint embedded in non-secret Worker bootstrap manifests.
+    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/worker-sessions"
   BrokerRuntime:
     Value: provided.al2023

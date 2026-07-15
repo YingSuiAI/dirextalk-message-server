@@ -93,10 +93,10 @@ func TestDynamoRepositoryReservesCounterDeploymentApprovalAndChallengeAtomically
 	if err != nil || !created || !stored.SameIdentity(reservation) {
 		t.Fatalf("ReserveDeployment()=(%#v,%t,%v)", stored, created, err)
 	}
-	if client.transactInput == nil || len(client.transactInput.TransactItems) != 4 {
+	if client.transactInput == nil || len(client.transactInput.TransactItems) != 5 {
 		t.Fatalf("reserve transaction=%#v", client.transactInput)
 	}
-	if client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil || client.transactInput.TransactItems[2].Put == nil || client.transactInput.TransactItems[3].Put == nil {
+	if client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil || client.transactInput.TransactItems[2].Put == nil || client.transactInput.TransactItems[3].Put == nil || client.transactInput.TransactItems[4].Put == nil {
 		t.Fatalf("reserve transaction shape=%#v", client.transactInput.TransactItems)
 	}
 }
@@ -125,6 +125,9 @@ func TestDynamoRepositoryRecoversReservationAfterIndeterminateCommit(t *testing.
 		if input.TableName != nil && *input.TableName == "deployments" {
 			return &dynamodb.GetItemOutput{Item: deploymentItem(reservation)}, nil
 		}
+		if input.TableName != nil && *input.TableName == "worker-sessions" {
+			return &dynamodb.GetItemOutput{Item: workerSessionItem(reservation.WorkerSession)}, nil
+		}
 		return &dynamodb.GetItemOutput{}, nil
 	}
 	repository := mustDynamoRepository(t, client)
@@ -138,19 +141,19 @@ func TestDynamoRepositoryFinalizesReservationAndReceiptAtomically(t *testing.T) 
 	client := &fakeDynamo{}
 	repository := mustDynamoRepository(t, client)
 	reservation := validDeploymentReservation()
-	receipt := Record{ConnectionID: reservation.ConnectionID, CommandID: reservation.CommandID, RequestSHA256: reservation.RequestSHA256, ExpectedGeneration: reservation.ExpectedGeneration, NodeCounter: reservation.NodeCounter, Action: "deployment.create", ResultJSON: []byte(`{"status":"deployment_created"}`)}
+	receipt := validDeploymentRecord(reservation)
 	stored, created, err := repository.FinalizeDeployment(t.Context(), reservation, receipt)
 	if err != nil || !created || !stored.SameIdentity(receipt) {
 		t.Fatalf("FinalizeDeployment()=(%#v,%t,%v)", stored, created, err)
 	}
-	if client.transactInput == nil || len(client.transactInput.TransactItems) != 2 || client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil {
+	if client.transactInput == nil || len(client.transactInput.TransactItems) != 3 || client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Update == nil || client.transactInput.TransactItems[2].Put == nil {
 		t.Fatalf("finalize transaction=%#v", client.transactInput)
 	}
 }
 
 func TestDynamoRepositoryRecoversFinalReceiptAfterIndeterminateFinalize(t *testing.T) {
 	reservation := validDeploymentReservation()
-	receipt := Record{ConnectionID: reservation.ConnectionID, CommandID: reservation.CommandID, RequestSHA256: reservation.RequestSHA256, ExpectedGeneration: reservation.ExpectedGeneration, NodeCounter: reservation.NodeCounter, Action: "deployment.create", ResultJSON: []byte(`{"status":"deployment_created"}`)}
+	receipt := validDeploymentRecord(reservation)
 	client := &fakeDynamo{transactErr: errors.New("PRIVATE_RESPONSE_LOST")}
 	client.getItem = func(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
 		if input.TableName != nil && *input.TableName == "receipts" {
@@ -165,6 +168,48 @@ func TestDynamoRepositoryRecoversFinalReceiptAfterIndeterminateFinalize(t *testi
 	stored, created, err := repository.FinalizeDeployment(t.Context(), reservation, receipt)
 	if err != nil || created || !stored.SameIdentity(receipt) || strings.Contains(fmt.Sprint(err), "PRIVATE_RESPONSE_LOST") {
 		t.Fatalf("FinalizeDeployment()=(%#v,%t,%v)", stored, created, err)
+	}
+}
+
+func TestDynamoRepositoryActivatesWorkerLeaseWithEpochFenceAndTokenDigestOnly(t *testing.T) {
+	session := validDeploymentReservation().WorkerSession
+	session.State = "bound"
+	session.ExpectedInstanceID = "i-0123456789abcdef0"
+	activated := session
+	activated.State = "active"
+	activated.LeaseEpoch = 1
+	activated.LeaseExpiresAt = "2026-07-14T12:05:00.000Z"
+	activated.TokenSHA256 = strings.Repeat("c", 64)
+	client := &fakeDynamo{}
+	client.getItem = func(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+		if client.transactInput != nil && input.TableName != nil && *input.TableName == "worker-sessions" {
+			return &dynamodb.GetItemOutput{Item: workerSessionItemForTest(activated)}, nil
+		}
+		return &dynamodb.GetItemOutput{}, nil
+	}
+	repository := mustDynamoRepository(t, client)
+	stored, err := repository.ActivateWorkerSession(t.Context(), WorkerSessionClaim{
+		Session: session, TokenSHA256: activated.TokenSHA256, Now: "2026-07-14T12:00:00.000Z", LeaseExpiresAt: activated.LeaseExpiresAt,
+	})
+	if err != nil || stored.LeaseEpoch != 1 || stored.TokenSHA256 != activated.TokenSHA256 {
+		t.Fatalf("ActivateWorkerSession()=(%#v,%v)", stored, err)
+	}
+	update := client.transactInput.TransactItems[0].Update
+	if update == nil || update.ConditionExpression == nil || !strings.Contains(*update.ConditionExpression, "lease_epoch = :lease_epoch") || update.UpdateExpression == nil || strings.Contains(*update.UpdateExpression, "access_token") {
+		t.Fatalf("unsafe worker activation update=%#v", update)
+	}
+	for name, value := range update.ExpressionAttributeValues {
+		if strings.Contains(fmt.Sprint(value), "access_token") || (name != ":token_sha256" && strings.Contains(fmt.Sprint(value), activated.TokenSHA256)) {
+			t.Fatalf("token escaped digest slot name=%s value=%v", name, value)
+		}
+	}
+}
+
+func TestWorkerSessionParserRejectsExpandedSecretField(t *testing.T) {
+	item := workerSessionItem(validDeploymentReservation().WorkerSession)
+	item["access_token"] = &dynamodbtypes.AttributeValueMemberS{Value: "must-not-leak"}
+	if _, err := workerSessionFromItem(item); Code(err) != "worker_session_store_invalid" {
+		t.Fatalf("expanded worker item error=%v code=%s", err, Code(err))
 	}
 }
 
@@ -191,7 +236,7 @@ func (f *fakeDynamo) TransactWriteItems(_ context.Context, input *dynamodb.Trans
 
 func mustDynamoRepository(t *testing.T, client DynamoAPI) *DynamoRepository {
 	t.Helper()
-	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes", DeploymentReservationsTable: "deployments", ApprovalUsesTable: "approval-uses"})
+	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes", DeploymentReservationsTable: "deployments", ApprovalUsesTable: "approval-uses", WorkerSessionsTable: "worker-sessions"})
 	if err != nil {
 		t.Fatalf("NewDynamoRepository(): %v", err)
 	}
@@ -225,5 +270,27 @@ func recordItem(record Record) map[string]dynamodbtypes.AttributeValue {
 }
 
 func validDeploymentReservation() DeploymentReservation {
-	return DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", CommandID: "command-deployment-0001", RequestSHA256: strings.Repeat("d", 64), ExpectedGeneration: 1, NodeCounter: 8, ApprovalID: "approval-0001", ChallengeID: "challenge-0001", SignerKeyID: "device-key-1", QuoteID: "quote-00000000000000000000000000000000", ClientToken: "dtx-" + strings.Repeat("e", 60), SpecJSON: []byte(`{"deployment_id":"deployment-0001"}`), State: "reserved"}
+	session := WorkerSession{BootstrapSessionID: "bootstrap-" + strings.Repeat("f", 32), ConnectionID: "connection-0001", DeploymentID: "deployment-0001", RequestSHA256: strings.Repeat("d", 64), WorkerImageDigest: "sha256:" + strings.Repeat("a", 64), ArtifactManifestDigest: "sha256:" + strings.Repeat("b", 64), BootstrapEndpoint: "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/worker-sessions", ExpectedAMIID: "ami-0123456789abcdef0", ExpectedInstanceType: "m7i.xlarge", ExpectedArchitecture: "x86_64", ExpectedVPCID: "vpc-0123456789abcdef0", ExpectedSubnetID: "subnet-0123456789abcdef0", ExpectedAvailabilityZone: "us-east-1a", ExpectedSecurityGroupID: "sg-0123456789abcdef0", State: "issued", ExpiresAt: "2026-07-14T12:10:00.123Z"}
+	return DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", CommandID: "command-deployment-0001", RequestSHA256: strings.Repeat("d", 64), ExpectedGeneration: 1, NodeCounter: 8, ApprovalID: "approval-0001", ChallengeID: "challenge-0001", SignerKeyID: "device-key-1", QuoteID: "quote-00000000000000000000000000000000", ClientToken: "dtx-" + strings.Repeat("e", 60), BootstrapSessionID: session.BootstrapSessionID, WorkerSession: session, SpecJSON: []byte(`{"deployment_id":"deployment-0001"}`), State: "reserved"}
+}
+
+func validDeploymentRecord(reservation DeploymentReservation) Record {
+	result := fmt.Sprintf(`{"status":"deployment_created","receipt":{"schema":"dirextalk.aws.command-receipt/v2","disposition":"committed","connection_id":%q,"expected_generation":%d,"node_counter":%d,"command_id":%q,"request_sha256":%q,"action":"deployment.create"},"deployment":{"schema":"dirextalk.aws.deployment-receipt/v1","connection_id":%q,"deployment_id":%q,"request_sha256":%q,"resource_status":"provisioning","instance_id":"i-0123456789abcdef0","volume_ids":["vol-0123456789abcdef0"],"network_interface_ids":["eni-0123456789abcdef0"]}}`, reservation.ConnectionID, reservation.ExpectedGeneration, reservation.NodeCounter, reservation.CommandID, reservation.RequestSHA256, reservation.ConnectionID, reservation.DeploymentID, reservation.RequestSHA256)
+	return Record{ConnectionID: reservation.ConnectionID, CommandID: reservation.CommandID, RequestSHA256: reservation.RequestSHA256, ExpectedGeneration: reservation.ExpectedGeneration, NodeCounter: reservation.NodeCounter, Action: "deployment.create", ResultJSON: []byte(result)}
+}
+
+func workerSessionItemForTest(session WorkerSession) map[string]dynamodbtypes.AttributeValue {
+	item := workerSessionItem(session)
+	if session.ExpectedInstanceID != "" {
+		item["expected_instance_id"] = &dynamodbtypes.AttributeValueMemberS{Value: session.ExpectedInstanceID}
+	}
+	if session.LeaseExpiresAt != "" {
+		item["lease_expires_at"] = &dynamodbtypes.AttributeValueMemberS{Value: session.LeaseExpiresAt}
+	}
+	if session.TokenSHA256 != "" {
+		item["token_sha256"] = &dynamodbtypes.AttributeValueMemberS{Value: session.TokenSHA256}
+	}
+	item["lease_epoch"] = &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(session.LeaseEpoch, 10)}
+	item["last_sequence"] = &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(session.LastSequence, 10)}
+	return item
 }

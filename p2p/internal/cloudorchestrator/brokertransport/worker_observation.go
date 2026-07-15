@@ -154,6 +154,8 @@ func classifyWorkerBootstrapObservationBrokerError(err error) error {
 		return runtime.WorkerBootstrapObservationRetryable("broker_timeout", err)
 	case "broker_unavailable", "broker_request_unavailable", "broker_response_unavailable":
 		return runtime.WorkerBootstrapObservationRetryable("broker_unavailable", err)
+	case "worker_bootstrap_unavailable", "worker_session_expired":
+		return runtime.WorkerBootstrapObservationRetryable(brokerError.Code, err)
 	default:
 		return err
 	}

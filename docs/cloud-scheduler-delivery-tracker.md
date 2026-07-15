@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: deployment command/ApprovalV1 parity frozen; mutation fail-closed
+- Status: Worker bootstrap/observation parity complete; execution task channel next
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -100,12 +100,14 @@ The current implementation boundary is exactly
   receipt/counter/issued-quote transaction; quote reads are limited to EC2
   instance metadata/offerings and AWS Price List. All stored results are
   strict, de-secretsed contract objects and are revalidated before replay.
-- `deployment.create` is complete but disabled by default. Its explicit gate
+- `deployment.create` and the Worker claim route are complete but disabled by default. Their explicit gate
   verifies the registered device signature and persisted QuoteV1 digest,
   atomically consumes approval/challenge into a deployment reservation, uses
   one deterministic ClientToken for a fixed isolated EC2 create, and commits
-  only read-back EC2/EBS/ENI evidence. Every Worker/root/readiness/lifecycle
-  action remains `operation_not_enabled`.
+  only read-back EC2/EBS/ENI evidence. The fixed claim route verifies AWS IID
+  signatures and independent EC2 state before rotating a short lease; the
+  signed `deployment.observe` read returns only de-secreted active evidence.
+  Worker tasks/root/readiness/lifecycle actions remain `operation_not_enabled`.
 - The CloudFormation execution role always grants its own log/receipt writes
   and the bounded quote read APIs. RunInstances/create-time tagging/read-back
   statements exist only behind the same explicit gate. It has no IAM PassRole,
@@ -200,10 +202,10 @@ an EC2 instance, or start billing.
 
 - `dirextalk-updater/**`, Docker publishing, normal Message Server deployment
   scripts, actual release execution, and unrelated historical Git cleanup.
-- EC2/EBS/VPC/IAM mutation, Worker/AMI execution, real-account tests, image
-  pushes, and credential-file access. AWS SDK dependencies remain confined to
-  the standalone Go Lambda module; the Message Server process must not acquire
-  them.
+- Real-account tests, Stack deployment, Worker image pushes, and
+  credential-file access. Typed EC2 creation remains disabled by default and
+  AWS SDK dependencies remain confined to the standalone Go Lambda module;
+  the Message Server process must not acquire them.
 - AWS key upload, secret bootstrap, purchase/approval, ingress, root command
   execution, stop/restart/destroy, cost enforcement, and service pairing.
 - New Cloud lifecycle UI controls without a completed independent server-side
@@ -306,6 +308,34 @@ not represented as implementation tasks in this read-only parity stage.
 - [x] Enable `deployment.create` only after replay, response-loss, concurrent
   approval consumption, stale generation/counter and read-back tests pass.
 
+### F. Worker bootstrap and signed observation boundary
+
+- [x] Reserve a one-deployment Worker session atomically with the approved
+  deployment and bind it to the independently read-back EC2 instance during
+  finalization.
+- [x] Embed only a fixed, non-secret bootstrap manifest in EC2 UserData; the
+  manifest contains no AWS credential, service secret, bearer, command, Recipe
+  or public-ingress instruction.
+- [x] Add the exact Worker claim route and Cloud Worker golden vector. Verify
+  the AWS IID RSA signature plus account/Region/AMI/type/architecture/AZ and
+  independent EC2/VPC/subnet/SG/tag/IMDS/no-public-IP/no-IAM read-back before
+  issuing a five-minute lease.
+- [x] Persist only the access-token SHA-256 digest, fence lease rotation by the
+  prior epoch and immutable deployment bindings, and support bounded reconnect
+  without accepting an expired first claim.
+- [x] Add the signed `deployment.observe` golden contract, durable command
+  receipt/counter, fresh idempotent observations and strict exclusion of
+  session IDs, bearers/hashes, endpoint, IID, raw events and logs.
+- [x] Keep a non-active or expired Worker observation retryable in the existing
+  Orchestrator runner; only active, fresh evidence advances the durable
+  provision state to `worker_bootstrap_verified`/`verifying`.
+- [x] Add the retained/PITR/SSE/TTL Worker session table, exact claim route and
+  IAM behind the disabled-by-default deployment gate; require an explicitly
+  pinned IID RSA public key before that gate can be enabled.
+- [x] Pass standalone Go tests/vet/Linux Lambda build, affected Orchestrator,
+  Cloud Worker, store and command tests, one accumulated security/spec review,
+  and commit only current-stage files.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -330,10 +360,11 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Implement the next Worker bootstrap/observation slice without widening the
-Stack into an arbitrary command runner. Start with a durable, signed
-`deployment.observe` projection that binds the committed EC2 receipt to one
-active lease and external readiness evidence; then connect the existing
-provision runner to that observation. Keep Worker task/secret/root execution,
-public ingress, destroy, local AWS credentials, Stack deployment and
-real-account tests out of that slice until their own typed boundaries exist.
+Implement the next fixed Worker execution-probe slice without widening the
+Stack into an arbitrary command runner. Add the AWS-owned active-bearer task
+and bounded event stores/routes required by the existing non-root Cloud Worker
+and Orchestrator probe runner, preserving exact replay/sequence/lease fencing.
+It may carry only the fixed `execution_probe` task and de-secreted checkpoint
+evidence. Recipe/root execution, service secrets, public ingress, destroy,
+local AWS credentials, Stack deployment and real-account tests remain outside
+that slice until their own typed boundaries exist.

@@ -27,6 +27,7 @@ type DynamoConfig struct {
 	IssuedQuotesTable           string
 	DeploymentReservationsTable string
 	ApprovalUsesTable           string
+	WorkerSessionsTable         string
 }
 
 type DynamoRepository struct {
@@ -36,13 +37,14 @@ type DynamoRepository struct {
 	issuedQuotesTable           string
 	deploymentReservationsTable string
 	approvalUsesTable           string
+	workerSessionsTable         string
 }
 
 func NewDynamoRepository(config DynamoConfig) (*DynamoRepository, error) {
-	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || !validTableName(config.DeploymentReservationsTable) || !validTableName(config.ApprovalUsesTable) || !uniqueStrings(config.ReceiptsTable, config.CountersTable, config.IssuedQuotesTable, config.DeploymentReservationsTable, config.ApprovalUsesTable) {
+	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || !validTableName(config.DeploymentReservationsTable) || !validTableName(config.ApprovalUsesTable) || !validTableName(config.WorkerSessionsTable) || !uniqueStrings(config.ReceiptsTable, config.CountersTable, config.IssuedQuotesTable, config.DeploymentReservationsTable, config.ApprovalUsesTable, config.WorkerSessionsTable) {
 		return nil, errors.New("invalid DynamoDB receipt store configuration")
 	}
-	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable, deploymentReservationsTable: config.DeploymentReservationsTable, approvalUsesTable: config.ApprovalUsesTable}, nil
+	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable, deploymentReservationsTable: config.DeploymentReservationsTable, approvalUsesTable: config.ApprovalUsesTable, workerSessionsTable: config.WorkerSessionsTable}, nil
 }
 
 func uniqueStrings(values ...string) bool {
@@ -197,7 +199,7 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	action, err := stringAttribute(item, "action")
-	if err != nil || (action != contract.ActionRegistrationVerify && action != contract.ActionQuoteRequest && action != contract.ActionDeploymentCreate) {
+	if err != nil || (action != contract.ActionRegistrationVerify && action != contract.ActionQuoteRequest && action != contract.ActionDeploymentCreate && action != contract.ActionDeploymentObserve) {
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	resultJSON, err := stringAttribute(item, "result_json")
@@ -208,7 +210,7 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 }
 
 func validateRecord(record Record) error {
-	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || (record.Action != contract.ActionRegistrationVerify && record.Action != contract.ActionQuoteRequest && record.Action != contract.ActionDeploymentCreate) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
+	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || (record.Action != contract.ActionRegistrationVerify && record.Action != contract.ActionQuoteRequest && record.Action != contract.ActionDeploymentCreate && record.Action != contract.ActionDeploymentObserve) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
 		return NewError("receipt_store_invalid")
 	}
 	return nil

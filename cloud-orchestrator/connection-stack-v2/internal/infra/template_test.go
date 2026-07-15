@@ -32,8 +32,20 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"AWS::DynamoDB::Table",
 		"DeploymentReservationsTable:",
 		"ApprovalUsesTable:",
+		"WorkerSessionsTable:",
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE",
 		"DIREXTALK_APPROVAL_USES_TABLE",
+		"DIREXTALK_WORKER_SESSIONS_TABLE",
+		"DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT",
+		"DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM",
+		"WorkerIdentityRsaPublicKeyPem:",
+		"DeploymentCreateRequiresWorkerIdentityKey:",
+		"Worker bootstrap identity verification key must be configured when",
+		"TimeToLiveSpecification:",
+		"AttributeName: ttl_epoch_seconds",
+		"POST /v2/worker-sessions/{session_id}/claim",
+		"/POST/v2/worker-sessions/*/claim",
+		"WorkerBootstrapEndpoint:",
 		"WorkerSecurityGroup:",
 		"DIREXTALK_WORKER_SECURITY_GROUP_ID",
 		"SecurityGroupEgress:",
@@ -71,11 +83,19 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"ec2:StopInstances",
 		"dynamodb:Scan",
 		"dynamodb:Query",
-		"/v2/worker-sessions",
 		"StageName: \"$default\"",
 	} {
 		if strings.Contains(strings.ToLower(template), strings.ToLower(forbidden)) {
 			t.Fatalf("template unexpectedly grants or depends on %q", forbidden)
+		}
+	}
+	for _, guardedBoundary := range []string{
+		"BrokerWorkerClaimRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"WorkerSessionsTable:\n    Type: AWS::DynamoDB::Table\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain",
+	} {
+		if !strings.Contains(template, guardedBoundary) {
+			t.Fatalf("template boundary is not fail closed: missing %q", guardedBoundary)
 		}
 	}
 }

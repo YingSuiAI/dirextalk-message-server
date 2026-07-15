@@ -212,8 +212,8 @@ record containing the opaque execution ID. It does not change the Deployment,
 claim a Worker task, invoke the recipe coordinator, deliver an artifact, run
 root commands, create an AWS resource, or make a service ready.
 
-After a later typed creator has recorded a private Worker receipt, the next
-Stack parity stage may implement a durable signed `deployment.observe` read.
+After the typed creator records its private Worker receipt, the standalone Go
+Stack implements a durable signed `deployment.observe` read.
 Its required response is only `dirextalk.aws.deployment-observation/v1`: the
 deployment and instance binding, fixed `provisioning` receipt status, active
 lease epoch/expiry, sequence, and observed time. It must never return a
@@ -222,8 +222,9 @@ stale observation must be deferred; only current active evidence may advance
 the provision Job from `worker_bootstrap_pending` to
 `worker_bootstrap_verified` and execution to `verifying`. A read retry must
 reuse its exact persisted envelope; only the Stack's explicit
-`expired_command` result may allocate a new node counter. The current Go
-module implements none of this observation/store behavior.
+`expired_command` result may allocate a new node counter. The Go module now
+implements this observation/store behavior and the existing provision runner
+consumes it.
 
 The future Stack contract also specifies a separately typed active-bearer
 Worker task channel. Its eventual AWS-owned store must retain only a
@@ -233,8 +234,9 @@ or execution-manifest digest. The Orchestrator may create the sole issue
 outbox only after private bootstrap evidence becomes active, and the non-root
 `cloud-worker` may send only the two fixed `execution_probe` transport events.
 Those future events cannot establish Recipe/root execution, service health,
-public ingress, or AWS mutation. No Worker task route, DynamoDB table, or
-active-bearer session is present in the current Go module.
+public ingress, or AWS mutation. The current Go module has the IID-verified
+active-bearer bootstrap session, but still has no Worker task/event route or
+task DynamoDB table; that fixed execution-probe channel is the next stage.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
@@ -539,12 +541,13 @@ separate plan and confirmation.
 The current slice does not upload credentials or deploy a Connection Stack on
 the owner's behalf, install a service, expose a network endpoint, or destroy a
 resource. It can issue a reviewed CloudFormation handoff and persist a
-research-only intent. The Go Broker enables signed registration verification
-and read-only On-Demand quotes; `deployment.create` exists as a complete typed
-transaction but is off by default and all observation, Worker, secret,
-installation and lifecycle commands still return `operation_not_enabled`.
-It does not yet deploy a researcher endpoint, build a Worker AMI, connect a
-Worker bootstrap/observation flow, or run a real-account AWS integration test.
+research-only intent. The Go Broker enables signed registration verification,
+read-only On-Demand quotes and `deployment.observe`; `deployment.create` plus
+IID-verified Worker claim exist as one complete typed bootstrap transaction but
+are off by default. Worker task/event, secret, installation and lifecycle
+commands still return `operation_not_enabled`. It does not yet deploy a
+researcher endpoint, build or publish a Worker AMI, execute a Recipe, or run a
+real-account AWS integration test.
 Those transitions
 must be implemented through the typed Connection
 Stack/Broker path; neither the Eino Agent tool, external MCP, nor the

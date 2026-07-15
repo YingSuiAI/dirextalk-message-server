@@ -52,6 +52,24 @@ func TestDeploymentCreateResumesReservationAfterReadBackFailure(t *testing.T) {
 	}
 }
 
+func TestDeploymentCreateRejectsTamperedStoredBootstrapSpecBeforeProvider(t *testing.T) {
+	broker, store, provider, raw := deploymentTestBroker(t)
+	provider.readErr = NewError("provider_readback_unavailable", 503)
+	if response := serve(t, broker, http.MethodPost, "/v2/commands", raw); response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("initial status=%d body=%s", response.Code, response.Body.String())
+	}
+	for key, reservation := range store.deployments {
+		reservation.SpecJSON = bytes.Replace(reservation.SpecJSON, []byte(`"subnet_id":"subnet-0123456789abcdef0"`), []byte(`"subnet_id":"subnet-fffffffffffffffff"`), 1)
+		store.deployments[key] = reservation
+	}
+	provider.readErr = nil
+	response := serve(t, broker, http.MethodPost, "/v2/commands", raw)
+	assertHTTPError(t, response, http.StatusConflict, "deployment_id_conflict")
+	if provider.ensureCalls != 1 {
+		t.Fatalf("tampered stored spec reached provider ensure=%d", provider.ensureCalls)
+	}
+}
+
 func TestDeploymentCreateAuthenticatesBeforeApprovalStoreAndProvider(t *testing.T) {
 	broker, store, provider, raw := deploymentTestBroker(t)
 	var command map[string]any
@@ -204,7 +222,7 @@ func deploymentTestBroker(t *testing.T) (Broker, *memoryCommandStore, *recording
 	nodePublic := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x6a}, ed25519.SeedSize)).Public().(ed25519.PublicKey)
 	devicePublic := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x4f}, ed25519.SeedSize)).Public().(ed25519.PublicKey)
 	provider := &recordingDeploymentProvider{}
-	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1", Generation: 2, PublicKey: nodePublic}, DeploymentEnabled: true, ApprovalResolver: StaticApprovalKeyResolver{ConnectionID: "connection-create-0001", SignerKeyID: "device-key-1", PublicKey: devicePublic}, DeploymentStore: store, DeploymentProvider: provider, DeploymentBoundary: DeploymentBoundary{WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"}, WorkerNetwork: contract.WorkerNetworkReference{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a"}, WorkerResourceManifestDigest: "sha256:" + string(bytes.Repeat([]byte{'c'}, 64)), WorkerSecurityGroupID: "sg-0123456789abcdef0"}, Now: func() time.Time { return time.Date(2026, 7, 14, 12, 1, 0, 0, time.UTC) }}
+	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: "connection-create-0001", NodeKeyID: "node-key-1", Generation: 2, PublicKey: nodePublic}, DeploymentEnabled: true, ApprovalResolver: StaticApprovalKeyResolver{ConnectionID: "connection-create-0001", SignerKeyID: "device-key-1", PublicKey: devicePublic}, DeploymentStore: store, DeploymentProvider: provider, DeploymentBoundary: DeploymentBoundary{WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"}, WorkerNetwork: contract.WorkerNetworkReference{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a"}, WorkerResourceManifestDigest: "sha256:" + string(bytes.Repeat([]byte{'c'}, 64)), WorkerSecurityGroupID: "sg-0123456789abcdef0", WorkerBootstrapEndpoint: "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/worker-sessions"}, Now: func() time.Time { return time.Date(2026, 7, 14, 12, 1, 0, 0, time.UTC) }}
 	return broker, store, provider, raw
 }
 

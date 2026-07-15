@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,15 @@ func TestBuildWorkerBootstrapObservationCommandBindsOnlyDeployment(t *testing.T)
 	decoded, err := parsed.DeploymentObserveRequest()
 	if err != nil || !reflect.DeepEqual(decoded, broker.DeploymentObserveRequest{DeploymentID: request.DeploymentID}) {
 		t.Fatalf("decoded worker observation request=%#v err=%v", decoded, err)
+	}
+}
+
+func TestWorkerBootstrapObservationTreatsPendingAndExpiredWorkerLeaseAsRetryable(t *testing.T) {
+	for _, code := range []string{"worker_bootstrap_unavailable", "worker_session_expired"} {
+		err := classifyWorkerBootstrapObservationBrokerError(&broker.Error{Code: code, StatusCode: 409})
+		if err == nil || !strings.Contains(err.Error(), code) {
+			t.Fatalf("code=%s err=%v", code, err)
+		}
 	}
 }
 

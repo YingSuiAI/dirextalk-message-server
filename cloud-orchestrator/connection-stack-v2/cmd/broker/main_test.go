@@ -11,6 +11,7 @@ func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T)
 	}
 
 	t.Setenv("DIREXTALK_DEPLOYMENT_CREATE_ENABLED", "true")
+	t.Setenv("DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM", "test-public-key")
 	config, err = runtimeConfigFromEnvironment()
 	if err != nil || !config.deploymentEnabled {
 		t.Fatalf("true gate config=(%#v,%v)", config, err)
@@ -44,11 +45,14 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_WORKER_SUBNET_ID":                    "subnet-0123456789abcdef0",
 		"DIREXTALK_WORKER_AVAILABILITY_ZONE":            "us-east-1a",
 		"DIREXTALK_WORKER_SECURITY_GROUP_ID":            "sg-0123456789abcdef0",
+		"DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT":           "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/worker-sessions",
+		"DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM":  "",
 		"DIREXTALK_COMMAND_RECEIPTS_TABLE":              "receipts",
 		"DIREXTALK_CONNECTION_COUNTERS_TABLE":           "counters",
 		"DIREXTALK_ISSUED_QUOTES_TABLE":                 "quotes",
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE":       "deployments",
 		"DIREXTALK_APPROVAL_USES_TABLE":                 "approval-uses",
+		"DIREXTALK_WORKER_SESSIONS_TABLE":               "worker-sessions",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

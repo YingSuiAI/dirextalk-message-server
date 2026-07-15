@@ -93,12 +93,18 @@ type Broker struct {
 	DeploymentStore    commandstore.DeploymentRepository
 	DeploymentProvider DeploymentProvider
 	DeploymentBoundary DeploymentBoundary
+	WorkerIdentity     WorkerIdentityVerifier
+	WorkerTokens       WorkerTokenGenerator
 	Now                func() time.Time
 }
 
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
+	if bootstrapSessionID, ok := workerClaimSessionID(request.URL.Path); ok {
+		b.serveWorkerClaim(response, request, bootstrapSessionID)
+		return
+	}
 	if request.URL.Path != commandPath || request.URL.RawQuery != "" {
 		writeError(response, http.StatusNotFound, "not_found")
 		return
@@ -165,6 +171,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		b.executeDeployment(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionDeploymentObserve {
+		b.executeDeploymentObserve(response, request, command, now)
 		return
 	}
 	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {

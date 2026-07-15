@@ -1,8 +1,11 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,8 +27,12 @@ func TestEC2DeploymentProviderUsesClosedCreateSpecAndIndependentReadBack(t *test
 		t.Fatalf("EnsureCreated()=(%s,%v)", instanceID, err)
 	}
 	input := client.runInput
-	if input == nil || aws.ToString(input.ClientToken) != spec.ClientToken || input.MinCount == nil || *input.MinCount != 1 || input.MaxCount == nil || *input.MaxCount != 1 || len(input.NetworkInterfaces) != 1 || len(input.NetworkInterfaces[0].Groups) != 1 || input.NetworkInterfaces[0].Groups[0] != spec.SecurityGroupID || aws.ToBool(input.NetworkInterfaces[0].AssociatePublicIpAddress) || aws.ToBool(input.NetworkInterfaces[0].DeleteOnTermination) || input.IamInstanceProfile != nil || input.KeyName != nil || input.UserData != nil || input.InstanceInitiatedShutdownBehavior != ec2types.ShutdownBehaviorStop || input.MetadataOptions == nil || input.MetadataOptions.HttpTokens != ec2types.HttpTokensStateRequired || len(input.BlockDeviceMappings) != 1 || input.BlockDeviceMappings[0].Ebs == nil || !aws.ToBool(input.BlockDeviceMappings[0].Ebs.Encrypted) || aws.ToBool(input.BlockDeviceMappings[0].Ebs.DeleteOnTermination) || len(input.TagSpecifications) != 2 {
+	if input == nil || aws.ToString(input.ClientToken) != spec.ClientToken || input.MinCount == nil || *input.MinCount != 1 || input.MaxCount == nil || *input.MaxCount != 1 || len(input.NetworkInterfaces) != 1 || len(input.NetworkInterfaces[0].Groups) != 1 || input.NetworkInterfaces[0].Groups[0] != spec.SecurityGroupID || aws.ToBool(input.NetworkInterfaces[0].AssociatePublicIpAddress) || aws.ToBool(input.NetworkInterfaces[0].DeleteOnTermination) || input.IamInstanceProfile != nil || input.KeyName != nil || input.UserData == nil || input.InstanceInitiatedShutdownBehavior != ec2types.ShutdownBehaviorStop || input.MetadataOptions == nil || input.MetadataOptions.HttpTokens != ec2types.HttpTokensStateRequired || input.MetadataOptions.InstanceMetadataTags != ec2types.InstanceMetadataTagsStateDisabled || len(input.BlockDeviceMappings) != 1 || input.BlockDeviceMappings[0].Ebs == nil || !aws.ToBool(input.BlockDeviceMappings[0].Ebs.Encrypted) || aws.ToBool(input.BlockDeviceMappings[0].Ebs.DeleteOnTermination) || len(input.TagSpecifications) != 2 {
 		t.Fatalf("unsafe RunInstances input=%#v", input)
+	}
+	decodedUserData, err := base64.StdEncoding.DecodeString(aws.ToString(input.UserData))
+	if err != nil || !bytes.Contains(decodedUserData, []byte("dirextalk-cloud-worker.service")) || bytes.Contains(decodedUserData, []byte("access_token")) {
+		t.Fatalf("unsafe Worker bootstrap user data")
 	}
 	evidence, err := provider.ReadBack(t.Context(), spec, instanceID)
 	if err != nil || evidence.InstanceID != instanceID || len(evidence.VolumeIDs) != 1 || len(evidence.NetworkInterfaceIDs) != 1 {
@@ -72,5 +79,5 @@ func (f *fakeEC2Deployment) DescribeVolumes(_ context.Context, _ *ec2.DescribeVo
 	return &ec2.DescribeVolumesOutput{Volumes: []ec2types.Volume{{VolumeId: aws.String("vol-0123456789abcdef0"), Encrypted: aws.Bool(true), Size: aws.Int32(80), VolumeType: ec2types.VolumeTypeGp3, Tags: deploymentTags(spec)}}}, nil
 }
 func validEC2DeploymentSpec() api.DeploymentSpec {
-	return api.DeploymentSpec{ConnectionID: "connection-create-0001", DeploymentID: "deployment-create-0001", ClientToken: "dtx-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AMIId: "ami-0123456789abcdef0", InstanceType: "m7i.xlarge", Architecture: "amd64", DiskGiB: 80, VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a", SecurityGroupID: "sg-0123456789abcdef0"}
+	return api.DeploymentSpec{ConnectionID: "connection-create-0001", DeploymentID: "deployment-create-0001", ClientToken: "dtx-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AMIId: "ami-0123456789abcdef0", InstanceType: "m7i.xlarge", Architecture: "amd64", DiskGiB: 80, VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a", SecurityGroupID: "sg-0123456789abcdef0", BootstrapSessionID: "bootstrap-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", BootstrapEndpoint: "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/worker-sessions", WorkerImageDigest: "sha256:" + strings.Repeat("c", 64), ArtifactManifestDigest: "sha256:" + strings.Repeat("c", 64), BootstrapExpiresAt: "2026-07-14T12:10:00.123Z"}
 }

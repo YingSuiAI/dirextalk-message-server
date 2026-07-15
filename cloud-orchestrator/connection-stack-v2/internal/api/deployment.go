@@ -49,20 +49,26 @@ type DeploymentBoundary struct {
 	WorkerNetwork                contract.WorkerNetworkReference
 	WorkerResourceManifestDigest string
 	WorkerSecurityGroupID        string
+	WorkerBootstrapEndpoint      string
 }
 
 type DeploymentSpec struct {
-	ConnectionID     string `json:"connection_id"`
-	DeploymentID     string `json:"deployment_id"`
-	ClientToken      string `json:"client_token"`
-	AMIId            string `json:"ami_id"`
-	InstanceType     string `json:"instance_type"`
-	Architecture     string `json:"architecture"`
-	DiskGiB          int64  `json:"disk_gib"`
-	VPCID            string `json:"vpc_id"`
-	SubnetID         string `json:"subnet_id"`
-	AvailabilityZone string `json:"availability_zone"`
-	SecurityGroupID  string `json:"security_group_id"`
+	ConnectionID           string `json:"connection_id"`
+	DeploymentID           string `json:"deployment_id"`
+	ClientToken            string `json:"client_token"`
+	AMIId                  string `json:"ami_id"`
+	InstanceType           string `json:"instance_type"`
+	Architecture           string `json:"architecture"`
+	DiskGiB                int64  `json:"disk_gib"`
+	VPCID                  string `json:"vpc_id"`
+	SubnetID               string `json:"subnet_id"`
+	AvailabilityZone       string `json:"availability_zone"`
+	SecurityGroupID        string `json:"security_group_id"`
+	BootstrapSessionID     string `json:"bootstrap_session_id"`
+	BootstrapEndpoint      string `json:"bootstrap_endpoint"`
+	WorkerImageDigest      string `json:"worker_image_digest"`
+	ArtifactManifestDigest string `json:"artifact_manifest_digest"`
+	BootstrapExpiresAt     string `json:"bootstrap_expires_at"`
 }
 
 type DeploymentEvidence struct {
@@ -158,14 +164,24 @@ func (b Broker) executeDeployment(response http.ResponseWriter, request *http.Re
 }
 
 func (b Broker) deploymentReservation(command contract.Command, request contract.DeploymentRequest, proof contract.ApprovalProof, issued commandstore.IssuedQuote, now *time.Time) (commandstore.DeploymentReservation, DeploymentSpec, error) {
-	if request.WorkerArtifact.Kind != b.DeploymentBoundary.WorkerArtifact.Kind || request.WorkerArtifact.AMIID != b.DeploymentBoundary.WorkerArtifact.AMIID || request.Network.VPCID != b.DeploymentBoundary.WorkerNetwork.VPCID || request.Network.SubnetID != b.DeploymentBoundary.WorkerNetwork.SubnetID || request.Network.AvailabilityZone != b.DeploymentBoundary.WorkerNetwork.AvailabilityZone || request.ResourceManifestDigest != b.DeploymentBoundary.WorkerResourceManifestDigest || b.DeploymentBoundary.WorkerSecurityGroupID == "" {
+	if request.WorkerArtifact.Kind != b.DeploymentBoundary.WorkerArtifact.Kind || request.WorkerArtifact.AMIID != b.DeploymentBoundary.WorkerArtifact.AMIID || request.Network.VPCID != b.DeploymentBoundary.WorkerNetwork.VPCID || request.Network.SubnetID != b.DeploymentBoundary.WorkerNetwork.SubnetID || request.Network.AvailabilityZone != b.DeploymentBoundary.WorkerNetwork.AvailabilityZone || request.ResourceManifestDigest != b.DeploymentBoundary.WorkerResourceManifestDigest || b.DeploymentBoundary.WorkerSecurityGroupID == "" || b.DeploymentBoundary.WorkerBootstrapEndpoint == "" {
 		return commandstore.DeploymentReservation{}, DeploymentSpec{}, contractError("worker_binding_mismatch")
 	}
 	requestSHA, _ := command.RequestSHA256()
 	clientToken := "dtx-" + requestSHA[:60]
-	spec := DeploymentSpec{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, ClientToken: clientToken, AMIId: request.WorkerArtifact.AMIID, InstanceType: proof.ResourceScope.InstanceType, Architecture: proof.ResourceScope.Architecture, DiskGiB: int64(proof.ResourceScope.DiskGiB), VPCID: request.Network.VPCID, SubnetID: request.Network.SubnetID, AvailabilityZone: request.Network.AvailabilityZone, SecurityGroupID: b.DeploymentBoundary.WorkerSecurityGroupID}
+	issuedAt, parseErr := time.Parse("2006-01-02T15:04:05.000Z", command.IssuedAt)
+	if parseErr != nil {
+		return commandstore.DeploymentReservation{}, DeploymentSpec{}, contractError("invalid_command")
+	}
+	bootstrapSessionID := "bootstrap-" + requestSHA[:32]
+	spec := DeploymentSpec{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, ClientToken: clientToken, AMIId: request.WorkerArtifact.AMIID, InstanceType: proof.ResourceScope.InstanceType, Architecture: proof.ResourceScope.Architecture, DiskGiB: int64(proof.ResourceScope.DiskGiB), VPCID: request.Network.VPCID, SubnetID: request.Network.SubnetID, AvailabilityZone: request.Network.AvailabilityZone, SecurityGroupID: b.DeploymentBoundary.WorkerSecurityGroupID, BootstrapSessionID: bootstrapSessionID, BootstrapEndpoint: b.DeploymentBoundary.WorkerBootstrapEndpoint, WorkerImageDigest: b.DeploymentBoundary.WorkerResourceManifestDigest, ArtifactManifestDigest: request.ResourceManifestDigest, BootstrapExpiresAt: contract.CanonicalInstant(issuedAt.Add(10 * time.Minute))}
 	specJSON, _ := json.Marshal(spec)
-	reservation := commandstore.DeploymentReservation{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, CommandID: command.CommandID, RequestSHA256: requestSHA, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, ApprovalID: proof.ApprovalID, ChallengeID: proof.ChallengeID, SignerKeyID: proof.SignerKeyID, QuoteID: proof.QuoteID, ClientToken: clientToken, SpecJSON: specJSON, State: "reserved"}
+	workerArchitecture := "x86_64"
+	if spec.Architecture == "arm64" {
+		workerArchitecture = "arm64"
+	}
+	workerSession := commandstore.WorkerSession{BootstrapSessionID: bootstrapSessionID, ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, RequestSHA256: requestSHA, WorkerImageDigest: spec.WorkerImageDigest, ArtifactManifestDigest: spec.ArtifactManifestDigest, BootstrapEndpoint: spec.BootstrapEndpoint, ExpectedAMIID: spec.AMIId, ExpectedInstanceType: spec.InstanceType, ExpectedArchitecture: workerArchitecture, ExpectedVPCID: spec.VPCID, ExpectedSubnetID: spec.SubnetID, ExpectedAvailabilityZone: spec.AvailabilityZone, ExpectedSecurityGroupID: spec.SecurityGroupID, State: "issued", ExpiresAt: spec.BootstrapExpiresAt}
+	reservation := commandstore.DeploymentReservation{ConnectionID: command.ConnectionID, DeploymentID: request.DeploymentID, CommandID: command.CommandID, RequestSHA256: requestSHA, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, ApprovalID: proof.ApprovalID, ChallengeID: proof.ChallengeID, SignerKeyID: proof.SignerKeyID, QuoteID: proof.QuoteID, ClientToken: clientToken, BootstrapSessionID: bootstrapSessionID, WorkerSession: workerSession, SpecJSON: specJSON, State: "reserved"}
 	if now == nil {
 		return reservation, spec, nil
 	}
@@ -191,8 +207,8 @@ func (b Broker) deploymentReservation(command contract.Command, request contract
 }
 
 func (b Broker) resumeDeployment(response http.ResponseWriter, request *http.Request, command contract.Command, identity commandstore.Record, reservation commandstore.DeploymentReservation) {
-	var spec DeploymentSpec
-	if json.Unmarshal(reservation.SpecJSON, &spec) != nil {
+	spec, err := b.storedDeploymentSpec(reservation)
+	if err != nil {
 		writeError(response, 500, "deployment_store_invalid")
 		return
 	}
@@ -236,6 +252,36 @@ func (b Broker) resumeDeployment(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeRawJSON(response, 200, stored.ResultJSON)
+}
+
+func (b Broker) storedDeploymentSpec(reservation commandstore.DeploymentReservation) (DeploymentSpec, error) {
+	var spec DeploymentSpec
+	if json.Unmarshal(reservation.SpecJSON, &spec) != nil {
+		return DeploymentSpec{}, contractError("deployment_store_invalid")
+	}
+	canonical, err := json.Marshal(spec)
+	if err != nil || !bytes.Equal(canonical, reservation.SpecJSON) {
+		return DeploymentSpec{}, contractError("deployment_store_invalid")
+	}
+	session := reservation.WorkerSession
+	wantArchitecture := "amd64"
+	if session.ExpectedArchitecture == "arm64" {
+		wantArchitecture = "arm64"
+	}
+	if spec.ConnectionID != reservation.ConnectionID || spec.DeploymentID != reservation.DeploymentID ||
+		spec.ClientToken != reservation.ClientToken || spec.BootstrapSessionID != reservation.BootstrapSessionID ||
+		spec.AMIId != session.ExpectedAMIID || spec.InstanceType != session.ExpectedInstanceType || spec.Architecture != wantArchitecture ||
+		spec.VPCID != session.ExpectedVPCID || spec.SubnetID != session.ExpectedSubnetID ||
+		spec.AvailabilityZone != session.ExpectedAvailabilityZone || spec.SecurityGroupID != session.ExpectedSecurityGroupID ||
+		spec.BootstrapEndpoint != session.BootstrapEndpoint || spec.WorkerImageDigest != session.WorkerImageDigest ||
+		spec.ArtifactManifestDigest != session.ArtifactManifestDigest || spec.BootstrapExpiresAt != session.ExpiresAt ||
+		spec.AMIId != b.DeploymentBoundary.WorkerArtifact.AMIID || spec.VPCID != b.DeploymentBoundary.WorkerNetwork.VPCID ||
+		spec.SubnetID != b.DeploymentBoundary.WorkerNetwork.SubnetID || spec.AvailabilityZone != b.DeploymentBoundary.WorkerNetwork.AvailabilityZone ||
+		spec.SecurityGroupID != b.DeploymentBoundary.WorkerSecurityGroupID || spec.BootstrapEndpoint != b.DeploymentBoundary.WorkerBootstrapEndpoint ||
+		spec.WorkerImageDigest != b.DeploymentBoundary.WorkerResourceManifestDigest {
+		return DeploymentSpec{}, contractError("deployment_store_invalid")
+	}
+	return spec, nil
 }
 
 func (b Broker) writeDeploymentReplay(response http.ResponseWriter, command contract.Command, identity, stored commandstore.Record) {

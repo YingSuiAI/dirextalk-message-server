@@ -63,6 +63,17 @@ func (s *DynamoRepository) LookupDeployment(ctx context.Context, connectionID, d
 	if err != nil || r.ConnectionID != connectionID || r.DeploymentID != deploymentID {
 		return DeploymentReservation{}, false, NewError("deployment_store_invalid")
 	}
+	session, found, err := s.LookupWorkerSession(ctx, r.BootstrapSessionID)
+	if err != nil {
+		return DeploymentReservation{}, false, err
+	}
+	if !found {
+		return DeploymentReservation{}, false, NewError("deployment_store_invalid")
+	}
+	r.WorkerSession = session
+	if validateDeploymentReservation(r) != nil {
+		return DeploymentReservation{}, false, NewError("deployment_store_invalid")
+	}
 	return r, true, nil
 }
 
@@ -70,7 +81,7 @@ func (s *DynamoRepository) ReserveDeployment(ctx context.Context, r DeploymentRe
 	if validateDeploymentReservation(r) != nil {
 		return DeploymentReservation{}, false, NewError("deployment_store_invalid")
 	}
-	items := []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.countersTable, Key: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}}, UpdateExpression: stringPtr("SET last_node_counter = :node_counter"), ConditionExpression: stringPtr("attribute_not_exists(last_node_counter) OR last_node_counter < :node_counter"), ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}}}}, {Put: &dynamodbtypes.Put{TableName: &s.deploymentReservationsTable, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(deployment_id)"), Item: deploymentItem(r)}}, {Put: approvalUsePut(s.approvalUsesTable, r, "approval#"+r.ApprovalID)}, {Put: approvalUsePut(s.approvalUsesTable, r, "challenge#"+r.ChallengeID)}}
+	items := []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.countersTable, Key: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}}, UpdateExpression: stringPtr("SET last_node_counter = :node_counter"), ConditionExpression: stringPtr("attribute_not_exists(last_node_counter) OR last_node_counter < :node_counter"), ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}}}}, {Put: &dynamodbtypes.Put{TableName: &s.deploymentReservationsTable, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(deployment_id)"), Item: deploymentItem(r)}}, {Put: approvalUsePut(s.approvalUsesTable, r, "approval#"+r.ApprovalID)}, {Put: approvalUsePut(s.approvalUsesTable, r, "challenge#"+r.ChallengeID)}, {Put: &dynamodbtypes.Put{TableName: &s.workerSessionsTable, ConditionExpression: stringPtr("attribute_not_exists(bootstrap_session_id)"), Item: workerSessionItem(r.WorkerSession)}}}
 	_, err := s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err == nil {
 		return cloneDeployment(r), true, nil
@@ -106,10 +117,14 @@ func (s *DynamoRepository) reconcileDeploymentReservation(ctx context.Context, r
 }
 
 func (s *DynamoRepository) FinalizeDeployment(ctx context.Context, r DeploymentReservation, receipt Record) (Record, bool, error) {
-	if validateDeploymentReservation(r) != nil || receipt.Action != contract.ActionDeploymentCreate || !r.SameIdentity(DeploymentReservation{ConnectionID: receipt.ConnectionID, DeploymentID: r.DeploymentID, CommandID: receipt.CommandID, RequestSHA256: receipt.RequestSHA256, ExpectedGeneration: receipt.ExpectedGeneration, NodeCounter: receipt.NodeCounter, ApprovalID: r.ApprovalID, ChallengeID: r.ChallengeID, SignerKeyID: r.SignerKeyID, QuoteID: r.QuoteID, ClientToken: r.ClientToken, SpecJSON: r.SpecJSON}) || validateRecord(receipt) != nil {
+	if validateDeploymentReservation(r) != nil || receipt.Action != contract.ActionDeploymentCreate || !r.SameIdentity(DeploymentReservation{ConnectionID: receipt.ConnectionID, DeploymentID: r.DeploymentID, CommandID: receipt.CommandID, RequestSHA256: receipt.RequestSHA256, ExpectedGeneration: receipt.ExpectedGeneration, NodeCounter: receipt.NodeCounter, ApprovalID: r.ApprovalID, ChallengeID: r.ChallengeID, SignerKeyID: r.SignerKeyID, QuoteID: r.QuoteID, ClientToken: r.ClientToken, BootstrapSessionID: r.BootstrapSessionID, WorkerSession: r.WorkerSession, SpecJSON: r.SpecJSON}) || validateRecord(receipt) != nil {
 		return Record{}, false, NewError("deployment_store_invalid")
 	}
-	items := []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.deploymentReservationsTable, Key: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}}, UpdateExpression: stringPtr("SET #state = :finalized, result_json = :result_json"), ConditionExpression: stringPtr("request_sha256 = :request_sha256 AND #state = :reserved"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":finalized": &dynamodbtypes.AttributeValueMemberS{Value: "finalized"}, ":reserved": &dynamodbtypes.AttributeValueMemberS{Value: "reserved"}, ":request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, ":result_json": &dynamodbtypes.AttributeValueMemberS{Value: string(receipt.ResultJSON)}}}}, {Put: &dynamodbtypes.Put{TableName: &s.receiptsTable, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(command_id)"), Item: recordItemForStore(receipt)}}}
+	instanceID, resultErr := deploymentInstanceID(receipt.ResultJSON)
+	if resultErr != nil {
+		return Record{}, false, NewError("deployment_store_invalid")
+	}
+	items := []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.deploymentReservationsTable, Key: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}}, UpdateExpression: stringPtr("SET #state = :finalized, result_json = :result_json"), ConditionExpression: stringPtr("request_sha256 = :request_sha256 AND #state = :reserved"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":finalized": &dynamodbtypes.AttributeValueMemberS{Value: "finalized"}, ":reserved": &dynamodbtypes.AttributeValueMemberS{Value: "reserved"}, ":request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, ":result_json": &dynamodbtypes.AttributeValueMemberS{Value: string(receipt.ResultJSON)}}}}, {Update: &dynamodbtypes.Update{TableName: &s.workerSessionsTable, Key: map[string]dynamodbtypes.AttributeValue{"bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}}, UpdateExpression: stringPtr("SET #state = :bound, expected_instance_id = :instance_id"), ConditionExpression: stringPtr("connection_id = :connection_id AND deployment_id = :deployment_id AND request_sha256 = :request_sha256 AND #state = :issued"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":bound": &dynamodbtypes.AttributeValueMemberS{Value: "bound"}, ":issued": &dynamodbtypes.AttributeValueMemberS{Value: "issued"}, ":instance_id": &dynamodbtypes.AttributeValueMemberS{Value: instanceID}, ":connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, ":deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, ":request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}}}}, {Put: &dynamodbtypes.Put{TableName: &s.receiptsTable, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(command_id)"), Item: recordItemForStore(receipt)}}}
 	_, err := s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err == nil {
 		return cloneRecord(receipt), true, nil
@@ -137,7 +152,7 @@ func approvalUsePut(table string, r DeploymentReservation, useID string) *dynamo
 	return &dynamodbtypes.Put{TableName: &table, ConditionExpression: stringPtr("attribute_not_exists(connection_id) AND attribute_not_exists(use_id)"), Item: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "use_id": &dynamodbtypes.AttributeValueMemberS{Value: useID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}}}
 }
 func deploymentItem(r DeploymentReservation) map[string]dynamodbtypes.AttributeValue {
-	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: r.SignerKeyID}, "quote_id": &dynamodbtypes.AttributeValueMemberS{Value: r.QuoteID}, "client_token": &dynamodbtypes.AttributeValueMemberS{Value: r.ClientToken}, "spec_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.SpecJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: r.State}}
+	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: r.SignerKeyID}, "quote_id": &dynamodbtypes.AttributeValueMemberS{Value: r.QuoteID}, "client_token": &dynamodbtypes.AttributeValueMemberS{Value: r.ClientToken}, "bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}, "spec_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.SpecJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: r.State}}
 }
 func recordItemForStore(r Record) map[string]dynamodbtypes.AttributeValue {
 	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: r.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.NodeCounter, 10)}, "action": &dynamodbtypes.AttributeValueMemberS{Value: r.Action}, "result_json": &dynamodbtypes.AttributeValueMemberS{Value: string(r.ResultJSON)}}
@@ -179,6 +194,9 @@ func deploymentFromItem(item map[string]dynamodbtypes.AttributeValue) (Deploymen
 	if r.ClientToken, err = stringAttribute(item, "client_token"); err != nil {
 		return r, err
 	}
+	if r.BootstrapSessionID, err = stringAttribute(item, "bootstrap_session_id"); err != nil {
+		return r, err
+	}
 	spec, err := stringAttribute(item, "spec_json")
 	if err != nil {
 		return r, err
@@ -190,13 +208,20 @@ func deploymentFromItem(item map[string]dynamodbtypes.AttributeValue) (Deploymen
 	if raw, ok := item["result_json"].(*dynamodbtypes.AttributeValueMemberS); ok {
 		r.ResultJSON = []byte(raw.Value)
 	}
-	if validateDeploymentReservation(r) != nil {
+	if validateDeploymentReservationIdentity(r) != nil {
 		return r, NewError("deployment_store_invalid")
 	}
 	return r, nil
 }
 func validateDeploymentReservation(r DeploymentReservation) error {
-	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.CommandID) || !validSHA256(r.RequestSHA256) || r.ExpectedGeneration < 1 || r.NodeCounter < 0 || r.ApprovalID == "" || r.ChallengeID == "" || r.SignerKeyID == "" || !contract.ValidID(r.QuoteID) || !clientTokenPattern.MatchString(r.ClientToken) || len(r.SpecJSON) == 0 || len(r.SpecJSON) > contract.MaxCommandBytes || (r.State != "reserved" && r.State != "finalized") {
+	if validateDeploymentReservationIdentity(r) != nil || !validWorkerSession(r.WorkerSession) || r.WorkerSession.BootstrapSessionID != r.BootstrapSessionID || r.WorkerSession.ConnectionID != r.ConnectionID || r.WorkerSession.DeploymentID != r.DeploymentID || r.WorkerSession.RequestSHA256 != r.RequestSHA256 {
+		return NewError("deployment_store_invalid")
+	}
+	return nil
+}
+
+func validateDeploymentReservationIdentity(r DeploymentReservation) error {
+	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.CommandID) || !validSHA256(r.RequestSHA256) || r.ExpectedGeneration < 1 || r.NodeCounter < 0 || r.ApprovalID == "" || r.ChallengeID == "" || r.SignerKeyID == "" || !contract.ValidID(r.QuoteID) || !clientTokenPattern.MatchString(r.ClientToken) || !contract.ValidID(r.BootstrapSessionID) || len(r.SpecJSON) == 0 || len(r.SpecJSON) > contract.MaxCommandBytes || (r.State != "reserved" && r.State != "finalized") {
 		return NewError("deployment_store_invalid")
 	}
 	return nil
@@ -205,4 +230,12 @@ func cloneDeployment(r DeploymentReservation) DeploymentReservation {
 	r.SpecJSON = append([]byte(nil), r.SpecJSON...)
 	r.ResultJSON = append([]byte(nil), r.ResultJSON...)
 	return r
+}
+
+func deploymentInstanceID(raw []byte) (string, error) {
+	receipt, err := contract.StoredDeploymentReceipt(raw)
+	if err != nil {
+		return "", err
+	}
+	return receipt.InstanceID, nil
 }

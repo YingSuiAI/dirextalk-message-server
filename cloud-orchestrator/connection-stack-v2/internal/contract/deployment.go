@@ -119,6 +119,21 @@ func IdempotentDeploymentResult(command Command, raw []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
+// StoredDeploymentReceipt returns only a strict committed deployment receipt.
+// It is used by the AWS-owned store to bind the Worker session in the same
+// transaction that commits the command receipt.
+func StoredDeploymentReceipt(raw []byte) (DeploymentReceipt, error) {
+	var result DeploymentResult
+	if err := decodeDeploymentResult(raw, &result); err != nil || result.Status != "deployment_created" || result.Receipt.Disposition != "committed" {
+		return DeploymentReceipt{}, errCode("invalid_deployment_receipt")
+	}
+	d := result.Deployment
+	if d.Schema != DeploymentReceiptSchema || !ValidConnectionID(d.ConnectionID) || !ValidID(d.DeploymentID) || !sha256Pattern.MatchString(d.RequestSHA256) || d.ResourceStatus != "provisioning" || !instanceIDPattern.MatchString(d.InstanceID) || !canonicalResourceIDs(d.VolumeIDs, volumeIDPattern) || !canonicalResourceIDs(d.NetworkInterfaceIDs, interfaceIDPattern) {
+		return DeploymentReceipt{}, errCode("invalid_deployment_receipt")
+	}
+	return d, nil
+}
+
 func decodeDeploymentResult(raw []byte, result *DeploymentResult) error {
 	object, err := exactJSONObject(raw)
 	if err != nil || !exactFields(object, []string{"status", "receipt", "deployment"}) {

@@ -348,17 +348,18 @@ func (p *recordingQuoteProvider) Quote(
 }
 
 type memoryCommandStore struct {
-	mu            sync.Mutex
-	records       map[string]commandstore.Record
-	lastCounters  map[string]int64
-	quotes        map[string]commandstore.IssuedQuote
-	deployments   map[string]commandstore.DeploymentReservation
-	approvalUses  map[string]string
-	challengeUses map[string]string
+	mu             sync.Mutex
+	records        map[string]commandstore.Record
+	lastCounters   map[string]int64
+	quotes         map[string]commandstore.IssuedQuote
+	deployments    map[string]commandstore.DeploymentReservation
+	approvalUses   map[string]string
+	challengeUses  map[string]string
+	workerSessions map[string]commandstore.WorkerSession
 }
 
 func newMemoryCommandStore() *memoryCommandStore {
-	return &memoryCommandStore{records: map[string]commandstore.Record{}, lastCounters: map[string]int64{}, quotes: map[string]commandstore.IssuedQuote{}, deployments: map[string]commandstore.DeploymentReservation{}, approvalUses: map[string]string{}, challengeUses: map[string]string{}}
+	return &memoryCommandStore{records: map[string]commandstore.Record{}, lastCounters: map[string]int64{}, quotes: map[string]commandstore.IssuedQuote{}, deployments: map[string]commandstore.DeploymentReservation{}, approvalUses: map[string]string{}, challengeUses: map[string]string{}, workerSessions: map[string]commandstore.WorkerSession{}}
 }
 
 func (s *memoryCommandStore) Lookup(_ context.Context, connectionID, commandID string) (commandstore.Record, bool, error) {
@@ -400,6 +401,7 @@ func (s *memoryCommandStore) ReserveDeployment(_ context.Context, r commandstore
 		return commandstore.DeploymentReservation{}, false, commandstore.NewError("stale_node_counter")
 	}
 	s.deployments[key] = r
+	s.workerSessions[r.BootstrapSessionID] = r.WorkerSession
 	s.approvalUses[r.ConnectionID+"\x00"+r.ApprovalID] = r.DeploymentID
 	s.challengeUses[r.ConnectionID+"\x00"+r.ChallengeID] = r.DeploymentID
 	s.lastCounters[r.ConnectionID] = r.NodeCounter
@@ -420,8 +422,38 @@ func (s *memoryCommandStore) FinalizeDeployment(_ context.Context, r commandstor
 	existing.State = "finalized"
 	existing.ResultJSON = append([]byte(nil), receipt.ResultJSON...)
 	s.deployments[key] = existing
+	session := s.workerSessions[r.BootstrapSessionID]
+	var result contract.DeploymentResult
+	_ = json.Unmarshal(receipt.ResultJSON, &result)
+	session.State = "bound"
+	session.ExpectedInstanceID = result.Deployment.InstanceID
+	s.workerSessions[r.BootstrapSessionID] = session
 	s.records[receiptKey] = receipt
 	return receipt, true, nil
+}
+
+func (s *memoryCommandStore) LookupWorkerSession(_ context.Context, bootstrapSessionID string) (commandstore.WorkerSession, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.workerSessions[bootstrapSessionID]
+	return session, ok, nil
+}
+
+func (s *memoryCommandStore) ActivateWorkerSession(_ context.Context, claim commandstore.WorkerSessionClaim) (commandstore.WorkerSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.workerSessions[claim.Session.BootstrapSessionID]
+	if !ok || current.ConnectionID != claim.Session.ConnectionID || current.DeploymentID != claim.Session.DeploymentID || current.ExpectedInstanceID != claim.Session.ExpectedInstanceID || current.LeaseEpoch != claim.Session.LeaseEpoch || (current.State != "bound" && current.State != "active") {
+		return commandstore.WorkerSession{}, commandstore.NewError("worker_session_conflict")
+	}
+	current.State = "active"
+	current.LeaseEpoch++
+	current.LeaseExpiresAt = claim.LeaseExpiresAt
+	current.TokenSHA256 = claim.TokenSHA256
+	current.LastSequence = 0
+	current.LastEventAt = ""
+	s.workerSessions[current.BootstrapSessionID] = current
+	return current, nil
 }
 
 func (s *memoryCommandStore) Commit(_ context.Context, record commandstore.Record, _ *commandstore.IssuedQuote) (commandstore.Record, bool, error) {
