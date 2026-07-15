@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: AWS Connection Sheet and persistent device approval identity are complete; restore semantics require owner selection before the next mutation
+- Status: Flutter device-signed deployment intent is complete; in-place retained-volume rollback is the frozen next mutation
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -533,6 +533,27 @@ stage; later checked workboard sections are the authoritative delivery record.
   routing/log redaction, and the complete widget handoff flow
   (`dirextalk-flutter` `462c326`).
 
+### N. Flutter device-signed deployment intent
+
+- [x] Decode the immutable QuoteV1 candidate set and render Region, validity,
+  capacity, hourly estimate, 30-day estimate and exclusions without implicitly
+  purchasing a resource.
+- [x] Add HTTP-only adapters for `cloud.plans.confirmation.prepare` and
+  `cloud.plans.approve`, redact the complete signed approval from diagnostics,
+  and reject all public-ingress, secret, integration, Spot, device-key and
+  Plan/quote drift before the device can sign.
+- [x] Produce byte-identical deterministic-CBOR ApprovalV1 signatures on
+  Flutter native and web, persist only the unsigned short-lived challenge and
+  UUID idempotency keys, and replay the exact signature after an ambiguous
+  response or application restart.
+- [x] Keep the current UI honest while the independent provision executor is
+  disabled: approval records a queued deployment intent but explicitly says
+  that it does not create AWS resources or begin billing. The future
+  “确认创建并开始计费” label remains gated on an enabled typed executor.
+- [x] Cover the Go/Dart golden vector, unsafe-scope rejection, HTTP-only
+  routing/log redaction, quote review, ambiguous retry, static analysis and a
+  Flutter Web release build (`dirextalk-flutter` `92b5698`).
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -557,13 +578,18 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-The safe Connection Stack onboarding path is now available in Flutter; it does
-not authorize resource creation. Owner must select the restore contract
-recorded in the current task checkpoint: in-place retained-volume rollback
-(recommended), an identity-fenced isolated clone, or materialize-only restored
-volumes. After that decision, implement the selected separately quoted and
-device-approved typed operation for one retained backup, then
-experimental-to-managed acceptance, without widening the Worker or Agent. Keep public
-ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
-credentials, Stack deployment and real-account tests disabled until those
-independent approval and provider boundaries are complete.
+The owner selected **in-place retained-volume rollback on the original EC2
+instance**. Freeze and implement one separately quoted, device-approved restore
+operation for one retained backup while preserving the existing Service,
+Deployment and instance identities. It requires downtime, creates replacement
+encrypted volumes from the exact retained snapshots in the same AZ, swaps the
+approved device mappings only while the instance is stopped, and succeeds only
+after AWS read-back plus Worker/service health verification. Original volumes
+remain retained and tracked by default. Any partial failure must reattach and
+read back the original set when possible; otherwise it remains
+`restore_blocked` and must never project restored success. After this typed
+restore stage, implement experimental-to-managed acceptance without widening
+the Worker or Agent. Keep public ingress, secret delivery, selectable
+OpenClaw/knowledge Recipes, local AWS credentials, Stack deployment and
+real-account tests disabled until those independent approval and provider
+boundaries are complete.

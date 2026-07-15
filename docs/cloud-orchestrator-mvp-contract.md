@@ -375,6 +375,16 @@ Connection Sheet opens an AWS-partition-aware CloudFormation Quick Create URL,
 contains no AK/SK upload, and labels registration as pending independent
 verification; neither client action creates EC2 or starts billing.
 
+Flutter also consumes the existing Plan confirmation pair directly over HTTP.
+It validates the returned Plan, quote tier, signer key and the complete
+no-ingress/no-secret/no-integration On-Demand scope before signing the exact
+deterministic-CBOR ApprovalV1 payload. Its safe resumable state contains only
+the unsigned short-lived challenge and UUID idempotency keys; an ambiguous
+approval response reuses the same challenge, key and signature. While the
+independent provision consumer remains disabled, the confirmation sheet must
+describe this as a queued approved intent that creates no AWS resource or
+billing, not as a completed cloud purchase.
+
 `cloud.goals.create` accepts exactly:
 
 ```json

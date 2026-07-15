@@ -2,6 +2,27 @@
 
 Last updated: 2026-07-15
 
+## 2026-07-15 Flutter Device-Signed Deployment Intent
+
+Flutter now consumes the existing owner HTTP-only
+`cloud.plans.confirmation.prepare` and `cloud.plans.approve` actions. The Plan
+page renders the immutable QuoteV1 candidates and opens a separate review
+sheet; no Plan-page tap implicitly approves a purchase.
+
+The client validates the returned Plan/quote/device binding and the complete
+On-Demand, no-public-ingress, no-secret and no-integration scope before signing
+the deterministic-CBOR ApprovalV1 challenge with its secure-storage Ed25519
+identity. Its CBOR output matches the Go golden vector. Only the unsigned
+short-lived challenge and UUID idempotency keys are resumable; after a lost
+response or restart the exact same signature is replayed, and the signed
+approval is redacted from diagnostics.
+
+The current independent Cloud Orchestrator deliberately does not claim the
+provision outbox. Therefore this client surface says that it records an
+approved queued intent without creating AWS resources or starting billing.
+The “确认创建并开始计费” wording remains reserved for a later build in which the
+typed provision executor is explicitly enabled.
+
 ## 2026-07-15 Flutter AWS Connection Stack Onboarding
 
 Flutter now consumes the existing owner HTTP-only
