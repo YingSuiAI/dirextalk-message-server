@@ -1,7 +1,7 @@
 # Cloud Scheduler Scope Checkpoint
 
-- Status: `in_progress`
-- Updated: 2026-07-15 Asia/Shanghai
+- Status: `waiting_external_prerequisite`
+- Updated: 2026-07-16 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/0714`
 - Task tracker: [../../docs/cloud-scheduler-delivery-tracker.md](../../docs/cloud-scheduler-delivery-tracker.md)
@@ -16,6 +16,40 @@
   ingress, restore, destroy, or invoke arbitrary AWS APIs.
 - Do not change normal deployer, updater, or release scripts for this feature.
 - Preserve the unrelated untracked `.run/Cloud Worker Tests.run.xml` file.
+
+## 2026-07-16 continuation state
+
+The source implementation stage is complete and committed on `adam/0714`:
+
+- Message Server: `66cdaee feat(cloud): complete generic orchestrator lifecycle`.
+- Flutter: `cbe119a feat(cloud): add workload control and recovery UI`.
+
+This includes the independent Go Connection Stack/Worker/Orchestrator path,
+generic OCI Recipe execution, artifact and AMI builders, monitor/reconnect and
+pairing recovery, Eino read-only Cloud dialogue, Flutter control surfaces,
+device-signed Job cancellation, and Service plus service-free residual
+Deployment destruction. The residual deployment path rejects any Deployment
+with a Service, pending Job, or non-terminal deployment state; it preserves
+the original execution/outcome and requires Connection Stack absence read-back
+before `verified_destroyed`.
+
+Stage-close verification passed: affected Go packages, PostgreSQL lifecycle
+tests, Connection Stack tests and vet, Linux amd64 Orchestrator/Broker builds,
+Flutter Cloud tests and analysis, action-contract generation, secret scan and
+diff checks. The user-local Flutter preference file
+`portal_im_conversation_preferences.json` remains untracked and must be
+preserved.
+
+The next operation is real AWS validation, which is intentionally still
+fail-closed. At 2026-07-16 verification, `a8.dirextalk.ai` resolved to a
+different host than the documented Aliyun host for local `im.pem`; TCP/22 is
+reachable but no local SSH configuration or matching AWS host key is present.
+`rootkey.csv` is an AWS access-key export and is not an acceptable root
+identity for the Connection Stack bootstrap. Require a disposable-account
+non-root least-privilege credential/Role and a valid SSH user/key for the AWS
+host. Before any billable create, query the live Region/specification/quote and
+obtain fresh owner confirmation. Do not use `latest`, formal `v1.0.3`, normal
+deployer/updater scripts, or direct Codex AWS CLI mutation.
 
 ## Last completed stage
 
