@@ -213,6 +213,16 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.services.management.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.management.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "agent.password",
       "auth": "owner",
       "transport": "http_and_ws_request"

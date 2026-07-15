@@ -1261,3 +1261,34 @@ excludes new start/stop/restart, backup, restore, and destroy approvals. The
 Flutter Service detail flow performs the device signature, persists only
 non-secret resumable metadata, displays progress and retained-volume charges,
 and never implies automatic cleanup.
+
+## 2026-07-15 — Experimental-to-managed cloud Service acceptance v1
+
+Two owner-authenticated, HTTP-only actions add the separately approved
+maturity transition: `cloud.services.management.plan` and
+`cloud.services.management.approve`. Plan accepts exactly `service_id`, the
+current `expected_revision`, and a UUID `idempotency_key`. It derives, persists
+and returns a five-minute confirmation; the client cannot submit evidence or
+cloud-resource parameters. Planning transitions a matching `experimental`
+Service to `awaiting_management_acceptance` and transitions its Recipe only
+when that Recipe is still `experimental`; an already `managed` Recipe is bound
+without a revision change. This fences later lifecycle, backup, restore or
+destroy work from racing the signed evidence.
+
+The deterministic-CBOR `ServiceManagementAcceptanceApprovalV1` binds the
+current Service/Deployment/Recipe revisions and Cloud Connection, installed
+manifest and official source artifact digests, the exact semantic-readiness
+evidence and Stack-observation digests, health/liveness/readiness and
+lifecycle/upgrade/rollback contracts, volume/data/secret slots, an available
+retained backup, its succeeded same-instance restore, a successful restart
+after that restore, and the exact tracked instance/volume/network destroy set.
+Approval requires the registered device's Ed25519 signature and unchanged
+evidence. It atomically publishes `service_status: "active"`, Recipe
+`maturity: "managed"`, an immutable maturity-metadata revision referencing the
+same verified canonical Recipe content/digest, and a durable approved
+acceptance result. If that content-addressed Recipe is already `managed`, only
+the later Service advances and the Recipe revision remains unchanged. Prepare
+and approve retries are independently idempotent;
+stale revisions, expired challenges, changed evidence, signature/key mismatch
+or conflicting work fail closed without promoting maturity. Agent tokens,
+public MCP and WebSocket `client.request` cannot call either action.

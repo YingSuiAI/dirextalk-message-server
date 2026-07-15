@@ -47,6 +47,8 @@ const (
 	actionServicesRestorePlan                           = "cloud.services.restore.plan"
 	actionServicesRestoreConfirmationPrepare            = "cloud.services.restore.confirmation.prepare"
 	actionServicesRestoreApprove                        = "cloud.services.restore.approve"
+	actionServicesManagementPlan                        = "cloud.services.management.plan"
+	actionServicesManagementApprove                     = "cloud.services.management.approve"
 	cloudUnavailableCode                                = "cloud_orchestrator_unavailable"
 	cloudIdempotencyInvalidCode                         = "cloud_idempotency_key_invalid"
 	cloudGoalInvalidCode                                = "cloud_goal_invalid"
@@ -83,6 +85,10 @@ const (
 	cloudServiceRestoreConfirmationConflictCode         = "cloud_service_restore_confirmation_conflict"
 	cloudServiceRestoreApprovalExpiredCode              = "cloud_service_restore_approval_expired"
 	cloudServiceRestoreApprovalSignatureCode            = "cloud_service_restore_approval_signature_invalid"
+	cloudServiceManagementAcceptanceInvalidCode         = "cloud_service_management_acceptance_invalid"
+	cloudServiceManagementAcceptanceConflictCode        = "cloud_service_management_acceptance_conflict"
+	cloudServiceManagementAcceptanceExpiredCode         = "cloud_service_management_acceptance_expired"
+	cloudServiceManagementAcceptanceSignatureCode       = "cloud_service_management_acceptance_signature_invalid"
 )
 
 type Config struct {
@@ -131,6 +137,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionServicesRestorePlan:                           m.createServiceRestorePlan,
 		actionServicesRestoreConfirmationPrepare:            m.prepareServiceRestore,
 		actionServicesRestoreApprove:                        m.approveServiceRestore,
+		actionServicesManagementPlan:                        m.prepareServiceManagementAcceptance,
+		actionServicesManagementApprove:                     m.approveServiceManagementAcceptance,
 	}
 }
 

@@ -584,6 +584,30 @@ stage; later checked workboard sections are the authoritative delivery record.
   fallback, blocked non-success, strict projection and Flutter contract/UI
   checks. No real AWS mutation is enabled by this stage close.
 
+### P. Experimental-to-managed Service acceptance (complete)
+
+- [x] Freeze `ServiceManagementAcceptanceApprovalV1` around the exact current
+  Service/Deployment/Recipe revisions, installed and source artifact digests,
+  health/lifecycle contracts, exact semantic-readiness and Stack-observation
+  digests, volume/data/secret slots, post-restore restart,
+  retained backup/restore evidence and the complete tracked destroy set.
+- [x] Add owner HTTP-only `cloud.services.management.plan/approve`. Planning
+  may move only a matching `experimental` Service and, when needed, its
+  `experimental` Recipe to `awaiting_management_acceptance`; an already
+  `managed` Recipe is bound without changing revision. Approval requires a five-minute
+  device signature over the server-derived confirmation and atomically publish
+  `active` Service plus `managed` Recipe revisions.
+- [x] Persist prepare/approve idempotency, immutable confirmation evidence and
+  terminal acceptance results. Reject stale revisions, expired challenges,
+  changed evidence, signature/key mismatches and concurrent lifecycle,
+  backup, restore or destroy work without changing maturity.
+- [x] Add the Flutter device-signed management-acceptance flow and display the
+  full evidence checklist before the user accepts managed operation. Keep
+  Agent chat and public MCP read-only and unable to sign or promote maturity.
+- [x] Pass focused Go/Dart contract, persistence, projection and UI checks,
+  regenerate the public action artifact, perform one accumulated stage review,
+  and commit the two owning repositories independently.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -608,11 +632,9 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Implement **experimental-to-managed acceptance** as the next separately
-device-approved Service lifecycle stage. It must prove locked artifacts,
-restart recovery, health probes, volume/secret slots, upgrade/rollback,
-backup/restore and destroy contracts before changing maturity. Do not widen
-the Worker or Agent, and keep public ingress, secret delivery, selectable
-OpenClaw/knowledge Recipes, local AWS credentials, Stack deployment and
+Begin the next independently approved stage for **selectable private Recipe
+execution and scoped service-secret delivery**. Keep Agent and public MCP
+research/read-only, bind the exact Recipe/secret slots into device approval,
+and keep public ingress, local AWS credentials, Stack deployment and
 real-account tests disabled until their independent approval/provider stages
 are complete.

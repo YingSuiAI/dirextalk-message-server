@@ -700,8 +700,34 @@ readiness task and remains `verifying`; `aws_original_restored` is failed and
 `restore_blocked` is blocked with an alert. Service list/get and strict Service
 events include the durable restore summary.
 
-Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress and
-management acceptance still return `operation_not_enabled`. The repository
+The experimental-to-managed acceptance stage adds owner HTTP-only
+`cloud.services.management.plan/approve`. Plan accepts only the Service id,
+expected revision and UUID idempotency key. It derives a five-minute
+`ServiceManagementAcceptanceApprovalV1` confirmation from the current
+Service, Deployment, Recipe and independently persisted evidence; neither the
+client nor Agent supplies evidence identifiers. The signing target binds the
+locked installed/source artifacts, semantic health and lifecycle contracts,
+the exact semantic-readiness evidence and Stack-observation digests,
+volume/data/secret slots, an available retained backup, its succeeded
+same-instance restore, a successful restart after that restore, and the exact
+tracked instance/volume/network destroy set. Planning moves a matching
+`experimental` Service to `awaiting_management_acceptance` and does the same
+for an `experimental` Recipe; an already `managed` content-addressed Recipe is
+bound without changing its revision. A valid registered-device signature and
+unchanged evidence atomically publish the Service as `active`, the Recipe as
+`managed`, a new immutable maturity-metadata revision that references the same
+verified canonical Recipe content/digest, and the durable acceptance result.
+When the same content-addressed Recipe is already `managed`, accepting a later
+Service advances only that Service and leaves the Recipe revision unchanged.
+Prepare and approve are independently idempotent. Stale or changed evidence,
+expired challenges, signature/key mismatch, and concurrent Service lifecycle
+work fail closed without promoting maturity. Agent tokens, public MCP and
+WebSocket requests cannot call either action.
+
+The stage is in progress until the server persistence/projection and Flutter
+device-signing boundary checks pass and section P of the delivery tracker is
+closed. Secret delivery, selectable Recipes, OpenClaw/knowledge services and
+ingress still return `operation_not_enabled`. The repository
 does not yet deploy a researcher endpoint, build or publish the versioned
 Worker AMI containing the fixed binaries, deploy the Stack, enable either
 restore mutation gate, or run a real-account AWS integration test. Those

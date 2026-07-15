@@ -1654,6 +1654,25 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service management acceptance v58",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_management_acceptances (
+					acceptance_id TEXT PRIMARY KEY NOT NULL, approval_id TEXT NOT NULL UNIQUE, challenge_id TEXT NOT NULL, owner_mxid TEXT NOT NULL,
+					service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0), deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0),
+					recipe_id TEXT NOT NULL, recipe_revision BIGINT NOT NULL CHECK(recipe_revision>0), signer_key_id TEXT NOT NULL,
+					target_json TEXT NOT NULL, approval_json TEXT NOT NULL, signing_payload BYTEA NOT NULL, service_json TEXT NOT NULL, recipe_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK(status IN('pending','approved','expired')), prepare_idempotency_hash TEXT NOT NULL, prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT, approve_request_digest TEXT NOT NULL DEFAULT '', result_service_json TEXT NOT NULL DEFAULT '', result_recipe_json TEXT NOT NULL DEFAULT '', result_acceptance_json TEXT NOT NULL DEFAULT '',
+					expires_at BIGINT NOT NULL, revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0), created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_management_acceptances_approve_idempotency_idx ON p2p_cloud_service_management_acceptances(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_management_acceptances_pending_service_idx ON p2p_cloud_service_management_acceptances(service_id) WHERE status='pending'`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

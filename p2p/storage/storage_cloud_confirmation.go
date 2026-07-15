@@ -477,7 +477,7 @@ func lockCloudRecipeForConfirmation(ctx context.Context, tx *sql.Tx, expectedDig
 		return cloudcontracts.RecipeV1{}, "", "", cloudmodule.ErrPlanConfirmationInvalid
 	}
 	computed, err := recipe.Digest()
-	if err != nil || computed != digest || digest != expectedDigest || string(recipe.Maturity) != maturity {
+	if err != nil || computed != digest || digest != expectedDigest || (maturity != string(cloudcontracts.RecipeExperimental) && maturity != string(cloudcontracts.RecipeAwaitingManagementAccept) && maturity != string(cloudcontracts.RecipeManaged)) {
 		return cloudcontracts.RecipeV1{}, "", "", cloudmodule.ErrPlanConfirmationInvalid
 	}
 	return recipe, digest, cloudcontracts.RecipeMaturity(maturity), nil
