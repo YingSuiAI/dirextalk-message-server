@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Dirextalk Connection Stack V2 Go Broker. This initial artifact validates the
+  closed command boundary and fails closed; it does not create or manage EC2.
+
+Parameters:
+  BrokerArtifactBucket:
+    Type: String
+    MinLength: 3
+    Description: Versioned S3 bucket containing the reviewed Go Lambda zip.
+  BrokerArtifactKey:
+    Type: String
+    MinLength: 1
+    Description: Immutable S3 object key for the reviewed Go Lambda zip.
+  BrokerArtifactVersion:
+    Type: String
+    Default: ""
+    Description: Optional immutable S3 object version for the Go Lambda zip.
+  ConnectionID:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    ConstraintDescription: Must be the exact Dirextalk Cloud Connection ID.
+  NodeKeyID:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    ConstraintDescription: Must be the exact registered node key ID.
+  NodePublicKeySPKIBase64:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9+/]+={0,2}$"
+    ConstraintDescription: Must be a base64 PKIX/SPKI Ed25519 public key.
+
+Conditions:
+  HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
+
+Resources:
+  BrokerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-connection-broker"
+      RetentionInDays: 30
+
+  BrokerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-own-broker-logs-only
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-connection-broker:*"
+
+  BrokerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-connection-broker"
+      Description: Dirextalk Connection Stack V2 Go Broker (fail-closed foundation)
+      Runtime: provided.al2023
+      Handler: bootstrap
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrentExecutions: 5
+      Role: !GetAtt BrokerRole.Arn
+      Code:
+        S3Bucket: !Ref BrokerArtifactBucket
+        S3Key: !Ref BrokerArtifactKey
+        S3ObjectVersion: !If [HasBrokerArtifactVersion, !Ref BrokerArtifactVersion, !Ref "AWS::NoValue"]
+      Environment:
+        Variables:
+          DIREXTALK_CONNECTION_ID: !Ref ConnectionID
+          DIREXTALK_NODE_KEY_ID: !Ref NodeKeyID
+          DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64: !Ref NodePublicKeySPKIBase64
+
+  BrokerAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-connection-broker"
+      ProtocolType: HTTP
+      Description: Signed-only Dirextalk Connection Stack V2 command endpoint.
+
+  BrokerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BrokerAPI
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BrokerFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  BrokerCommandsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/commands"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref BrokerAPI
+      StageName: "$default"
+      AutoDeploy: true
+
+  BrokerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/*/POST/v2/commands"
+
+Outputs:
+  BrokerCommandURL:
+    Description: Exact endpoint registered with the Cloud Orchestrator after the Stack is deployed.
+    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/v2/commands"
+  BrokerFunctionName:
+    Description: Go Lambda Broker function name.
+    Value: !Ref BrokerFunction
+  BrokerRuntime:
+    Description: Runtime confirms this Connection Stack has no Node/npm runtime.
+    Value: provided.al2023

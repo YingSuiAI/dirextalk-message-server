@@ -1,57 +1,66 @@
 # Cloud Scheduler Scope Checkpoint
 
-- Status: active
+- Status: `in_progress`
 - Updated: 2026-07-15 Asia/Shanghai
 - Repository: `C:\Users\84960\Desktop\dirextalk\dirextalk-message-server`
 - Branch: `adam/0714`
-- HEAD before the active uncommitted slice: `cf22ebe`
 - Task tracker: [../../docs/cloud-scheduler-delivery-tracker.md](../../docs/cloud-scheduler-delivery-tracker.md)
 
-## Scope corrected by the owner
+## Outcome and fixed boundaries
 
-- The Cloud Deployment Planner is a server-side Eino Native Agent capability.
-  Its source-controlled built-in asset must live under
-  `p2p/nativeagent/skills/cloud_deployment_planner/`, not in a Codex
-  workspace skill and not in `dirextalk-deployer`.
-- Do not edit, reuse, test, or commit deployer/release/updater scripts for this
-  Message Server slice. No such script has been changed in the active diff.
-- Maintain the linked task tracker; check items only after verification and
-  commit.
-- Historical provenance was checked after this scope decision: the current
-  `dirextalk-deployer` worktree is clean. Its earlier Cloud Stack/Worker
-  commits are `d110b0f…9067057` and the Message Server image additions
-  are `02887e4`/`6675df5`/`d911624`, all recorded with Git
-  author `adam`. Classify/migrate or safely revert them in their owning
-  repository; do not rewrite shared history without a selected range.
+- The Eino Cloud Deployment Planner is a Message Server native Agent Skill at
+  `p2p/nativeagent/skills/cloud_deployment_planner/`. It is not a Codex Skill,
+  a public MCP mutation tool, or a deployer asset.
+- The user AWS Connection Stack is a separate control-plane product boundary.
+  Its old Node/SAM bundle has been removed from `dirextalk-deployer`; it must
+  be rebuilt as an independent nested Go module at
+  `cloud-orchestrator/connection-stack-v2/`.
+- The Message Server root module must not import an AWS SDK, execute AWS CLI,
+  or gain an npm/Node runtime dependency. The nested Go module may have its
+  own Go Lambda dependencies and is never imported by the root server binary.
+- The current port is fail closed: no credential bootstrap, EC2 creation,
+  Worker root execution, ingress, lifecycle mutation, or real AWS test is
+  enabled until the independently reviewed broker parity stage exists.
+- Do not touch normal deployer, updater, or release scripts for the Go port.
+  Preserve the unrelated Message Server `.run/Cloud Worker Tests.run.xml` and
+  Flutter `pubspec.lock` worktree changes.
 
-## Active uncommitted slice
+## Verified work
 
-- Adds private trusted Recipe-execution manifest registration and owner-only
-  prepare/approve actions in the Message Server.
-- Approval creates only a queued `install` Job/Step plus a private
-  execution-ID outbox record. There is no runner, Worker task issuance, root
-  execution, AWS mutation, or service readiness path.
-- The persistence boundary now rechecks a live active Worker lease before
-  preparation and approval, so a stale registration cannot authorize a later
-  install intent.
+- `e4a8a6a feat(cloud): persist recipe execution confirmations` and
+  `c5c61cc feat(nativeagent): package cloud planner skill` are committed in
+  Message Server. Focused native-Agent tests and the Message Server build
+  passed for the latter.
+- `016c62b chore(deployer): remove connection stack bundle` is committed in
+  `dirextalk-deployer`. It removes the historical Node/SAM Connection Stack,
+  its 24 focused tests, and the sole test-suite registration while preserving
+  normal deployer lifecycle behavior. Its focused distribution test and
+  explicit Git-Bash `npm test` passed.
+- Live worktree facts at resume: Message Server has only the active tracker
+  edit plus the unrelated untracked run configuration; deployer is clean.
+- No AWS credential, model token, or real cloud account was read, printed,
+  persisted, or used in this cleanup/port stage.
 
-## Verified so far
+## Current stage
 
-- Focused storage confirmation test — PASS after adding stale Worker lease
-  rejection.
-- `go test ./p2p/serviceapi -count=1` — PASS after regenerating
-  `docs/product-action-contract.json` and correcting an already-stale
-  action-count assertion.
-- `go test ./p2p ./p2p/internal/cloud ./p2p/internal/cloudorchestrator
-  ./p2p/internal/cloudworker/... ./p2p/storage ./p2p/serviceapi -count=1`
-  — PASS.
-- `go build ./cmd/dirextalk-message-server` and
-  `go build ./p2p/cmd/cloud-orchestrator` — PASS.
-- `git diff --check` — PASS.
+Build the standalone Go Connection Stack foundation as one coherent boundary:
 
-## Next action
+1. Port the closed signed-command and approval validation contract into the
+   nested Go module, with durable contract tests independent of Node.
+2. Add the Go Lambda Broker entry point and CloudFormation asset without
+   importing it into the Message Server root module.
+3. Keep unported resource-mutating operations explicitly rejected rather than
+   silently claiming old Node feature parity.
 
-Commit only the verified Message Server Recipe-confirmation files, then begin
-the separate Eino-skill directory packaging stage. Preserve the unrelated
-untracked `.run/Cloud Worker Tests.run.xml` unless its owner explicitly
-asks to include it.
+## Verification and continuation
+
+- Before the current stage, inspect the existing Cloud Orchestrator HTTPS
+  client and the deleted Stack's historical protocol; no live AWS invocation
+  is allowed.
+- At stage close run the nested module's Go tests/build, the affected Message
+  Server Cloud Orchestrator tests/build, `git diff --check`, and one
+  accumulated contract review. Then update the task tracker and commit only
+  current-task changes.
+- Next concrete action: establish the Go module's protocol compatibility
+  surface from the existing Go Broker client and historical Stack contract,
+  then implement the Go-only Lambda boundary.

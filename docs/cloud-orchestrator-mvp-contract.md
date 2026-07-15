@@ -35,39 +35,21 @@ AWS SDK integration in the message-server process.
   Its mounted Ed25519 node key signs exact durable envelopes but is never
   persisted or sent to the Message Server. The typed `deployment.create`
   runner is present only as a tested control-plane component: the production
-  main process deliberately leaves provision outbox entries unclaimed. It does
-  run a separate signed, read-only `deployment.observe` loop for a deployment
-  that already has a durable create receipt. That loop cannot create, stop,
-  start, expose, or destroy a Worker; it advances the private Job checkpoint
-  only after the Connection Stack returns current, IID-verified active-lease
-  evidence for the receipt-bound instance. The Connection Stack source now has
-  a closed Worker bootstrap claim/events and digest-only task transport API,
-  IMDSv2 identity verification, and EC2 read-back, but the production
-  Orchestrator remains gated until a reviewed fixed Worker AMI, recipe
-  executor, service-health evidence, and operational Stack configuration are
-  deployed together. The current source provides a bounded Worker
-  reauthentication protocol: a first claim remains limited to the at-most-ten
-  minute bootstrap window, while an already active, independently IID-verified
-  Worker may rotate its bearer and epoch during a 24-hour recovery-retention
-  fence. The only task shape is `execution_probe`: its digest-only document
-  has no command, URL, secret, image, or AWS action; an active Worker can
-  report only `execution_manifest_received` followed by
-  `task_transport_verified`, with the Stack atomically binding the evidence
-  digest to the issued execution manifest. This is a transport/recovery proof,
-  not service readiness or Recipe execution. After a fenced bootstrap
-  observation, the Orchestrator seals a private deterministic-CBOR
-  `ExecutionProbeManifestV1` and `NoInputV1`, creates one private
-  digest-only issue outbox, and runs the typed `worker.task.issue` /
-  `worker.task.observe` loop. It persists an exact signed envelope before
-  every request and replays it after an indeterminate response; only Stack
-  `expired_command` permits a new node counter. ProductCore receives only the
-  existing `verify` Job projection, never task artifacts, envelopes, raw
-  receipts, Worker identity, logs, endpoints, or secrets. It is intentionally
-  not part of the default compose stack until its
-  private researcher, node-key mount, Connection Stack registration, Worker
-  identity certificate, and least-privilege database role are deployed. The
-  Message Server neither hosts that Worker session broker nor enables an AWS
-  mutation executor.
+  main process deliberately leaves provision outbox entries unclaimed. It may
+  prepare signed `deployment.observe` and `execution_probe` envelopes, but
+  those calls have no currently enabled Stack-side executor. The historical
+  Node/SAM Connection Stack and its Worker-session implementation were removed
+  from `dirextalk-deployer` in `016c62b` to eliminate a Node runtime from this
+  product boundary. Its replacement is the independent Go module at
+  `cloud-orchestrator/connection-stack-v2/`: today it validates the closed
+  outer command envelope at `POST /v2/commands` and returns
+  `operation_not_enabled` for every action. It has no Worker HTTP routes,
+  DynamoDB receipt store, IMDS verification, EC2 read-back, AWS provider
+  permission, or root executor. The production Orchestrator remains gated
+  until those components are ported and reviewed as complete typed
+  capabilities. ProductCore therefore receives no Worker/session evidence,
+  task artifacts, raw receipts, endpoints, or secrets, and the Message Server
+  neither hosts a Worker session broker nor enables an AWS mutation executor.
 - The source additionally defines a private deterministic-CBOR
   `RecipeExecutionManifestV1` and a pure `cloudworker/recipeexec`
   coordinator. The manifest seals an execution/deployment/Plan-revision/
@@ -131,8 +113,9 @@ complete: `P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL`,
 `P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST`,
 `P2P_CLOUD_CONNECTION_NODE_KEY_ID`, and
 `P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64`. The source-tree digest
-binds the local SAM source used by the non-root deploy helper to the reviewed
-release rather than trusting a template file alone.
+binds the versioned Go Broker source and reviewed immutable Lambda artifact to
+the release rather than trusting a template file alone. The Connection Stack
+has no local SAM, npm, or shell deploy helper.
 
 After the owner deploys that stack in their AWS account,
 `cloud.connections.registration.complete` accepts only the exact Broker command
@@ -228,30 +211,29 @@ record containing the opaque execution ID. It does not change the Deployment,
 claim a Worker task, invoke the recipe coordinator, deliver an artifact, run
 root commands, create an AWS resource, or make a service ready.
 
-After a later typed creator has recorded a private Worker receipt, the
-Orchestrator may issue a durable, signed `deployment.observe` read. The Stack
-re-reads its receipt-bound Worker session and returns only
-`dirextalk.aws.deployment-observation/v1`: the deployment and instance binding,
-the fixed `provisioning` receipt status, active lease epoch/expiry, sequence,
-and observed time. It never returns a session ID, bearer/hash, endpoint, IID,
-raw event, or log. A non-active or stale observation is deferred; only current
-active evidence atomically advances the provision Job from
-`worker_bootstrap_pending` to `worker_bootstrap_verified` and moves execution
-to `verifying`. A read retry reuses its exact persisted envelope; only the
-Stack's explicit `expired_command` result permits a new node counter.
+After a later typed creator has recorded a private Worker receipt, the next
+Stack parity stage may implement a durable signed `deployment.observe` read.
+Its required response is only `dirextalk.aws.deployment-observation/v1`: the
+deployment and instance binding, fixed `provisioning` receipt status, active
+lease epoch/expiry, sequence, and observed time. It must never return a
+session ID, bearer/hash, endpoint, IID, raw event, or log. A non-active or
+stale observation must be deferred; only current active evidence may advance
+the provision Job from `worker_bootstrap_pending` to
+`worker_bootstrap_verified` and execution to `verifying`. A read retry must
+reuse its exact persisted envelope; only the Stack's explicit
+`expired_command` result may allocate a new node counter. The current Go
+module implements none of this observation/store behavior.
 
-The same Stack exposes a separately typed, active-bearer Worker task channel.
-It stores a de-secreted `(deployment_id, task_id)` record in its own KMS-backed
-DynamoDB table, so a lost Worker response can replay the exact task event but
-cannot change its sequence, lease, checkpoint, or execution-manifest digest.
-The Orchestrator creates this channel's sole issue outbox only after private
-bootstrap evidence becomes active, then records task state and command
-journals in separate private PostgreSQL tables. The non-root `cloud-worker`
-can send only the two fixed `execution_probe` transport events. A successful
-event finishes the `verify` Job with `task_transport_verified` while leaving
-the Deployment at `verifying` / `pending` / `active`; it cannot establish
-Recipe execution, root execution, service health, public ingress, or any AWS
-mutation.
+The future Stack contract also specifies a separately typed active-bearer
+Worker task channel. Its eventual AWS-owned store must retain only a
+de-secreted `(deployment_id, task_id)` record, so a lost Worker response can
+replay the exact task event without changing its sequence, lease, checkpoint,
+or execution-manifest digest. The Orchestrator may create the sole issue
+outbox only after private bootstrap evidence becomes active, and the non-root
+`cloud-worker` may send only the two fixed `execution_probe` transport events.
+Those future events cannot establish Recipe/root execution, service health,
+public ingress, or AWS mutation. No Worker task route, DynamoDB table, or
+active-bearer session is present in the current Go module.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
@@ -549,11 +531,13 @@ separate plan and confirmation.
 
 The current slice does not upload credentials, deploy a Connection Stack on the
 owner's behalf, create an EC2 instance, install a service, expose a network
-endpoint, or destroy a resource. It can issue a reviewed CloudFormation handoff,
-verify a user-deployed Stack, obtain a read-only quote, and persist an approved
-provision intent; it does not execute AWS mutations. It ships independently
-buildable research/quote/registration processes and their private event relay,
-but does not yet deploy a researcher endpoint, Worker AMI, Broker executor, or
-AWS integration test. Those transitions must be implemented through the typed
-Connection Stack/Broker path; neither the Eino Agent tool, external MCP, nor
-the message-server gains arbitrary AWS access.
+endpoint, or destroy a resource. It can issue a reviewed CloudFormation handoff
+and persist a research-only intent, but the currently ported Go Broker rejects
+registration, quote, observation, Worker, and deployment commands with
+`operation_not_enabled` until their atomic storage/provider paths exist. It
+ships independently buildable research/quote/registration processes and a
+Go-only fail-closed Broker artifact, but does not yet deploy a researcher
+endpoint, Worker AMI, receipt store, provider executor, or AWS integration
+test. Those transitions must be implemented through the typed Connection
+Stack/Broker path; neither the Eino Agent tool, external MCP, nor the
+Message Server gains arbitrary AWS access.

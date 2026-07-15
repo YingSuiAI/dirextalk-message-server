@@ -1,122 +1,261 @@
-# Cloud Scheduler Delivery Tracker
+# Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: active
-- Updated: 2026-07-15 Asia/Shanghai
-- Owning repository: `dirextalk-message-server`
+- Status: scope frozen, active
+- Scope frozen: 2026-07-15 Asia/Shanghai
+- Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
-- Source contract: [Cloud Orchestrator MVP Contract](cloud-orchestrator-mvp-contract.md)
+- Server contract: [Cloud Orchestrator MVP Contract](cloud-orchestrator-mvp-contract.md)
 
-This is the authoritative checklist for the server-side Cloud Scheduler work.
-Mark an item complete only after its focused verification has passed and its
-task commit exists. A checked source-contract item does not mean that AWS
-resources have been created or that a workload is production-ready.
+This is the sole task tracker for the current Cloud Scheduler delivery slice.
+An item is checked only after its focused verification and task commit exist.
+Existing committed work is recorded as a baseline, not as permission to expand
+the current scope.
 
-## Scope lock
+## Audit conclusion
 
-- [x] The Cloud Deployment Planner belongs to the server-side Eino Native
-  Agent, not to a Codex workspace skill or a client-side skill.
-- [x] The Message Server never imports the AWS SDK, runs AWS CLI, or holds
-  long-lived AWS credentials.
-- [x] Current delivery work must not edit, reuse, or commit
-  `dirextalk-deployer`, release, updater, or deployment scripts.
-- [x] A worker/root executor remains an isolated future execution boundary;
-  it is not the existing deployer and is not the current `cloud-worker`
-  `execution_probe` process.
-- [x] Move the built-in Cloud planner from its current inline prompt into the
-  source-controlled Eino asset directory
-  `p2p/nativeagent/skills/cloud_deployment_planner/SKILL.md`, loaded by
-  the Native Agent runtime. This must remain distinct from user-managed
-  `native_agent_skills_*` configuration and from all deployer scripts.
+The previous tracker was not correct for the owner's current instruction: it
+mixed historical Connection Stack/Worker artifacts into a deployer package and
+then treated their cleanup as optional future work. They are an active
+prerequisite: no new Agent or Flutter feature work starts until those artifacts
+are either migrated out of the deployer or safely removed there.
+
+The audited baseline shows that both required product halves already exist in
+source:
+
+- The Message Server has a source-controlled Eino Cloud Deployment Planner at
+  `p2p/nativeagent/skills/cloud_deployment_planner/SKILL.md`, with only the
+  credential-free `native_agent_cloud_deployment_plan` and read-only
+  `native_agent_cloud_status` tools (`c5c61cc`).
+- Flutter already has owner-scoped `cloud.*` adapters, realtime projection
+  reduction, `/agent/workloads` task/service pages, plan/service details, and
+  a client-selected active-Connection entry into the restricted Agent chat
+  (`d8e859e`, `22fc0bd`, `1386a71`).
+- The current Agent response is still ordinary model text plus generic tool
+  trace. It does not yet provide a deterministic, client-safe workload card or
+  plan deep link derived from the typed planning result. That is the first
+  product gap after cleanup is complete.
+
+## Delivery order
+
+1. **Historical Cloud artifact cleanup (complete).** The audit found the
+   Connection Stack has an independent Cloud Orchestrator consumer but does not
+   belong in `dirextalk-deployer`. Commit `016c62b` removes its Node/SAM bundle,
+   directly coupled tests, and package/test wiring without changing normal
+   deployer lifecycle behavior.
+2. **Standalone Go control-plane port (now).** Rebuild the retained closed
+   Connection Stack contract as a nested, independent Go module. It must not
+   add Node/npm to any Message Server or deployer runtime and must not be
+   imported by the Message Server root module.
+3. **Agent-to-client workload milestone (only after step 2).** Implement the
+   scoped Eino Agent and Flutter contract below.
+
+## Cleanup decision (audited 2026-07-15)
+
+The Connection Stack V2 has an independent consumer: the separately supervised
+`p2p/cmd/cloud-orchestrator` process and its closed HTTPS Broker client. It is
+therefore retained as a product capability, but its existing Node/SAM bundle is
+not migrated. The old implementation is removed from `dirextalk-deployer` and
+is rebuilt as an independent Go module at:
+
+```text
+dirextalk-message-server/cloud-orchestrator/connection-stack-v2/
+```
+
+The new module owns a Go Lambda Broker, Go contract tests, its CloudFormation
+template, and the Go custom-runtime `bootstrap` binary. It has its own `go.mod`
+so the Message Server process neither imports the AWS SDK nor gains an AWS
+runtime dependency. No JavaScript source, npm lockfile, Node runtime, or shell
+deployment entrypoint is retained in the Message Server.
+
+The Go rebuild starts with the previously documented signed outer-command
+protocol and a syntactic `approval_proof` boundary plus a fail-closed Lambda.
+It does **not** yet claim deterministic-CBOR `ApprovalV1` verification or an
+approval consumption store. Until that complete parity slice is explicitly
+implemented and reviewed, it must reject EC2 creation, Recipe execution,
+lifecycle mutation, credential bootstrap, real AWS testing, and new IAM
+capabilities. The old deployer bundle and its 24 tests are removed first,
+together with only the Stack test registration in `tests/npm_test_suite.sh`.
+The deployer's generic Windows Git-Bash test runner, package metadata, normal
+lifecycle scripts, and unrelated release fixes stay in place. This is
+implemented as new focused commits, never a broad history rewrite or a range
+revert.
+
+## Current Go port contract
+
+The current implementation boundary is exactly
+`cloud-orchestrator/connection-stack-v2/`:
+
+- It is a nested Go module with its own `go.mod`, Go Lambda entry point,
+  CloudFormation template, and Go tests. It is not imported by the root
+  Message Server module and does not add an AWS SDK, Node, npm, AWS CLI, or
+  shell deployment runtime to the server process.
+- `POST /v2/commands` strictly parses the V2 outer command, canonical base64
+  encoding, payload SHA-256, duplicate-free UTF-8 JSON, exact millisecond
+  lifetime, exact registered
+  Connection/PKIX-SPKI Ed25519 node key, and the existing non-deployment
+  signature base. It returns only de-secretsed `{"error":{"code":"..."}}`
+  responses with `Cache-Control: no-store`.
+- Every action returns `operation_not_enabled`. In particular,
+  `deployment.create` is rejected before any signature/proof/provider work:
+  there is no ApprovalV1 verifier, receipt/counter store, EC2 API call,
+  Worker endpoint, root execution, service readiness claim, or cloud resource
+  side effect in this port stage.
+- The CloudFormation execution role grants CloudWatch Logs writes only. It has
+  no EC2, EBS, DynamoDB, IAM PassRole, Secrets Manager, S3, or network
+  mutation permission. The Go artifact is supplied through a versioned S3
+  artifact parameter by an approved external pipeline or the AWS console; no
+  deploy helper is shipped here.
+
+## Current delivery objective
+
+After the Go control-plane boundary is verified, make the existing restricted
+Cloud dialogue and Cloud Workloads UI operate as one coherent owner workflow:
+
+1. The client selects an already active Cloud Connection before opening the
+   restricted Cloud Agent conversation.
+2. The Eino Agent may create a research-only Goal/Plan or read de-secretsed
+   status through its existing narrow ports.
+3. When a typed planning result creates or reuses a Plan, the server returns a
+   deterministic, de-secretsed workload navigation summary; Flutter renders a
+   milestone card that opens that Plan in `/agent/workloads/plans/:planId`.
+4. The Workloads pages remain the source for plan, job, deployment, and service
+   projections and use the existing revision-aware realtime reducer.
+
+This is a planning and visibility slice. It must not imply that a VM was
+created, billing started, a Recipe executed, or a service became ready.
+
+## Fixed external contract for this slice
+
+Both `agent.chat` and the terminal `agent.chat.stream` `done` event may carry
+an optional field only when the restricted Cloud planning tool succeeds:
+
+```text
+cloud_workload = {
+  schema: "dirextalk.cloud-agent-workload/v1",
+  plan_id: string,
+  goal_id: string,
+  status: string,
+  revision: integer
+}
+```
+
+The server derives this object from the typed Cloud planner result, never by
+parsing model prose. It contains no prompt, Cloud Connection id, provider
+account/region data, quote, credential, secret reference, worker receipt, log,
+endpoint, or command. The field is optional so existing non-Cloud Agent clients
+remain compatible. Flutter treats an unknown or invalid object as absent and
+uses `plan_id` only to open the existing Plan detail route.
+
+## In scope
+
+- The completed removal of the historical
+  `dirextalk-deployer/scripts/connection-stack-v2/**` and its directly coupled
+  tests/package wiring, recorded by commit `016c62b`.
+- The destination standalone Go Connection Stack module at
+  `cloud-orchestrator/connection-stack-v2/`; it is outside deployer/release/
+  updater scripts, is not an Eino Skill, and is not a Message Server process
+  dependency.
+- `dirextalk-message-server/p2p/nativeagent/**` and the smallest adjacent
+  Agent stream/response adapter needed for `cloud_workload`.
+- `dirextalk-flutter/lib/presentation/agent/**`, existing Cloud Workloads
+  provider/page/route code, and their data adapter only where required to
+  consume and render the contract above.
+- Focused server and Flutter tests plus this contract/tracker documentation.
+
+## Explicitly out of scope
+
+- `dirextalk-updater/**`, Docker publishing, normal Message Server deployment
+  scripts, actual release execution, and unrelated historical Git cleanup.
+- New Connection Stack/CloudFormation/Broker/Worker/AMI capabilities beyond
+  the closed Go contract and fail-closed Lambda boundary; EC2 execution,
+  real-account tests, image pushes, and credential-file access. The isolated
+  Go Lambda module may use the AWS SDK when a later parity operation needs it,
+  but the Message Server process must not.
+- AWS key upload, secret bootstrap, purchase/approval, ingress, root command
+  execution, stop/restart/destroy, cost enforcement, and service pairing.
+- New Cloud lifecycle UI controls without a completed independent server-side
+  control-plane contract.
+
+The last two categories remain future work and are deliberately not represented
+as new implementation tasks in this delivery slice.
 
 ## Workboard
 
-### 0. Historical deployer-artifact cleanup
+### 0. Historical Connection Stack and Worker cleanup — Go port blocking
 
-- [x] Verified that the active Message Server diff has no deploy/release/updater
-  script change and that `dirextalk-deployer` is currently clean.
-- [x] Recorded the historical Cloud script provenance: current branch commits
-  `d110b0f…9067057` in `dirextalk-deployer` and
-  `02887e4`/`6675df5`/`d911624` in the Message Server were
-  authored as `adam`. They predate this uncommitted slice.
-- [ ] Classify each historical artifact before changing it: Eino prompt/content
-  moves to `p2p/nativeagent/skills/`; a typed Connection Stack or Worker
-  runtime, if retained, moves out of `dirextalk-deployer` into its own
-  Cloud Orchestrator asset boundary; unused artifacts are removed in their
-  owning repository.
-- [ ] Clean historical commits only with a selected commit range and a safe
-  method (normally a revert after migration). Do not rewrite shared history
-  implicitly.
+- [x] Produce a file/commit-level inventory of the Connection Stack V2,
+  Worker-related code, tests, package exports, and deployer entrypoints.
+- [x] Record that the Stack has an independent Cloud Orchestrator consumer and
+  must move to a standalone Go boundary rather than stay in deployer.
+- [x] Remove the Node/SAM bundle, its 24 directly coupled tests, and its suite
+  registration from `dirextalk-deployer` (`016c62b`); the focused distribution
+  test and explicit Git-Bash `npm test` passed.
+- [x] Rebuild the retained signed outer Broker protocol as isolated Go code under
+  `cloud-orchestrator/connection-stack-v2/`, with a separate `go.mod`, Go
+  contract tests, and no dependency from the Message Server process. The
+  initial port deliberately leaves action-specific payload/approval parity for
+  a later capability stage.
+- [x] Add the Go Lambda entry point and CloudFormation asset without a
+  JavaScript, npm, or shell deployment runtime.
+- [x] Verify the root Message Server module does not acquire AWS/Node
+  dependencies and the Go port fails closed for unported mutations. Nested Go
+  tests, `go vet`, Linux Lambda build, CloudFormation YAML parse, root Broker
+  tests/build, and root module exclusion all pass.
+- [x] Commit the Go port in the Message Server repository. Only then begin
+  section B.
 
-### 1. Eino Native Agent Cloud skill
+### A. Baseline retained for the later Agent/client stage
 
-- [x] Restricted `cloud_deployment_planner` is exposed only by the
-  server-side Eino Native Agent and can create a credential-free research goal
-  and read de-secretsed status.
-- [x] Cloud dialogue mode excludes shell, runtime CLI, external MCP, managed
-  skills, AWS credentials, approvals, lifecycle actions, and destruction.
-- [x] Package the built-in prompt and its capability contract in the dedicated
-  Eino `skills/` source directory described above.
-- [ ] Add the next typed planning/status capabilities only through narrow
-  Native Agent ports; never grant the model direct AWS, root, secret,
-  approval, ingress, start, stop, or destroy authority.
+- [x] Package the server-side Eino Cloud planner as a dedicated native Skill;
+  it remains distinct from user-managed skills and all deployment scripts
+  (`c5c61cc`).
+- [x] Retain the existing credential-free Cloud planning/status ports and
+  their restricted Cloud dialogue mode; do not grant the Agent a cloud control
+  capability.
+- [x] Retain the existing Flutter Cloud Workloads routes, owner-only HTTP
+  adapters, connection selection, and revision-aware realtime projection
+  reducer as the client integration baseline.
 
-### 2. Durable Cloud control plane
+### B. Deferred until cleanup: Agent-to-client workload milestone
 
-- [x] Connection bootstrap, research, quote, Plan confirmation, and
-  device-signed Plan approval are durable PostgreSQL control-plane contracts.
-- [x] Sealed `RecipeExecutionManifestV1` and a separate
-  `RecipeExecutionApprovalV1` contract exist; they do not execute a
-  process or call AWS.
-- [x] Finished the Recipe execution confirmation slice:
-  private trusted-manifest registration, owner HTTP-only prepare/approve,
-  install-intent persistence, migration, tests, focused build, review, and a
-  single commit. It must still not issue a Worker task, run root commands, or
-  mutate AWS.
-- [ ] Add a real independently deployed Cloud Orchestrator consumer only after
-  its artifact-delivery and executor contracts are reviewed.
+- [ ] Add the optional `dirextalk.cloud-agent-workload/v1` summary to direct
+  and streaming Agent results, derived only from a successful typed Cloud
+  planning tool result.
+- [ ] Prove that no secret-like input/output, model prose, malformed tool
+  result, or non-Cloud tool call can create the summary.
+- [ ] Render a Cloud workload milestone card in Flutter Agent chat, with a
+  safe Plan-detail deep link and an honest non-ready status label.
+- [ ] Keep unknown/absent summary behavior backward compatible and cover it in
+  Flutter reducer/widget tests.
 
-### 3. Worker and single-VM executor
+### C. Stage close
 
-- [x] Existing `execution_probe` is recognized as a transport/lease proof,
-  not service readiness or Recipe execution.
-- [ ] Define a fixed Worker AMI, signed artifact delivery, root executor
-  protocol, checkpoints, restart recovery, log/event redaction, and external
-  health evidence.
-- [ ] Add the typed `install` intent consumer only after the preceding
-  executor boundary is complete and tested. It must validate live Worker
-  evidence before acting.
-- [ ] Validate one disposable-account, single-VM test service before OpenClaw,
-  Hermes, knowledge-base, website, local-model, or training scenarios.
+- [ ] Run the affected Message Server Native Agent tests and focused Flutter
+  tests/analyzer; review the combined contract diff once.
+- [ ] Commit only the current-task changes in each owning repository. Preserve
+  unrelated work, including the Message Server's untracked Cloud Worker run
+  configuration and Flutter's unrelated `pubspec.lock` change.
 
-### 4. AWS connection and lifecycle
+## Acceptance checks
 
-- [x] The intended AWS mutation boundary is a user-owned Connection Stack with
-  a closed Broker command set; no current Message Server path mutates AWS.
-- [ ] Finish/review Connection Stack artifact and credential bootstrap in its
-  own owning repository and release process; do not couple it to this Eino
-  skill or Message Server task.
-- [ ] Implement typed create/observe/start/stop/destroy and read-back
-  verification, including retained-tracked resources and idempotent recovery.
-- [ ] Add secrets bootstrap, ingress-plan approval, cost estimate/alerts, and
-  destruction approvals without leaking secret material into Agent, events, or
-  MCP.
+- A restricted Cloud chat can create/reuse exactly one research-only Plan and
+  returns a typed workload summary with that Plan id.
+- A normal Agent chat, failed planning attempt, status-only response, or model
+  text containing a forged id cannot create a workload card.
+- Flutter opens the existing Plan page from the card; a missing or invalid
+  summary leaves ordinary chat rendering unchanged.
+- The UI and Agent never show or persist credentials, secrets, AWS account
+  details, raw goals, Worker data, quotes, or lifecycle controls in this flow.
+- The deployer contains no Connection Stack/Worker bundle or Cloud-specific npm
+  runtime; the standalone Connection Stack contains Go code only and is absent
+  from the root Message Server module dependency graph.
+- A valid non-deployment signed command reaches only the Go fail-closed gate;
+  malformed, expired, future-dated, oversized, duplicate-key, wrong-key, and
+  query-bearing requests cannot reach any provider operation. A deployment
+  command never reaches signature/proof/provider execution in this stage.
 
-### 5. Product surfaces and acceptance
+## Next action
 
-- [x] Public MCP remains Cloud read-only; Agent/MCP cannot approve spending,
-  upload secrets, open ingress, run root execution, or destroy resources.
-- [ ] Add Flutter connection/plan/workload/service views only after the
-  server-side public contracts for each view are stable.
-- [ ] Run disposable-account integration tests only after the Worker executor
-  and Connection Stack are ready. No production AWS credential or server is a
-  test fixture.
-- [ ] Validate natural-language planning for OpenClaw, Hermes, a knowledge
-  node, static site, local-model inference, and single-machine training as
-  acceptance scenarios rather than hard-coded templates.
-
-## Current next action
-
-Classify the historical Connection Stack and Worker artifacts in their owning
-repository before deciding whether to retain and relocate them as standalone
-Cloud Orchestrator assets or safely remove them. They are not Eino Skills and
-must not be coupled to Message Server deploy/release/updater scripts.
+Implement the deferred Agent-to-client workload milestone only after this Go
+port commit is present; do not expand the Stack into a provider mutation path
+without a separate approval/store/provider parity stage.
