@@ -66,6 +66,55 @@ func Setup(
 			return Upload(req, &cfg.MediaAPI, dev, db, activeThumbnailGeneration)
 		},
 	)
+	resumableUploadStartHandler := httputil.MakeAuthAPI(
+		"upload_resumable_start", userAPI,
+		func(req *http.Request, dev *userapi.Device) util.JSONResponse {
+			if r := rateLimits.Limit(req, dev); r != nil {
+				return *r
+			}
+			return ResumableUploadStart(req, &cfg.MediaAPI, dev)
+		},
+	)
+	resumableUploadStatusHandler := httputil.MakeAuthAPI(
+		"upload_resumable_status", userAPI,
+		func(req *http.Request, dev *userapi.Device) util.JSONResponse {
+			if r := rateLimits.Limit(req, dev); r != nil {
+				return *r
+			}
+			vars, _ := httputil.URLDecodeMapValues(mux.Vars(req))
+			return ResumableUploadStatus(req, &cfg.MediaAPI, dev, vars["uploadID"])
+		},
+	)
+	resumableUploadChunkHandler := httputil.MakeAuthAPI(
+		"upload_resumable_chunk", userAPI,
+		func(req *http.Request, dev *userapi.Device) util.JSONResponse {
+			if r := rateLimits.Limit(req, dev); r != nil {
+				return *r
+			}
+			vars, _ := httputil.URLDecodeMapValues(mux.Vars(req))
+			return ResumableUploadChunk(req, &cfg.MediaAPI, dev, vars["uploadID"])
+		},
+	)
+	resumableUploadCompleteHandler := httputil.MakeAuthAPI(
+		"upload_resumable_complete", userAPI,
+		func(req *http.Request, dev *userapi.Device) util.JSONResponse {
+			if r := rateLimits.Limit(req, dev); r != nil {
+				return *r
+			}
+			vars, _ := httputil.URLDecodeMapValues(mux.Vars(req))
+			return ResumableUploadComplete(req, &cfg.MediaAPI, dev, vars["uploadID"], db, activeThumbnailGeneration)
+		},
+	)
+	resumableUploadCancelHandler := httputil.MakeAuthAPI(
+		"upload_resumable_cancel", userAPI,
+		func(req *http.Request, dev *userapi.Device) util.JSONResponse {
+			if r := rateLimits.Limit(req, dev); r != nil {
+				return *r
+			}
+			vars, _ := httputil.URLDecodeMapValues(mux.Vars(req))
+			return ResumableUploadCancel(req, &cfg.MediaAPI, dev, vars["uploadID"])
+		},
+	)
 
 	configHandler := httputil.MakeAuthAPI("config", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
 		if r := rateLimits.Limit(req, device); r != nil {
@@ -82,6 +131,11 @@ func Setup(
 	})
 
 	v3mux.Handle("/upload", uploadHandler).Methods(http.MethodPost, http.MethodOptions)
+	v3mux.Handle("/upload/resumable", resumableUploadStartHandler).Methods(http.MethodPost, http.MethodOptions)
+	v3mux.Handle("/upload/resumable/{uploadID}", resumableUploadStatusHandler).Methods(http.MethodGet, http.MethodOptions)
+	v3mux.Handle("/upload/resumable/{uploadID}/chunk", resumableUploadChunkHandler).Methods(http.MethodPut, http.MethodOptions)
+	v3mux.Handle("/upload/resumable/{uploadID}/complete", resumableUploadCompleteHandler).Methods(http.MethodPost, http.MethodOptions)
+	v3mux.Handle("/upload/resumable/{uploadID}", resumableUploadCancelHandler).Methods(http.MethodDelete, http.MethodOptions)
 	v3mux.Handle("/config", configHandler).Methods(http.MethodGet, http.MethodOptions)
 
 	activeRemoteRequests := &types.ActiveRemoteRequests{
