@@ -80,3 +80,25 @@ func TestHandlePreservesAndRejectsGatewayQuery(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusNotFound)
 	}
 }
+
+func TestHandlePassesTrustedGatewayRuntimeInContext(t *testing.T) {
+	var got api.GatewayRuntime
+	handler := Handler{Broker: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		got, _ = api.GatewayRuntimeFromContext(request.Context())
+		response.WriteHeader(http.StatusNoContent)
+	})}
+	response, err := handler.Handle(context.Background(), events.APIGatewayV2HTTPRequest{
+		RawPath: "/v2/commands",
+		RequestContext: events.APIGatewayV2HTTPRequestContext{
+			DomainName: "abcdefghij.execute-api.ap-northeast-1.amazonaws.com",
+			Stage:      "prod",
+			HTTP:       events.APIGatewayV2HTTPRequestContextHTTPDescription{Method: http.MethodPost},
+		},
+	})
+	if err != nil || response.StatusCode != http.StatusNoContent {
+		t.Fatalf("Handle() = (%#v, %v)", response, err)
+	}
+	if got.DomainName != "abcdefghij.execute-api.ap-northeast-1.amazonaws.com" || got.Stage != "prod" {
+		t.Fatalf("gateway runtime = %#v", got)
+	}
+}

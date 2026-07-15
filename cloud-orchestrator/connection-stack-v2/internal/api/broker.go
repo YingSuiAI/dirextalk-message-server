@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/contract"
+	commandstore "github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/store"
 )
 
 const commandPath = "/v2/commands"
@@ -24,7 +25,12 @@ const commandPath = "/v2/commands"
 // KeyResolver provides only the public node key registered to one exact
 // Connection Stack. It must never return a private key or any AWS credential.
 type KeyResolver interface {
-	Lookup(ctx context.Context, connectionID, nodeKeyID string) (ed25519.PublicKey, bool)
+	Lookup(ctx context.Context, connectionID, nodeKeyID string) (NodeRegistration, bool)
+}
+
+type NodeRegistration struct {
+	Generation int64
+	PublicKey  ed25519.PublicKey
 }
 
 // StaticKeyResolver is intentionally narrow. It is useful for the initial
@@ -33,25 +39,26 @@ type KeyResolver interface {
 type StaticKeyResolver struct {
 	ConnectionID string
 	NodeKeyID    string
+	Generation   int64
 	PublicKey    ed25519.PublicKey
 }
 
-func (r StaticKeyResolver) Lookup(_ context.Context, connectionID, nodeKeyID string) (ed25519.PublicKey, bool) {
-	if r.ConnectionID != connectionID || r.NodeKeyID != nodeKeyID || len(r.PublicKey) != ed25519.PublicKeySize {
-		return nil, false
+func (r StaticKeyResolver) Lookup(_ context.Context, connectionID, nodeKeyID string) (NodeRegistration, bool) {
+	if r.ConnectionID != connectionID || r.NodeKeyID != nodeKeyID || r.Generation < 1 || len(r.PublicKey) != ed25519.PublicKeySize {
+		return NodeRegistration{}, false
 	}
-	return append(ed25519.PublicKey(nil), r.PublicKey...), true
+	return NodeRegistration{Generation: r.Generation, PublicKey: append(ed25519.PublicKey(nil), r.PublicKey...)}, true
 }
 
 // NewStaticKeyResolver decodes the PKIX/SPKI Ed25519 public key that the
 // Message Server registration contract already carries. A missing value returns
 // a nil resolver rather than a permissive one; the HTTP boundary will fail
 // closed with broker_not_configured.
-func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string) (*StaticKeyResolver, error) {
-	if strings.TrimSpace(connectionID) == "" && strings.TrimSpace(nodeKeyID) == "" && strings.TrimSpace(publicKeySPKIB64) == "" {
+func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string, generation int64) (*StaticKeyResolver, error) {
+	if strings.TrimSpace(connectionID) == "" && strings.TrimSpace(nodeKeyID) == "" && strings.TrimSpace(publicKeySPKIB64) == "" && generation == 0 {
 		return nil, nil
 	}
-	if strings.TrimSpace(connectionID) == "" || strings.TrimSpace(nodeKeyID) == "" || strings.TrimSpace(publicKeySPKIB64) == "" {
+	if strings.TrimSpace(connectionID) == "" || strings.TrimSpace(nodeKeyID) == "" || strings.TrimSpace(publicKeySPKIB64) == "" || generation < 1 || generation > 9007199254740991 {
 		return nil, errors.New("incomplete static node registration")
 	}
 	if !contract.ValidConnectionID(connectionID) || !contract.ValidNodeKeyID(nodeKeyID) {
@@ -69,16 +76,20 @@ func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string) (*St
 	return &StaticKeyResolver{
 		ConnectionID: connectionID,
 		NodeKeyID:    nodeKeyID,
+		Generation:   generation,
 		PublicKey:    append(ed25519.PublicKey(nil), publicKey...),
 	}, nil
 }
 
-// Broker is a fail-closed HTTP command endpoint. It does not persist receipts,
-// execute a provider API, receive Worker traffic, or report a service ready.
-// That keeps this first Go port safe while protocol/storage parity is built.
+// Broker is a fail-closed HTTP command endpoint. It admits only durable
+// registration attestation and read-only quote actions. It does not receive
+// Worker traffic, mutate AWS resources, or report a service ready.
 type Broker struct {
-	Resolver KeyResolver
-	Now      func() time.Time
+	Resolver     KeyResolver
+	Store        commandstore.Repository
+	Registration RegistrationAttestor
+	Quote        QuoteProvider
+	Now          func() time.Time
 }
 
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -131,23 +142,28 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if b.Now != nil {
 		now = b.Now().UTC()
 	}
-	if err := command.ValidateAt(now); err != nil {
-		writeError(response, http.StatusBadRequest, contract.Code(err))
-		return
-	}
-	publicKey, found := b.Resolver.Lookup(request.Context(), command.ConnectionID, command.NodeKeyID)
+	registration, found := b.Resolver.Lookup(request.Context(), command.ConnectionID, command.NodeKeyID)
 	if !found {
 		writeError(response, http.StatusForbidden, "unknown_node_key")
 		return
 	}
-	if err := command.VerifyNodeSignature(publicKey); err != nil {
+	if err := command.VerifyNodeSignature(registration.PublicKey); err != nil {
 		writeError(response, http.StatusForbidden, contract.Code(err))
 		return
 	}
-
-	// Never return success for an action that has not atomically committed a
-	// durable receipt and all required authorization/provider evidence.
-	writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+	if command.ExpectedGeneration != registration.Generation {
+		writeError(response, http.StatusConflict, "stale_generation")
+		return
+	}
+	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
+	if b.Store == nil {
+		writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+		return
+	}
+	b.executeReadOnly(response, request, command, now)
 }
 
 func writeError(response http.ResponseWriter, status int, code string) {

@@ -233,9 +233,9 @@ func (c Command) ValidateStructure() error {
 }
 
 // ValidateAt checks the short-lived command window before a new command could
-// be considered. The future durable receipt store must check for an existing
-// receipt before calling this method so an expired replay can remain
-// idempotent without causing a new side effect.
+// be considered. The durable receipt store checks for an existing receipt
+// before this method so an expired exact replay remains idempotent without
+// causing a new side effect.
 func (c Command) ValidateAt(now time.Time) error {
 	if err := c.ValidateStructure(); err != nil {
 		return err

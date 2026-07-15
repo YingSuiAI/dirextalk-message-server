@@ -42,9 +42,10 @@ AWS SDK integration in the message-server process.
   from `dirextalk-deployer` in `016c62b` to eliminate a Node runtime from this
   product boundary. Its replacement is the independent Go module at
   `cloud-orchestrator/connection-stack-v2/`: today it validates the closed
-  outer command envelope at `POST /v2/commands` and returns
-  `operation_not_enabled` for every action. It has no Worker HTTP routes,
-  DynamoDB receipt store, IMDS verification, EC2 read-back, AWS provider
+  outer command envelope at `POST /v2/commands`, persists an atomic command
+  receipt/counter fence, verifies registration, and issues bounded On-Demand
+  quotes from EC2 metadata/offerings and AWS Price List reads. It has no Worker
+  HTTP routes, IMDS verification, EC2 mutation/read-back, broad AWS provider
   permission, or root executor. The production Orchestrator remains gated
   until those components are ported and reviewed as complete typed
   capabilities. ProductCore therefore receives no Worker/session evidence,
@@ -534,10 +535,11 @@ owner's behalf, create an EC2 instance, install a service, expose a network
 endpoint, or destroy a resource. It can issue a reviewed CloudFormation handoff
 and persist a research-only intent, but the currently ported Go Broker rejects
 registration, quote, observation, Worker, and deployment commands with
-`operation_not_enabled` until their atomic storage/provider paths exist. It
-ships independently buildable research/quote/registration processes and a
-Go-only fail-closed Broker artifact, but does not yet deploy a researcher
-endpoint, Worker AMI, receipt store, provider executor, or AWS integration
-test. Those transitions must be implemented through the typed Connection
+`operation_not_enabled` except for signed registration verification and
+read-only On-Demand quotes. It ships independently buildable
+research/quote/registration processes and a Go-only fail-closed Broker
+artifact, but does not yet deploy a researcher endpoint, Worker AMI, mutation
+provider executor, or real-account AWS integration test. Those transitions
+must be implemented through the typed Connection
 Stack/Broker path; neither the Eino Agent tool, external MCP, nor the
 Message Server gains arbitrary AWS access.

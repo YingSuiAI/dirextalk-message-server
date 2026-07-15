@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: scope frozen, active
+- Status: Go read-only Broker parity complete; mutation fail-closed
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -95,18 +95,22 @@ The current implementation boundary is exactly
   Connection/PKIX-SPKI Ed25519 node key, and the existing non-deployment
   signature base. It returns only de-secretsed `{"error":{"code":"..."}}`
   responses with `Cache-Control: no-store`.
-- Every action returns `operation_not_enabled`. In particular,
-  `deployment.create` is rejected before any signature/proof/provider work:
-  there is no ApprovalV1 verifier, receipt/counter store, EC2 API call,
-  Worker endpoint, root execution, service readiness claim, or cloud resource
-  side effect in this port stage.
-- The CloudFormation execution role grants CloudWatch Logs writes only. It has
-  no EC2, EBS, DynamoDB, IAM PassRole, Secrets Manager, S3, or network
-  mutation permission. The Go artifact is supplied through a versioned S3
+- Only `connection.registration.verify` and `quote.request` are enabled after
+  node authentication and the generation fence. They use an atomic DynamoDB
+  receipt/counter/issued-quote transaction; quote reads are limited to EC2
+  instance metadata/offerings and AWS Price List. All stored results are
+  strict, de-secretsed contract objects and are revalidated before replay.
+- `deployment.create` and every Worker/mutation action remain
+  `operation_not_enabled`: there is no ApprovalV1 consumption, Worker endpoint,
+  root execution, service readiness claim, or cloud resource side effect.
+- The CloudFormation execution role grants its own log/receipt writes and the
+  three bounded read APIs only. It has no EC2/EBS/VPC mutation, IAM PassRole,
+  Secrets Manager, S3 write, Worker, or network-management permission. The Go
+  artifact is supplied through a versioned S3
   artifact parameter by an approved external pipeline or the AWS console; no
   deploy helper is shipped here.
 
-## Current delivery objective
+## Completed Agent/client delivery objective
 
 After the Go control-plane boundary is verified, make the existing restricted
 Cloud dialogue and Cloud Workloads UI operate as one coherent owner workflow:
@@ -146,6 +150,29 @@ endpoint, or command. The field is optional so existing non-Cloud Agent clients
 remain compatible. Flutter treats an unknown or invalid object as absent and
 uses `plan_id` only to open the existing Plan detail route.
 
+## Completed delivery objective — Go read-only Broker parity
+
+Make the independently deployed Go Connection Stack compatible with the
+already committed Orchestrator registration and quote clients without enabling
+any billable or mutating AWS operation:
+
+1. Align CloudFormation parameter names, the explicit `prod` stage, Stack
+   runtime identity, and Broker URL with the existing Role Plan and
+   registration endpoint contract.
+2. Persist exact command receipts and the last accepted per-Connection node
+   counter atomically. An exact replay returns the original result as
+   `idempotent`; the same command id with a different signed identity and a
+   non-increasing new counter fail closed.
+3. Enable only `connection.registration.verify` and `quote.request`. The former
+   attests immutable Stack/Worker configuration; the latter may call only EC2
+   instance metadata/offerings and AWS Price List read APIs.
+4. Keep `deployment.create`, Worker routes, secret bootstrap, approval
+   consumption, ingress and every provider mutation at `operation_not_enabled`.
+
+This stage uses fake AWS/provider tests and DynamoDB request-contract tests. It
+does not access `rootkey.csv`, deploy the Stack, call a real AWS account, create
+an EC2 instance, or start billing.
+
 ## In scope
 
 - The completed removal of the historical
@@ -155,6 +182,9 @@ uses `plan_id` only to open the existing Plan detail route.
   `cloud-orchestrator/connection-stack-v2/`; it is outside deployer/release/
   updater scripts, is not an Eino Skill, and is not a Message Server process
   dependency.
+- The standalone module's DynamoDB receipt/counter/issued-quote store,
+  registration attestation, read-only EC2/Pricing quote provider,
+  CloudFormation resources/IAM, and cross-module contract fixtures.
 - `dirextalk-message-server/p2p/nativeagent/**` and the smallest adjacent
   Agent stream/response adapter needed for `cloud_workload`.
 - `dirextalk-flutter/lib/presentation/agent/**`, existing Cloud Workloads
@@ -166,18 +196,17 @@ uses `plan_id` only to open the existing Plan detail route.
 
 - `dirextalk-updater/**`, Docker publishing, normal Message Server deployment
   scripts, actual release execution, and unrelated historical Git cleanup.
-- New Connection Stack/CloudFormation/Broker/Worker/AMI capabilities beyond
-  the closed Go contract and fail-closed Lambda boundary; EC2 execution,
-  real-account tests, image pushes, and credential-file access. The isolated
-  Go Lambda module may use the AWS SDK when a later parity operation needs it,
-  but the Message Server process must not.
+- EC2/EBS/VPC/IAM mutation, Worker/AMI execution, real-account tests, image
+  pushes, and credential-file access. AWS SDK dependencies remain confined to
+  the standalone Go Lambda module; the Message Server process must not acquire
+  them.
 - AWS key upload, secret bootstrap, purchase/approval, ingress, root command
   execution, stop/restart/destroy, cost enforcement, and service pairing.
 - New Cloud lifecycle UI controls without a completed independent server-side
   control-plane contract.
 
-The last two categories remain future work and are deliberately not represented
-as new implementation tasks in this delivery slice.
+Those mutation and lifecycle categories remain future work and are deliberately
+not represented as implementation tasks in this read-only parity stage.
 
 ## Workboard
 
@@ -236,6 +265,23 @@ as new implementation tasks in this delivery slice.
   unrelated work, including the Message Server's untracked Cloud Worker run
   configuration and Flutter's unrelated `pubspec.lock` change.
 
+### D. Go Connection Stack read-only registration/quote parity
+
+- [x] Align the Go template and Lambda runtime with the existing Role Plan,
+  explicit `/prod/v2/commands` endpoint, Stack identity and fixed Worker
+  attestation parameters.
+- [x] Add strict typed registration/quote payloads and responses compatible
+  with the existing Orchestrator validators and golden vectors.
+- [x] Add an atomic durable receipt/counter/issued-quote store with exact
+  replay, command-id conflict, stale-counter and indeterminate-commit recovery.
+- [x] Enable only registration verification and On-Demand quote reads through
+  bounded provider interfaces; keep all mutation actions fail-closed.
+- [x] Cover authentication-before-provider, replay-after-expiry, concurrent
+  idempotency, provider failure, response de-secreting and IAM negative rules.
+- [x] Run the nested Go tests/vet/Linux build, affected root Broker contract
+  tests and template checks; perform one accumulated review and commit only
+  current-task files.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -249,13 +295,18 @@ as new implementation tasks in this delivery slice.
 - The deployer contains no Connection Stack/Worker bundle or Cloud-specific npm
   runtime; the standalone Connection Stack contains Go code only and is absent
   from the root Message Server module dependency graph.
-- A valid non-deployment signed command reaches only the Go fail-closed gate;
+- A valid signed registration/quote command reaches only its bounded Go
+  attestor/read provider; every other non-deployment command reaches only the
+  fail-closed gate.
   malformed, expired, future-dated, oversized, duplicate-key, wrong-key, and
   query-bearing requests cannot reach any provider operation. A deployment
   command never reaches signature/proof/provider execution in this stage.
 
 ## Next action
 
-Implement the deferred Agent-to-client workload milestone only after this Go
-port commit is present; do not expand the Stack into a provider mutation path
-without a separate approval/store/provider parity stage.
+Freeze the next typed mutation boundary before enabling it: deterministic-CBOR
+ApprovalV1 verification, one-time approval consumption, durable deployment
+reservation, fixed Worker artifact/network enforcement, idempotent provider
+mutation, and AWS read-back must land as one coherent stage. Until then, do not
+enable `deployment.create`, add Worker routes, read local AWS credentials,
+deploy the Stack, or run real-account tests.

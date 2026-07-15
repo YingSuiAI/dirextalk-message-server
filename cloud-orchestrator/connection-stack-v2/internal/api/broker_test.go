@@ -18,11 +18,12 @@ import (
 
 func TestBrokerAuthenticatesBeforeFailClosedOperation(t *testing.T) {
 	privateKey := testPrivateKey()
-	raw := signedCommand(t, privateKey, contract.ActionQuoteRequest)
+	raw := signedCommand(t, privateKey, contract.ActionArtifactPut)
 	broker := Broker{
 		Resolver: StaticKeyResolver{
 			ConnectionID: "connection-0001",
 			NodeKeyID:    "node-key-01",
+			Generation:   1,
 			PublicKey:    privateKey.Public().(ed25519.PublicKey),
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 15, 1, 2, 4, 0, time.UTC) },
@@ -46,6 +47,7 @@ func TestBrokerRejectsInvalidSignatureBeforeOperationGate(t *testing.T) {
 		Resolver: StaticKeyResolver{
 			ConnectionID: "connection-0001",
 			NodeKeyID:    "node-key-01",
+			Generation:   1,
 			PublicKey:    other.Public().(ed25519.PublicKey),
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 15, 1, 2, 4, 0, time.UTC) },
@@ -63,6 +65,7 @@ func TestBrokerDeploymentIsRejectedWithoutInvokingAnyProvider(t *testing.T) {
 	broker := Broker{Resolver: StaticKeyResolver{
 		ConnectionID: "connection-0001",
 		NodeKeyID:    "node-key-01",
+		Generation:   1,
 		PublicKey:    privateKey.Public().(ed25519.PublicKey),
 	}}
 	response := serve(t, broker, http.MethodPost, "/v2/commands", raw)
@@ -117,17 +120,19 @@ func TestNewStaticKeyResolverRequiresPKIXSPKIEd25519Key(t *testing.T) {
 		"connection-0001",
 		"node-key-01",
 		base64.StdEncoding.EncodeToString(encoded),
+		1,
 	)
 	if err != nil {
 		t.Fatalf("NewStaticKeyResolver() error = %v", err)
 	}
-	if key, found := resolver.Lookup(t.Context(), "connection-0001", "node-key-01"); !found || !bytes.Equal(key, privateKey.Public().(ed25519.PublicKey)) {
-		t.Fatalf("Lookup() = (%v, %t), want registered public key", key, found)
+	if registration, found := resolver.Lookup(t.Context(), "connection-0001", "node-key-01"); !found || registration.Generation != 1 || !bytes.Equal(registration.PublicKey, privateKey.Public().(ed25519.PublicKey)) {
+		t.Fatalf("Lookup() = (%v, %t), want registered public key", registration, found)
 	}
 	if _, err := NewStaticKeyResolver(
 		"connection-0001",
 		"node-key-01",
 		base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)),
+		1,
 	); err == nil {
 		t.Fatal("NewStaticKeyResolver() accepted a raw Ed25519 key instead of PKIX/SPKI")
 	}
@@ -135,6 +140,7 @@ func TestNewStaticKeyResolverRequiresPKIXSPKIEd25519Key(t *testing.T) {
 		"short",
 		"node-key-01",
 		base64.StdEncoding.EncodeToString(encoded),
+		1,
 	); err == nil {
 		t.Fatal("NewStaticKeyResolver() accepted an invalid Connection ID")
 	}

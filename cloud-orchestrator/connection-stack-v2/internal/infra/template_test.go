@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestTemplateKeepsGoOnlyFailClosedPermissions(t *testing.T) {
+func TestTemplateEnablesOnlyReadOnlyQuoteAndDurableCommandFences(t *testing.T) {
 	path := filepath.Join("..", "..", "infra", "template.yaml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -18,8 +18,25 @@ func TestTemplateKeepsGoOnlyFailClosedPermissions(t *testing.T) {
 		"Runtime: provided.al2023",
 		"Handler: bootstrap",
 		"POST /v2/commands",
+		"ConnectionId:",
+		"ConnectionGeneration:",
+		"NodeKeyId:",
+		"NodePublicKeySpkiBase64:",
+		"DeviceApprovalKeyId:",
+		"DeviceApprovalPublicKeySpkiBase64:",
+		"AllowedValues:\n      - prod",
+		"StageName: !Ref StageName",
+		"BrokerCommandUrl:",
 		"DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64",
 		"BrokerArtifactBucket",
+		"AWS::DynamoDB::Table",
+		"dynamodb:GetItem",
+		"dynamodb:TransactWriteItems",
+		"ec2:DescribeInstanceTypeOfferings",
+		"ec2:DescribeInstanceTypes",
+		"pricing:GetProducts",
+		"DeletionProtectionEnabled: true",
+		"PointInTimeRecoveryEnabled: true",
 	} {
 		if !strings.Contains(template, required) {
 			t.Fatalf("template is missing %q", required)
@@ -28,11 +45,18 @@ func TestTemplateKeepsGoOnlyFailClosedPermissions(t *testing.T) {
 	for _, forbidden := range []string{
 		"AWS::Serverless::",
 		"nodejs",
-		"ec2:",
-		"dynamodb:",
 		"iam:PassRole",
 		"secretsmanager:",
-		"s3:",
+		"ec2:RunInstances",
+		"ec2:CreateSecurityGroup",
+		"ec2:AuthorizeSecurityGroupIngress",
+		"ec2:TerminateInstances",
+		"ec2:StartInstances",
+		"ec2:StopInstances",
+		"dynamodb:Scan",
+		"dynamodb:Query",
+		"/v2/worker-sessions",
+		"StageName: \"$default\"",
 	} {
 		if strings.Contains(strings.ToLower(template), strings.ToLower(forbidden)) {
 			t.Fatalf("template unexpectedly grants or depends on %q", forbidden)

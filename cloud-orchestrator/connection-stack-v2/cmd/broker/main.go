@@ -1,27 +1,119 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/pricing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/api"
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/contract"
 	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/lambdaadapter"
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/provider"
+	commandstore "github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/store"
 )
 
 func main() {
-	resolver, err := api.NewStaticKeyResolver(
-		os.Getenv("DIREXTALK_CONNECTION_ID"),
-		os.Getenv("DIREXTALK_NODE_KEY_ID"),
-		os.Getenv("DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64"),
-	)
+	broker, err := productionBroker(context.Background())
 	if err != nil {
-		// The values are deliberately not included in the log line. Lambda still
-		// starts and the public endpoint fails closed rather than admitting an
-		// unconfigured command.
-		log.Printf("connection stack broker static registration is invalid")
+		// Configuration and AWS errors are deliberately not logged: Lambda still
+		// starts behind a fail-closed endpoint without exposing environment data.
+		log.Printf("connection stack broker configuration is unavailable")
+		broker = api.Broker{}
 	}
-	broker := api.Broker{Resolver: resolver}
 	lambda.Start(lambdaadapter.New(broker).Handle)
+}
+
+func productionBroker(ctx context.Context) (api.Broker, error) {
+	config, err := runtimeConfigFromEnvironment()
+	if err != nil {
+		return api.Broker{}, err
+	}
+	resolver, err := api.NewStaticKeyResolver(
+		config.connectionID, config.nodeKeyID, config.nodePublicKeySPKIBase64, config.connectionGeneration,
+	)
+	if err != nil || resolver == nil {
+		return api.Broker{}, errors.New("invalid node registration")
+	}
+	awsConfig, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(config.region))
+	if err != nil {
+		return api.Broker{}, errors.New("AWS runtime unavailable")
+	}
+	repository, err := commandstore.NewDynamoRepository(commandstore.DynamoConfig{
+		Client: dynamodb.NewFromConfig(awsConfig), ReceiptsTable: config.receiptsTable,
+		CountersTable: config.countersTable, IssuedQuotesTable: config.issuedQuotesTable,
+	})
+	if err != nil {
+		return api.Broker{}, err
+	}
+	registration, err := provider.NewRegistrationAttestor(provider.RegistrationConfig{
+		ConnectionID: config.connectionID, ConnectionGeneration: config.connectionGeneration, NodeKeyID: config.nodeKeyID,
+		AccountID: config.accountID, Region: config.region, StackARN: config.stackARN, URLSuffix: config.urlSuffix,
+		StageName: config.stageName, WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: config.workerAMIID},
+		WorkerNetwork:                contract.WorkerNetworkReference{VPCID: config.workerVPCID, SubnetID: config.workerSubnetID, AvailabilityZone: config.workerAvailabilityZone},
+		WorkerResourceManifestDigest: config.workerResourceManifestDigest,
+	})
+	if err != nil {
+		return api.Broker{}, err
+	}
+	pricingConfig := awsConfig.Copy()
+	pricingConfig.Region = pricingRegion(config.region)
+	quote, err := provider.NewOnDemandQuoteProvider(ec2.NewFromConfig(awsConfig), pricing.NewFromConfig(pricingConfig))
+	if err != nil {
+		return api.Broker{}, err
+	}
+	return api.Broker{Resolver: resolver, Store: repository, Registration: registration, Quote: quote}, nil
+}
+
+type runtimeConfig struct {
+	connectionID, nodeKeyID, nodePublicKeySPKIBase64                 string
+	accountID, region, stackARN, urlSuffix, stageName                string
+	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone string
+	workerResourceManifestDigest                                     string
+	receiptsTable, countersTable, issuedQuotesTable                  string
+	connectionGeneration                                             int64
+}
+
+func runtimeConfigFromEnvironment() (runtimeConfig, error) {
+	config := runtimeConfig{
+		connectionID: requiredEnvironment("DIREXTALK_CONNECTION_ID"), nodeKeyID: requiredEnvironment("DIREXTALK_NODE_KEY_ID"),
+		nodePublicKeySPKIBase64: requiredEnvironment("DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64"),
+		accountID:               requiredEnvironment("DIREXTALK_STACK_ACCOUNT_ID"), region: requiredEnvironment("DIREXTALK_STACK_REGION"),
+		stackARN: requiredEnvironment("DIREXTALK_STACK_ARN"), urlSuffix: requiredEnvironment("DIREXTALK_AWS_URL_SUFFIX"),
+		stageName: requiredEnvironment("DIREXTALK_BROKER_STAGE_NAME"), workerAMIID: requiredEnvironment("DIREXTALK_WORKER_BASE_AMI_ID"),
+		workerVPCID: requiredEnvironment("DIREXTALK_WORKER_VPC_ID"), workerSubnetID: requiredEnvironment("DIREXTALK_WORKER_SUBNET_ID"),
+		workerAvailabilityZone:       requiredEnvironment("DIREXTALK_WORKER_AVAILABILITY_ZONE"),
+		workerResourceManifestDigest: requiredEnvironment("DIREXTALK_WORKER_RESOURCE_MANIFEST_DIGEST"),
+		receiptsTable:                requiredEnvironment("DIREXTALK_COMMAND_RECEIPTS_TABLE"), countersTable: requiredEnvironment("DIREXTALK_CONNECTION_COUNTERS_TABLE"),
+		issuedQuotesTable: requiredEnvironment("DIREXTALK_ISSUED_QUOTES_TABLE"),
+	}
+	generation, err := strconv.ParseInt(requiredEnvironment("DIREXTALK_CONNECTION_GENERATION"), 10, 64)
+	if err != nil || generation < 1 || generation > 9007199254740991 {
+		return runtimeConfig{}, errors.New("invalid connection generation")
+	}
+	config.connectionGeneration = generation
+	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerResourceManifestDigest == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" {
+		return runtimeConfig{}, errors.New("incomplete broker configuration")
+	}
+	return config, nil
+}
+
+func requiredEnvironment(name string) string { return strings.TrimSpace(os.Getenv(name)) }
+
+func pricingRegion(region string) string {
+	if strings.HasPrefix(region, "cn-") {
+		return "cn-northwest-1"
+	}
+	if strings.HasPrefix(region, "us-gov-") {
+		return "us-gov-west-1"
+	}
+	return "us-east-1"
 }

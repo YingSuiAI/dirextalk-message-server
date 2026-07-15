@@ -8,7 +8,7 @@ It replaces the historical Node/SAM bundle that was removed from
 `dirextalk-deployer`. There is no `package.json`, npm lockfile, JavaScript,
 Node runtime, SAM source, or shell deployment script here.
 
-## Current safety state
+## Current read-only capability
 
 The Lambda accepts only `POST /v2/commands` and validates the closed
 `dirextalk.aws.command/v2` outer envelope:
@@ -20,13 +20,28 @@ The Lambda accepts only `POST /v2/commands` and validates the closed
   non-deployment commands; and
 - safe, no-store error responses only.
 
-Every operation currently returns `operation_not_enabled` after that boundary.
-`deployment.create` is rejected before signature verification because its
+After node authentication and the generation fence, only two typed actions are
+enabled:
+
+- `connection.registration.verify` attests the exact Stack identity, explicit
+  `prod` Broker URL, and fixed Worker AMI/network/manifest bindings;
+- `quote.request` reads EC2 instance offerings/capacity and the AWS Price List
+  to issue a 15-minute On-Demand estimate in USD.
+
+Both actions atomically commit the per-Connection node counter, exact command
+receipt, and (for quotes) issued quote in encrypted, deletion-protected DynamoDB
+tables. Exact retries return the stored result as `idempotent`; command-id and
+stale-counter conflicts fail closed. Stored results are validated again before
+they are returned.
+
+All other operations return `operation_not_enabled`. `deployment.create` is
+rejected before signature verification because its
 deterministic-CBOR `ApprovalV1` verifier, one-time approval consumption,
 receipt/counter transaction, EC2 read-back, and provider mutation must be
-ported and reviewed as one capability. No EC2, DynamoDB, EBS, VPC, IAM
-mutation, Worker session, root command, secret delivery, public service, or
-cost operation is implemented by this stage.
+ported and reviewed as one capability. Apart from the bounded receipt-table
+writes above, no EC2, EBS, VPC, or IAM mutation, Worker session, root command,
+secret delivery, public service, or billable resource creation is implemented
+by this stage.
 
 This is intentional. A partial mutation path must fail closed rather than make
 an untracked or billable resource and claim feature parity.
@@ -52,10 +67,11 @@ as parameters; this module intentionally does not contain an AWS CLI or shell
 deployment entrypoint. The owner may deploy the reviewed template through the
 AWS console or an approved release pipeline.
 
-The CloudFormation template takes the exact `ConnectionID`, `NodeKeyID`, and
-base64 PKIX/SPKI Ed25519 public key already bound by the Message Server
-Connection registration flow. That public key is not an AWS credential or a
-private signing key.
+The CloudFormation template takes the exact `ConnectionId`,
+`ConnectionGeneration`, `NodeKeyId`, public-key and `StageName` parameters
+already emitted by the Message Server Role Plan, plus the immutable Broker
+artifact and fixed Worker attestation parameters. Public keys are not AWS
+credentials or private signing keys.
 
 ## Verify locally
 
@@ -69,16 +85,15 @@ Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
 ```
 
 No local or real AWS account test is authorized by this module. The template's
-Lambda execution role has only CloudWatch Logs permissions; it has no EC2,
-EBS, IAM pass-role, DynamoDB, Secrets Manager, S3, or network-management
-permissions.
+Lambda execution role can write its own logs and receipt tables and call only
+`DescribeInstanceTypeOfferings`, `DescribeInstanceTypes`, and
+`pricing:GetProducts`. It has no EC2/EBS/VPC mutation, IAM pass-role, Secrets
+Manager, Worker, secret-bootstrap, or network-management permission.
 
 ## Next parity boundary
 
-The next implementation stage must add, together, the durable receipt/counter
-store and action-specific read-only registration/quote flow with contract
-fixtures. A later mutation stage must separately add deterministic-CBOR
-ApprovalV1 verification, one-time approval consumption, deployment
-reservation, fixed Worker artifact/network validation, and AWS read-back.
-Until then, this module remains a safe Go-only protocol gateway rather than a
-cloud executor.
+A later mutation stage must separately add deterministic-CBOR ApprovalV1
+verification, one-time approval consumption, deployment reservation, fixed
+Worker artifact/network enforcement, and AWS read-back before any provider
+mutation is enabled. Until that whole boundary lands, this module remains a
+safe Go-only registration and quote Broker rather than a cloud executor.

@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Dirextalk Connection Stack V2 Go Broker. This initial artifact validates the
-  closed command boundary and fails closed; it does not create or manage EC2.
+  Dirextalk Connection Stack V2 Go Broker. This stage enables only durable
+  connection registration verification and read-only On-Demand quotes; it
+  cannot create or mutate EC2 resources.
 
 Parameters:
   BrokerArtifactBucket:
@@ -16,18 +17,52 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional immutable S3 object version for the Go Lambda zip.
-  ConnectionID:
+  ConnectionId:
     Type: String
     AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
-    ConstraintDescription: Must be the exact Dirextalk Cloud Connection ID.
-  NodeKeyID:
+  ConnectionGeneration:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 9007199254740991
+  NodeKeyId:
     Type: String
     AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-    ConstraintDescription: Must be the exact registered node key ID.
-  NodePublicKeySPKIBase64:
+  NodePublicKeySpkiBase64:
     Type: String
+    NoEcho: true
+    MinLength: 56
+    MaxLength: 256
     AllowedPattern: "^[A-Za-z0-9+/]+={0,2}$"
-    ConstraintDescription: Must be a base64 PKIX/SPKI Ed25519 public key.
+  DeviceApprovalKeyId:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  DeviceApprovalPublicKeySpkiBase64:
+    Type: String
+    NoEcho: true
+    MinLength: 56
+    MaxLength: 256
+    AllowedPattern: "^[A-Za-z0-9+/]+={0,2}$"
+  StageName:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+  WorkerBaseAmiId:
+    Type: String
+    AllowedPattern: "^ami-[0-9a-f]{8,17}$"
+  WorkerResourceManifestDigest:
+    Type: String
+    AllowedPattern: "^sha256:[0-9a-f]{64}$"
+  WorkerVpcId:
+    Type: String
+    AllowedPattern: "^vpc-[0-9a-f]{8,17}$"
+  WorkerSubnetId:
+    Type: String
+    AllowedPattern: "^subnet-[0-9a-f]{8,17}$"
+  WorkerAvailabilityZone:
+    Type: String
+    AllowedPattern: "^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9][a-z]$"
 
 Conditions:
   HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
@@ -38,6 +73,68 @@ Resources:
     Properties:
       LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-connection-broker"
       RetentionInDays: 30
+
+  CommandReceiptsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: command_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: command_id
+          KeyType: RANGE
+
+  ConnectionCountersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+
+  IssuedQuotesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: quote_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: quote_id
+          KeyType: RANGE
 
   BrokerRole:
     Type: AWS::IAM::Role
@@ -50,21 +147,42 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: write-own-broker-logs-only
+        - PolicyName: broker-read-only-and-receipt-store
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: WriteOwnBrokerLogsOnly
+                Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-connection-broker:*"
+              - Sid: PersistCommandFencesOnly
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt CommandReceiptsTable.Arn
+                  - !GetAtt ConnectionCountersTable.Arn
+                  - !GetAtt IssuedQuotesTable.Arn
+              - Sid: ReadInstanceOfferingsAndCapacityOnly
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstanceTypeOfferings
+                  - ec2:DescribeInstanceTypes
+                Resource: "*"
+              - Sid: ReadOnDemandPriceListOnly
+                Effect: Allow
+                Action:
+                  - pricing:GetProducts
+                Resource: "*"
 
   BrokerFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "${AWS::StackName}-connection-broker"
-      Description: Dirextalk Connection Stack V2 Go Broker (fail-closed foundation)
+      Description: Dirextalk Connection Stack V2 Go read-only Broker
       Runtime: provided.al2023
       Handler: bootstrap
       Architectures:
@@ -79,9 +197,25 @@ Resources:
         S3ObjectVersion: !If [HasBrokerArtifactVersion, !Ref BrokerArtifactVersion, !Ref "AWS::NoValue"]
       Environment:
         Variables:
-          DIREXTALK_CONNECTION_ID: !Ref ConnectionID
-          DIREXTALK_NODE_KEY_ID: !Ref NodeKeyID
-          DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64: !Ref NodePublicKeySPKIBase64
+          DIREXTALK_CONNECTION_ID: !Ref ConnectionId
+          DIREXTALK_CONNECTION_GENERATION: !Ref ConnectionGeneration
+          DIREXTALK_NODE_KEY_ID: !Ref NodeKeyId
+          DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64: !Ref NodePublicKeySpkiBase64
+          DIREXTALK_DEVICE_APPROVAL_KEY_ID: !Ref DeviceApprovalKeyId
+          DIREXTALK_DEVICE_APPROVAL_PUBLIC_KEY_SPKI_B64: !Ref DeviceApprovalPublicKeySpkiBase64
+          DIREXTALK_STACK_ACCOUNT_ID: !Ref "AWS::AccountId"
+          DIREXTALK_STACK_REGION: !Ref "AWS::Region"
+          DIREXTALK_STACK_ARN: !Ref "AWS::StackId"
+          DIREXTALK_AWS_URL_SUFFIX: !Ref "AWS::URLSuffix"
+          DIREXTALK_BROKER_STAGE_NAME: !Ref StageName
+          DIREXTALK_WORKER_BASE_AMI_ID: !Ref WorkerBaseAmiId
+          DIREXTALK_WORKER_RESOURCE_MANIFEST_DIGEST: !Ref WorkerResourceManifestDigest
+          DIREXTALK_WORKER_VPC_ID: !Ref WorkerVpcId
+          DIREXTALK_WORKER_SUBNET_ID: !Ref WorkerSubnetId
+          DIREXTALK_WORKER_AVAILABILITY_ZONE: !Ref WorkerAvailabilityZone
+          DIREXTALK_COMMAND_RECEIPTS_TABLE: !Ref CommandReceiptsTable
+          DIREXTALK_CONNECTION_COUNTERS_TABLE: !Ref ConnectionCountersTable
+          DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api
@@ -109,7 +243,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       ApiId: !Ref BrokerAPI
-      StageName: "$default"
+      StageName: !Ref StageName
       AutoDeploy: true
 
   BrokerInvokePermission:
@@ -118,15 +252,31 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BrokerFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/*/POST/v2/commands"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/commands"
 
 Outputs:
-  BrokerCommandURL:
-    Description: Exact endpoint registered with the Cloud Orchestrator after the Stack is deployed.
-    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/v2/commands"
-  BrokerFunctionName:
-    Description: Go Lambda Broker function name.
-    Value: !Ref BrokerFunction
+  ConnectionId:
+    Value: !Ref ConnectionId
+  ConnectionGeneration:
+    Value: !Ref ConnectionGeneration
+  AccountId:
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Value: !Ref "AWS::Region"
+  NodeKeyId:
+    Value: !Ref NodeKeyId
+  WorkerBaseAmiId:
+    Value: !Ref WorkerBaseAmiId
+  WorkerVpcId:
+    Value: !Ref WorkerVpcId
+  WorkerSubnetId:
+    Value: !Ref WorkerSubnetId
+  WorkerAvailabilityZone:
+    Value: !Ref WorkerAvailabilityZone
+  WorkerResourceManifestDigest:
+    Value: !Ref WorkerResourceManifestDigest
+  BrokerCommandUrl:
+    Description: Exact endpoint submitted to Dirextalk for signed verification.
+    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/commands"
   BrokerRuntime:
-    Description: Runtime confirms this Connection Stack has no Node/npm runtime.
     Value: provided.al2023

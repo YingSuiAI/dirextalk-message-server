@@ -48,7 +48,14 @@ func (h Handler) Handle(ctx context.Context, event events.APIGatewayV2HTTPReques
 	if method == "" {
 		return gatewayError(http.StatusBadRequest, "invalid_command"), nil
 	}
-	request, err := http.NewRequestWithContext(ctx, method, "https://connection-stack.invalid"+path, bytes.NewReader(body))
+	requestContext := ctx
+	if event.RequestContext.DomainName != "" && event.RequestContext.Stage != "" {
+		requestContext = api.WithGatewayRuntime(ctx, api.GatewayRuntime{
+			DomainName: event.RequestContext.DomainName,
+			Stage:      event.RequestContext.Stage,
+		})
+	}
+	request, err := http.NewRequestWithContext(requestContext, method, "https://connection-stack.invalid"+path, bytes.NewReader(body))
 	if err != nil {
 		return gatewayError(http.StatusBadRequest, "invalid_command"), nil
 	}
