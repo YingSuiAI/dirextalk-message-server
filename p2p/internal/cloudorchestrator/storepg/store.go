@@ -360,8 +360,8 @@ func transitionQuoteJob(ctx context.Context, tx *sql.Tx, claim runtime.QuoteClai
 func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, deploymentID, kind, stepID string, now int64, transition researchJobTransition) (cloudmodule.Job, error) {
 	if jobID == "" || kind == "" || stepID == "" ||
 		(kind == "connection_registration" && (planID != "" || deploymentID != "")) ||
-		((kind == "provision" || kind == "verify" || kind == "install") && (planID == "" || deploymentID == "")) ||
-		(kind != "connection_registration" && kind != "provision" && kind != "verify" && kind != "install" && (planID == "" || deploymentID != "")) {
+		((kind == "provision" || kind == "verify" || kind == "install" || kind == "destroy") && (planID == "" || deploymentID == "")) ||
+		(kind != "connection_registration" && kind != "provision" && kind != "verify" && kind != "install" && kind != "destroy" && (planID == "" || deploymentID != "")) {
 		return cloudmodule.Job{}, errors.New("cloud job identity is invalid")
 	}
 	transition.errorCode = durableErrorCode(transition.errorCode, "")

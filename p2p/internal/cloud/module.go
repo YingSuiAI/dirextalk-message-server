@@ -66,6 +66,10 @@ const (
 	cloudRecipeExecutionConfirmationConflictCode        = "cloud_recipe_execution_confirmation_conflict"
 	cloudRecipeExecutionApprovalExpiredCode             = "cloud_recipe_execution_approval_expired"
 	cloudRecipeExecutionApprovalSignatureCode           = "cloud_recipe_execution_approval_signature_invalid"
+	cloudServiceDestroyConfirmationInvalidCode          = "cloud_service_destroy_confirmation_invalid"
+	cloudServiceDestroyConfirmationConflictCode         = "cloud_service_destroy_confirmation_conflict"
+	cloudServiceDestroyApprovalExpiredCode              = "cloud_service_destroy_approval_expired"
+	cloudServiceDestroyApprovalSignatureCode            = "cloud_service_destroy_approval_signature_invalid"
 )
 
 type Config struct {
@@ -109,8 +113,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionDeploymentsPairingResume:                      m.unavailableWrite,
 		actionServicesOperationPlan:                         m.unavailableWrite,
 		actionServicesOperationApprove:                      m.unavailableWrite,
-		actionServicesDestroyPlan:                           m.unavailableWrite,
-		actionServicesDestroyApprove:                        m.unavailableWrite,
+		actionServicesDestroyPlan:                           m.prepareServiceDestroy,
+		actionServicesDestroyApprove:                        m.approveServiceDestroy,
 	}
 }
 
@@ -474,6 +478,98 @@ func (m *Module) approveRecipeExecution(ctx context.Context, params map[string]a
 	return map[string]any{"execution": approved.Execution, "job": approved.Job}, nil
 }
 
+// prepareServiceDestroy resolves the exact private provider resource set from
+// durable read-back facts. The client can select only the Service revision;
+// it cannot add an instance, volume, network interface, Region, or AWS API.
+func (m *Module) prepareServiceDestroy(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "expected_revision", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceDestroyConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	serviceID := values.String("service_id")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceDestroyConfirmationInvalidCode, "cloud service destroy confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC()
+	prepared, err := store.PrepareCloudServiceDestroy(ctx, PrepareServiceDestroyRequest{
+		OwnerMXID: ownerMXID, ServiceID: serviceID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: digestFields(serviceID, fmt.Sprint(expectedRevision)),
+		ApprovalID: m.newID("service_destroy_approval"), ChallengeID: m.newID("service_destroy_challenge"),
+		CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		return nil, serviceDestroyConfirmationError(err)
+	}
+	return map[string]any{"confirmation": prepared.Confirmation}, nil
+}
+
+// approveServiceDestroy consumes the exact device signature and atomically
+// queues a private typed destroy intent. ProductCore never calls AWS and a
+// failed later destroy remains visible as blocked rather than destroyed.
+func (m *Module) approveServiceDestroy(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceDestroyConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	serviceID := values.String("service_id")
+	idempotencyKey := values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceDestroyConfirmationInvalidCode, "cloud service destroy confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	approval, err := decodeServiceDestroyApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceDestroyConfirmationInvalidCode, "cloud service destroy confirmation is invalid")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UnixMilli()
+	serviceEventID, deploymentEventID, jobEventID := m.newID("event"), m.newID("event"), m.newID("event")
+	approved, err := store.ApproveCloudServiceDestroy(ctx, ApproveServiceDestroyRequest{
+		OwnerMXID: ownerMXID, ServiceID: serviceID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), Approval: approval,
+		JobID: m.newID("destroy"), OutboxID: m.newID("outbox"),
+		ServiceEventID: serviceEventID, DeploymentEventID: deploymentEventID, JobEventID: jobEventID, CreatedAt: now,
+	})
+	if err != nil {
+		return nil, serviceDestroyApprovalError(err)
+	}
+	if approved.Created {
+		m.publish(ctx, "cloud.service.changed", serviceEventID, servicePayload(approved.Service))
+		m.publish(ctx, "cloud.deployment.changed", deploymentEventID, deploymentPayload(approved.Deployment))
+		m.publish(ctx, "cloud.job.changed", jobEventID, jobPayload(approved.Job))
+	}
+	return map[string]any{"service": approved.Service, "deployment": approved.Deployment, "job": approved.Job}, nil
+}
+
 func decodeApprovalV1(value any) (cloudcontracts.ApprovalV1, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -512,6 +608,27 @@ func decodeRecipeExecutionApprovalV1(value any) (cloudcontracts.RecipeExecutionA
 	}
 	if err := approval.Validate(); err != nil {
 		return cloudcontracts.RecipeExecutionApprovalV1{}, err
+	}
+	return approval, nil
+}
+
+func decodeServiceDestroyApprovalV1(value any) (cloudcontracts.ServiceDestroyApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.ServiceDestroyApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.ServiceDestroyApprovalV1
+	if err := decoder.Decode(&approval); err != nil {
+		return cloudcontracts.ServiceDestroyApprovalV1{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudcontracts.ServiceDestroyApprovalV1{}, errors.New("service destroy approval contains trailing JSON")
+	}
+	if err := approval.Validate(); err != nil {
+		return cloudcontracts.ServiceDestroyApprovalV1{}, err
 	}
 	return approval, nil
 }
@@ -575,6 +692,36 @@ func recipeExecutionApprovalError(err error) *actionbase.Error {
 		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationConflictCode, "cloud recipe execution approval conflicts with the current deployment")
 	case errors.Is(err, ErrRecipeExecutionConfirmationInvalid), errors.Is(err, ErrRecipeExecutionManifestInvalid):
 		return actionbase.CodedError(http.StatusConflict, cloudRecipeExecutionConfirmationInvalidCode, "cloud recipe execution approval is invalid")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func serviceDestroyConfirmationError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service destroy confirmation")
+	case errors.Is(err, ErrServiceDestroyConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationConflictCode, "cloud service destroy confirmation conflicts with the current service")
+	case errors.Is(err, ErrServiceDestroyConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationInvalidCode, "cloud service is not destroyable")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func serviceDestroyApprovalError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service destroy approval")
+	case errors.Is(err, ErrServiceDestroyApprovalExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyApprovalExpiredCode, "cloud service destroy approval has expired")
+	case errors.Is(err, ErrServiceDestroyApprovalSignature):
+		return actionbase.CodedError(http.StatusUnauthorized, cloudServiceDestroyApprovalSignatureCode, "cloud service destroy approval signature is invalid")
+	case errors.Is(err, ErrServiceDestroyConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationConflictCode, "cloud service destroy approval conflicts with the current service")
+	case errors.Is(err, ErrServiceDestroyConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationInvalidCode, "cloud service destroy approval is invalid")
 	default:
 		return actionbase.InternalError(err)
 	}
@@ -1216,5 +1363,13 @@ func deploymentPayload(deployment Deployment) map[string]any {
 		"deployment_id": deployment.DeploymentID, "plan_id": deployment.PlanID, "cloud_connection_id": deployment.ConnectionID,
 		"execution_status": deployment.Execution, "outcome_status": deployment.Outcome, "resource_status": deployment.Resource,
 		"revision": deployment.Revision, "created_at": deployment.CreatedAt, "updated_at": deployment.UpdatedAt,
+	}
+}
+
+func servicePayload(service Service) map[string]any {
+	return map[string]any{
+		"service_id": service.ServiceID, "deployment_id": service.DeploymentID, "recipe_id": service.RecipeID,
+		"name": service.Name, "service_status": service.Status, "integration_status": service.Integration,
+		"revision": service.Revision, "created_at": service.CreatedAt, "updated_at": service.UpdatedAt,
 	}
 }

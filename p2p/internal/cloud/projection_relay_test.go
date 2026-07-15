@@ -46,6 +46,11 @@ func TestProjectionRelayPublishesOnlyWhitelistedCloudSummaries(t *testing.T) {
 			},
 			wantPayload: map[string]any{"deployment_id": "deployment-1", "plan_id": "plan-1", "cloud_connection_id": "connection-1", "execution_status": "queued", "outcome_status": "pending", "resource_status": "none", "revision": int64(1), "created_at": int64(100), "updated_at": int64(101)},
 		},
+		{
+			name:        "service",
+			claim:       ProjectionClaim{ProjectionID: "projection-service", CloudEventID: "event-service", LeaseToken: "lease-service", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"destroyed","integration_status":"not_requested","revision":4,"created_at":100,"updated_at":104}`},
+			wantPayload: map[string]any{"service_id": "service-1", "deployment_id": "deployment-1", "recipe_id": "recipe-1", "name": "Private service", "service_status": "destroyed", "integration_status": "not_requested", "revision": int64(4), "created_at": int64(100), "updated_at": int64(104)},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -93,6 +98,10 @@ func TestProjectionRelayRejectsUnsafeOrMalformedPayloadWithoutPublishing(t *test
 		{
 			name:  "deployment enrollment leak",
 			claim: ProjectionClaim{ProjectionID: "projection-4", CloudEventID: "event-4", LeaseToken: "lease-4", Type: "cloud.deployment.changed", PayloadJSON: `{"deployment_id":"deployment-1","plan_id":"plan-1","cloud_connection_id":"connection-1","execution_status":"queued","outcome_status":"pending","resource_status":"none","revision":1,"created_at":1,"updated_at":1,"worker_enrollment":"must never project"}`},
+		},
+		{
+			name:  "service resource leak",
+			claim: ProjectionClaim{ProjectionID: "projection-5", CloudEventID: "event-5", LeaseToken: "lease-5", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"destroyed","integration_status":"not_requested","revision":4,"created_at":1,"updated_at":1,"instance_id":"i-0123456789abcdef0"}`},
 		},
 	}
 	for _, test := range tests {

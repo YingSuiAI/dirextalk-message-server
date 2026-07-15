@@ -21,6 +21,7 @@ type EC2DeploymentAPI interface {
 	RunInstances(ctx context.Context, params *ec2.RunInstancesInput, optFns ...func(*ec2.Options)) (*ec2.RunInstancesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 	DescribeVolumes(ctx context.Context, params *ec2.DescribeVolumesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error)
+	DescribeNetworkInterfaces(ctx context.Context, params *ec2.DescribeNetworkInterfacesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
 }
 
 type EC2DeploymentProvider struct{ client EC2DeploymentAPI }
@@ -79,6 +80,15 @@ func (p *EC2DeploymentProvider) ReadBack(ctx context.Context, spec api.Deploymen
 	if len(volumeIDs) == 0 || len(interfaceIDs) == 0 {
 		return api.DeploymentEvidence{}, api.NewError("provider_readback_invalid", 502)
 	}
+	networks, err := p.client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{NetworkInterfaceIds: interfaceIDs})
+	if err != nil || len(networks.NetworkInterfaces) != len(interfaceIDs) {
+		return api.DeploymentEvidence{}, api.NewError("provider_readback_unavailable", 503)
+	}
+	for _, network := range networks.NetworkInterfaces {
+		if network.NetworkInterfaceId == nil || !hasDeploymentTags(network.TagSet, spec) {
+			return api.DeploymentEvidence{}, api.NewError("provider_readback_invalid", 502)
+		}
+	}
 	volumes, err := p.client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{VolumeIds: volumeIDs})
 	if err != nil {
 		return api.DeploymentEvidence{}, api.NewError("provider_readback_unavailable", 503)
@@ -98,7 +108,7 @@ func (p *EC2DeploymentProvider) ReadBack(ctx context.Context, spec api.Deploymen
 
 func deploymentTagSpecifications(spec api.DeploymentSpec) []ec2types.TagSpecification {
 	tags := deploymentTags(spec)
-	return []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeInstance, Tags: tags}, {ResourceType: ec2types.ResourceTypeVolume, Tags: tags}}
+	return []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeInstance, Tags: tags}, {ResourceType: ec2types.ResourceTypeVolume, Tags: tags}, {ResourceType: ec2types.ResourceTypeNetworkInterface, Tags: tags}}
 }
 func deploymentTags(spec api.DeploymentSpec) []ec2types.Tag {
 	return []ec2types.Tag{{Key: aws.String("dirextalk:managed"), Value: aws.String("true")}, {Key: aws.String("dirextalk:connection-id"), Value: aws.String(spec.ConnectionID)}, {Key: aws.String("dirextalk:deployment-id"), Value: aws.String(spec.DeploymentID)}}

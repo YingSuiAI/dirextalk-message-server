@@ -143,7 +143,7 @@ func Parse(raw []byte) (Command, error) {
 		return Command{}, errCode("unsupported_action")
 	}
 	expected := baseFields
-	if action == ActionDeploymentCreate {
+	if actionRequiresApprovalProof(action) {
 		expected = append(append([]string(nil), baseFields...), "approval_proof")
 	}
 	if !exactFields(fields, expected) {
@@ -184,7 +184,7 @@ func Parse(raw []byte) (Command, error) {
 	if command.SignatureB64, err = requiredString(fields, "signature_b64"); err != nil {
 		return Command{}, errCode("invalid_command")
 	}
-	if action == ActionDeploymentCreate {
+	if actionRequiresApprovalProof(action) {
 		command.ApprovalProof = append(json.RawMessage(nil), fields["approval_proof"]...)
 		if err := validateJSONObjectValue(command.ApprovalProof); err != nil {
 			return Command{}, errCode("invalid_approval_proof")
@@ -226,10 +226,10 @@ func (c Command) ValidateStructure() error {
 	if err != nil || len(signature) != ed25519.SignatureSize {
 		return errCode("invalid_command")
 	}
-	if c.Action == ActionDeploymentCreate && len(c.ApprovalProof) == 0 {
+	if actionRequiresApprovalProof(c.Action) && len(c.ApprovalProof) == 0 {
 		return errCode("invalid_approval_proof")
 	}
-	if c.Action != ActionDeploymentCreate && len(c.ApprovalProof) != 0 {
+	if !actionRequiresApprovalProof(c.Action) && len(c.ApprovalProof) != 0 {
 		return errCode("invalid_command")
 	}
 	return nil
@@ -288,6 +288,15 @@ func (c Command) SignatureBase() (string, error) {
 		}
 		var err error
 		proofDigest, err = c.ApprovalProofPayloadSHA256()
+		if err != nil {
+			return "", err
+		}
+	} else if c.Action == ActionDeploymentDestroy {
+		if err := c.ValidateDeploymentDestroyBinding(); err != nil {
+			return "", err
+		}
+		var err error
+		proofDigest, err = c.ServiceDestroyApprovalPayloadSHA256()
 		if err != nil {
 			return "", err
 		}
@@ -354,6 +363,10 @@ func knownAction(action string) bool {
 	default:
 		return false
 	}
+}
+
+func actionRequiresApprovalProof(action string) bool {
+	return action == ActionDeploymentCreate || action == ActionDeploymentDestroy
 }
 
 // ValidConnectionID and ValidNodeKeyID are shared by Stack configuration and

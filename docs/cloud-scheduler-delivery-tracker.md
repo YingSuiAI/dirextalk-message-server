@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Fixed Recipe execution and experimental readiness complete; managed lifecycle next
+- Status: Typed verified Service destruction complete; managed acceptance and retained-resource operations next
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -201,7 +201,12 @@ an EC2 instance, or start billing.
   consume and render the contract above.
 - Focused server and Flutter tests plus this contract/tracker documentation.
 
-## Explicitly out of scope
+## Original parity-stage exclusions (historical)
+
+This list defined the initial read-only parity slice. Workboard E through J
+subsequently implemented the typed create, Worker, Recipe/readiness and verified
+destroy boundaries; the remaining exclusions still apply unless a later
+workboard section explicitly checks them off.
 
 - `dirextalk-updater/**`, Docker publishing, normal Message Server deployment
   scripts, actual release execution, and unrelated historical Git cleanup.
@@ -209,13 +214,13 @@ an EC2 instance, or start billing.
   credential-file access. Typed EC2 creation remains disabled by default and
   AWS SDK dependencies remain confined to the standalone Go Lambda module;
   the Message Server process must not acquire them.
-- AWS key upload, secret bootstrap, purchase/approval, ingress, root command
-  execution, stop/restart/destroy, cost enforcement, and service pairing.
+- AWS key upload, secret bootstrap, ingress, arbitrary root commands,
+  stop/restart, cost enforcement, and service pairing.
 - New Cloud lifecycle UI controls without a completed independent server-side
   control-plane contract.
 
-Those mutation and lifecycle categories remain future work and are deliberately
-not represented as implementation tasks in this read-only parity stage.
+Those categories were deliberately absent from the original read-only parity
+stage; later checked workboard sections are the authoritative delivery record.
 
 ## Workboard
 
@@ -418,6 +423,32 @@ not represented as implementation tasks in this read-only parity stage.
   dependency checks, one accumulated security/spec review, and commit only
   current-stage files.
 
+### J. Device-approved verified Service destruction
+
+- [x] Add owner HTTP-only prepare/approve actions whose Ed25519 proof binds the
+  exact Service/Deployment revisions, Connection, Recipe digest and tracked
+  EC2/EBS/ENI identifiers; keep Agent and MCP unable to sign or approve it.
+- [x] Atomically move the Service and public/private resource axes to
+  `destroying`, create a destroy Job/Step and enqueue only a private typed
+  Orchestrator intent after signature and revision verification.
+- [x] Persist one lease-fenced `deployment.destroy` command and node counter in
+  PostgreSQL before network I/O, and replay the exact envelope after timeout,
+  response loss or an AWS transition still in progress.
+- [x] Add the standalone Stack's one-use approval/challenge reservation,
+  original create-receipt resource binding, typed EC2 terminate/delete provider
+  and retained DynamoDB receipt state behind independent default-off gates.
+- [x] Delete in instance, ENI and EBS dependency order and require individual
+  AWS read-back absence for every approved identifier before returning a
+  committed `verified_destroyed` receipt.
+- [x] Commit `destroyed`/`verified_destroyed` only after the persisted receipt
+  is independently revalidated in the Orchestrator transaction; otherwise
+  retain tracked resources as `blocked`, the Service as `degraded`, and the Job
+  checkpoint as `destroy_blocked`.
+- [x] Cover approval tampering/replay, exact command recovery, provider
+  transition retries, lost responses, stale claims, private-resource leakage
+  and verified/blocked terminal states; pass the affected root and standalone
+  Go checks and one accumulated security/spec review.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -442,11 +473,8 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Implement the experimental-to-managed lifecycle and typed retained-resource
-operations without widening the Worker or Agent. Freeze management acceptance,
-backup/restore and start/stop/restart/destroy plan contracts; implement verified
-destroy in reverse dependency order with AWS read-back and `destroy_blocked`
-instead of optimistic success. Keep public ingress, secret delivery, selectable
-OpenClaw/knowledge Recipes, local AWS credentials, Stack deployment and real
-account tests disabled until those independent approval and provider boundaries
-are complete.
+Implement experimental-to-managed acceptance plus typed start/stop/restart and
+backup/restore operations without widening the Worker or Agent. Keep public
+ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
+credentials, Stack deployment and real-account tests disabled until those
+independent approval and provider boundaries are complete.

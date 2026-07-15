@@ -572,21 +572,32 @@ installation, and `waiting_user_pairing` retain resources until the owner
 explicitly plans and approves a verified destroy. Public ingress remains a
 separate plan and confirmation.
 
-## Explicitly not enabled yet
+## Explicitly gated or not enabled yet
 
 The current slice does not upload credentials or deploy a Connection Stack on
-the owner's behalf, expose a network endpoint, or destroy a resource. It can
-issue a reviewed CloudFormation handoff and persist a
-research-only intent. The Go Broker enables signed registration verification,
+the owner's behalf or expose a network endpoint. It can issue a reviewed
+CloudFormation handoff. The Go Broker enables signed registration verification,
 read-only On-Demand quotes and `deployment.observe`; `deployment.create`, the
-IID-verified Worker claim and the fixed `execution_probe` task/event channel
-exist behind the disabled-by-default mutation gate. Only the fixed compiled
-probe Recipe and its Stack-witnessed readiness task are implemented; secret
-delivery, selectable Recipes, OpenClaw/knowledge services, ingress, and
-lifecycle commands still return `operation_not_enabled`. The repository does
-not yet deploy a researcher endpoint, build or publish the versioned Worker
-AMI containing the fixed binaries, deploy the Stack, or run a real-account AWS
-integration test.
+IID-verified Worker claim and fixed task channels remain behind the existing
+disabled-by-default mutation gate.
+
+Owner HTTP-only `cloud.services.destroy.plan/approve` now authorize exactly one
+tracked Service revision and its persisted EC2/EBS/ENI set. The independent
+Orchestrator and Stack each have a separate default-off destroy gate. When both
+are explicitly enabled, the Stack consumes the signed approval/challenge before
+provider mutation, resumes the same durable reservation after response loss,
+and emits success only after AWS read-back proves every approved identifier
+absent. The Orchestrator independently validates that receipt before publishing
+`destroyed`/`verified_destroyed`; all unverified terminal failures remain
+`degraded`/`blocked` with `destroy_blocked`. Agent, MCP and Worker receive no
+destroy capability or AWS credential.
+
+Only the fixed compiled probe Recipe and its Stack-witnessed readiness task are
+implemented. Secret delivery, selectable Recipes, OpenClaw/knowledge services,
+ingress, management acceptance, start/stop/restart and backup/restore still
+return `operation_not_enabled`. The repository does not yet deploy a researcher
+endpoint, build or publish the versioned Worker AMI containing the fixed
+binaries, deploy the Stack, or run a real-account AWS integration test.
 Those transitions
 must be implemented through the typed Connection
 Stack/Broker path; neither the Eino Agent tool, external MCP, nor the

@@ -84,23 +84,26 @@ func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string, gene
 // quote reads, plus typed deployment and fixed execution-probe traffic only
 // when explicitly enabled. It never reports a user service ready.
 type Broker struct {
-	Resolver            KeyResolver
-	Store               commandstore.Repository
-	Registration        RegistrationAttestor
-	Quote               QuoteProvider
-	DeploymentEnabled   bool
-	ApprovalResolver    ApprovalKeyResolver
-	DeploymentStore     commandstore.DeploymentRepository
-	DeploymentProvider  DeploymentProvider
-	DeploymentBoundary  DeploymentBoundary
-	WorkerIdentity      WorkerIdentityVerifier
-	WorkerTokens        WorkerTokenGenerator
-	WorkerTasks         commandstore.WorkerTaskRepository
-	RecipeTasks         commandstore.RecipeTaskRepository
-	ServiceReadiness    commandstore.ServiceReadinessRepository
-	ReadinessChallenges ReadinessChallengeGenerator
-	WorkerSessionEvents commandstore.WorkerSessionEventRepository
-	Now                 func() time.Time
+	Resolver                  KeyResolver
+	Store                     commandstore.Repository
+	Registration              RegistrationAttestor
+	Quote                     QuoteProvider
+	DeploymentEnabled         bool
+	DeploymentDestroyEnabled  bool
+	ApprovalResolver          ApprovalKeyResolver
+	DeploymentStore           commandstore.DeploymentRepository
+	DeploymentProvider        DeploymentProvider
+	DeploymentDestroyStore    commandstore.DeploymentDestroyRepository
+	DeploymentDestroyProvider DeploymentDestroyProvider
+	DeploymentBoundary        DeploymentBoundary
+	WorkerIdentity            WorkerIdentityVerifier
+	WorkerTokens              WorkerTokenGenerator
+	WorkerTasks               commandstore.WorkerTaskRepository
+	RecipeTasks               commandstore.RecipeTaskRepository
+	ServiceReadiness          commandstore.ServiceReadinessRepository
+	ReadinessChallenges       ReadinessChallengeGenerator
+	WorkerSessionEvents       commandstore.WorkerSessionEventRepository
+	Now                       func() time.Time
 }
 
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -156,6 +159,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
+	if command.Action == contract.ActionDeploymentDestroy && !b.DeploymentDestroyEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
 
 	now := time.Now().UTC()
 	if b.Now != nil {
@@ -180,6 +187,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		b.executeDeployment(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionDeploymentDestroy {
+		if b.ApprovalResolver == nil || b.DeploymentDestroyStore == nil || b.DeploymentDestroyProvider == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		b.executeDeploymentDestroy(response, request, command, now)
 		return
 	}
 	if command.Action == contract.ActionDeploymentObserve {

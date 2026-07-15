@@ -242,6 +242,18 @@ type deploymentProjectionPayload struct {
 	UpdatedAt    int64  `json:"updated_at"`
 }
 
+type serviceProjectionPayload struct {
+	ServiceID    string `json:"service_id"`
+	DeploymentID string `json:"deployment_id"`
+	RecipeID     string `json:"recipe_id"`
+	Name         string `json:"name"`
+	Status       string `json:"service_status"`
+	Integration  string `json:"integration_status"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
 type connectionProjectionPayload struct {
 	ConnectionID string `json:"cloud_connection_id"`
 	Provider     string `json:"provider"`
@@ -296,6 +308,16 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 			"deployment_id": value.DeploymentID, "plan_id": value.PlanID, "cloud_connection_id": value.ConnectionID,
 			"execution_status": value.Execution, "outcome_status": value.Outcome, "resource_status": value.Resource,
 			"revision": value.Revision, "created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		}, nil
+	case "cloud.service.changed":
+		var value serviceProjectionPayload
+		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validServiceProjection(value) {
+			return nil, errors.New("invalid cloud service projection")
+		}
+		return map[string]any{
+			"service_id": value.ServiceID, "deployment_id": value.DeploymentID, "recipe_id": value.RecipeID, "name": value.Name,
+			"service_status": value.Status, "integration_status": value.Integration, "revision": value.Revision,
+			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
 		}, nil
 	case "cloud.connection.changed":
 		var value connectionProjectionPayload
@@ -359,6 +381,14 @@ func validDeploymentProjection(value deploymentProjectionPayload) bool {
 		allowedProjectionValue(value.Execution, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
 		allowedProjectionValue(value.Outcome, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		allowedProjectionValue(value.Resource, "none", "active", "retained_tracked", "destroying", "verified_destroyed", "blocked", "orphaned") &&
+		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
+}
+
+func validServiceProjection(value serviceProjectionPayload) bool {
+	return validProjectionIdentifier(value.ServiceID) && validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.RecipeID) &&
+		validVisibleProjectionText(value.Name, 160, false) &&
+		allowedProjectionValue(value.Status, "experimental", "awaiting_management_acceptance", "active", "degraded", "destroying", "destroyed") &&
+		allowedProjectionValue(value.Integration, "not_requested", "pending", "connected", "degraded", "failed", "disconnected") &&
 		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
 }
 

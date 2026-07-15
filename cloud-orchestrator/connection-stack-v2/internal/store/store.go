@@ -130,6 +130,37 @@ type DeploymentRepository interface {
 	FinalizeDeployment(ctx context.Context, reservation DeploymentReservation, receipt Record) (stored Record, created bool, err error)
 }
 
+// DeploymentDestroyReservation consumes a device approval before the first
+// provider mutation. The exact command may then resume after expiry or a
+// response loss, while a different command cannot widen the resource set.
+type DeploymentDestroyReservation struct {
+	ConnectionID       string
+	DeploymentID       string
+	ServiceID          string
+	CommandID          string
+	RequestSHA256      string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	ApprovalID         string
+	ChallengeID        string
+	SignerKeyID        string
+	RequestJSON        []byte
+	ResultJSON         []byte
+	State              string
+}
+
+func (reservation DeploymentDestroyReservation) SameIdentity(other DeploymentDestroyReservation) bool {
+	return reservation.ConnectionID == other.ConnectionID && reservation.DeploymentID == other.DeploymentID && reservation.ServiceID == other.ServiceID && reservation.CommandID == other.CommandID && reservation.RequestSHA256 == other.RequestSHA256 && reservation.ExpectedGeneration == other.ExpectedGeneration && reservation.NodeCounter == other.NodeCounter && reservation.ApprovalID == other.ApprovalID && reservation.ChallengeID == other.ChallengeID && reservation.SignerKeyID == other.SignerKeyID && string(reservation.RequestJSON) == string(other.RequestJSON)
+}
+
+type DeploymentDestroyRepository interface {
+	Repository
+	LookupDeployment(ctx context.Context, connectionID, deploymentID string) (DeploymentReservation, bool, error)
+	LookupDeploymentDestroy(ctx context.Context, connectionID, deploymentID string) (DeploymentDestroyReservation, bool, error)
+	ReserveDeploymentDestroy(ctx context.Context, reservation DeploymentDestroyReservation) (stored DeploymentDestroyReservation, created bool, err error)
+	FinalizeDeploymentDestroy(ctx context.Context, reservation DeploymentDestroyReservation, receipt Record) (stored Record, created bool, err error)
+}
+
 type Error struct{ Code string }
 
 func (e *Error) Error() string {

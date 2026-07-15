@@ -49,9 +49,20 @@ default. When `EnableDeploymentCreate=true` is explicitly selected, it:
 
 Exact retries resume the reservation with the same ClientToken or return the
 validated receipt. Concurrent approval/challenge reuse, quote drift, stale
-generation/counter and read-back mismatch fail closed. All Worker sessions,
-root commands, secret delivery, service readiness, public ingress and lifecycle
-operations still return `operation_not_enabled`.
+generation/counter and read-back mismatch fail closed. The same deployment
+gate also protects the IID-attested Worker session, fixed digest-only task,
+sealed Recipe install and independent readiness challenge routes. These routes
+do not accept arbitrary commands, paths, URLs, ports or secret values.
+
+`deployment.destroy` is a separate complete typed action and has its own
+default-off `EnableDeploymentDestroy` gate. It verifies a fresh device proof
+bound to the exact Service/Deployment revisions and the original persisted
+EC2/EBS/ENI receipt, atomically consumes the approval/challenge and reserves
+the request before provider mutation, then terminates the instance and deletes
+the exact interfaces and volumes. It returns a committed receipt only after
+individual AWS read-back proves every identifier absent. Transition states
+return `deployment_destroy_in_progress`; unavailable or denied provider calls
+never become success.
 
 This is intentional. A partial mutation path must fail closed rather than make
 an untracked or billable resource and claim feature parity.
@@ -97,14 +108,13 @@ Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
 No local or real AWS account test is authorized by this module yet. With the
 default gate, the Lambda execution role can write only its own logs/receipt
 tables and call the quote read APIs. The conditional mutation statements exist
-only when `EnableDeploymentCreate=true`; they permit the fixed RunInstances
-shape, create-time tags and EC2/EBS read-back. They never grant IAM pass-role,
-Secrets Manager, Worker, secret-bootstrap, ingress or lifecycle permissions.
+only when their explicit create or destroy gate is true; they permit the fixed
+RunInstances shape and tags or exact tagged-resource termination/deletion plus
+EC2/EBS/ENI read-back. They never grant IAM pass-role, Secrets Manager,
+secret-bootstrap, ingress or arbitrary AWS permissions.
 
-## Next parity boundary
+## Next lifecycle boundary
 
-Add a de-secreted, signed `deployment.observe` read that binds the committed
-resource receipt to one active Worker lease and independent readiness evidence.
-Do not add arbitrary AWS passthrough, Worker root commands, credentials,
-installation payloads, public ingress, destroy, or service-ready claims to that
-read boundary.
+Add separately approved start/stop/restart and backup/restore contracts, then
+management acceptance. Do not add arbitrary AWS passthrough, credentials,
+public ingress or user-selected root commands to those boundaries.

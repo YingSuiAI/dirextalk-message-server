@@ -39,6 +39,7 @@ const (
 	workerIDEnv                = "CLOUD_ORCHESTRATOR_WORKER_ID"
 	recipeInstallEnabledEnv    = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
 	serviceReadinessEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
+	serviceDestroyEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_DESTROY_ENABLED"
 )
 
 var (
@@ -58,6 +59,7 @@ type commandConfig struct {
 	workerID                string
 	recipeInstallEnabled    bool
 	serviceReadinessEnabled bool
+	serviceDestroyEnabled   bool
 	once                    bool
 	pollInterval            time.Duration
 	lease                   time.Duration
@@ -119,9 +121,16 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	default:
 		return commandConfig{}, errConfigInvalid
 	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceDestroyEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceDestroyEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, quote, Worker-observation, and execution-probe pass")
+	flags.BoolVar(&config.once, "once", false, "process one pass for every explicitly enabled control-plane runner")
 	flags.StringVar(&config.researcherURL, "researcher-url", config.researcherURL, "exact HTTPS private researcher endpoint")
 	flags.StringVar(&config.workerID, "worker-id", config.workerID, "non-secret worker identifier")
 	flags.DurationVar(&config.pollInterval, "poll-interval", config.pollInterval, "idle polling interval")
@@ -277,20 +286,24 @@ func run(ctx context.Context, config commandConfig) error {
 	})
 	var recipeInstallRunner iterationRunner
 	var serviceReadinessRunner iterationRunner
+	var serviceDestroyRunner iterationRunner
 	if config.recipeInstallEnabled {
 		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
 	if config.serviceReadinessEnabled {
 		serviceReadinessRunner = runtime.NewServiceReadinessRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
+	if config.serviceDestroyEnabled {
+		serviceDestroyRunner = runtime.NewServiceDestroyRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceDestroyRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceDestroyRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -314,11 +327,9 @@ type iterationRunner interface {
 }
 
 // runIteration gives each independent control-plane loop one chance per poll.
-// A failure in research, Stack registration, quoting, provision, read-only
-// Worker observation, or the restricted execution-probe transport must not
-// starve another durable loop; all errors are returned for the next retry
-// backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner iterationRunner) (bool, error) {
+// A failure in one durable control-plane runner must not starve the others;
+// all errors are returned together for the next retry backoff.
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceDestroyRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -347,7 +358,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if serviceReadinessRunner != nil {
 		readinessObserved, serviceReadinessErr = serviceReadinessRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr)
+	var serviceDestroyed bool
+	var serviceDestroyErr error
+	if serviceDestroyRunner != nil {
+		serviceDestroyed, serviceDestroyErr = serviceDestroyRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceDestroyErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

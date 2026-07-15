@@ -279,6 +279,27 @@ Future approval must bind a deterministic-CBOR plan hash, quote, connection,
 recipe, resource/network/secret/integration scopes, expected revision, expiry,
 and device signature before it can enqueue a typed Broker command.
 
+## 2026-07-15 Device-approved verified Service destruction
+
+`cloud.services.destroy.plan` now prepares an owner/device confirmation bound
+to the current Service and Deployment revisions, Cloud Connection, Recipe
+digest and the private tracked EC2/EBS/ENI set. `cloud.services.destroy.approve`
+is idempotent and verifies that exact Ed25519 payload before atomically moving
+the Service and resource axes to `destroying`, creating a destroy Job, and
+queuing a private Orchestrator intent. Neither action is available through
+Agent, MCP or realtime `client.request`.
+
+The independent Orchestrator persists and exact-replays a node-signed
+`deployment.destroy` command. The standalone Connection Stack consumes the
+approval/challenge once, binds it to the original deployment receipt, deletes
+only those identifiers, and returns `verified_destroyed` only after AWS
+read-back proves absence. Product projections move to `destroyed` and
+`verified_destroyed` only after the Orchestrator revalidates the persisted
+receipt in its lease-fenced transaction. Unverified terminal failures become
+`degraded`, `blocked`, and `destroy_blocked`. Both Orchestrator and Stack
+executors are disabled by default; no credential upload or generic AWS API was
+added.
+
 The server-side Eino Native Agent now owns a private built-in Cloud Deployment
 Planner skill and its `native_agent_cloud_deployment_plan` tool. It calls only
 the narrow research-goal port and derives an internal UUID scoped to one Agent

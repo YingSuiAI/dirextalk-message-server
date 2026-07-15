@@ -77,6 +77,12 @@ Parameters:
     AllowedValues:
       - "false"
       - "true"
+  EnableDeploymentDestroy:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
 
 Rules:
   DeploymentCreateRequiresWorkerIdentityKey:
@@ -90,6 +96,7 @@ Rules:
 Conditions:
   HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
   DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
+  DeploymentDestroyEnabled: !Equals [!Ref EnableDeploymentDestroy, "true"]
 
 Resources:
   WorkerSecurityGroup:
@@ -180,6 +187,28 @@ Resources:
           KeyType: RANGE
 
   DeploymentReservationsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: deployment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: deployment_id
+          KeyType: RANGE
+
+  DeploymentDestroyTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -319,6 +348,7 @@ Resources:
                   - !GetAtt ConnectionCountersTable.Arn
                   - !GetAtt IssuedQuotesTable.Arn
                   - !GetAtt DeploymentReservationsTable.Arn
+                  - !GetAtt DeploymentDestroyTable.Arn
                   - !GetAtt ApprovalUsesTable.Arn
                   - !If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref "AWS::NoValue"]
               - !If
@@ -332,6 +362,33 @@ Resources:
                   Resource:
                     - !GetAtt WorkerTasksTable.Arn
                     - !GetAtt ServiceReadinessTasksTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentDestroyEnabled
+                - Sid: DestroyTrackedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:TerminateInstances
+                    - ec2:DeleteNetworkInterface
+                    - ec2:DeleteVolume
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentDestroyEnabled
+                - Sid: ObserveDestroyedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                    - ec2:DescribeNetworkInterfaces
+                  Resource: "*"
                 - !Ref "AWS::NoValue"
               - Sid: ReadInstanceOfferingsAndCapacityOnly
                 Effect: Allow
@@ -373,6 +430,7 @@ Resources:
                   Resource:
                     - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
                     - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
                   Condition:
                     StringEquals:
                       ec2:CreateAction: RunInstances
@@ -388,6 +446,7 @@ Resources:
                   Action:
                     - ec2:DescribeInstances
                     - ec2:DescribeVolumes
+                    - ec2:DescribeNetworkInterfaces
                   Resource: "*"
                 - !Ref "AWS::NoValue"
 
@@ -431,6 +490,7 @@ Resources:
           DIREXTALK_CONNECTION_COUNTERS_TABLE: !Ref ConnectionCountersTable
           DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
           DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
+          DIREXTALK_DEPLOYMENT_DESTROY_TABLE: !Ref DeploymentDestroyTable
           DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
           DIREXTALK_WORKER_SESSIONS_TABLE: !Ref WorkerSessionsTable
           DIREXTALK_WORKER_TASKS_TABLE: !Ref WorkerTasksTable
@@ -438,6 +498,7 @@ Resources:
           DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/worker-sessions"
           DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM: !Ref WorkerIdentityRsaPublicKeyPem
           DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
+          DIREXTALK_DEPLOYMENT_DESTROY_ENABLED: !Ref EnableDeploymentDestroy
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api

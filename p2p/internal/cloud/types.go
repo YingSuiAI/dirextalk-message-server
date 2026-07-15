@@ -43,6 +43,10 @@ const (
 	// install succeeds. The Stack generates the fresh challenge; this outbox
 	// contains no Worker-selected probe target or execution material.
 	OutboxKindServiceReadinessRequested = "cloud.service_readiness.requested"
+	// OutboxKindServiceDestroyRequested is emitted only after a fresh device
+	// signature binds the exact tracked EC2/EBS/ENI set. The Orchestrator, not
+	// ProductCore, later issues the typed Stack command and verifies read-back.
+	OutboxKindServiceDestroyRequested = "cloud.service.destroy.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"
@@ -71,6 +75,10 @@ var (
 	ErrRecipeExecutionConfirmationInvalid  = errors.New("cloud recipe execution confirmation is invalid")
 	ErrRecipeExecutionApprovalExpired      = errors.New("cloud recipe execution approval has expired")
 	ErrRecipeExecutionApprovalSignature    = errors.New("cloud recipe execution approval signature is invalid")
+	ErrServiceDestroyConfirmationConflict  = errors.New("cloud service destroy confirmation conflicts with the current service")
+	ErrServiceDestroyConfirmationInvalid   = errors.New("cloud service destroy confirmation is invalid")
+	ErrServiceDestroyApprovalExpired       = errors.New("cloud service destroy approval has expired")
+	ErrServiceDestroyApprovalSignature     = errors.New("cloud service destroy approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted
