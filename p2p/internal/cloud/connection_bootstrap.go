@@ -96,17 +96,18 @@ func validateEd25519SPKIBase64(value string) error {
 
 func (bootstrap ConnectionBootstrap) RolePlan() ConnectionRolePlan {
 	return ConnectionRolePlan{
-		BootstrapID:       bootstrap.BootstrapID,
-		CloudConnectionID: bootstrap.ConnectionID,
-		Provider:          bootstrap.Provider,
-		Region:            bootstrap.RequestedRegion,
-		Status:            bootstrap.Status,
-		Revision:          bootstrap.Revision,
-		ExpiresAt:         bootstrap.ExpiresAt,
-		TemplateURL:       bootstrap.TemplateURL,
-		TemplateDigest:    bootstrap.TemplateDigest,
-		SourceTreeDigest:  bootstrap.SourceTreeDigest,
-		StackName:         bootstrap.StackName,
+		BootstrapID:                  bootstrap.BootstrapID,
+		CloudConnectionID:            bootstrap.ConnectionID,
+		Provider:                     bootstrap.Provider,
+		Region:                       bootstrap.RequestedRegion,
+		Status:                       bootstrap.Status,
+		Revision:                     bootstrap.Revision,
+		ExpiresAt:                    bootstrap.ExpiresAt,
+		TemplateURL:                  bootstrap.TemplateURL,
+		TemplateDigest:               bootstrap.TemplateDigest,
+		SourceTreeDigest:             bootstrap.SourceTreeDigest,
+		StackName:                    bootstrap.StackName,
+		AllowRootCredentialBootstrap: bootstrap.AllowRootCredentialBootstrap,
 		CloudFormationParams: map[string]string{
 			"ConnectionId":                      bootstrap.ConnectionID,
 			"ConnectionGeneration":              connectionStackGeneration,
@@ -174,8 +175,8 @@ func ValidateConnectionRegistrationStackARN(raw, requestedRegion string) error {
 	return nil
 }
 
-func connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey string) string {
-	return digestFields(provider, region, deviceKeyID, devicePublicKey)
+func connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey string, allowRootCredentialBootstrap bool) string {
+	return digestFields(provider, region, deviceKeyID, devicePublicKey, fmt.Sprintf("%t", allowRootCredentialBootstrap))
 }
 
 func connectionBootstrapCompletionDigest(bootstrapID, brokerCommandURL, stackARN string) string {

@@ -56,6 +56,8 @@ type Config struct {
 	WorkerAvailabilityZone        string            `json:"worker_availability_zone"`
 	WorkerIdentityRSAPublicKeyPEM string            `json:"worker_identity_rsa_public_key_pem"`
 	DeploymentCreateEnabled       bool              `json:"deployment_create_enabled"`
+	DeploymentDestroyEnabled      bool              `json:"deployment_destroy_enabled"`
+	ServiceSecretsEnabled         bool              `json:"service_secrets_enabled"`
 	DynamicArtifactsEnabled       bool              `json:"dynamic_artifacts_enabled"`
 	ArtifactManifestDigest        string            `json:"artifact_manifest_digest"`
 	FixedParameters               map[string]string `json:"fixed_parameters"`
@@ -89,19 +91,20 @@ func (config Config) Validate() error {
 }
 
 type RolePlan struct {
-	BootstrapID            string            `json:"bootstrap_id"`
-	ConnectionID           string            `json:"connection_id"`
-	Region                 string            `json:"region"`
-	StackName              string            `json:"stack_name"`
-	TemplateURL            string            `json:"template_url"`
-	TemplateDigest         string            `json:"template_digest"`
-	SourceTreeDigest       string            `json:"source_tree_digest"`
-	FixedParameters        map[string]string `json:"fixed_parameters"`
-	NodeKeyID              string            `json:"node_key_id"`
-	NodeEd25519PublicKey   string            `json:"node_ed25519_public_key"`
-	DeviceKeyID            string            `json:"device_key_id"`
-	DeviceEd25519PublicKey string            `json:"device_ed25519_public_key"`
-	ExpiresAt              string            `json:"expires_at"`
+	BootstrapID                  string            `json:"bootstrap_id"`
+	ConnectionID                 string            `json:"connection_id"`
+	Region                       string            `json:"region"`
+	StackName                    string            `json:"stack_name"`
+	TemplateURL                  string            `json:"template_url"`
+	TemplateDigest               string            `json:"template_digest"`
+	SourceTreeDigest             string            `json:"source_tree_digest"`
+	FixedParameters              map[string]string `json:"fixed_parameters"`
+	NodeKeyID                    string            `json:"node_key_id"`
+	NodeEd25519PublicKey         string            `json:"node_ed25519_public_key"`
+	DeviceKeyID                  string            `json:"device_key_id"`
+	DeviceEd25519PublicKey       string            `json:"device_ed25519_public_key"`
+	AllowRootCredentialBootstrap bool              `json:"allow_root_credential_bootstrap"`
+	ExpiresAt                    string            `json:"expires_at"`
 }
 type CreateRequest struct {
 	Schema    string   `json:"schema"`
@@ -146,6 +149,7 @@ type Receipt struct {
 type Identity struct {
 	BootstrapID, ConnectionID, NodeKeyID, NodeEd25519PublicKey string
 	DeviceKeyID, DeviceEd25519PublicKey, StackName             string
+	AllowRootCredentialBootstrap                               bool
 	FixedParameters                                            map[string]string
 }
 type Credentials struct{ AccessKeyID, SecretAccessKey, SessionToken []byte }

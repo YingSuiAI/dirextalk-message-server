@@ -91,7 +91,7 @@ func TestConcurrentUploadConsumesCredentialsOnceAndReplayIsStable(t *testing.T) 
 	}
 }
 
-func TestUploadRejectsTamperExpiryAndRootIdentity(t *testing.T) {
+func TestUploadRejectsTamperAndExpiredEnvelope(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*UploadEnvelope, *fakeClock, *fakeFactory)
@@ -100,9 +100,7 @@ func TestUploadRejectsTamperExpiryAndRootIdentity(t *testing.T) {
 		raw, _ := base64.StdEncoding.DecodeString(envelope.Ciphertext)
 		raw[0] ^= 1
 		envelope.Ciphertext = base64.StdEncoding.EncodeToString(raw)
-	}, ErrInvalid}, {"expired", func(_ *UploadEnvelope, clock *fakeClock, _ *fakeFactory) { clock.Advance(11 * time.Minute) }, ErrExpired}, {"root", func(_ *UploadEnvelope, _ *fakeClock, factory *fakeFactory) {
-		factory.identity = CallerIdentity{AccountID: "123456789012", ARN: "arn:aws:iam::123456789012:root", UserID: "root"}
-	}, ErrUnauthorized}}
+	}, ErrInvalid}, {"expired", func(_ *UploadEnvelope, clock *fakeClock, _ *fakeFactory) { clock.Advance(11 * time.Minute) }, ErrExpired}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			clock := &fakeClock{now: time.Date(2026, time.July, 16, 1, 0, 0, 0, time.UTC)}
@@ -120,6 +118,70 @@ func TestUploadRejectsTamperExpiryAndRootIdentity(t *testing.T) {
 		})
 	}
 
+}
+
+func TestUploadRejectsRootIdentityUnlessRolePlanPermitsRootBootstrap(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, time.July, 16, 1, 0, 0, 0, time.UTC)}
+	factory := &fakeFactory{identity: CallerIdentity{AccountID: "123456789012", ARN: "arn:aws:iam::123456789012:root", UserID: "root"}}
+	service, _ := NewService(configFixture(), factory, rand.Reader, clock)
+	response := createSessionFixture(t, service, "connection-root-disabled-0001")
+	envelope := encryptFixture(t, response, credentialWire{Schema: CredentialSchema, AccessKeyID: "AKIAABCDEFGHIJKLMNOP", SecretAccessKey: strings.Repeat("r", 40)})
+
+	if _, err := service.Upload(context.Background(), response.SessionID, response.UploadBearer, envelope); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("root bootstrap err=%v", err)
+	}
+	if factory.createCalls.Load() != 0 {
+		t.Fatalf("CreateStack calls=%d", factory.createCalls.Load())
+	}
+}
+
+func TestUploadAcceptsRootIdentityOnlyForOneTimeConnectionStackBootstrap(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, time.July, 16, 1, 0, 0, 0, time.UTC)}
+	factory := &fakeFactory{identity: CallerIdentity{AccountID: "123456789012", ARN: "arn:aws:iam::123456789012:root", UserID: "root"}}
+	config := configFixture()
+	service, _ := NewService(config, factory, rand.Reader, clock)
+	request := createRequestFixture("connection-root-bootstrap-0001")
+	request.RolePlan.AllowRootCredentialBootstrap = true
+	response, err := service.CreateSession(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := encryptFixture(t, response, credentialWire{Schema: CredentialSchema, AccessKeyID: "AKIAABCDEFGHIJKLMNOP", SecretAccessKey: strings.Repeat("r", 40)})
+
+	receipt, err := service.Upload(context.Background(), response.SessionID, response.UploadBearer, envelope)
+	if err != nil || receipt.Status != "accepted" || receipt.ConnectionID != response.ConnectionID || receipt.StackID == "" {
+		t.Fatalf("root bootstrap receipt=%#v err=%v", receipt, err)
+	}
+	if factory.createCalls.Load() != 1 {
+		t.Fatalf("CreateStack calls=%d", factory.createCalls.Load())
+	}
+	if !allZero(factory.seen.AccessKeyID) || !allZero(factory.seen.SecretAccessKey) || !allZero(factory.seen.SessionToken) {
+		t.Fatal("root bootstrap credential buffers were retained after AWS acceptance")
+	}
+	replay, err := service.Upload(context.Background(), response.SessionID, response.UploadBearer, envelope)
+	if err != nil || replay != receipt || factory.createCalls.Load() != 1 {
+		t.Fatalf("root bootstrap replay=%#v err=%v create_calls=%d", replay, err, factory.createCalls.Load())
+	}
+}
+
+func TestStackRequestUsesOnlyClosedLifecycleFeatureFlags(t *testing.T) {
+	config := configFixture()
+	config.DeploymentDestroyEnabled = true
+	config.ServiceSecretsEnabled = true
+	service, err := NewService(config, &fakeFactory{}, rand.Reader, &fakeClock{now: time.Date(2026, time.July, 16, 1, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := createRequestFixture("connection-feature-flags-0001").RolePlan
+	request := service.stackRequest(Identity{
+		BootstrapID: plan.BootstrapID, ConnectionID: plan.ConnectionID, StackName: plan.StackName,
+		NodeKeyID: plan.NodeKeyID, NodeEd25519PublicKey: plan.NodeEd25519PublicKey,
+		DeviceKeyID: plan.DeviceKeyID, DeviceEd25519PublicKey: plan.DeviceEd25519PublicKey,
+		FixedParameters: cloneStringMap(plan.FixedParameters),
+	}, "aws-bootstrap-feature-flags-0001", "fingerprint")
+	if request.Parameters["EnableDeploymentDestroy"] != "true" || request.Parameters["EnableServiceSecrets"] != "true" || request.Parameters["Environment"] != "" {
+		t.Fatalf("closed lifecycle feature flags=%#v", request.Parameters)
+	}
 }
 
 func TestControllerHandlerRequiresVerifiedMTLSAndReturnsOnlyFixedSessionContract(t *testing.T) {
@@ -198,7 +260,7 @@ type fakeStack struct{ factory *fakeFactory }
 
 func (client *fakeStack) CreateStack(_ context.Context, request StackRequest) (string, error) {
 	client.factory.createCalls.Add(1)
-	if request.StackName == "" || request.TemplateURL != configFixture().TemplateURL || len(request.Parameters) != 18 || request.Parameters["ConnectionId"] == "" || request.Parameters["StageName"] != "prod" || request.Parameters["BrokerArtifactBucket"] == "" || request.Parameters["WorkerSubnetId"] == "" || request.Parameters["EnableDeploymentCreate"] != "false" || request.Parameters["EnableDynamicArtifacts"] != "false" || request.Tags["dirextalk:managed"] != "true" || !strings.HasPrefix(request.ClientRequestToken, "dtx-") {
+	if request.StackName == "" || request.TemplateURL != configFixture().TemplateURL || len(request.Parameters) != 20 || request.Parameters["ConnectionId"] == "" || request.Parameters["StageName"] != "prod" || request.Parameters["BrokerArtifactBucket"] == "" || request.Parameters["WorkerSubnetId"] == "" || request.Parameters["EnableDeploymentCreate"] != "false" || request.Parameters["EnableDeploymentDestroy"] != "false" || request.Parameters["EnableServiceSecrets"] != "false" || request.Parameters["EnableDynamicArtifacts"] != "false" || request.Parameters["Environment"] != "" || request.Tags["dirextalk:managed"] != "true" || !strings.HasPrefix(request.ClientRequestToken, "dtx-") {
 		return "", ErrInvalid
 	}
 	return "arn:aws:cloudformation:us-east-1:123456789012:stack/accepted/stack-id", nil

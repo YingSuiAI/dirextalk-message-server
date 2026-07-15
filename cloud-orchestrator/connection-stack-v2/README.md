@@ -110,6 +110,33 @@ already emitted by the Message Server Role Plan, plus the immutable Broker
 artifact and fixed Worker attestation parameters. Public keys are not AWS
 credentials or private signing keys.
 
+## One-time credential bootstrap
+
+`cmd/connection-bootstrap` is a separate Go controller for the optional
+advanced CSV path. Its controller listener accepts only mTLS
+`POST /v1/aws-bootstrap/sessions` requests from the trusted control plane; its
+public upload listener accepts only the returned one-time HTTPS bearer session.
+The browser encrypts the CSV to the returned X25519 public key with AES-GCM,
+and the session expires after ten minutes or one accepted upload. Session state
+is intentionally in memory, so expiry or controller restart requires a new
+owner action.
+
+The controller accepts AWS root access-key material only when the
+server-issued Role Plan explicitly has `allow_root_credential_bootstrap=true`.
+That non-secret capability is bound to the exact bootstrap, Connection, public
+keys, expiration and immutable Role Plan; a default/stale plan fails closed.
+Credentials, caller identity, session bearer and plaintext never reach the
+Message Server, Agent, MCP, Worker, persistent store or logs. The controller
+can use the decrypted credentials only for one fixed `CreateStack` request and
+zeroes the buffers after it receives the provider result.
+
+Neither the Role Plan nor the uploader can pass arbitrary CloudFormation
+parameters. The plan contributes exactly the reviewed connection/public-key
+parameters. The controller maps only its own
+`deployment_create_enabled`, `deployment_destroy_enabled`,
+`service_secrets_enabled` and `dynamic_artifacts_enabled` configuration to the
+corresponding fixed template flags; no uploaded value can enable an AWS action.
+
 ## Verify locally
 
 ```powershell
@@ -121,8 +148,8 @@ go build -trimpath -buildvcs=false ./cmd/broker
 Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
 ```
 
-No local or real AWS account test is authorized by this module yet. With the
-default gates, the Lambda execution role can write only its own logs/receipt
+These local commands do not contact an AWS account. With the default gates,
+the Lambda execution role can write only its own logs/receipt
 tables and call the quote read APIs. The conditional mutation statements exist
 only when their explicit create, destroy or backup gate is true; they permit
 the fixed RunInstances shape and tags, exact tagged-resource

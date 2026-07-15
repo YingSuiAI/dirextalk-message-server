@@ -32,7 +32,7 @@ const cloudJobColumns = `
 const cloudConnectionBootstrapColumns = `
 	bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
 	template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
-	device_approval_key_id, device_approval_public_key_spki_base64,
+	device_approval_key_id, device_approval_public_key_spki_base64, allow_root_credential_bootstrap,
 	candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
 	completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
 	expires_at, created_at, updated_at
@@ -194,18 +194,18 @@ func (s *DatabaseStore) CreateCloudConnectionBootstrap(ctx context.Context, requ
 			INSERT INTO p2p_cloud_connection_bootstraps (
 				bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
 				template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
-				device_approval_key_id, device_approval_public_key_spki_base64,
+				device_approval_key_id, device_approval_public_key_spki_base64, allow_root_credential_bootstrap,
 				candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
 				completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
 				expires_at, created_at, updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', '', $14, $15, $16, $17, '', '', '', 0, $18, $19, $19
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '', '', $15, $16, $17, $18, '', '', '', 0, $19, $20, $20
 			)
 			ON CONFLICT (owner_mxid, idempotency_hash) DO NOTHING
 			RETURNING bootstrap_id
 		`, bootstrap.BootstrapID, bootstrap.OwnerMXID, bootstrap.ConnectionID, bootstrap.Provider, bootstrap.RequestedRegion,
 			bootstrap.TemplateURL, bootstrap.TemplateDigest, bootstrap.SourceTreeDigest, bootstrap.StackName, bootstrap.NodeKeyID, bootstrap.NodePublicKeySPKIBase64,
-			bootstrap.DeviceApprovalKeyID, bootstrap.DeviceApprovalPublicKeySPKIBase64, bootstrap.Status, bootstrap.Revision,
+			bootstrap.DeviceApprovalKeyID, bootstrap.DeviceApprovalPublicKeySPKIBase64, bootstrap.AllowRootCredentialBootstrap, bootstrap.Status, bootstrap.Revision,
 			bootstrap.IdempotencyHash, bootstrap.RequestDigest, bootstrap.ExpiresAt, bootstrap.CreatedAt).Scan(&inserted)
 		switch {
 		case err == nil:
@@ -956,7 +956,7 @@ func scanCloudConnectionBootstrap(row cloudScanner, item *cloudmodule.Connection
 	return row.Scan(
 		&item.BootstrapID, &item.OwnerMXID, &item.ConnectionID, &item.Provider, &item.RequestedRegion,
 		&item.TemplateURL, &item.TemplateDigest, &item.SourceTreeDigest, &item.StackName, &item.NodeKeyID, &item.NodePublicKeySPKIBase64,
-		&item.DeviceApprovalKeyID, &item.DeviceApprovalPublicKeySPKIBase64,
+		&item.DeviceApprovalKeyID, &item.DeviceApprovalPublicKeySPKIBase64, &item.AllowRootCredentialBootstrap,
 		&item.CandidateBrokerURL, &item.StackARN, &item.Status, &item.Revision, &item.IdempotencyHash, &item.RequestDigest,
 		&item.CompletionIdempotencyHash, &item.CompletionRequestDigest, &item.JobID, &item.NextNodeCounter,
 		&item.ExpiresAt, &item.CreatedAt, &item.UpdatedAt,

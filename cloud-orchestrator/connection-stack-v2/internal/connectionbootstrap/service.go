@@ -104,7 +104,8 @@ func (service *Service) CreateSession(request CreateRequest) (CreateResponse, er
 		BootstrapID: plan.BootstrapID, ConnectionID: plan.ConnectionID,
 		NodeKeyID: plan.NodeKeyID, NodeEd25519PublicKey: plan.NodeEd25519PublicKey,
 		DeviceKeyID: plan.DeviceKeyID, DeviceEd25519PublicKey: plan.DeviceEd25519PublicKey,
-		StackName: plan.StackName, FixedParameters: cloneStringMap(plan.FixedParameters),
+		StackName: plan.StackName, AllowRootCredentialBootstrap: plan.AllowRootCredentialBootstrap,
+		FixedParameters: cloneStringMap(plan.FixedParameters),
 	}
 	expiresAt := expires.Format(time.RFC3339Nano)
 	responseBase := CreateResponse{Schema: CreateResponseSchema, Status: "awaiting_upload", RequestID: request.RequestID, SessionID: id, ConnectionID: plan.ConnectionID, ServerX25519PublicKey: base64.StdEncoding.EncodeToString(publicRaw), UploadURL: strings.TrimRight(service.config.UploadBaseURL, "/") + "/v1/aws-bootstrap/sessions/" + id, ExpiresAt: expiresAt, HKDF: "HKDF-SHA256 info=" + hkdfInfo, AAD: string(EnvelopeAAD(id, plan.ConnectionID, expiresAt))}
@@ -182,7 +183,12 @@ func (service *Service) consume(ctx context.Context, sessionID string, envelope 
 		return Receipt{}, ErrInvalid
 	}
 	caller, err := stsClient.GetCallerIdentity(ctx)
-	if err != nil || caller.AccountID == "" || caller.ARN == "" || rootARN(caller.ARN) {
+	// New users commonly only have an AWS root access-key export. It is accepted
+	// only when the server-issued, owner-approved role plan bound to this session
+	// permits it. The credential can then create only the fixed Connection Stack
+	// below, and is zeroed before the receipt returns without reaching the
+	// Agent, Worker, Broker, or ProductCore storage.
+	if err != nil || caller.AccountID == "" || caller.ARN == "" || (rootARN(caller.ARN) && !begin.identity.AllowRootCredentialBootstrap) {
 		service.store.fail(sessionID)
 		if rootARN(caller.ARN) {
 			return Receipt{}, ErrUnauthorized
@@ -216,6 +222,16 @@ func (service *Service) stackRequest(identity Identity, sessionID, fingerprint s
 		parameters["EnableDeploymentCreate"] = "true"
 	} else {
 		parameters["EnableDeploymentCreate"] = "false"
+	}
+	if service.config.DeploymentDestroyEnabled {
+		parameters["EnableDeploymentDestroy"] = "true"
+	} else {
+		parameters["EnableDeploymentDestroy"] = "false"
+	}
+	if service.config.ServiceSecretsEnabled {
+		parameters["EnableServiceSecrets"] = "true"
+	} else {
+		parameters["EnableServiceSecrets"] = "false"
 	}
 	if service.config.DynamicArtifactsEnabled {
 		parameters["EnableDynamicArtifacts"] = "true"
@@ -290,6 +306,7 @@ func decryptEnvelope(privateRaw []byte, envelope UploadEnvelope, aad []byte) ([]
 	}
 	return plaintext, nil
 }
+
 func rootARN(arn string) bool {
 	parts := strings.Split(arn, ":")
 	return len(parts) >= 6 && parts[2] == "iam" && parts[len(parts)-1] == "root"

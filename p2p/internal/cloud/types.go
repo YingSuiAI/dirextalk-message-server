@@ -254,6 +254,7 @@ type ConnectionBootstrap struct {
 	NodePublicKeySPKIBase64           string
 	DeviceApprovalKeyID               string
 	DeviceApprovalPublicKeySPKIBase64 string
+	AllowRootCredentialBootstrap      bool
 	CandidateBrokerURL                string
 	StackARN                          string
 	Status                            string
@@ -274,18 +275,19 @@ type ConnectionBootstrap struct {
 // no AWS credential, Broker endpoint, stack ARN, private key, or service
 // secret. It is returned only from HTTP role-plan creation, not via realtime.
 type ConnectionRolePlan struct {
-	BootstrapID          string            `json:"bootstrap_id"`
-	CloudConnectionID    string            `json:"cloud_connection_id"`
-	Provider             string            `json:"provider"`
-	Region               string            `json:"region"`
-	Status               string            `json:"status"`
-	Revision             int64             `json:"revision"`
-	ExpiresAt            int64             `json:"expires_at"`
-	TemplateURL          string            `json:"template_url"`
-	TemplateDigest       string            `json:"template_digest"`
-	SourceTreeDigest     string            `json:"source_tree_digest"`
-	StackName            string            `json:"stack_name"`
-	CloudFormationParams map[string]string `json:"cloudformation_parameters"`
+	BootstrapID                  string            `json:"bootstrap_id"`
+	CloudConnectionID            string            `json:"cloud_connection_id"`
+	Provider                     string            `json:"provider"`
+	Region                       string            `json:"region"`
+	Status                       string            `json:"status"`
+	Revision                     int64             `json:"revision"`
+	ExpiresAt                    int64             `json:"expires_at"`
+	TemplateURL                  string            `json:"template_url"`
+	TemplateDigest               string            `json:"template_digest"`
+	SourceTreeDigest             string            `json:"source_tree_digest"`
+	StackName                    string            `json:"stack_name"`
+	AllowRootCredentialBootstrap bool              `json:"allow_root_credential_bootstrap"`
+	CloudFormationParams         map[string]string `json:"cloudformation_parameters"`
 }
 
 // ConnectionCredentialBootstrapRequest is derived entirely from the durable
@@ -298,19 +300,20 @@ type ConnectionCredentialBootstrapRequest struct {
 }
 
 type ConnectionCredentialBootstrapRolePlanWire struct {
-	BootstrapID            string            `json:"bootstrap_id"`
-	ConnectionID           string            `json:"connection_id"`
-	Region                 string            `json:"region"`
-	StackName              string            `json:"stack_name"`
-	TemplateURL            string            `json:"template_url"`
-	TemplateDigest         string            `json:"template_digest"`
-	SourceTreeDigest       string            `json:"source_tree_digest"`
-	FixedParameters        map[string]string `json:"fixed_parameters"`
-	NodeKeyID              string            `json:"node_key_id"`
-	NodeEd25519PublicKey   string            `json:"node_ed25519_public_key"`
-	DeviceKeyID            string            `json:"device_key_id"`
-	DeviceEd25519PublicKey string            `json:"device_ed25519_public_key"`
-	ExpiresAt              string            `json:"expires_at"`
+	BootstrapID                  string            `json:"bootstrap_id"`
+	ConnectionID                 string            `json:"connection_id"`
+	Region                       string            `json:"region"`
+	StackName                    string            `json:"stack_name"`
+	TemplateURL                  string            `json:"template_url"`
+	TemplateDigest               string            `json:"template_digest"`
+	SourceTreeDigest             string            `json:"source_tree_digest"`
+	FixedParameters              map[string]string `json:"fixed_parameters"`
+	NodeKeyID                    string            `json:"node_key_id"`
+	NodeEd25519PublicKey         string            `json:"node_ed25519_public_key"`
+	DeviceKeyID                  string            `json:"device_key_id"`
+	DeviceEd25519PublicKey       string            `json:"device_ed25519_public_key"`
+	AllowRootCredentialBootstrap bool              `json:"allow_root_credential_bootstrap"`
+	ExpiresAt                    string            `json:"expires_at"`
 }
 
 type ConnectionCredentialBootstrapReceipt struct {

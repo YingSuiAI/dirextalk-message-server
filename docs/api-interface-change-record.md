@@ -1,6 +1,31 @@
 # API Interface Change Record
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
+
+## 2026-07-16 Restricted AWS rootkey bootstrap
+
+`cloud.connections.role_plan` now accepts the optional boolean
+`allow_root_credential_bootstrap`, defaulting to `false`. The value is a
+non-secret, owner-selected capability of that exact immutable Role Plan and is
+included in its request digest/idempotency replay contract; changing it under
+the same idempotency key conflicts rather than widening an existing plan.
+
+The existing owner HTTP-only
+`cloud.connections.credential_bootstrap.create` action derives a ten-minute,
+single-use X25519/AES-GCM upload session from the matching
+`awaiting_stack` Role Plan and expected revision. The CSV plaintext goes
+directly from the client to the Go Connection Stack controller, which can call
+only the fixed `CreateStack` path and clears credential buffers after use.
+Session URL/bearer, AWS credentials, caller ARN and receipt internals do not
+enter ProductCore persistence, events, logs, Agent, MCP or Worker inputs.
+
+An AWS root access key is accepted only when the exact server-issued Role Plan
+has that capability bit. A root upload on a default or stale plan is rejected;
+the upload remains one-time and restart/expiry requires a new session. This
+supersedes earlier onboarding notes that described the then-current
+CloudFormation-only flow as having no credential upload. It does not enable
+EC2 deployment, public ingress, arbitrary AWS API calls, or Agent/MCP cloud
+mutation.
 
 ## 2026-07-15 First-validation Cloud artifact and recovery closure
 
@@ -70,10 +95,12 @@ provider `NotFound` read-back yields `verified_destroyed`; errors remain
 Flutter signs both contracts with the system approval key, keeps them HTTP-
 only, displays continued-billing/read-back warnings, and exposes residual
 Deployment controls at `/agent/workloads/deployments/:id`. Agent and public
-MCP remain read-only and cannot call either mutation. Real AWS validation is
-blocked on non-root least-privilege credentials and working SSH access to
-`a8.dirextalk.ai`; immediately before any billable create, the owner must
-confirm the latest Region, instance/disk specification and live quote.
+MCP remain read-only and cannot call either mutation. Rootkey bootstrap and
+verified `a8.dirextalk.ai` SSH are available only through the constrained owner
+path above; real AWS validation still needs the prerelease Worker artifact/AMI,
+deployed Connection Stack controller and disposable cleanup/read-back path.
+Immediately before any billable create, the owner must confirm the latest
+Region, instance/disk specification and live quote.
 
 ## 2026-07-15 Flutter Device-Signed Deployment Intent
 

@@ -19,10 +19,11 @@ func TestConnectionCredentialBootstrapUsesOnlyDurableRolePlanAndPassesSessionSta
 	plan := ConnectionRolePlan{
 		BootstrapID: "bootstrap-credential-test-0001", CloudConnectionID: connectionID, Provider: "aws", Region: "us-east-1",
 		Status: ConnectionBootstrapAwaitingStack, Revision: 1, ExpiresAt: now.Add(15 * time.Minute).UnixMilli(),
-		TemplateURL:      "https://artifacts.example.invalid/connection-stack-v2.yaml",
-		TemplateDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		SourceTreeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		StackName:        connectionStackName(connectionID),
+		TemplateURL:                  "https://artifacts.example.invalid/connection-stack-v2.yaml",
+		TemplateDigest:               "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SourceTreeDigest:             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		StackName:                    connectionStackName(connectionID),
+		AllowRootCredentialBootstrap: true,
 		CloudFormationParams: map[string]string{
 			"ConnectionId": connectionID, "ConnectionGeneration": "1", "NodeKeyId": "node-key-bootstrap-0001",
 			"NodePublicKeySpkiBase64": publicKey, "DeviceApprovalKeyId": "device-key-bootstrap-0001",
@@ -45,7 +46,7 @@ func TestConnectionCredentialBootstrapUsesOnlyDurableRolePlanAndPassesSessionSta
 	}
 	if client.request.RequestID != params["idempotency_key"] || client.request.RolePlan.BootstrapID != plan.BootstrapID || client.request.RolePlan.ConnectionID != connectionID ||
 		client.request.RolePlan.NodeEd25519PublicKey != publicKey || client.request.RolePlan.DeviceEd25519PublicKey != publicKey ||
-		!reflect.DeepEqual(client.request.RolePlan.FixedParameters, plan.CloudFormationParams) {
+		!client.request.RolePlan.AllowRootCredentialBootstrap || !reflect.DeepEqual(client.request.RolePlan.FixedParameters, plan.CloudFormationParams) {
 		t.Fatalf("request was not derived from durable role plan: %#v", client.request)
 	}
 	response := result.(map[string]any)["session"].(map[string]any)

@@ -130,6 +130,22 @@ template URL, deterministic stack name, requested Region, and the
 Orchestrator/device **public** signing
 identities. It neither accepts AWS credentials nor creates a public Connection
 record. The Flutter approval private key must remain in system secure storage.
+The owner may explicitly bind `allow_root_credential_bootstrap=true` to that
+exact Role Plan; it is a non-secret capability bit in the request digest and
+idempotency contract, defaults to `false`, and cannot be added to an already
+issued plan.
+
+`cloud.connections.credential_bootstrap.create` is a separate owner-only
+action for an owner who chooses the advanced CSV path. It derives a ten-minute,
+one-time X25519/AES-GCM upload session only from the still-`awaiting_stack`
+Role Plan and its expected revision. The browser uploads the encrypted CSV
+directly to the Go Connection Stack bootstrap controller; ProductCore,
+realtime projections, Agent, MCP, Worker, logs and client persistence receive
+only the non-secret session/receipt metadata. AWS root access-key CSV is
+accepted only when that exact Role Plan has the explicit capability bit; all
+other root uploads fail closed. The controller clears credential buffers after
+the fixed `CreateStack` request, and a controller restart or session expiry
+requires a new owner action.
 The Message Server enables this action only when its public Stack identity is
 complete: `P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL`,
 `P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST`,
@@ -322,6 +338,7 @@ Cloud mutation.
 | `cloud.events.list` | de-secretsed durable Cloud audit events; `limit` is 1–200 | HTTP + WS request |
 | `cloud.goals.create` | creates a `researching` Goal/Plan and a planner outbox request; an owner may bind one current private Recipe by id and expected revision | HTTP-only |
 | `cloud.connections.role_plan` | creates/replays a short-lived private Stack bootstrap and returns a safe CloudFormation Role Plan | HTTP-only |
+| `cloud.connections.credential_bootstrap.create` | derives a one-time encrypted direct-upload session from one unexpired Role Plan; it never accepts credential plaintext | HTTP-only |
 | `cloud.connections.registration.complete` | records Stack outputs as a private pending verification and returns its safe Job binding; it cannot activate a Connection directly | HTTP-only |
 | `cloud.plans.confirmation.prepare` | binds a quoted capacity tier and the selected Recipe's derived volume/data/secret slots into an immutable no-ingress PlanV1 and returns a short-lived device challenge | HTTP-only |
 | `cloud.plans.approve` | verifies that exact device signature, then atomically queues the private provision intent; it does not create an AWS resource itself | HTTP-only |
@@ -340,17 +357,38 @@ Cloud mutation.
   "region": "ap-northeast-1",
   "device_approval_key_id": "device-key-id",
   "device_approval_public_key_spki_base64": "Ed25519-SPKI-base64",
-  "idempotency_key": "UUID"
+  "idempotency_key": "UUID",
+  "allow_root_credential_bootstrap": false
 }
 ```
 
 It returns a `role_plan` with `bootstrap_id`, `cloud_connection_id`, expiration,
 template URL/digest, complete source-tree digest, stack name, and public
-CloudFormation parameters. The server rejects an unavailable/invalid stack
+CloudFormation parameters plus the non-secret
+`allow_root_credential_bootstrap` value. The server rejects an unavailable/invalid stack
 identity, non-AWS provider,
 invalid Region or Ed25519 SPKI, non-UUID idempotency key, and a conflicting
 idempotency replay. It never returns a node private key, AWS credential,
 Broker endpoint, Stack ARN, or service secret.
+
+`cloud.connections.credential_bootstrap.create` accepts exactly:
+
+```json
+{
+  "bootstrap_id": "cloud_bootstrap_…",
+  "expected_revision": 1,
+  "idempotency_key": "UUID"
+}
+```
+
+It does not accept an access key, secret key, session token, Region, template,
+endpoint or any mutable CloudFormation parameter. Its response is a transient
+session with an HTTPS upload URL, bearer and X25519 public key; these values
+must remain in current-page memory and are never persisted or projected. The
+client encrypts the AWS CSV using the returned session binding and uploads it
+directly to the Connection Stack. A success receipt proves only that the fixed
+Connection Stack creation request was accepted; it neither activates the
+Connection nor creates EC2 or starts Worker billing.
 
 `cloud.connections.registration.complete` accepts exactly:
 
@@ -377,9 +415,11 @@ request. The client persists only the non-secret Region, idempotency keys,
 request fingerprint, and returned public Role Plan so an ambiguous transport
 failure or application restart can replay the exact request. Broker URL and
 Stack ARN remain in-memory form values and are redacted from diagnostics. The
-Connection Sheet opens an AWS-partition-aware CloudFormation Quick Create URL,
-contains no AK/SK upload, and labels registration as pending independent
-verification; neither client action creates EC2 or starts billing.
+Connection Sheet opens an AWS-partition-aware CloudFormation Quick Create URL
+and labels registration as pending independent verification. Its Role Plan
+request contains no AK/SK. The separate, explicit advanced path can upload an
+encrypted one-time credential envelope only after the user creates a Role Plan
+that permits it; neither client action creates EC2 or starts billing.
 
 Flutter also consumes the existing Plan confirmation pair directly over HTTP.
 It validates the returned Plan, quote tier, signer key and the complete
@@ -604,12 +644,13 @@ separate plan and confirmation.
 
 ## Explicitly gated or not enabled yet
 
-The current slice does not upload AWS account credentials, deploy a Connection
-Stack on the owner's behalf or expose a network endpoint. It can issue a
-reviewed CloudFormation handoff. A separate owner/device-approved service
-secret channel sends encrypted workload material directly to a Stack that the
-owner has already deployed; no secret value passes through ProductCore. The Go
-Broker enables signed registration verification, read-only On-Demand quotes
+The current slice does not persist AWS account credentials or expose a network
+endpoint. It can issue a reviewed CloudFormation handoff and, through the
+separate owner-only encrypted bootstrap action, submit one fixed Connection
+Stack creation request on the owner's behalf. A separate owner/device-approved
+service-secret channel sends encrypted workload material directly to a Stack
+that the owner has already deployed; no secret value passes through
+ProductCore. The Go Broker enables signed registration verification, read-only On-Demand quotes
 and `deployment.observe`; `deployment.create`, the IID-verified Worker claim,
 fixed task channels and service-secret routes remain behind independent
 disabled-by-default gates.
@@ -796,10 +837,13 @@ mutation or changes the external Agent/MCP boundary.
 The unique local prerelease artifact `v1.1.0-cloud-mvp.20260715.1` has been
 built and its pinned OpenClaw `/health` contract exercised. It has not been
 registered in S3, assembled into a dynamic AMI or deployed to the test
-environment. Real AWS validation is blocked on non-root least-privilege AWS
-credentials and working SSH access to `a8.dirextalk.ai`; immediately before any
-billable create, the owner must still confirm the latest Region, specification
-and live quote. Owner HTTP clients now have separate device-signed Job
+environment. Rootkey bootstrap and verified `a8.dirextalk.ai` SSH are now
+available only through the constrained owner path above. Real AWS validation
+still requires a prerelease Worker artifact registered in the reviewed bucket,
+a matching dynamic AMI, a deployed Connection Stack controller and a
+disposable-account cleanup/read-back path; immediately before any billable
+create, the owner must still confirm the latest Region, specification and live
+quote. Owner HTTP clients now have separate device-signed Job
 cancellation and residual Deployment destruction flows. Cancellation applies
 only to eligible provision/install/verify execution, fences late results and
 retains billable resources; it never implies stop or destroy. A failed,

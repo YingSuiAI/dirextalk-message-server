@@ -1904,6 +1904,16 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: root credential bootstrap permit v70",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// This is an owner-approved, non-secret role-plan capability. It
+				// never stores an ARN, access key, secret, session token, or receipt.
+				`ALTER TABLE p2p_cloud_connection_bootstraps ADD COLUMN IF NOT EXISTS allow_root_credential_bootstrap BOOLEAN NOT NULL DEFAULT FALSE`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

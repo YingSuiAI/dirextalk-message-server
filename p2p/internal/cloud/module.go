@@ -356,7 +356,7 @@ func (m *Module) approveServiceRestore(ctx context.Context, params map[string]an
 // create a public Connection record. The device key is public-key material
 // only; the Flutter private approval key never crosses this boundary.
 func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
-	if err := only(params, "provider", "region", "device_approval_key_id", "device_approval_public_key_spki_base64", "idempotency_key"); err != nil {
+	if err := only(params, "provider", "region", "device_approval_key_id", "device_approval_public_key_spki_base64", "allow_root_credential_bootstrap", "idempotency_key"); err != nil {
 		return nil, err
 	}
 	if m == nil || m.store == nil {
@@ -371,6 +371,14 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 	region := values.String("region")
 	deviceKeyID := values.String("device_approval_key_id")
 	devicePublicKey := values.String("device_approval_public_key_spki_base64")
+	allowRootCredentialBootstrap := false
+	if raw, present := params["allow_root_credential_bootstrap"]; present {
+		parsed, ok := raw.(bool)
+		if !ok {
+			return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection role plan is invalid")
+		}
+		allowRootCredentialBootstrap = parsed
+	}
 	idempotencyKey := values.String("idempotency_key")
 	if provider != "aws" || !cloudRegionPattern.MatchString(region) || !cloudKeyIDPattern.MatchString(deviceKeyID) ||
 		ContainsSensitiveGoalMaterial(deviceKeyID) || validateEd25519SPKIBase64(devicePublicKey) != nil || ContainsSensitiveGoalMaterial(idempotencyKey) {
@@ -391,9 +399,9 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 		RequestedRegion: region, TemplateURL: stackConfig.TemplateURL, TemplateDigest: stackConfig.TemplateDigest, SourceTreeDigest: stackConfig.SourceTreeDigest,
 		StackName: connectionStackName(connectionID), NodeKeyID: stackConfig.NodeKeyID,
 		NodePublicKeySPKIBase64: stackConfig.NodePublicKeySPKIBase64, DeviceApprovalKeyID: deviceKeyID,
-		DeviceApprovalPublicKeySPKIBase64: devicePublicKey, Status: ConnectionBootstrapAwaitingStack,
+		DeviceApprovalPublicKeySPKIBase64: devicePublicKey, AllowRootCredentialBootstrap: allowRootCredentialBootstrap, Status: ConnectionBootstrapAwaitingStack,
 		Revision: 1, IdempotencyHash: digest(idempotencyKey),
-		RequestDigest: connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey),
+		RequestDigest: connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey, allowRootCredentialBootstrap),
 		ExpiresAt:     now + stackConfig.RolePlanTTL.Milliseconds(), CreatedAt: now, UpdatedAt: now,
 	}
 	if err := validateConnectionBootstrap(bootstrap); err != nil {

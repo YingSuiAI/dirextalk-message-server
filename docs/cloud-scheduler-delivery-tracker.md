@@ -529,8 +529,13 @@ stage; later checked workboard sections are the authoritative delivery record.
 - [x] Add a resumable AWS Connection Sheet that persists only non-secret Role
   Plan metadata and request fingerprints, opens the immutable CloudFormation
   Quick Create handoff, and submits Stack outputs for independent verification.
-  It contains no AK/SK upload and explicitly states that this stage neither
-  creates EC2 nor starts billing.
+  The initial CloudFormation handoff contains no AK/SK and explicitly states
+  that it neither creates EC2 nor starts billing.
+- [x] Add a separately owner-approved, one-time encrypted CSV bootstrap path.
+  `allow_root_credential_bootstrap` is bound to one immutable Role Plan and
+  its idempotency digest, defaults off, and allows rootkey only for that plan's
+  direct Go Connection Stack upload; credentials, upload bearer and caller
+  identity never persist or reach Agent, MCP or Worker.
 - [x] Cover RFC 8410 identity/signature golden behavior, secure persistence and
   corruption, onboarding resume, China-partition URL encoding, typed request
   routing/log redaction, and the complete widget handoff flow
@@ -758,9 +763,11 @@ register its exact dynamic-artifact S3 `versionId`, then use the Go builder to
 assemble one matching dynamic-artifact AMI. Do not use `latest`, the formal
 `v1.0.3` tag, or any release/deployer script.
 
-Real AWS validation is currently blocked until a non-root, least-privilege AWS
-credential is available and SSH access to `a8.dirextalk.ai` is working. Even
-after those prerequisites are fixed, immediately before any billable create
-the owner must confirm the latest Region, instance/disk specification and live
-quote. Until then keep every real mutation gate off and use the completed fake
-lifecycle only.
+Rootkey bootstrap and verified SSH access to `a8.dirextalk.ai` are available
+through the constrained owner path. The next real-AWS prerequisites are to
+upload the prerelease Worker artifact, register its exact dynamic S3 version,
+build the matching dynamic AMI, deploy the reviewed Connection Stack controller
+and prove disposable-account cleanup/read-back. Immediately before any billable
+create the owner must confirm the latest Region, instance/disk specification
+and live quote. Until those prerequisites are complete, keep every real
+mutation gate off and use the completed fake lifecycle only.

@@ -127,7 +127,8 @@ func connectionCredentialBootstrapRequest(requestID string, plan ConnectionRoleP
 			TemplateURL: plan.TemplateURL, TemplateDigest: plan.TemplateDigest, SourceTreeDigest: plan.SourceTreeDigest,
 			FixedParameters: fixed, NodeKeyID: plan.CloudFormationParams["NodeKeyId"], NodeEd25519PublicKey: plan.CloudFormationParams["NodePublicKeySpkiBase64"],
 			DeviceKeyID: plan.CloudFormationParams["DeviceApprovalKeyId"], DeviceEd25519PublicKey: plan.CloudFormationParams["DeviceApprovalPublicKeySpkiBase64"],
-			ExpiresAt: time.UnixMilli(plan.ExpiresAt).UTC().Format(time.RFC3339Nano),
+			AllowRootCredentialBootstrap: plan.AllowRootCredentialBootstrap,
+			ExpiresAt:                    time.UnixMilli(plan.ExpiresAt).UTC().Format(time.RFC3339Nano),
 		},
 	}, nil
 }

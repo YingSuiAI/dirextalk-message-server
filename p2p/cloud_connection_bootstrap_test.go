@@ -37,7 +37,7 @@ func TestCloudConnectionRolePlanQueuesOnlyVerifiedRegistration(t *testing.T) {
 		"device_approval_public_key_spki_base64": devicePublic, "idempotency_key": rolePlanKey,
 	})
 	plan, ok := rolePlan["role_plan"].(map[string]any)
-	if !ok || plan["provider"] != "aws" || plan["region"] != "ap-northeast-1" || plan["status"] != cloudmodule.ConnectionBootstrapAwaitingStack || plan["bootstrap_id"] == "" || plan["cloud_connection_id"] == "" || plan["source_tree_digest"] != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+	if !ok || plan["provider"] != "aws" || plan["region"] != "ap-northeast-1" || plan["status"] != cloudmodule.ConnectionBootstrapAwaitingStack || plan["bootstrap_id"] == "" || plan["cloud_connection_id"] == "" || plan["source_tree_digest"] != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" || plan["allow_root_credential_bootstrap"] != false {
 		t.Fatalf("role plan = %#v", rolePlan)
 	}
 	params, ok := plan["cloudformation_parameters"].(map[string]any)
@@ -96,6 +96,51 @@ func TestCloudConnectionRolePlanQueuesOnlyVerifiedRegistration(t *testing.T) {
 	jobs, ok := bootstrap["jobs"].([]any)
 	if !ok || len(jobs) != 1 || jobs[0].(map[string]any)["kind"] != "connection_registration" || jobs[0].(map[string]any)["checkpoint"] != "connection_verification_queued" {
 		t.Fatalf("registration job = %#v", bootstrap["jobs"])
+	}
+}
+
+func TestCloudConnectionRolePlanBindsRootCredentialBootstrapPermit(t *testing.T) {
+	nodePublic := testEd25519SPKIBase64(t)
+	devicePublic := testEd25519SPKIBase64(t)
+	service := NewService(Config{ServerName: "example.com", CloudConnectionStack: CloudConnectionStackConfig{
+		TemplateURL: "https://artifacts.example.invalid/connection-stack-v2/template.json", TemplateDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SourceTreeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", NodeKeyID: "node-key-1",
+		NodePublicKeySPKIBase64: nodePublic, RolePlanTTL: 15 * time.Minute,
+	}})
+	router := newP2PTestRouter(service)
+	idempotencyKey := uuid.NewString()
+	params := map[string]any{
+		"provider": "aws", "region": "ap-northeast-1", "device_approval_key_id": "device-key-root-1",
+		"device_approval_public_key_spki_base64": devicePublic, "allow_root_credential_bootstrap": true, "idempotency_key": idempotencyKey,
+	}
+	result := cloudCommand(t, router, service, "cloud.connections.role_plan", params)
+	plan := result["role_plan"].(map[string]any)
+	if plan["allow_root_credential_bootstrap"] != true {
+		t.Fatalf("root permit missing from role plan: %#v", plan)
+	}
+	if replay := cloudCommand(t, router, service, "cloud.connections.role_plan", params); replay["role_plan"].(map[string]any)["bootstrap_id"] != plan["bootstrap_id"] {
+		t.Fatalf("root permit replay changed plan: %#v", replay)
+	}
+	changed := make(map[string]any, len(params))
+	for key, value := range params {
+		changed[key] = value
+	}
+	changed["allow_root_credential_bootstrap"] = false
+	request := jsonRequest(t, "/_p2p/command", map[string]any{"action": "cloud.connections.role_plan", "params": changed})
+	request.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("root permit idempotency substitution status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	changed["idempotency_key"] = uuid.NewString()
+	changed["allow_root_credential_bootstrap"] = "true"
+	request = jsonRequest(t, "/_p2p/command", map[string]any{"action": "cloud.connections.role_plan", "params": changed})
+	request.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("non-boolean root permit status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
