@@ -1186,3 +1186,11 @@ revision and timestamps. Backup progress is reported by the returned Job and
 existing `cloud.job.changed` events. Backup success or failure does not change
 the Service status or Deployment resource axis; retained AMI/snapshot cleanup
 and restore are separate future approved operations.
+
+Terminal backup completion now advances the enclosing Service revision and
+emits a strict `cloud.service.changed` summary with the terminal `backups`
+array; this is an aggregate projection change, not a Service maturity or
+resource-axis transition. `cloud.job.changed` also accepts the existing
+`kind: "backup"` Jobs. The Flutter Service detail page renders backup status,
+manual retention, retained AMI and encrypted snapshot count, but deliberately
+contains no restore or backup-delete control.

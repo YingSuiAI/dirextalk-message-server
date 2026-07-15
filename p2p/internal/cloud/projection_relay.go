@@ -243,15 +243,29 @@ type deploymentProjectionPayload struct {
 }
 
 type serviceProjectionPayload struct {
-	ServiceID    string `json:"service_id"`
-	DeploymentID string `json:"deployment_id"`
-	RecipeID     string `json:"recipe_id"`
-	Name         string `json:"name"`
-	Status       string `json:"service_status"`
-	Integration  string `json:"integration_status"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	ServiceID    string                           `json:"service_id"`
+	DeploymentID string                           `json:"deployment_id"`
+	RecipeID     string                           `json:"recipe_id"`
+	Name         string                           `json:"name"`
+	Status       string                           `json:"service_status"`
+	Integration  string                           `json:"integration_status"`
+	Revision     int64                            `json:"revision"`
+	CreatedAt    int64                            `json:"created_at"`
+	UpdatedAt    int64                            `json:"updated_at"`
+	Backups      []serviceBackupProjectionPayload `json:"backups,omitempty"`
+}
+
+type serviceBackupProjectionPayload struct {
+	BackupID        string   `json:"backup_id"`
+	ServiceID       string   `json:"service_id"`
+	DeploymentID    string   `json:"deployment_id"`
+	Status          string   `json:"status"`
+	RetentionPolicy string   `json:"retention_policy"`
+	ImageID         string   `json:"image_id,omitempty"`
+	SnapshotIDs     []string `json:"snapshot_ids,omitempty"`
+	Revision        int64    `json:"revision"`
+	CreatedAt       int64    `json:"created_at"`
+	UpdatedAt       int64    `json:"updated_at"`
 }
 
 type connectionProjectionPayload struct {
@@ -314,11 +328,15 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validServiceProjection(value) {
 			return nil, errors.New("invalid cloud service projection")
 		}
-		return map[string]any{
+		payload := map[string]any{
 			"service_id": value.ServiceID, "deployment_id": value.DeploymentID, "recipe_id": value.RecipeID, "name": value.Name,
 			"service_status": value.Status, "integration_status": value.Integration, "revision": value.Revision,
 			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
-		}, nil
+		}
+		if value.Backups != nil {
+			payload["backups"] = serviceBackupProjectionSummaries(value.Backups)
+		}
+		return payload, nil
 	case "cloud.connection.changed":
 		var value connectionProjectionPayload
 		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validConnectionProjection(value) {
@@ -369,7 +387,7 @@ func validJobProjection(value jobProjectionPayload) bool {
 		planBindingValid = value.PlanID == "" && value.DeploymentID == ""
 	}
 	return validProjectionIdentifier(value.JobID) && planBindingValid && validOptionalProjectionIdentifier(value.DeploymentID) &&
-		allowedProjectionValue(value.Kind, "research", "quote", "provision", "install", "verify", "destroy", "connection_registration") &&
+		allowedProjectionValue(value.Kind, "research", "quote", "provision", "install", "verify", "backup", "destroy", "connection_registration") &&
 		allowedProjectionValue(value.ExecutionStatus, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
 		allowedProjectionValue(value.OutcomeStatus, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		validVisibleProjectionText(value.Checkpoint, 128, true) && validProjectionErrorCode(value.ErrorCode) &&
@@ -385,11 +403,81 @@ func validDeploymentProjection(value deploymentProjectionPayload) bool {
 }
 
 func validServiceProjection(value serviceProjectionPayload) bool {
-	return validProjectionIdentifier(value.ServiceID) && validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.RecipeID) &&
+	if !(validProjectionIdentifier(value.ServiceID) && validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.RecipeID) &&
 		validVisibleProjectionText(value.Name, 160, false) &&
 		allowedProjectionValue(value.Status, "experimental", "awaiting_management_acceptance", "active", "stopped", "degraded", "destroying", "destroyed") &&
 		allowedProjectionValue(value.Integration, "not_requested", "pending", "connected", "degraded", "failed", "disconnected") &&
-		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
+		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(value.Backups))
+	for _, backup := range value.Backups {
+		if !validServiceBackupProjection(backup, value.ServiceID, value.DeploymentID) {
+			return false
+		}
+		if _, exists := seen[backup.BackupID]; exists {
+			return false
+		}
+		seen[backup.BackupID] = struct{}{}
+	}
+	return true
+}
+
+func validServiceBackupProjection(value serviceBackupProjectionPayload, serviceID, deploymentID string) bool {
+	if !validProjectionIdentifier(value.BackupID) || value.ServiceID != serviceID || value.DeploymentID != deploymentID ||
+		value.RetentionPolicy != "manual" || value.Revision <= 0 || value.CreatedAt <= 0 || value.UpdatedAt < value.CreatedAt {
+		return false
+	}
+	switch value.Status {
+	case "available":
+		if !validEC2ResourceID(value.ImageID, "ami-") || len(value.SnapshotIDs) == 0 {
+			return false
+		}
+		seen := make(map[string]struct{}, len(value.SnapshotIDs))
+		for _, snapshotID := range value.SnapshotIDs {
+			if !validEC2ResourceID(snapshotID, "snap-") {
+				return false
+			}
+			if _, exists := seen[snapshotID]; exists {
+				return false
+			}
+			seen[snapshotID] = struct{}{}
+		}
+		return true
+	case "failed":
+		return value.ImageID == "" && len(value.SnapshotIDs) == 0
+	default:
+		return false
+	}
+}
+
+func validEC2ResourceID(value, prefix string) bool {
+	if !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(value, prefix)
+	if len(suffix) < 8 || len(suffix) > 17 {
+		return false
+	}
+	for _, char := range suffix {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func serviceBackupProjectionSummaries(values []serviceBackupProjectionPayload) []any {
+	result := make([]any, 0, len(values))
+	for _, value := range values {
+		result = append(result, map[string]any{
+			"backup_id": value.BackupID, "service_id": value.ServiceID, "deployment_id": value.DeploymentID,
+			"status": value.Status, "retention_policy": value.RetentionPolicy, "image_id": value.ImageID,
+			"snapshot_ids": append([]string(nil), value.SnapshotIDs...), "revision": value.Revision,
+			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		})
+	}
+	return result
 }
 
 func validConnectionProjection(value connectionProjectionPayload) bool {

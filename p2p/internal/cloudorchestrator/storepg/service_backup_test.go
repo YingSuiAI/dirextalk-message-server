@@ -68,8 +68,15 @@ func TestStoreServiceBackupCommitsVerifiedReceiptWithoutMutatingServiceResourceA
 	if err = database.DB().QueryRow(`SELECT state FROM p2p_cloud_service_backup_commands WHERE command_id=$1`, claim.Command.CommandID).Scan(&commandState); err != nil {
 		t.Fatal(err)
 	}
-	if backupStatus != "available" || imageID != result.ImageID || snapshotsJSON == "[]" || jobExecution != "finished" || jobOutcome != "succeeded" || checkpoint != "backup_available" || serviceStatus != "experimental" || serviceRevision != claim.ServiceRevision || resourceStatus != "active" || commandState != "accepted" {
+	if backupStatus != "available" || imageID != result.ImageID || snapshotsJSON == "[]" || jobExecution != "finished" || jobOutcome != "succeeded" || checkpoint != "backup_available" || serviceStatus != "experimental" || serviceRevision != claim.ServiceRevision+1 || resourceStatus != "active" || commandState != "accepted" {
 		t.Fatalf("backup=%s/%s/%s job=%s/%s/%s service=%s/%d resource=%s command=%s", backupStatus, imageID, snapshotsJSON, jobExecution, jobOutcome, checkpoint, serviceStatus, serviceRevision, resourceStatus, commandState)
+	}
+	var serviceEvents int
+	if err = database.DB().QueryRow(`SELECT COUNT(*) FROM p2p_cloud_events WHERE type='cloud.service.changed' AND aggregate_id=$1 AND revision=$2`, claim.ServiceID, claim.ServiceRevision+1).Scan(&serviceEvents); err != nil {
+		t.Fatal(err)
+	}
+	if serviceEvents != 1 {
+		t.Fatalf("service backup terminal event count=%d, want 1", serviceEvents)
 	}
 }
 

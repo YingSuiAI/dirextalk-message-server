@@ -3,6 +3,7 @@ package cloud
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -39,6 +40,14 @@ func TestProjectionRelayPublishesOnlyWhitelistedCloudSummaries(t *testing.T) {
 			wantPayload: map[string]any{"job_id": "job-1", "plan_id": "plan-1", "deployment_id": "", "kind": "research", "execution_status": "finished", "outcome_status": "succeeded", "checkpoint": "quote_ready", "error_code": "", "revision": int64(1), "created_at": int64(100), "updated_at": int64(101)},
 		},
 		{
+			name: "backup job",
+			claim: ProjectionClaim{
+				ProjectionID: "projection-backup-job", CloudEventID: "event-backup-job", LeaseToken: "lease-backup-job", Type: "cloud.job.changed",
+				PayloadJSON: `{"job_id":"job-backup-1","plan_id":"plan-1","deployment_id":"deployment-1","kind":"backup","execution_status":"finished","outcome_status":"succeeded","checkpoint":"backup_available","error_code":"","revision":3,"created_at":100,"updated_at":103}`,
+			},
+			wantPayload: map[string]any{"job_id": "job-backup-1", "plan_id": "plan-1", "deployment_id": "deployment-1", "kind": "backup", "execution_status": "finished", "outcome_status": "succeeded", "checkpoint": "backup_available", "error_code": "", "revision": int64(3), "created_at": int64(100), "updated_at": int64(103)},
+		},
+		{
 			name: "deployment",
 			claim: ProjectionClaim{
 				ProjectionID: "projection-deployment", CloudEventID: "event-deployment", LeaseToken: "lease-deployment", Type: "cloud.deployment.changed",
@@ -48,8 +57,8 @@ func TestProjectionRelayPublishesOnlyWhitelistedCloudSummaries(t *testing.T) {
 		},
 		{
 			name:        "service",
-			claim:       ProjectionClaim{ProjectionID: "projection-service", CloudEventID: "event-service", LeaseToken: "lease-service", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"destroyed","integration_status":"not_requested","revision":4,"created_at":100,"updated_at":104}`},
-			wantPayload: map[string]any{"service_id": "service-1", "deployment_id": "deployment-1", "recipe_id": "recipe-1", "name": "Private service", "service_status": "destroyed", "integration_status": "not_requested", "revision": int64(4), "created_at": int64(100), "updated_at": int64(104)},
+			claim:       ProjectionClaim{ProjectionID: "projection-service", CloudEventID: "event-service", LeaseToken: "lease-service", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"experimental","integration_status":"not_requested","revision":4,"created_at":100,"updated_at":104,"backups":[{"backup_id":"backup-1","service_id":"service-1","deployment_id":"deployment-1","status":"available","retention_policy":"manual","image_id":"ami-0123456789abcdef0","snapshot_ids":["snap-0123456789abcdef0"],"revision":2,"created_at":101,"updated_at":104}]}`},
+			wantPayload: map[string]any{"service_id": "service-1", "deployment_id": "deployment-1", "recipe_id": "recipe-1", "name": "Private service", "service_status": "experimental", "integration_status": "not_requested", "revision": int64(4), "created_at": int64(100), "updated_at": int64(104), "backups": []any{map[string]any{"backup_id": "backup-1", "service_id": "service-1", "deployment_id": "deployment-1", "status": "available", "retention_policy": "manual", "image_id": "ami-0123456789abcdef0", "snapshot_ids": []string{"snap-0123456789abcdef0"}, "revision": int64(2), "created_at": int64(101), "updated_at": int64(104)}}},
 		},
 	}
 	for _, test := range tests {
@@ -102,6 +111,10 @@ func TestProjectionRelayRejectsUnsafeOrMalformedPayloadWithoutPublishing(t *test
 		{
 			name:  "service resource leak",
 			claim: ProjectionClaim{ProjectionID: "projection-5", CloudEventID: "event-5", LeaseToken: "lease-5", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"destroyed","integration_status":"not_requested","revision":4,"created_at":1,"updated_at":1,"instance_id":"i-0123456789abcdef0"}`},
+		},
+		{
+			name:  "malformed backup resource evidence",
+			claim: ProjectionClaim{ProjectionID: "projection-6", CloudEventID: "event-6", LeaseToken: "lease-6", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"experimental","integration_status":"not_requested","revision":5,"created_at":1,"updated_at":2,"backups":[{"backup_id":"backup-1","service_id":"service-1","deployment_id":"deployment-1","status":"available","retention_policy":"manual","image_id":"sk-0123456789abcdefghijklmnop","snapshot_ids":["snap-0123456789abcdef0"],"revision":2,"created_at":1,"updated_at":2}]}`},
 		},
 	}
 	for _, test := range tests {
@@ -232,7 +245,7 @@ func equalProjectionPayload(left, right map[string]any) bool {
 		return false
 	}
 	for key, want := range right {
-		if left[key] != want {
+		if !reflect.DeepEqual(left[key], want) {
 			return false
 		}
 	}

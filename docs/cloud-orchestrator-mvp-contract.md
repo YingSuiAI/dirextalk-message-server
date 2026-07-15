@@ -622,6 +622,17 @@ makes this crash-consistent rather than application-consistent. The retained
 AMI/snapshots remain listed on the Service and are not implicitly removed by
 failure, Job completion or Service destruction.
 
+Backup Job milestones pass the strict `cloud.job.changed` projection
+allowlist. When one backup becomes `available` or `failed`, the Orchestrator
+increments only the enclosing Service revision (not its maturity/status or the
+Deployment resource axis) and publishes a strict `cloud.service.changed` full
+summary containing the Service's terminal retained backups. The relay accepts
+only manual retention, exact same-Service/Deployment bindings, terminal backup
+states and syntactically valid AMI/snapshot identifiers. Flutter consumes this
+summary and the owner HTTP fallback to show backup status and retained resource
+evidence; it exposes no restore or delete mutation while those operations are
+still gated.
+
 Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress,
 management acceptance and restore/rollback still return
 `operation_not_enabled`. The repository does not yet deploy a researcher

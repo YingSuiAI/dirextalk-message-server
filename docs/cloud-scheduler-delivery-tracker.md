@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Device-approved retained encrypted Service backup complete; restore and management acceptance next
+- Status: Retained encrypted Service backup is visible end to end; restore semantics require owner selection before mutation work
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -505,6 +505,12 @@ stage; later checked workboard sections are the authoritative delivery record.
   ordering, Stack reservation/replay, unique-name recovery, encrypted
   read-back and PostgreSQL terminal axes; pass the affected Go checks, Linux
   builds and one accumulated security/spec review.
+- [x] Close the owner visibility path: accept `backup` Job projections, advance
+  the Service revision without changing its status/resource axes when a backup
+  reaches a terminal state, publish the strict full Service summary with only
+  retained AMI/snapshot identifiers, and render status, manual retention and
+  encrypted snapshot count in Flutter without restore/delete controls
+  (`dirextalk-flutter` `b06a35e`).
 
 ## Acceptance checks
 
@@ -530,9 +536,12 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Implement a separately device-approved typed restore/rollback plan for one
-retained backup, then experimental-to-managed acceptance, without widening the
-Worker or Agent. Keep public
+Owner must first select the restore contract recorded in the current task
+checkpoint: in-place retained-volume rollback (recommended), an identity-fenced
+isolated clone, or materialize-only restored volumes. After that decision,
+implement the selected separately quoted and device-approved typed operation
+for one retained backup, then experimental-to-managed acceptance, without
+widening the Worker or Agent. Keep public
 ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
 credentials, Stack deployment and real-account tests disabled until those
 independent approval and provider boundaries are complete.

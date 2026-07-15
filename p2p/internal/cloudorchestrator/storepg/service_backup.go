@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/broker"
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
 	"io"
 	"strings"
 	"time"
+
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/broker"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
 )
 
 var _ runtime.ServiceBackupStore = (*Store)(nil)
@@ -196,6 +198,9 @@ func (s *Store) CompleteServiceBackup(ctx context.Context, c runtime.ServiceBack
 		if _, e = transitionCloudJob(ctx, tx, c.JobID, c.PlanID, c.DeploymentID, "backup", "backup", now, researchJobTransition{execution: "finished", outcome: "succeeded", checkpoint: "backup_available", stepStatus: "finished", stepSummary: "AWS read-back verified the retained AMI and every encrypted EBS snapshot."}); e != nil {
 			return e
 		}
+		if e = publishServiceBackupProjection(ctx, tx, c, now); e != nil {
+			return e
+		}
 		return completeServiceBackupOutbox(ctx, tx, c, now)
 	})
 }
@@ -219,8 +224,64 @@ func (s *Store) FailServiceBackup(ctx context.Context, c runtime.ServiceBackupCl
 		if _, e = transitionCloudJob(ctx, tx, c.JobID, c.PlanID, c.DeploymentID, "backup", "backup", now, researchJobTransition{execution: "finished", outcome: "failed", checkpoint: "backup_failed", errorCode: code, stepStatus: "failed", stepSummary: "The backup could not be independently verified. The service and EC2 resources remain unchanged and billable."}); e != nil {
 			return e
 		}
+		if e = publishServiceBackupProjection(ctx, tx, c, now); e != nil {
+			return e
+		}
 		return completeServiceBackupOutbox(ctx, tx, c, now)
 	})
+}
+
+func publishServiceBackupProjection(ctx context.Context, tx *sql.Tx, c runtime.ServiceBackupClaim, now int64) error {
+	result, err := tx.ExecContext(ctx, `UPDATE p2p_cloud_services SET revision=revision+1,updated_at=$1 WHERE service_id=$2 AND revision=$3`, now, c.ServiceID, c.ServiceRevision)
+	if err != nil {
+		return err
+	}
+	if err = requireOneAffected(result); err != nil {
+		return err
+	}
+	var service cloudmodule.Service
+	if err = tx.QueryRowContext(ctx, `SELECT service_id,deployment_id,recipe_id,name,service_status,integration_status,revision,created_at,updated_at FROM p2p_cloud_services WHERE service_id=$1`, c.ServiceID).Scan(&service.ServiceID, &service.DeploymentID, &service.RecipeID, &service.Name, &service.Status, &service.Integration, &service.Revision, &service.CreatedAt, &service.UpdatedAt); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT backup_id,service_id,deployment_id,backup_status,retention_policy,image_id,snapshots_json,revision,created_at,updated_at FROM p2p_cloud_service_backups WHERE service_id=$1 AND backup_status IN('available','failed') ORDER BY created_at DESC,backup_id`, c.ServiceID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var backup cloudmodule.ServiceBackup
+		var snapshotsJSON string
+		if err = rows.Scan(&backup.BackupID, &backup.ServiceID, &backup.DeploymentID, &backup.Status, &backup.RetentionPolicy, &backup.ImageID, &snapshotsJSON, &backup.Revision, &backup.CreatedAt, &backup.UpdatedAt); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		var snapshots []struct {
+			SnapshotID string `json:"snapshot_id"`
+		}
+		if err = json.Unmarshal([]byte(snapshotsJSON), &snapshots); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		for _, snapshot := range snapshots {
+			if snapshot.SnapshotID != "" {
+				backup.SnapshotIDs = append(backup.SnapshotIDs, snapshot.SnapshotID)
+			}
+		}
+		service.Backups = append(service.Backups, backup)
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	payload := map[string]any{
+		"service_id": service.ServiceID, "deployment_id": service.DeploymentID, "recipe_id": service.RecipeID,
+		"name": service.Name, "service_status": service.Status, "integration_status": service.Integration,
+		"revision": service.Revision, "created_at": service.CreatedAt, "updated_at": service.UpdatedAt,
+		"backups": service.Backups,
+	}
+	return writeEventAndProjection(ctx, tx, stableID("cloud_event_", service.ServiceID, fmt.Sprint(service.Revision), "backup_terminal"), "cloud.service.changed", "service", service.ServiceID, service.Revision, payload, now)
 }
 
 func (s *Store) withServiceBackupClaim(ctx context.Context, c runtime.ServiceBackupClaim, run func(*sql.Tx, int64) error) (err error) {
