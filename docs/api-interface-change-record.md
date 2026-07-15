@@ -80,10 +80,10 @@ shapes, including concurrent cross-Plan collisions. Neither the approval
 signature nor private outbox data appears in a response, audit event, realtime
 projection, Agent input, or MCP result.
 
-This is an approved durable intent, not an AWS mutation: the provision outbox
-has no Worker/EC2 executor yet. It creates no EC2/EBS/ENI, no ingress rule,
-and no billable resource. The later typed Broker `deployment.create` transition
-remains the only permitted path to that work.
+This ProductCore action is an approved durable intent, not an AWS mutation: it
+creates no EC2/EBS/ENI, ingress rule, or billable resource. The independent Go
+Stack now implements the only permitted typed `deployment.create` path, but it
+is disabled by default and ProductCore approval does not bypass or enable it.
 
 If the challenge or bound quote expires, approval atomically marks the
 challenge and Plan `expired`, emits only a safe Plan projection, and records

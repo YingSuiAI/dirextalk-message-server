@@ -2,7 +2,9 @@ package contract
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"regexp"
@@ -523,4 +525,103 @@ func validateQuoteShape(raw []byte) error {
 		}
 	}
 	return nil
+}
+
+// ParseStoredQuote decodes only the exact de-secretsed quote shape persisted
+// by the Stack. Callers must still bind its identity and candidate to the
+// deployment command and ApprovalV1 before mutation.
+func ParseStoredQuote(raw []byte) (Quote, error) {
+	if err := validateQuoteShape(raw); err != nil {
+		return Quote{}, errCode("issued_quote_invalid")
+	}
+	var quote Quote
+	if err := decodeSingle(raw, &quote); err != nil {
+		return Quote{}, errCode("issued_quote_invalid")
+	}
+	return quote, nil
+}
+
+// ApprovalDigest reproduces QuoteV1.Digest from the Orchestrator contract.
+// The Broker quote carries additional transport bindings, so this projection
+// deliberately hashes only the immutable approval price estimate.
+func (q Quote) ApprovalDigest() (string, error) {
+	raw, err := json.Marshal(q)
+	if err != nil || validateQuoteShape(raw) != nil {
+		return "", errCode("issued_quote_invalid")
+	}
+	quotedAt, err := time.Parse(canonicalInstantLayout, q.QuotedAt)
+	if err != nil {
+		return "", errCode("issued_quote_invalid")
+	}
+	validUntil, err := time.Parse(canonicalInstantLayout, q.ValidUntil)
+	if err != nil {
+		return "", errCode("issued_quote_invalid")
+	}
+	document := approvalQuoteDocument{
+		SchemaVersion: approvalSchemaVersion, QuoteID: q.QuoteID, CloudConnectionID: q.ConnectionID,
+		Region: q.Region, Currency: q.Currency, QuotedAt: quotedAt.UTC(), ValidUntil: validUntil.UTC(),
+		IncludedItems: canonicalQuoteSet(q.IncludedItems), UnincludedItems: canonicalQuoteSet(q.UnincludedItems),
+	}
+	document.Candidates = make([]approvalQuoteCandidate, len(q.Candidates))
+	for i, candidate := range q.Candidates {
+		document.Candidates[i] = approvalQuoteCandidate{
+			CandidateID: candidate.CandidateID, Tier: candidate.Tier, InstanceType: candidate.InstanceType,
+			PurchaseOption: candidate.PurchaseOption, Architecture: candidate.Architecture, VCPU: candidate.VCPU,
+			MemoryMiB: candidate.MemoryMiB, GPUCount: candidate.GPUCount, GPUMemoryMiB: candidate.GPUMemoryMiB,
+			HourlyMinor: candidate.HourlyMinor, ThirtyDayMinor: candidate.ThirtyDayMinor,
+			StartupUpperMinor: candidate.StartupUpperMinor, EstimatedDiskGiB: candidate.EstimatedDiskGiB,
+			AvailabilityZones: canonicalQuoteSet(candidate.AvailabilityZones),
+		}
+	}
+	sort.Slice(document.Candidates, func(i, j int) bool {
+		if document.Candidates[i].Tier == document.Candidates[j].Tier {
+			return document.Candidates[i].CandidateID < document.Candidates[j].CandidateID
+		}
+		return document.Candidates[i].Tier < document.Candidates[j].Tier
+	})
+	canonical, err := deterministicCBOR(document)
+	if err != nil {
+		return "", errCode("issued_quote_invalid")
+	}
+	digest := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+type approvalQuoteDocument struct {
+	SchemaVersion     string                   `json:"schema_version"`
+	QuoteID           string                   `json:"quote_id"`
+	CloudConnectionID string                   `json:"cloud_connection_id"`
+	Region            string                   `json:"region"`
+	Currency          string                   `json:"currency"`
+	QuotedAt          time.Time                `json:"quoted_at"`
+	ValidUntil        time.Time                `json:"valid_until"`
+	Candidates        []approvalQuoteCandidate `json:"candidates"`
+	IncludedItems     []string                 `json:"included_items,omitempty"`
+	UnincludedItems   []string                 `json:"unincluded_items,omitempty"`
+}
+
+type approvalQuoteCandidate struct {
+	CandidateID       string   `json:"candidate_id"`
+	Tier              string   `json:"tier"`
+	InstanceType      string   `json:"instance_type"`
+	PurchaseOption    string   `json:"purchase_option"`
+	Architecture      string   `json:"architecture"`
+	VCPU              int64    `json:"vcpu"`
+	MemoryMiB         int64    `json:"memory_mib"`
+	GPUCount          int64    `json:"gpu_count"`
+	GPUMemoryMiB      int64    `json:"gpu_memory_mib"`
+	HourlyMinor       int64    `json:"hourly_minor"`
+	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
+	StartupUpperMinor int64    `json:"startup_upper_minor"`
+	EstimatedDiskGiB  int64    `json:"estimated_disk_gib"`
+	AvailabilityZones []string `json:"availability_zones,omitempty"`
+}
+
+func canonicalQuoteSet(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
 }

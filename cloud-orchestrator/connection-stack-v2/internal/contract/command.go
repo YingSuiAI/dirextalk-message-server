@@ -87,6 +87,8 @@ func (e *Error) Error() string {
 
 func errCode(code string) error { return &Error{Code: code} }
 
+func NewError(code string) error { return errCode(code) }
+
 // Code returns the stable safe code for an error produced by this package.
 func Code(err error) string {
 	var target *Error

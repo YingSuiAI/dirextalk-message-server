@@ -39,6 +39,35 @@ type Repository interface {
 	Commit(ctx context.Context, record Record, quote *IssuedQuote) (stored Record, created bool, err error)
 }
 
+type DeploymentReservation struct {
+	ConnectionID       string
+	DeploymentID       string
+	CommandID          string
+	RequestSHA256      string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	ApprovalID         string
+	ChallengeID        string
+	SignerKeyID        string
+	QuoteID            string
+	ClientToken        string
+	SpecJSON           []byte
+	ResultJSON         []byte
+	State              string
+}
+
+func (r DeploymentReservation) SameIdentity(other DeploymentReservation) bool {
+	return r.ConnectionID == other.ConnectionID && r.DeploymentID == other.DeploymentID && r.CommandID == other.CommandID && r.RequestSHA256 == other.RequestSHA256 && r.ExpectedGeneration == other.ExpectedGeneration && r.NodeCounter == other.NodeCounter && r.ApprovalID == other.ApprovalID && r.ChallengeID == other.ChallengeID && r.SignerKeyID == other.SignerKeyID && r.QuoteID == other.QuoteID && r.ClientToken == other.ClientToken && string(r.SpecJSON) == string(other.SpecJSON)
+}
+
+type DeploymentRepository interface {
+	Repository
+	LookupIssuedQuote(ctx context.Context, connectionID, quoteID string) (IssuedQuote, bool, error)
+	LookupDeployment(ctx context.Context, connectionID, deploymentID string) (DeploymentReservation, bool, error)
+	ReserveDeployment(ctx context.Context, reservation DeploymentReservation) (stored DeploymentReservation, created bool, err error)
+	FinalizeDeployment(ctx context.Context, reservation DeploymentReservation, receipt Record) (stored Record, created bool, err error)
+}
+
 type Error struct{ Code string }
 
 func (e *Error) Error() string {

@@ -21,24 +21,39 @@ type DynamoAPI interface {
 }
 
 type DynamoConfig struct {
-	Client            DynamoAPI
-	ReceiptsTable     string
-	CountersTable     string
-	IssuedQuotesTable string
+	Client                      DynamoAPI
+	ReceiptsTable               string
+	CountersTable               string
+	IssuedQuotesTable           string
+	DeploymentReservationsTable string
+	ApprovalUsesTable           string
 }
 
 type DynamoRepository struct {
-	client            DynamoAPI
-	receiptsTable     string
-	countersTable     string
-	issuedQuotesTable string
+	client                      DynamoAPI
+	receiptsTable               string
+	countersTable               string
+	issuedQuotesTable           string
+	deploymentReservationsTable string
+	approvalUsesTable           string
 }
 
 func NewDynamoRepository(config DynamoConfig) (*DynamoRepository, error) {
-	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || config.ReceiptsTable == config.CountersTable || config.ReceiptsTable == config.IssuedQuotesTable || config.CountersTable == config.IssuedQuotesTable {
+	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || !validTableName(config.DeploymentReservationsTable) || !validTableName(config.ApprovalUsesTable) || !uniqueStrings(config.ReceiptsTable, config.CountersTable, config.IssuedQuotesTable, config.DeploymentReservationsTable, config.ApprovalUsesTable) {
 		return nil, errors.New("invalid DynamoDB receipt store configuration")
 	}
-	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable}, nil
+	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable, deploymentReservationsTable: config.DeploymentReservationsTable, approvalUsesTable: config.ApprovalUsesTable}, nil
+}
+
+func uniqueStrings(values ...string) bool {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
 }
 
 func (s *DynamoRepository) Lookup(ctx context.Context, connectionID, commandID string) (Record, bool, error) {
@@ -182,7 +197,7 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	action, err := stringAttribute(item, "action")
-	if err != nil || (action != contract.ActionRegistrationVerify && action != contract.ActionQuoteRequest) {
+	if err != nil || (action != contract.ActionRegistrationVerify && action != contract.ActionQuoteRequest && action != contract.ActionDeploymentCreate) {
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	resultJSON, err := stringAttribute(item, "result_json")
@@ -193,7 +208,7 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 }
 
 func validateRecord(record Record) error {
-	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || (record.Action != contract.ActionRegistrationVerify && record.Action != contract.ActionQuoteRequest) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
+	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || (record.Action != contract.ActionRegistrationVerify && record.Action != contract.ActionQuoteRequest && record.Action != contract.ActionDeploymentCreate) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
 		return NewError("receipt_store_invalid")
 	}
 	return nil

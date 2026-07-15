@@ -8,7 +8,7 @@ It replaces the historical Node/SAM bundle that was removed from
 `dirextalk-deployer`. There is no `package.json`, npm lockfile, JavaScript,
 Node runtime, SAM source, or shell deployment script here.
 
-## Current read-only capability
+## Current capability
 
 The Lambda accepts only `POST /v2/commands` and validates the closed
 `dirextalk.aws.command/v2` outer envelope:
@@ -20,8 +20,8 @@ The Lambda accepts only `POST /v2/commands` and validates the closed
   non-deployment commands; and
 - safe, no-store error responses only.
 
-After node authentication and the generation fence, only two typed actions are
-enabled:
+After node authentication and the generation fence, two typed actions are
+always enabled:
 
 - `connection.registration.verify` attests the exact Stack identity, explicit
   `prod` Broker URL, and fixed Worker AMI/network/manifest bindings;
@@ -34,14 +34,24 @@ tables. Exact retries return the stored result as `idempotent`; command-id and
 stale-counter conflicts fail closed. Stored results are validated again before
 they are returned.
 
-All other operations return `operation_not_enabled`. The module now contains a
-cross-module-compatible `deployment.create` request, node-signature and
-deterministic-CBOR `ApprovalV1` verifier, but the HTTP Broker still rejects the
-action before invoking them. One-time approval consumption, deployment
-reservation, EC2 read-back, and provider mutation must be ported and reviewed
-as one capability. Apart from the bounded receipt-table writes above, no EC2,
-EBS, VPC, or IAM mutation, Worker session, root command, secret delivery,
-public service, or billable resource creation is implemented by this stage.
+`deployment.create` is a third complete typed action, but is disabled by
+default. When `EnableDeploymentCreate=true` is explicitly selected, it:
+
+- verifies the registered Flutter device ApprovalV1 and recomputes the exact
+  deterministic-CBOR QuoteV1 digest from the persisted issued quote;
+- atomically consumes the approval/challenge, advances the node counter and
+  writes a deployment reservation before provider mutation;
+- creates one fixed-AMI, fixed-subnet, no-public-IP EC2 instance using a
+  deterministic ClientToken, encrypted retained gp3 root volume, retained ENI,
+  IMDSv2 and a Stack-owned no-ingress security group; and
+- returns success only after EC2/EBS/ENI read-back matches the approved scope,
+  then atomically commits the resource evidence and command receipt.
+
+Exact retries resume the reservation with the same ClientToken or return the
+validated receipt. Concurrent approval/challenge reuse, quote drift, stale
+generation/counter and read-back mismatch fail closed. All Worker sessions,
+root commands, secret delivery, service readiness, public ingress and lifecycle
+operations still return `operation_not_enabled`.
 
 This is intentional. A partial mutation path must fail closed rather than make
 an untracked or billable resource and claim feature parity.
@@ -84,16 +94,17 @@ go build -trimpath -buildvcs=false ./cmd/broker
 Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
 ```
 
-No local or real AWS account test is authorized by this module. The template's
-Lambda execution role can write its own logs and receipt tables and call only
-`DescribeInstanceTypeOfferings`, `DescribeInstanceTypes`, and
-`pricing:GetProducts`. It has no EC2/EBS/VPC mutation, IAM pass-role, Secrets
-Manager, Worker, secret-bootstrap, or network-management permission.
+No local or real AWS account test is authorized by this module yet. With the
+default gate, the Lambda execution role can write only its own logs/receipt
+tables and call the quote read APIs. The conditional mutation statements exist
+only when `EnableDeploymentCreate=true`; they permit the fixed RunInstances
+shape, create-time tags and EC2/EBS read-back. They never grant IAM pass-role,
+Secrets Manager, Worker, secret-bootstrap, ingress or lifecycle permissions.
 
 ## Next parity boundary
 
-The next mutation stage must add one-time ApprovalV1 consumption, deployment
-reservation, fixed Worker artifact/network/issued-quote enforcement,
-deterministic EC2 ClientToken handling, and AWS read-back before any provider
-mutation is enabled. Until that whole boundary lands, this module remains a
-safe Go-only registration and quote Broker rather than a cloud executor.
+Add a de-secreted, signed `deployment.observe` read that binds the committed
+resource receipt to one active Worker lease and independent readiness evidence.
+Do not add arbitrary AWS passthrough, Worker root commands, credentials,
+installation payloads, public ingress, destroy, or service-ready claims to that
+read boundary.

@@ -348,13 +348,17 @@ func (p *recordingQuoteProvider) Quote(
 }
 
 type memoryCommandStore struct {
-	mu           sync.Mutex
-	records      map[string]commandstore.Record
-	lastCounters map[string]int64
+	mu            sync.Mutex
+	records       map[string]commandstore.Record
+	lastCounters  map[string]int64
+	quotes        map[string]commandstore.IssuedQuote
+	deployments   map[string]commandstore.DeploymentReservation
+	approvalUses  map[string]string
+	challengeUses map[string]string
 }
 
 func newMemoryCommandStore() *memoryCommandStore {
-	return &memoryCommandStore{records: map[string]commandstore.Record{}, lastCounters: map[string]int64{}}
+	return &memoryCommandStore{records: map[string]commandstore.Record{}, lastCounters: map[string]int64{}, quotes: map[string]commandstore.IssuedQuote{}, deployments: map[string]commandstore.DeploymentReservation{}, approvalUses: map[string]string{}, challengeUses: map[string]string{}}
 }
 
 func (s *memoryCommandStore) Lookup(_ context.Context, connectionID, commandID string) (commandstore.Record, bool, error) {
@@ -362,6 +366,62 @@ func (s *memoryCommandStore) Lookup(_ context.Context, connectionID, commandID s
 	defer s.mu.Unlock()
 	record, ok := s.records[connectionID+"\x00"+commandID]
 	return record, ok, nil
+}
+
+func (s *memoryCommandStore) LookupIssuedQuote(_ context.Context, connectionID, quoteID string) (commandstore.IssuedQuote, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q, ok := s.quotes[connectionID+"\x00"+quoteID]
+	return q, ok, nil
+}
+func (s *memoryCommandStore) LookupDeployment(_ context.Context, connectionID, deploymentID string) (commandstore.DeploymentReservation, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.deployments[connectionID+"\x00"+deploymentID]
+	return r, ok, nil
+}
+func (s *memoryCommandStore) ReserveDeployment(_ context.Context, r commandstore.DeploymentReservation) (commandstore.DeploymentReservation, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := r.ConnectionID + "\x00" + r.DeploymentID
+	if existing, ok := s.deployments[key]; ok {
+		if !existing.SameIdentity(r) {
+			return commandstore.DeploymentReservation{}, false, commandstore.NewError("deployment_id_conflict")
+		}
+		return existing, false, nil
+	}
+	if _, ok := s.approvalUses[r.ConnectionID+"\x00"+r.ApprovalID]; ok {
+		return commandstore.DeploymentReservation{}, false, commandstore.NewError("approval_already_consumed")
+	}
+	if _, ok := s.challengeUses[r.ConnectionID+"\x00"+r.ChallengeID]; ok {
+		return commandstore.DeploymentReservation{}, false, commandstore.NewError("challenge_already_consumed")
+	}
+	if last, ok := s.lastCounters[r.ConnectionID]; ok && r.NodeCounter <= last {
+		return commandstore.DeploymentReservation{}, false, commandstore.NewError("stale_node_counter")
+	}
+	s.deployments[key] = r
+	s.approvalUses[r.ConnectionID+"\x00"+r.ApprovalID] = r.DeploymentID
+	s.challengeUses[r.ConnectionID+"\x00"+r.ChallengeID] = r.DeploymentID
+	s.lastCounters[r.ConnectionID] = r.NodeCounter
+	return r, true, nil
+}
+func (s *memoryCommandStore) FinalizeDeployment(_ context.Context, r commandstore.DeploymentReservation, receipt commandstore.Record) (commandstore.Record, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := r.ConnectionID + "\x00" + r.DeploymentID
+	existing, ok := s.deployments[key]
+	if !ok || !existing.SameIdentity(r) {
+		return commandstore.Record{}, false, commandstore.NewError("deployment_reservation_conflict")
+	}
+	receiptKey := receipt.ConnectionID + "\x00" + receipt.CommandID
+	if stored, ok := s.records[receiptKey]; ok {
+		return stored, false, nil
+	}
+	existing.State = "finalized"
+	existing.ResultJSON = append([]byte(nil), receipt.ResultJSON...)
+	s.deployments[key] = existing
+	s.records[receiptKey] = receipt
+	return receipt, true, nil
 }
 
 func (s *memoryCommandStore) Commit(_ context.Context, record commandstore.Record, _ *commandstore.IssuedQuote) (commandstore.Record, bool, error) {

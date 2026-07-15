@@ -63,11 +63,37 @@ Parameters:
   WorkerAvailabilityZone:
     Type: String
     AllowedPattern: "^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9][a-z]$"
+  EnableDeploymentCreate:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
 
 Conditions:
   HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
+  DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
 
 Resources:
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Dirextalk isolated worker egress only
+      VpcId: !Ref WorkerVpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+
   BrokerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -136,6 +162,50 @@ Resources:
         - AttributeName: quote_id
           KeyType: RANGE
 
+  DeploymentReservationsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: deployment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: deployment_id
+          KeyType: RANGE
+
+  ApprovalUsesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: use_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: use_id
+          KeyType: RANGE
+
   BrokerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -147,7 +217,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: broker-read-only-and-receipt-store
+        - PolicyName: broker-typed-operations-and-receipt-store
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -166,6 +236,8 @@ Resources:
                   - !GetAtt CommandReceiptsTable.Arn
                   - !GetAtt ConnectionCountersTable.Arn
                   - !GetAtt IssuedQuotesTable.Arn
+                  - !GetAtt DeploymentReservationsTable.Arn
+                  - !GetAtt ApprovalUsesTable.Arn
               - Sid: ReadInstanceOfferingsAndCapacityOnly
                 Effect: Allow
                 Action:
@@ -177,12 +249,58 @@ Resources:
                 Action:
                   - pricing:GetProducts
                 Resource: "*"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: CreateFixedIsolatedWorkerOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:RunInstances
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/${WorkerBaseAmiId}"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${WorkerSubnetId}"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${WorkerSecurityGroup}"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/dirextalk:managed: "true"
+                    StringLike:
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/dirextalk:deployment-id: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: TagAndObserveFixedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: RunInstances
+                      aws:RequestTag/dirextalk:managed: "true"
+                    StringLike:
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/dirextalk:deployment-id: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: ObserveCreatedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
 
   BrokerFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "${AWS::StackName}-connection-broker"
-      Description: Dirextalk Connection Stack V2 Go read-only Broker
+      Description: Dirextalk Connection Stack V2 Go typed Broker
       Runtime: provided.al2023
       Handler: bootstrap
       Architectures:
@@ -213,9 +331,13 @@ Resources:
           DIREXTALK_WORKER_VPC_ID: !Ref WorkerVpcId
           DIREXTALK_WORKER_SUBNET_ID: !Ref WorkerSubnetId
           DIREXTALK_WORKER_AVAILABILITY_ZONE: !Ref WorkerAvailabilityZone
+          DIREXTALK_WORKER_SECURITY_GROUP_ID: !GetAtt WorkerSecurityGroup.GroupId
           DIREXTALK_COMMAND_RECEIPTS_TABLE: !Ref CommandReceiptsTable
           DIREXTALK_CONNECTION_COUNTERS_TABLE: !Ref ConnectionCountersTable
           DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
+          DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
+          DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
+          DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api
@@ -273,6 +395,10 @@ Outputs:
     Value: !Ref WorkerSubnetId
   WorkerAvailabilityZone:
     Value: !Ref WorkerAvailabilityZone
+  WorkerSecurityGroupId:
+    Value: !GetAtt WorkerSecurityGroup.GroupId
+  DeploymentCreateEnabled:
+    Value: !Ref EnableDeploymentCreate
   WorkerResourceManifestDigest:
     Value: !Ref WorkerResourceManifestDigest
   BrokerCommandUrl:

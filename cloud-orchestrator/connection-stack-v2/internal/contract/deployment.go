@@ -3,6 +3,8 @@ package contract
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
+	"sort"
 )
 
 type DeploymentWorkerArtifact struct {
@@ -28,6 +30,130 @@ type DeploymentRequest struct {
 	ResourceManifestDigest string                   `json:"resource_manifest_digest"`
 	WorkerArtifact         DeploymentWorkerArtifact `json:"worker_artifact"`
 	Network                DeploymentNetwork        `json:"network"`
+}
+
+const DeploymentReceiptSchema = "dirextalk.aws.deployment-receipt/v1"
+
+type DeploymentCommandReceipt struct {
+	Schema             string `json:"schema"`
+	Disposition        string `json:"disposition"`
+	ConnectionID       string `json:"connection_id"`
+	ExpectedGeneration int64  `json:"expected_generation"`
+	NodeCounter        int64  `json:"node_counter"`
+	CommandID          string `json:"command_id"`
+	RequestSHA256      string `json:"request_sha256"`
+	Action             string `json:"action"`
+}
+
+type DeploymentReceipt struct {
+	Schema              string   `json:"schema"`
+	ConnectionID        string   `json:"connection_id"`
+	DeploymentID        string   `json:"deployment_id"`
+	RequestSHA256       string   `json:"request_sha256"`
+	ResourceStatus      string   `json:"resource_status"`
+	InstanceID          string   `json:"instance_id"`
+	VolumeIDs           []string `json:"volume_ids"`
+	NetworkInterfaceIDs []string `json:"network_interface_ids"`
+}
+
+type DeploymentResult struct {
+	Status     string                   `json:"status"`
+	Receipt    DeploymentCommandReceipt `json:"receipt"`
+	Deployment DeploymentReceipt        `json:"deployment"`
+}
+
+func MarshalCommittedDeploymentResult(command Command, evidence DeploymentReceipt) ([]byte, error) {
+	requestSHA, err := command.RequestSHA256()
+	if err != nil {
+		return nil, err
+	}
+	request, err := command.DeploymentRequest()
+	if err != nil {
+		return nil, err
+	}
+	evidence.Schema = DeploymentReceiptSchema
+	evidence.ConnectionID = command.ConnectionID
+	evidence.DeploymentID = request.DeploymentID
+	evidence.RequestSHA256 = requestSHA
+	evidence.ResourceStatus = "provisioning"
+	result := DeploymentResult{Status: "deployment_created", Receipt: DeploymentCommandReceipt{Schema: ReceiptSchema, Disposition: "committed", ConnectionID: command.ConnectionID, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, CommandID: command.CommandID, RequestSHA256: requestSHA, Action: ActionDeploymentCreate}, Deployment: evidence}
+	if err := ValidateDeploymentResult(command, result); err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+func ValidateDeploymentResult(command Command, result DeploymentResult) error {
+	requestSHA, err := command.RequestSHA256()
+	if err != nil {
+		return err
+	}
+	request, err := command.DeploymentRequest()
+	if err != nil {
+		return err
+	}
+	if (result.Status != "deployment_created" && result.Status != "idempotent") || result.Receipt.Schema != ReceiptSchema || result.Receipt.ConnectionID != command.ConnectionID || result.Receipt.ExpectedGeneration != command.ExpectedGeneration || result.Receipt.NodeCounter != command.NodeCounter || result.Receipt.CommandID != command.CommandID || result.Receipt.RequestSHA256 != requestSHA || result.Receipt.Action != ActionDeploymentCreate {
+		return errCode("invalid_deployment_receipt")
+	}
+	wantDisposition := "committed"
+	if result.Status == "idempotent" {
+		wantDisposition = "idempotent"
+	}
+	if result.Receipt.Disposition != wantDisposition {
+		return errCode("invalid_deployment_receipt")
+	}
+	d := result.Deployment
+	if d.Schema != DeploymentReceiptSchema || d.ConnectionID != command.ConnectionID || d.DeploymentID != request.DeploymentID || d.RequestSHA256 != requestSHA || d.ResourceStatus != "provisioning" || !instanceIDPattern.MatchString(d.InstanceID) || !canonicalResourceIDs(d.VolumeIDs, volumeIDPattern) || !canonicalResourceIDs(d.NetworkInterfaceIDs, interfaceIDPattern) {
+		return errCode("invalid_deployment_receipt")
+	}
+	return nil
+}
+
+func IdempotentDeploymentResult(command Command, raw []byte) ([]byte, error) {
+	var result DeploymentResult
+	if err := decodeDeploymentResult(raw, &result); err != nil || result.Status != "deployment_created" || result.Receipt.Disposition != "committed" || ValidateDeploymentResult(command, result) != nil {
+		return nil, errCode("receipt_store_invalid")
+	}
+	result.Status = "idempotent"
+	result.Receipt.Disposition = "idempotent"
+	return json.Marshal(result)
+}
+
+func decodeDeploymentResult(raw []byte, result *DeploymentResult) error {
+	object, err := exactJSONObject(raw)
+	if err != nil || !exactFields(object, []string{"status", "receipt", "deployment"}) {
+		return errCode("receipt_store_invalid")
+	}
+	receipt, err := exactJSONObject(object["receipt"])
+	if err != nil || !exactFields(receipt, []string{"schema", "disposition", "connection_id", "expected_generation", "node_counter", "command_id", "request_sha256", "action"}) {
+		return errCode("receipt_store_invalid")
+	}
+	deployment, err := exactJSONObject(object["deployment"])
+	if err != nil || !exactFields(deployment, []string{"schema", "connection_id", "deployment_id", "request_sha256", "resource_status", "instance_id", "volume_ids", "network_interface_ids"}) {
+		return errCode("receipt_store_invalid")
+	}
+	if err := decodeSingle(raw, result); err != nil {
+		return errCode("receipt_store_invalid")
+	}
+	return nil
+}
+
+var (
+	instanceIDPattern  = regexp.MustCompile(`^i-[0-9a-f]{8,17}$`)
+	volumeIDPattern    = regexp.MustCompile(`^vol-[0-9a-f]{8,17}$`)
+	interfaceIDPattern = regexp.MustCompile(`^eni-[0-9a-f]{8,17}$`)
+)
+
+func canonicalResourceIDs(values []string, pattern *regexp.Regexp) bool {
+	if len(values) == 0 || !sort.StringsAreSorted(values) {
+		return false
+	}
+	for i, v := range values {
+		if !pattern.MatchString(v) || (i > 0 && values[i-1] == v) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c Command) DeploymentRequest() (DeploymentRequest, error) {

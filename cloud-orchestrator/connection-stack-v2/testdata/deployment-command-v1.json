@@ -8,8 +8,8 @@
   "expected_generation": 2,
   "node_counter": 9,
   "action": "deployment.create",
-  "payload_b64": "eyJzY2hlbWEiOiJkaXJleHRhbGsuYXdzLmRlcGxveW1lbnQtY3JlYXRlL3YxIiwiZGVwbG95bWVudF9pZCI6ImRlcGxveW1lbnQtY3JlYXRlLTAwMDEiLCJjb25uZWN0aW9uX2dlbmVyYXRpb24iOjIsInBsYW5faGFzaCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwicGxhbl9yZXZpc2lvbiI6NCwicXVvdGVfaWQiOiJxdW90ZS1jcmVhdGUtMDAwMSIsInF1b3RlX2RpZ2VzdCI6InNoYTI1NjpiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiIiwiY2FuZGlkYXRlX2lkIjoiY2FuZGlkYXRlLWNyZWF0ZS0wMDAxIiwicmVzb3VyY2VfbWFuaWZlc3RfZGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJ3b3JrZXJfYXJ0aWZhY3QiOnsia2luZCI6ImZpeGVkX2FtaSIsImFtaV9pZCI6ImFtaS0wMTIzNDU2Nzg5YWJjZGVmMCJ9LCJuZXR3b3JrIjp7InZwY19pZCI6InZwYy0wMTIzNDU2Nzg5YWJjZGVmMCIsInN1Ym5ldF9pZCI6InN1Ym5ldC0wMTIzNDU2Nzg5YWJjZGVmMCIsImF2YWlsYWJpbGl0eV96b25lIjoidXMtZWFzdC0xYSJ9fQ==",
-  "payload_sha256": "13d3a3af7bdee961cac43b94ac8ad5aed627a6f0a1d121bfada723e6ec3cc8f8",
+  "payload_b64": "eyJzY2hlbWEiOiJkaXJleHRhbGsuYXdzLmRlcGxveW1lbnQtY3JlYXRlL3YxIiwiZGVwbG95bWVudF9pZCI6ImRlcGxveW1lbnQtY3JlYXRlLTAwMDEiLCJjb25uZWN0aW9uX2dlbmVyYXRpb24iOjIsInBsYW5faGFzaCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwicGxhbl9yZXZpc2lvbiI6NCwicXVvdGVfaWQiOiJxdW90ZS1jcmVhdGUtMDAwMSIsInF1b3RlX2RpZ2VzdCI6InNoYTI1NjozYzU0MDRjNzRiYTU3MTI2NWI4MTlkZWI0YTJhNTMxZTBmYzkxNmJhMjA2ODQwNjgwOTYyNzE5M2RmZWM3NzNiIiwiY2FuZGlkYXRlX2lkIjoiY2FuZGlkYXRlLWNyZWF0ZS0wMDAxIiwicmVzb3VyY2VfbWFuaWZlc3RfZGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJ3b3JrZXJfYXJ0aWZhY3QiOnsia2luZCI6ImZpeGVkX2FtaSIsImFtaV9pZCI6ImFtaS0wMTIzNDU2Nzg5YWJjZGVmMCJ9LCJuZXR3b3JrIjp7InZwY19pZCI6InZwYy0wMTIzNDU2Nzg5YWJjZGVmMCIsInN1Ym5ldF9pZCI6InN1Ym5ldC0wMTIzNDU2Nzg5YWJjZGVmMCIsImF2YWlsYWJpbGl0eV96b25lIjoidXMtZWFzdC0xYSJ9fQ==",
+  "payload_sha256": "643b37ddf9ca490acbd4f0570a2e2507c1bd9ceb9c40b665aa94380669a79559",
   "approval_proof": {
     "schema_version": "cloud-orchestrator/v1",
     "approval_id": "approval-create-0001",
@@ -19,7 +19,7 @@
     "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "plan_revision": 4,
     "quote_id": "quote-create-0001",
-    "quote_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "quote_digest": "sha256:3c5404c74ba571265b819deb4a2a531e0fc916ba2068406809627193dfec773b",
     "quote_valid_until": "2026-07-14T12:10:00.123Z",
     "cloud_connection_id": "connection-create-0001",
     "recipe_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -44,7 +44,7 @@
     "secret_scope": null,
     "integration_scope": null,
     "expires_at": "2026-07-14T12:05:00.123Z",
-    "signature": "R46e3x3UYyeacDPxPsp7-kJ5PT2lmmyW6Tgbf4o3pA2kGCfKF0EwpCPSG6CK5y0VhjTPTpxtz6y0ktiwTztjAQ"
+    "signature": "I16UjDVx7jSNitRVazxT5dZLrI8rdJKzl4HStmB-OGoHbgl3TCUBQdHfzXrcZ6c25JuFjP-Ss52oNsnv02PhDg"
   },
-  "signature_b64": "CIkvnlJbpAgcCGVn+8uqjtIJvZMKoXZfJbF0A+941W/U8gLfv0oQD8dAYIGedgydVfUSsxQkpfSffGEjhdvnAg=="
+  "signature_b64": "eKwLcmxQOozMkAHmIGYnAFttiwPBmkUbEsVrwKae0i4LzhoLvPB6KaF760gpTYPYG4/2mDAavigODzQ3O+BFBw=="
 }

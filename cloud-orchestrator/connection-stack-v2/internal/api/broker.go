@@ -1,6 +1,5 @@
-// Package api adapts the closed Connection Stack contract to HTTP. It has no
-// AWS provider implementation: accepted commands are authenticated then
-// rejected until their complete DynamoDB/approval/provider transaction exists.
+// Package api adapts the closed Connection Stack contract to HTTP. Billable
+// deployment mutation stays behind an exact, disabled-by-default runtime gate.
 package api
 
 import (
@@ -81,15 +80,20 @@ func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string, gene
 	}, nil
 }
 
-// Broker is a fail-closed HTTP command endpoint. It admits only durable
-// registration attestation and read-only quote actions. It does not receive
-// Worker traffic, mutate AWS resources, or report a service ready.
+// Broker is a fail-closed HTTP command endpoint. It admits durable registration
+// and quote reads, plus the complete typed deployment transaction only when
+// explicitly enabled. It does not receive Worker traffic or report a service ready.
 type Broker struct {
-	Resolver     KeyResolver
-	Store        commandstore.Repository
-	Registration RegistrationAttestor
-	Quote        QuoteProvider
-	Now          func() time.Time
+	Resolver           KeyResolver
+	Store              commandstore.Repository
+	Registration       RegistrationAttestor
+	Quote              QuoteProvider
+	DeploymentEnabled  bool
+	ApprovalResolver   ApprovalKeyResolver
+	DeploymentStore    commandstore.DeploymentRepository
+	DeploymentProvider DeploymentProvider
+	DeploymentBoundary DeploymentBoundary
+	Now                func() time.Time
 }
 
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -130,7 +134,7 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, contract.Code(err))
 		return
 	}
-	if command.IsDeploymentCreate() {
+	if command.IsDeploymentCreate() && !b.DeploymentEnabled {
 		// Do not attempt a partial approval check or node-signature computation.
 		// The full deterministic-CBOR proof, one-time consumption, reservation,
 		// and read-back transaction must land as one provider capability.
@@ -153,6 +157,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	}
 	if command.ExpectedGeneration != registration.Generation {
 		writeError(response, http.StatusConflict, "stale_generation")
+		return
+	}
+	if command.Action == contract.ActionDeploymentCreate {
+		if b.ApprovalResolver == nil || b.DeploymentStore == nil || b.DeploymentProvider == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		b.executeDeployment(response, request, command, now)
 		return
 	}
 	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {

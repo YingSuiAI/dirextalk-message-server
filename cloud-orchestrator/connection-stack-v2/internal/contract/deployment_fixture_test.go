@@ -63,7 +63,7 @@ func TestDeploymentCommandRejectsApprovalDriftAndExpandedScope(t *testing.T) {
 	}
 	raw = bytes.TrimSpace(raw)
 
-	tampered := []byte(strings.Replace(string(raw), `"quote_digest": "sha256:bbbb`, `"quote_digest": "sha256:dddd`, 1))
+	tampered := []byte(strings.Replace(string(raw), `"quote_digest": "sha256:3c54`, `"quote_digest": "sha256:dddd`, 1))
 	command, err := Parse(tampered)
 	if err != nil {
 		t.Fatalf("Parse tampered proof: %v", err)

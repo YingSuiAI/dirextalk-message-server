@@ -16,7 +16,8 @@ import (
 
 func TestNewDeploymentCommandUsesFixedPayloadAndApprovalProofBinding(t *testing.T) {
 	command := testDeploymentCommand(t)
-	const wantPayload = `{"schema":"dirextalk.aws.deployment-create/v1","deployment_id":"deployment-create-0001","connection_generation":2,"plan_hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","plan_revision":4,"quote_id":"quote-create-0001","quote_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","candidate_id":"candidate-create-0001","resource_manifest_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","worker_artifact":{"kind":"fixed_ami","ami_id":"ami-0123456789abcdef0"},"network":{"vpc_id":"vpc-0123456789abcdef0","subnet_id":"subnet-0123456789abcdef0","availability_zone":"us-east-1a"}}`
+	now := time.Date(2026, time.July, 14, 12, 0, 0, 123000000, time.UTC)
+	wantPayload := `{"schema":"dirextalk.aws.deployment-create/v1","deployment_id":"deployment-create-0001","connection_generation":2,"plan_hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","plan_revision":4,"quote_id":"quote-create-0001","quote_digest":"` + testDeploymentQuoteDigest(t, now) + `","candidate_id":"candidate-create-0001","resource_manifest_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","worker_artifact":{"kind":"fixed_ami","ami_id":"ami-0123456789abcdef0"},"network":{"vpc_id":"vpc-0123456789abcdef0","subnet_id":"subnet-0123456789abcdef0","availability_zone":"us-east-1a"}}`
 	payload, err := base64.StdEncoding.DecodeString(command.PayloadB64)
 	if err != nil {
 		t.Fatalf("decode payload: %v", err)
@@ -136,7 +137,7 @@ func testDeploymentCommand(t *testing.T) DeploymentCommand {
 		ExpectedGeneration: 2, NodeCounter: 9, IssuedAt: now, ExpiresAt: now.Add(4 * time.Minute),
 		Request: DeploymentRequest{
 			Schema: DeploymentCreateSchema, DeploymentID: "deployment-create-0001", ConnectionGeneration: 2,
-			PlanHash: namedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: namedDigest('b'),
+			PlanHash: namedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: testDeploymentQuoteDigest(t, now),
 			CandidateID: "candidate-create-0001", ResourceManifestDigest: namedDigest('c'),
 			WorkerArtifact: DeploymentWorkerArtifact{Kind: "fixed_ami", AMIID: "ami-0123456789abcdef0"},
 			Network:        DeploymentNetwork{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", AvailabilityZone: "us-east-1a"},
@@ -153,7 +154,7 @@ func testDeploymentApprovalProof(t *testing.T, now time.Time) cloudcontracts.App
 	t.Helper()
 	proof := cloudcontracts.ApprovalV1{
 		SchemaVersion: cloudcontracts.SchemaVersionV1, ApprovalID: "approval-create-0001", ChallengeID: "challenge-create-0001", SignerKeyID: "device-key-1",
-		PlanID: "plan-create-0001", PlanHash: namedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: namedDigest('b'),
+		PlanID: "plan-create-0001", PlanHash: namedDigest('a'), PlanRevision: 4, QuoteID: "quote-create-0001", QuoteDigest: testDeploymentQuoteDigest(t, now),
 		QuoteValidUntil: now.Add(10 * time.Minute), CloudConnectionID: "connection-create-0001", RecipeDigest: namedDigest('e'),
 		ResourceScope: cloudcontracts.ResourceScopeV1{
 			Region: "us-east-1", AvailabilityZones: []string{"us-east-1a"}, InstanceType: "m7i.xlarge", Architecture: cloudcontracts.ArchitectureAMD64,
@@ -168,6 +169,21 @@ func testDeploymentApprovalProof(t *testing.T, now time.Time) cloudcontracts.App
 		t.Fatalf("sign ApprovalV1: %v", err)
 	}
 	return signed
+}
+
+func testDeploymentQuoteDigest(t *testing.T, now time.Time) string {
+	t.Helper()
+	quote := cloudcontracts.QuoteV1{
+		SchemaVersion: cloudcontracts.SchemaVersionV1, QuoteID: "quote-create-0001", CloudConnectionID: "connection-create-0001",
+		Region: "us-east-1", Currency: "USD", QuotedAt: now, ValidUntil: now.Add(10 * time.Minute),
+		Candidates:    []cloudcontracts.QuoteCandidateV1{{CandidateID: "candidate-create-0001", Tier: cloudcontracts.QuoteTierRecommended, InstanceType: "m7i.xlarge", PurchaseOption: cloudcontracts.PurchaseOnDemand, Architecture: cloudcontracts.ArchitectureAMD64, VCPU: 4, MemoryMiB: 16384, HourlyMinor: 10, ThirtyDayMinor: 7200, EstimatedDiskGiB: 80, AvailabilityZones: []string{"us-east-1a"}}},
+		IncludedItems: []string{"ec2_linux_ondemand"}, UnincludedItems: []string{"cloudwatch_logs", "data_transfer", "ebs_gp3", "public_ipv4", "snapshots", "taxes"},
+	}
+	digest, err := quote.Digest()
+	if err != nil {
+		t.Fatalf("QuoteV1.Digest: %v", err)
+	}
+	return digest
 }
 
 func validDeploymentResult(command DeploymentCommand) DeploymentResult {

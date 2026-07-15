@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestTemplateEnablesOnlyReadOnlyQuoteAndDurableCommandFences(t *testing.T) {
+func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 	path := filepath.Join("..", "..", "infra", "template.yaml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -30,6 +30,22 @@ func TestTemplateEnablesOnlyReadOnlyQuoteAndDurableCommandFences(t *testing.T) {
 		"DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64",
 		"BrokerArtifactBucket",
 		"AWS::DynamoDB::Table",
+		"DeploymentReservationsTable:",
+		"ApprovalUsesTable:",
+		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE",
+		"DIREXTALK_APPROVAL_USES_TABLE",
+		"WorkerSecurityGroup:",
+		"DIREXTALK_WORKER_SECURITY_GROUP_ID",
+		"SecurityGroupEgress:",
+		"EnableDeploymentCreate:",
+		"Default: \"false\"",
+		"DeploymentCreateEnabled:",
+		"DIREXTALK_DEPLOYMENT_CREATE_ENABLED",
+		"ec2:RunInstances",
+		"ec2:CreateTags",
+		"ec2:DescribeInstances",
+		"ec2:DescribeVolumes",
+		"aws:RequestTag/dirextalk:managed",
 		"dynamodb:GetItem",
 		"dynamodb:TransactWriteItems",
 		"ec2:DescribeInstanceTypeOfferings",
@@ -47,9 +63,9 @@ func TestTemplateEnablesOnlyReadOnlyQuoteAndDurableCommandFences(t *testing.T) {
 		"nodejs",
 		"iam:PassRole",
 		"secretsmanager:",
-		"ec2:RunInstances",
 		"ec2:CreateSecurityGroup",
 		"ec2:AuthorizeSecurityGroupIngress",
+		"SecurityGroupIngress:",
 		"ec2:TerminateInstances",
 		"ec2:StartInstances",
 		"ec2:StopInstances",

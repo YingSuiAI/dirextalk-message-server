@@ -95,17 +95,21 @@ The current implementation boundary is exactly
   Connection/PKIX-SPKI Ed25519 node key, and the existing non-deployment
   signature base. It returns only de-secretsed `{"error":{"code":"..."}}`
   responses with `Cache-Control: no-store`.
-- Only `connection.registration.verify` and `quote.request` are enabled after
-  node authentication and the generation fence. They use an atomic DynamoDB
+- `connection.registration.verify` and `quote.request` are enabled after node
+  authentication and the generation fence. They use an atomic DynamoDB
   receipt/counter/issued-quote transaction; quote reads are limited to EC2
   instance metadata/offerings and AWS Price List. All stored results are
   strict, de-secretsed contract objects and are revalidated before replay.
-- `deployment.create` and every Worker/mutation action remain
-  `operation_not_enabled`: there is no ApprovalV1 consumption, Worker endpoint,
-  root execution, service readiness claim, or cloud resource side effect.
-- The CloudFormation execution role grants its own log/receipt writes and the
-  three bounded read APIs only. It has no EC2/EBS/VPC mutation, IAM PassRole,
-  Secrets Manager, S3 write, Worker, or network-management permission. The Go
+- `deployment.create` is complete but disabled by default. Its explicit gate
+  verifies the registered device signature and persisted QuoteV1 digest,
+  atomically consumes approval/challenge into a deployment reservation, uses
+  one deterministic ClientToken for a fixed isolated EC2 create, and commits
+  only read-back EC2/EBS/ENI evidence. Every Worker/root/readiness/lifecycle
+  action remains `operation_not_enabled`.
+- The CloudFormation execution role always grants its own log/receipt writes
+  and the bounded quote read APIs. RunInstances/create-time tagging/read-back
+  statements exist only behind the same explicit gate. It has no IAM PassRole,
+  Secrets Manager, S3 write, Worker, ingress, or lifecycle permission. The Go
   artifact is supplied through a versioned S3
   artifact parameter by an approved external pipeline or the AWS console; no
   deploy helper is shipped here.
@@ -290,15 +294,16 @@ not represented as implementation tasks in this read-only parity stage.
   shape validation and device-signature verification.
 - [x] Add a cross-module golden command produced by the Orchestrator and
   verified by the Stack, including proof drift and expanded-scope rejection.
-- [ ] Add the registered device-key resolver and one-time approval/challenge
+- [x] Add the registered device-key resolver and one-time approval/challenge
   consumption to the same atomic deployment reservation transaction.
-- [ ] Bind the request to the persisted issued quote, fixed Worker
+- [x] Bind the request to the persisted issued quote and deterministic-CBOR
+  quote digest, fixed Worker
   AMI/network/manifest and an exact deterministic EC2 ClientToken.
-- [ ] Implement the typed create provider behind a disabled-by-default runtime
+- [x] Implement the typed create provider behind a disabled-by-default runtime
   gate, with fake provider fault injection and AWS read-back evidence.
-- [ ] Commit the receipt, approval consumption, deployment reservation and
+- [x] Commit the receipt, approval consumption, deployment reservation and
   discovered EC2/EBS/ENI identities atomically before returning success.
-- [ ] Enable `deployment.create` only after replay, response-loss, concurrent
+- [x] Enable `deployment.create` only after replay, response-loss, concurrent
   approval consumption, stale generation/counter and read-back tests pass.
 
 ## Acceptance checks
@@ -317,14 +322,18 @@ not represented as implementation tasks in this read-only parity stage.
 - A valid signed registration/quote command reaches only its bounded Go
   attestor/read provider; every other non-deployment command reaches only the
   fail-closed gate.
-  malformed, expired, future-dated, oversized, duplicate-key, wrong-key, and
-  query-bearing requests cannot reach any provider operation. A deployment
-  command never reaches signature/proof/provider execution in this stage.
+  Malformed, expired, future-dated, oversized, duplicate-key, wrong-key, and
+  query-bearing requests cannot reach any provider operation. With the default
+  gate a deployment command is rejected before proof/provider execution; when
+  explicitly enabled, only the fully bound one-time transaction reaches the
+  typed provider and exact retries reuse its deterministic ClientToken.
 
 ## Next action
 
-Implement workboard E's atomic approval-consumption/deployment-reservation
-store and disabled-by-default typed provider seam. Fixed Worker bindings,
-deterministic ClientToken and AWS read-back evidence must be enforced before
-the HTTP action can be enabled. Until then, do not add Worker routes, read
-local AWS credentials, deploy the Stack, or run real-account tests.
+Implement the next Worker bootstrap/observation slice without widening the
+Stack into an arbitrary command runner. Start with a durable, signed
+`deployment.observe` projection that binds the committed EC2 receipt to one
+active lease and external readiness evidence; then connect the existing
+provision runner to that observation. Keep Worker task/secret/root execution,
+public ingress, destroy, local AWS credentials, Stack deployment and
+real-account tests out of that slice until their own typed boundaries exist.

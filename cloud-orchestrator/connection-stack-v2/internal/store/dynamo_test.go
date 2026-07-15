@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -83,6 +85,89 @@ func TestDynamoRepositoryClassifiesStaleCounterWithoutLeakingAWSFailure(t *testi
 	}
 }
 
+func TestDynamoRepositoryReservesCounterDeploymentApprovalAndChallengeAtomically(t *testing.T) {
+	client := &fakeDynamo{}
+	repository := mustDynamoRepository(t, client)
+	reservation := validDeploymentReservation()
+	stored, created, err := repository.ReserveDeployment(t.Context(), reservation)
+	if err != nil || !created || !stored.SameIdentity(reservation) {
+		t.Fatalf("ReserveDeployment()=(%#v,%t,%v)", stored, created, err)
+	}
+	if client.transactInput == nil || len(client.transactInput.TransactItems) != 4 {
+		t.Fatalf("reserve transaction=%#v", client.transactInput)
+	}
+	if client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil || client.transactInput.TransactItems[2].Put == nil || client.transactInput.TransactItems[3].Put == nil {
+		t.Fatalf("reserve transaction shape=%#v", client.transactInput.TransactItems)
+	}
+}
+
+func TestDynamoRepositoryRejectsConsumedApprovalOnReservationRace(t *testing.T) {
+	reservation := validDeploymentReservation()
+	client := &fakeDynamo{transactErr: errors.New("PRIVATE_INDETERMINATE")}
+	client.getItem = func(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+		if input.TableName != nil && *input.TableName == "approval-uses" {
+			if use, ok := input.Key["use_id"].(*dynamodbtypes.AttributeValueMemberS); ok && strings.HasPrefix(use.Value, "approval#") {
+				return &dynamodb.GetItemOutput{Item: map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ConnectionID}, "use_id": &dynamodbtypes.AttributeValueMemberS{Value: use.Value}}}, nil
+			}
+		}
+		return &dynamodb.GetItemOutput{}, nil
+	}
+	repository := mustDynamoRepository(t, client)
+	if _, _, err := repository.ReserveDeployment(t.Context(), reservation); Code(err) != "approval_already_consumed" || strings.Contains(err.Error(), "PRIVATE_INDETERMINATE") {
+		t.Fatalf("ReserveDeployment() error=%v code=%s", err, Code(err))
+	}
+}
+
+func TestDynamoRepositoryRecoversReservationAfterIndeterminateCommit(t *testing.T) {
+	reservation := validDeploymentReservation()
+	client := &fakeDynamo{transactErr: errors.New("PRIVATE_RESPONSE_LOST")}
+	client.getItem = func(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+		if input.TableName != nil && *input.TableName == "deployments" {
+			return &dynamodb.GetItemOutput{Item: deploymentItem(reservation)}, nil
+		}
+		return &dynamodb.GetItemOutput{}, nil
+	}
+	repository := mustDynamoRepository(t, client)
+	stored, created, err := repository.ReserveDeployment(t.Context(), reservation)
+	if err != nil || created || !stored.SameIdentity(reservation) || strings.Contains(fmt.Sprint(err), "PRIVATE_RESPONSE_LOST") {
+		t.Fatalf("ReserveDeployment()=(%#v,%t,%v)", stored, created, err)
+	}
+}
+
+func TestDynamoRepositoryFinalizesReservationAndReceiptAtomically(t *testing.T) {
+	client := &fakeDynamo{}
+	repository := mustDynamoRepository(t, client)
+	reservation := validDeploymentReservation()
+	receipt := Record{ConnectionID: reservation.ConnectionID, CommandID: reservation.CommandID, RequestSHA256: reservation.RequestSHA256, ExpectedGeneration: reservation.ExpectedGeneration, NodeCounter: reservation.NodeCounter, Action: "deployment.create", ResultJSON: []byte(`{"status":"deployment_created"}`)}
+	stored, created, err := repository.FinalizeDeployment(t.Context(), reservation, receipt)
+	if err != nil || !created || !stored.SameIdentity(receipt) {
+		t.Fatalf("FinalizeDeployment()=(%#v,%t,%v)", stored, created, err)
+	}
+	if client.transactInput == nil || len(client.transactInput.TransactItems) != 2 || client.transactInput.TransactItems[0].Update == nil || client.transactInput.TransactItems[1].Put == nil {
+		t.Fatalf("finalize transaction=%#v", client.transactInput)
+	}
+}
+
+func TestDynamoRepositoryRecoversFinalReceiptAfterIndeterminateFinalize(t *testing.T) {
+	reservation := validDeploymentReservation()
+	receipt := Record{ConnectionID: reservation.ConnectionID, CommandID: reservation.CommandID, RequestSHA256: reservation.RequestSHA256, ExpectedGeneration: reservation.ExpectedGeneration, NodeCounter: reservation.NodeCounter, Action: "deployment.create", ResultJSON: []byte(`{"status":"deployment_created"}`)}
+	client := &fakeDynamo{transactErr: errors.New("PRIVATE_RESPONSE_LOST")}
+	client.getItem = func(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+		if input.TableName != nil && *input.TableName == "receipts" {
+			item := recordItem(receipt)
+			item["expected_generation"] = &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(receipt.ExpectedGeneration, 10)}
+			item["node_counter"] = &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(receipt.NodeCounter, 10)}
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		}
+		return &dynamodb.GetItemOutput{}, nil
+	}
+	repository := mustDynamoRepository(t, client)
+	stored, created, err := repository.FinalizeDeployment(t.Context(), reservation, receipt)
+	if err != nil || created || !stored.SameIdentity(receipt) || strings.Contains(fmt.Sprint(err), "PRIVATE_RESPONSE_LOST") {
+		t.Fatalf("FinalizeDeployment()=(%#v,%t,%v)", stored, created, err)
+	}
+}
+
 type fakeDynamo struct {
 	getItem       func(*dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error)
 	transactErr   error
@@ -106,7 +191,7 @@ func (f *fakeDynamo) TransactWriteItems(_ context.Context, input *dynamodb.Trans
 
 func mustDynamoRepository(t *testing.T, client DynamoAPI) *DynamoRepository {
 	t.Helper()
-	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes"})
+	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes", DeploymentReservationsTable: "deployments", ApprovalUsesTable: "approval-uses"})
 	if err != nil {
 		t.Fatalf("NewDynamoRepository(): %v", err)
 	}
@@ -137,4 +222,8 @@ func recordItem(record Record) map[string]dynamodbtypes.AttributeValue {
 		"action":              &dynamodbtypes.AttributeValueMemberS{Value: record.Action},
 		"result_json":         &dynamodbtypes.AttributeValueMemberS{Value: string(record.ResultJSON)},
 	}
+}
+
+func validDeploymentReservation() DeploymentReservation {
+	return DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", CommandID: "command-deployment-0001", RequestSHA256: strings.Repeat("d", 64), ExpectedGeneration: 1, NodeCounter: 8, ApprovalID: "approval-0001", ChallengeID: "challenge-0001", SignerKeyID: "device-key-1", QuoteID: "quote-00000000000000000000000000000000", ClientToken: "dtx-" + strings.Repeat("e", 60), SpecJSON: []byte(`{"deployment_id":"deployment-0001"}`), State: "reserved"}
 }

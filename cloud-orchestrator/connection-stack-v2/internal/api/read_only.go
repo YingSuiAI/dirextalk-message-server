@@ -195,7 +195,7 @@ func writeProviderError(response http.ResponseWriter, err error) {
 func writeStoreError(response http.ResponseWriter, err error) {
 	code := commandstore.Code(err)
 	status := http.StatusServiceUnavailable
-	if code == "command_id_conflict" || code == "stale_node_counter" {
+	if code == "command_id_conflict" || code == "stale_node_counter" || code == "deployment_id_conflict" || code == "approval_already_consumed" || code == "challenge_already_consumed" || code == "deployment_reservation_conflict" {
 		status = http.StatusConflict
 	}
 	writeError(response, status, code)

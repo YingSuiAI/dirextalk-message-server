@@ -37,6 +37,10 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	if err != nil {
 		return api.Broker{}, err
 	}
+	approvalResolver, err := api.NewStaticApprovalKeyResolver(config.connectionID, config.deviceApprovalKeyID, config.deviceApprovalPublicKeySPKIBase64)
+	if err != nil {
+		return api.Broker{}, err
+	}
 	resolver, err := api.NewStaticKeyResolver(
 		config.connectionID, config.nodeKeyID, config.nodePublicKeySPKIBase64, config.connectionGeneration,
 	)
@@ -49,7 +53,7 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	}
 	repository, err := commandstore.NewDynamoRepository(commandstore.DynamoConfig{
 		Client: dynamodb.NewFromConfig(awsConfig), ReceiptsTable: config.receiptsTable,
-		CountersTable: config.countersTable, IssuedQuotesTable: config.issuedQuotesTable,
+		CountersTable: config.countersTable, IssuedQuotesTable: config.issuedQuotesTable, DeploymentReservationsTable: config.deploymentReservationsTable, ApprovalUsesTable: config.approvalUsesTable,
 	})
 	if err != nil {
 		return api.Broker{}, err
@@ -70,37 +74,57 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	if err != nil {
 		return api.Broker{}, err
 	}
-	return api.Broker{Resolver: resolver, Store: repository, Registration: registration, Quote: quote}, nil
+	var deploymentProvider api.DeploymentProvider
+	if config.deploymentEnabled {
+		deploymentProvider, err = provider.NewEC2DeploymentProvider(ec2.NewFromConfig(awsConfig))
+		if err != nil {
+			return api.Broker{}, err
+		}
+	}
+	return api.Broker{Resolver: resolver, Store: repository, Registration: registration, Quote: quote, DeploymentEnabled: config.deploymentEnabled, ApprovalResolver: approvalResolver, DeploymentStore: repository, DeploymentProvider: deploymentProvider, DeploymentBoundary: api.DeploymentBoundary{WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: config.workerAMIID}, WorkerNetwork: contract.WorkerNetworkReference{VPCID: config.workerVPCID, SubnetID: config.workerSubnetID, AvailabilityZone: config.workerAvailabilityZone}, WorkerResourceManifestDigest: config.workerResourceManifestDigest, WorkerSecurityGroupID: config.workerSecurityGroupID}}, nil
 }
 
 type runtimeConfig struct {
-	connectionID, nodeKeyID, nodePublicKeySPKIBase64                 string
-	accountID, region, stackARN, urlSuffix, stageName                string
-	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone string
-	workerResourceManifestDigest                                     string
-	receiptsTable, countersTable, issuedQuotesTable                  string
-	connectionGeneration                                             int64
+	connectionID, nodeKeyID, nodePublicKeySPKIBase64                                                string
+	deviceApprovalKeyID, deviceApprovalPublicKeySPKIBase64                                          string
+	accountID, region, stackARN, urlSuffix, stageName                                               string
+	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone, workerSecurityGroupID         string
+	workerResourceManifestDigest                                                                    string
+	receiptsTable, countersTable, issuedQuotesTable, deploymentReservationsTable, approvalUsesTable string
+	connectionGeneration                                                                            int64
+	deploymentEnabled                                                                               bool
 }
 
 func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	config := runtimeConfig{
 		connectionID: requiredEnvironment("DIREXTALK_CONNECTION_ID"), nodeKeyID: requiredEnvironment("DIREXTALK_NODE_KEY_ID"),
 		nodePublicKeySPKIBase64: requiredEnvironment("DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64"),
-		accountID:               requiredEnvironment("DIREXTALK_STACK_ACCOUNT_ID"), region: requiredEnvironment("DIREXTALK_STACK_REGION"),
+		deviceApprovalKeyID:     requiredEnvironment("DIREXTALK_DEVICE_APPROVAL_KEY_ID"), deviceApprovalPublicKeySPKIBase64: requiredEnvironment("DIREXTALK_DEVICE_APPROVAL_PUBLIC_KEY_SPKI_B64"),
+		accountID: requiredEnvironment("DIREXTALK_STACK_ACCOUNT_ID"), region: requiredEnvironment("DIREXTALK_STACK_REGION"),
 		stackARN: requiredEnvironment("DIREXTALK_STACK_ARN"), urlSuffix: requiredEnvironment("DIREXTALK_AWS_URL_SUFFIX"),
 		stageName: requiredEnvironment("DIREXTALK_BROKER_STAGE_NAME"), workerAMIID: requiredEnvironment("DIREXTALK_WORKER_BASE_AMI_ID"),
 		workerVPCID: requiredEnvironment("DIREXTALK_WORKER_VPC_ID"), workerSubnetID: requiredEnvironment("DIREXTALK_WORKER_SUBNET_ID"),
 		workerAvailabilityZone:       requiredEnvironment("DIREXTALK_WORKER_AVAILABILITY_ZONE"),
+		workerSecurityGroupID:        requiredEnvironment("DIREXTALK_WORKER_SECURITY_GROUP_ID"),
 		workerResourceManifestDigest: requiredEnvironment("DIREXTALK_WORKER_RESOURCE_MANIFEST_DIGEST"),
 		receiptsTable:                requiredEnvironment("DIREXTALK_COMMAND_RECEIPTS_TABLE"), countersTable: requiredEnvironment("DIREXTALK_CONNECTION_COUNTERS_TABLE"),
-		issuedQuotesTable: requiredEnvironment("DIREXTALK_ISSUED_QUOTES_TABLE"),
+		issuedQuotesTable:           requiredEnvironment("DIREXTALK_ISSUED_QUOTES_TABLE"),
+		deploymentReservationsTable: requiredEnvironment("DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE"), approvalUsesTable: requiredEnvironment("DIREXTALK_APPROVAL_USES_TABLE"),
 	}
 	generation, err := strconv.ParseInt(requiredEnvironment("DIREXTALK_CONNECTION_GENERATION"), 10, 64)
 	if err != nil || generation < 1 || generation > 9007199254740991 {
 		return runtimeConfig{}, errors.New("invalid connection generation")
 	}
 	config.connectionGeneration = generation
-	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerResourceManifestDigest == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" {
+	switch requiredEnvironment("DIREXTALK_DEPLOYMENT_CREATE_ENABLED") {
+	case "true":
+		config.deploymentEnabled = true
+	case "false":
+		config.deploymentEnabled = false
+	default:
+		return runtimeConfig{}, errors.New("invalid deployment create gate")
+	}
+	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.approvalUsesTable == "" {
 		return runtimeConfig{}, errors.New("incomplete broker configuration")
 	}
 	return config, nil

@@ -517,11 +517,13 @@ The ProductCore prepare/approve actions now use the active Connection's
 device-key registry and a persisted one-time challenge. They bind the exact
 canonical signing payload before the provision intent becomes visible. Dart
 golden-vector verification remains a release gate. The independent Go Stack
-now parses the exact Orchestrator-generated `deployment.create` envelope and
-verifies its deterministic-CBOR ApprovalV1/device signature byte-compatibly,
-but the HTTP action remains disabled until approval consumption, deployment
-reservation, fixed Worker/quote enforcement, provider mutation and AWS
-read-back form one durable transaction boundary.
+now parses the exact Orchestrator-generated `deployment.create` envelope,
+recomputes the deterministic-CBOR QuoteV1 digest, and verifies ApprovalV1 and
+device signatures byte-compatibly. The Stack consumes the approval/challenge
+and reserves the deployment atomically before a deterministic EC2 ClientToken
+create, then commits only independently read-back EC2/EBS/ENI evidence. The
+HTTP mutation and its IAM statements remain disabled by default and require
+the explicit CloudFormation gate.
 
 When the typed Worker creation executor is enabled, the UI label is
 **“确认创建并开始计费”**. Before that executor exists, the current confirmation
@@ -534,16 +536,16 @@ separate plan and confirmation.
 
 ## Explicitly not enabled yet
 
-The current slice does not upload credentials, deploy a Connection Stack on the
-owner's behalf, create an EC2 instance, install a service, expose a network
-endpoint, or destroy a resource. It can issue a reviewed CloudFormation handoff
-and persist a research-only intent, but the currently ported Go Broker rejects
-registration, quote, observation, Worker, and deployment commands with
-`operation_not_enabled` except for signed registration verification and
-read-only On-Demand quotes. It ships independently buildable
-research/quote/registration processes and a Go-only fail-closed Broker
-artifact, but does not yet deploy a researcher endpoint, Worker AMI, mutation
-provider executor, or real-account AWS integration test. Those transitions
+The current slice does not upload credentials or deploy a Connection Stack on
+the owner's behalf, install a service, expose a network endpoint, or destroy a
+resource. It can issue a reviewed CloudFormation handoff and persist a
+research-only intent. The Go Broker enables signed registration verification
+and read-only On-Demand quotes; `deployment.create` exists as a complete typed
+transaction but is off by default and all observation, Worker, secret,
+installation and lifecycle commands still return `operation_not_enabled`.
+It does not yet deploy a researcher endpoint, build a Worker AMI, connect a
+Worker bootstrap/observation flow, or run a real-account AWS integration test.
+Those transitions
 must be implemented through the typed Connection
 Stack/Broker path; neither the Eino Agent tool, external MCP, nor the
 Message Server gains arbitrary AWS access.
