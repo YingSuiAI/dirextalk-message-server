@@ -44,6 +44,23 @@ Verified at stage close:
 - `git diff --check`, dependency-boundary checks, and added-diff secret scan
   passed. No real AWS request or cloud spend occurred.
 
+The owner visibility closeout is also complete:
+
+- Message Server commit `5e86dd3` admits the existing `backup` Job projection,
+  advances the enclosing Service revision at a backup terminal state, and
+  publishes a strictly validated full Service summary containing only manual
+  retained AMI/snapshot evidence. Service status and resource axes remain
+  unchanged.
+- Flutter commit `b06a35e` decodes and displays retained backups, manual
+  retention, AMI and encrypted snapshot count without adding restore/delete
+  controls.
+- Server Cloud projection tests, focused ServiceBackup PostgreSQL tests, Go
+  vet, Flutter Cloud workload tests, Flutter analyze and both repositories'
+  `git diff --check` passed. The intentionally broad `storepg` package was not
+  used as the stage signal because its roughly thirty per-test database
+  migrations exceed the outer 120-second command timeout; focused affected
+  tests passed in about twelve seconds.
+
 ## Current decision boundary
 
 The next tracker item is a separately quoted and device-approved restore or
