@@ -60,7 +60,8 @@ func prepareCloudDialogueRequest(ctx context.Context, params map[string]any) (co
 	if err != nil {
 		return nil, err
 	}
-	return context.WithValue(ctx, cloudPlanningConnectionScopeContextKey{}, cloudPlanningConnectionScope{connectionID: connectionID}), nil
+	ctx = context.WithValue(ctx, cloudPlanningConnectionScopeContextKey{}, cloudPlanningConnectionScope{connectionID: connectionID})
+	return withCloudWorkloadCollector(ctx), nil
 }
 
 func selectedCloudDialogueConnectionID(params map[string]any) (string, error) {
@@ -219,7 +220,19 @@ func (r *Runtime) createCloudResearchGoal(ctx context.Context, args map[string]a
 		}
 		return nil, fmt.Errorf("cloud_connection_id is required and must be valid")
 	}
-	return r.cloudPlanner.CreateResearchGoal(ctx, goal, connectionID, cloudPlanningIdempotencyKey(ctx, goal, connectionID))
+	idempotencyKey := cloudPlanningIdempotencyKey(ctx, goal, connectionID)
+	collector, collectingWorkload := cloudWorkloadCollectorFromContext(ctx)
+	if cloudDialogue && (!collectingWorkload || !collector.reserve(idempotencyKey)) {
+		return nil, fmt.Errorf("cloud dialogue creates at most one research plan per request")
+	}
+	result, err := r.cloudPlanner.CreateResearchGoal(ctx, goal, connectionID, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if cloudDialogue {
+		collector.record(result)
+	}
+	return result, nil
 }
 
 func validCloudPlanningConnectionID(connectionID string) bool {

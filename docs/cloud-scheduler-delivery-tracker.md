@@ -218,21 +218,21 @@ as new implementation tasks in this delivery slice.
 
 ### B. Deferred until cleanup: Agent-to-client workload milestone
 
-- [ ] Add the optional `dirextalk.cloud-agent-workload/v1` summary to direct
+- [x] Add the optional `dirextalk.cloud-agent-workload/v1` summary to direct
   and streaming Agent results, derived only from a successful typed Cloud
   planning tool result.
-- [ ] Prove that no secret-like input/output, model prose, malformed tool
+- [x] Prove that no secret-like input/output, model prose, malformed tool
   result, or non-Cloud tool call can create the summary.
-- [ ] Render a Cloud workload milestone card in Flutter Agent chat, with a
+- [x] Render a Cloud workload milestone card in Flutter Agent chat, with a
   safe Plan-detail deep link and an honest non-ready status label.
-- [ ] Keep unknown/absent summary behavior backward compatible and cover it in
+- [x] Keep unknown/absent summary behavior backward compatible and cover it in
   Flutter reducer/widget tests.
 
 ### C. Stage close
 
-- [ ] Run the affected Message Server Native Agent tests and focused Flutter
+- [x] Run the affected Message Server Native Agent tests and focused Flutter
   tests/analyzer; review the combined contract diff once.
-- [ ] Commit only the current-task changes in each owning repository. Preserve
+- [x] Commit only the current-task changes in each owning repository. Preserve
   unrelated work, including the Message Server's untracked Cloud Worker run
   configuration and Flutter's unrelated `pubspec.lock` change.
 

@@ -2,6 +2,23 @@
 
 Last updated: 2026-07-15
 
+## 2026-07-15 Cloud Agent Workload Navigation Summary
+
+Restricted `cloud_dialogue_mode=true` Native Agent planning may now attach an
+optional, additive `cloud_workload` object to direct `agent.chat` results and
+the final `agent.chat.stream` `done` event. It has the fixed
+`dirextalk.cloud-agent-workload/v1` schema and only `plan_id`, `goal_id`, Plan
+`status`, and Plan `revision`.
+
+The server derives the object solely from a successful, internally consistent
+typed Cloud planner Goal/Plan result. It never parses model prose or traces and
+omits the object for a normal Agent chat, status read, failed/malformed result,
+unrecognized fields, or a second distinct research goal in one restricted
+request. It contains no goal prompt, Connection/account/region, quote, recipe,
+secret, receipt, endpoint, log, Worker, billing, readiness, or lifecycle fact.
+Clients must treat unknown or invalid objects as absent and use only `plan_id`
+to open the existing Plan detail page.
+
 ## 2026-07-15 Recipe Execution Confirmation Boundary
 
 Added owner HTTP-only

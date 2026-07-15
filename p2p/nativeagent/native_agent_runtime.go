@@ -199,6 +199,9 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if reasoning != "" {
 		done["reasoning_content"] = reasoning
 	}
+	if workload := cloudWorkloadSummaryFromContext(ctx); workload != nil {
+		done["cloud_workload"] = workload
+	}
 	return emit(Event{Event: "done", Data: done})
 }
 

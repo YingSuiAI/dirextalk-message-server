@@ -115,7 +115,7 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount == 1 {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_cloud_plan","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\",\"cloud_connection_id\":\"connection-1\"}"}}]}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_cloud_plan","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\"}"}}]}}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已创建研究计划，等待独立报价和设备确认。"}}]}`))
@@ -125,7 +125,9 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 	planner := &recordingCloudPlanner{}
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}}, CloudPlanner: planner})
 	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
-		"prompt": "部署一个私有知识库节点",
+		"prompt":              "部署一个私有知识库节点",
+		"cloud_dialogue_mode": true,
+		"cloud_connection_id": "connection-1",
 		"model_profile": map[string]any{
 			"provider": "openai_compatible",
 			"model":    "mock-model",
@@ -142,6 +144,7 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 	if result["text"] != "已创建研究计划，等待独立报价和设备确认。" || !traceHasStep(result["steps"].([]map[string]any), "tool_call", nativeAgentCloudDeploymentPlanTool) {
 		t.Fatalf("cloud planner agent result = %#v", result)
 	}
+	assertCloudWorkloadSummary(t, result["cloud_workload"], "cloud_plan_1", "cloud_goal_1", "researching", 1)
 }
 
 func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
@@ -201,6 +204,7 @@ func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
 	if len(events) < 2 || events[len(events)-1].Event != "done" || events[len(events)-1].Data["text"] != "已创建研究计划，等待独立报价和设备确认。" {
 		t.Fatalf("streamed cloud planning events = %#v", events)
 	}
+	assertCloudWorkloadSummary(t, events[len(events)-1].Data["cloud_workload"], "cloud_plan_1", "cloud_goal_1", "researching", 1)
 }
 
 func TestCloudDialogueRejectsSensitiveInputBeforeModelOrPlanner(t *testing.T) {
@@ -280,6 +284,33 @@ func TestCloudDialogueRejectsSensitiveInputBeforeModelOrPlanner(t *testing.T) {
 	}
 }
 
+func TestAgentChatDoesNotCreateCloudWorkloadFromModelProse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已创建 cloud_plan_forged，但这只是模型文本。"}}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent"), CloudPlanner: &recordingCloudPlanner{}})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt":              "请制定一个计划",
+		"cloud_dialogue_mode": true,
+		"cloud_connection_id": "connection-1",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if _, exists := result["cloud_workload"]; exists {
+		t.Fatalf("model prose must not create a Cloud workload summary: %#v", result)
+	}
+}
+
 type idempotentCloudPlanner struct {
 	calls            int
 	created          int
@@ -298,8 +329,18 @@ func (p *idempotentCloudPlanner) CreateResearchGoal(_ context.Context, _ string,
 	}
 	p.created++
 	result := map[string]any{
-		"goal": map[string]any{"goal_id": "cloud_goal_1", "status": "researching"},
-		"plan": map[string]any{"plan_id": "cloud_plan_1", "status": "researching"},
+		"goal": map[string]any{
+			"goal_id":  "cloud_goal_1",
+			"plan_id":  "cloud_plan_1",
+			"status":   "researching",
+			"revision": int64(1),
+		},
+		"plan": map[string]any{
+			"plan_id":  "cloud_plan_1",
+			"goal_id":  "cloud_goal_1",
+			"status":   "researching",
+			"revision": int64(1),
+		},
 	}
 	p.resultsByRequest[idempotencyKey] = result
 	return result, nil
@@ -796,6 +837,20 @@ func traceHasStep(steps []map[string]any, stepType, name string) bool {
 		}
 	}
 	return false
+}
+
+func assertCloudWorkloadSummary(t *testing.T, raw any, planID, goalID, status string, revision int64) {
+	t.Helper()
+	summary, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("cloud workload summary = %#v", raw)
+	}
+	if len(summary) != 5 {
+		t.Fatalf("cloud workload summary must contain only its fixed de-secretsed fields, got %#v", summary)
+	}
+	if summary["schema"] != "dirextalk.cloud-agent-workload/v1" || summary["plan_id"] != planID || summary["goal_id"] != goalID || summary["status"] != status || summary["revision"] != revision {
+		t.Fatalf("cloud workload summary = %#v", summary)
+	}
 }
 
 func TestAnthropicProviderUsesMessagesEndpoint(t *testing.T) {

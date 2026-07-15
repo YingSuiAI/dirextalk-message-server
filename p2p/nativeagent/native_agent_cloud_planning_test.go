@@ -33,8 +33,18 @@ func (p *recordingCloudPlanner) CreateResearchGoal(_ context.Context, goal, conn
 	p.idempotencyKeys = append(p.idempotencyKeys, idempotencyKey)
 	p.calls++
 	return map[string]any{
-		"goal": map[string]any{"goal_id": "cloud_goal_1", "status": "researching"},
-		"plan": map[string]any{"plan_id": "cloud_plan_1", "status": "researching"},
+		"goal": map[string]any{
+			"goal_id":  "cloud_goal_1",
+			"plan_id":  "cloud_plan_1",
+			"status":   "researching",
+			"revision": int64(1),
+		},
+		"plan": map[string]any{
+			"plan_id":  "cloud_plan_1",
+			"goal_id":  "cloud_goal_1",
+			"status":   "researching",
+			"revision": int64(1),
+		},
 	}, nil
 }
 
