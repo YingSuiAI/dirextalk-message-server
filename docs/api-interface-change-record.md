@@ -1163,6 +1163,7 @@ supply them. The approval also binds the expected Service status and exact
 Service/Deployment revisions. The approve response is
 `{service, operation, job}`. Job progress uses existing `cloud.job.changed`
 events. Successful stop introduces `service_status: "stopped"`; successful
-start/restart returns `active`, terminal failure returns `degraded`, and the
+start/restart preserves `experimental` until explicit management acceptance
+(managed Recipes return `active`), terminal failure returns `degraded`, and the
 resource remains active and billable. Agent tokens and public MCP have no plan,
 approve or lifecycle mutation capability.

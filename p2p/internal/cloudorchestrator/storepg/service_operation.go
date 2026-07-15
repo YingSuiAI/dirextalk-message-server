@@ -242,16 +242,13 @@ func (s *Store) commitRunningServiceOperation(ctx context.Context, claim runtime
 
 func (s *Store) finishServiceOperation(ctx context.Context, claim runtime.RecipeInstallClaim, result runtime.RecipeInstallResult, code string, succeeded bool) error {
 	return s.withServiceOperationClaim(ctx, claim, func(tx *sql.Tx, now int64) error {
-		var serviceID, operation, status, name, recipeID, integration string
+		var serviceID, operation, status, name, recipeID, recipeMaturity, integration string
 		var revision, createdAt int64
-		if err := tx.QueryRowContext(ctx, `SELECT task.service_id,task.operation,service.service_status,service.name,service.recipe_id,service.integration_status,service.revision,service.created_at FROM p2p_cloud_service_operation_tasks task JOIN p2p_cloud_services service ON service.service_id=task.service_id WHERE task.operation_id=$1 FOR UPDATE OF task,service`, claim.ExecutionID).Scan(&serviceID, &operation, &status, &name, &recipeID, &integration, &revision, &createdAt); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT task.service_id,task.operation,service.service_status,service.name,service.recipe_id,recipe.maturity,service.integration_status,service.revision,service.created_at FROM p2p_cloud_service_operation_tasks task JOIN p2p_cloud_services service ON service.service_id=task.service_id JOIN p2p_cloud_recipes recipe ON recipe.recipe_id=service.recipe_id WHERE task.operation_id=$1 FOR UPDATE OF task,service,recipe`, claim.ExecutionID).Scan(&serviceID, &operation, &status, &name, &recipeID, &recipeMaturity, &integration, &revision, &createdAt); err != nil {
 			return err
 		}
 		taskStatus, outcome, checkpoint, stepStatus, summary := "succeeded", "succeeded", "service_operation_succeeded", "finished", "The managed service operation completed and its checkpoint sequence was verified."
-		newStatus := "active"
-		if operation == string(cloudcontracts.ServiceOperationStop) {
-			newStatus = "stopped"
-		}
+		newStatus := serviceOperationSuccessStatus(operation, recipeMaturity)
 		if !succeeded {
 			taskStatus = "failed"
 			outcome = "failed"
@@ -313,6 +310,16 @@ func (s *Store) finishServiceOperation(ctx context.Context, claim runtime.Recipe
 		}
 		return writeEventAndProjection(ctx, tx, stableID("cloud_event_", claim.JobID, fmt.Sprint(jobRevision), checkpoint), "cloud.job.changed", "job", claim.JobID, jobRevision, map[string]any{"job_id": claim.JobID, "plan_id": claim.PlanID, "deployment_id": claim.DeploymentID, "kind": jobKind, "execution_status": "finished", "outcome_status": outcome, "checkpoint": checkpoint, "error_code": code, "revision": jobRevision, "created_at": jobCreated, "updated_at": now}, now)
 	})
+}
+
+func serviceOperationSuccessStatus(operation, recipeMaturity string) string {
+	if operation == string(cloudcontracts.ServiceOperationStop) {
+		return "stopped"
+	}
+	if recipeMaturity == "managed" {
+		return "active"
+	}
+	return "experimental"
 }
 
 func (s *Store) DeferServiceOperation(ctx context.Context, claim runtime.RecipeInstallClaim, code string, available time.Time) error {

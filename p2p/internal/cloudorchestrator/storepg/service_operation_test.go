@@ -108,3 +108,17 @@ func namedDigest(c string) string {
 	}
 	return value
 }
+
+func TestServiceOperationSuccessDoesNotBypassManagementAcceptance(t *testing.T) {
+	tests := []struct{ operation, maturity, want string }{
+		{"restart", "experimental", "experimental"},
+		{"start", "experimental", "experimental"},
+		{"restart", "managed", "active"},
+		{"stop", "experimental", "stopped"},
+	}
+	for _, test := range tests {
+		if got := serviceOperationSuccessStatus(test.operation, test.maturity); got != test.want {
+			t.Fatalf("operation=%s maturity=%s status=%s want=%s", test.operation, test.maturity, got, test.want)
+		}
+	}
+}

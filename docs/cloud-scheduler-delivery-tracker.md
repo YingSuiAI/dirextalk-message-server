@@ -467,9 +467,10 @@ stage; later checked workboard sections are the authoritative delivery record.
 - [x] Extend the fixed audited Worker bundle with typed systemd
   start/stop/restart actions and restart-persistent checkpoints; retain the old
   install-only artifact digest for already approved executions.
-- [x] Project queued/running/terminal Job revisions; on success publish
-  `active` or `stopped`, on failure publish `degraded`, and in every outcome
-  leave the EC2 resource active, tracked and billable.
+- [x] Project queued/running/terminal Job revisions; on success preserve
+  `experimental` until management acceptance (or publish managed `active`) and
+  publish `stopped` for stop, on failure publish `degraded`, and in every
+  outcome leave the EC2 resource active, tracked and billable.
 - [x] Cover approval tampering/idempotency, exact command recovery, stale lease
   and Service revision fencing, managed action execution, active-operation
   destroy exclusion and stopped terminal state; pass the affected Go checks,

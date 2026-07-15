@@ -599,8 +599,9 @@ root/checkpoint scope. The independent Orchestrator reuses the sealed Worker
 task channel behind `CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED`; it persists
 the signed command before I/O, publishes Job progress, and never changes the
 still-active billable resource axis. Stop success adds the distinct `stopped`
-Service status; start/restart success publishes `active`, and any terminal
-failure publishes `degraded`. The prior install-only artifact remains accepted
+Service status; start/restart success preserves `experimental` until explicit
+management acceptance and publishes `active` only for a managed Recipe. Any
+terminal failure publishes `degraded`. The prior install-only artifact remains accepted
 for already approved installs but exposes no lifecycle capability.
 
 Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress,
