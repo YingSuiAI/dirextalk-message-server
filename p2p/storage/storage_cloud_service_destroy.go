@@ -67,7 +67,7 @@ func (s *DatabaseStore) PrepareCloudServiceDestroy(ctx context.Context, request 
 		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision {
 			return cloudmodule.ErrServiceDestroyConfirmationConflict
 		}
-		if !serviceDestroyStateReady(state) {
+		if !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceDestroyConfirmationInvalid
 		}
 		keyID, _, err := lockCloudDeviceApprovalKey(ctx, tx, request.OwnerMXID, state.Deployment.ConnectionID)
@@ -159,7 +159,7 @@ func (s *DatabaseStore) ApproveCloudServiceDestroy(ctx context.Context, request 
 		if err != nil {
 			return err
 		}
-		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) {
+		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceDestroyConfirmationConflict
 		}
 		storedApproval, err := decodeStoredServiceDestroyApproval(stored.ApprovalJSON)
@@ -190,7 +190,7 @@ func (s *DatabaseStore) ApproveCloudServiceDestroy(ctx context.Context, request 
 		deployment := state.Deployment
 		deployment.Resource, deployment.Revision, deployment.UpdatedAt = "destroying", deployment.Revision+1, request.CreatedAt
 		job := cloudmodule.Job{JobID: request.JobID, PlanID: deployment.PlanID, DeploymentID: deployment.DeploymentID, Kind: "destroy", Execution: "queued", Outcome: "pending", Checkpoint: "destroy_queued", Revision: 1, CreatedAt: request.CreatedAt, UpdatedAt: request.CreatedAt}
-		serviceResult, err := tx.ExecContext(ctx, `UPDATE p2p_cloud_services SET service_status='destroying',revision=$1,updated_at=$2 WHERE service_id=$3 AND revision=$4 AND service_status IN ('experimental','active','degraded')`, service.Revision, request.CreatedAt, service.ServiceID, state.Service.Revision)
+		serviceResult, err := tx.ExecContext(ctx, `UPDATE p2p_cloud_services SET service_status='destroying',revision=$1,updated_at=$2 WHERE service_id=$3 AND revision=$4 AND service_status IN ('experimental','active','stopped','degraded')`, service.Revision, request.CreatedAt, service.ServiceID, state.Service.Revision)
 		if err != nil {
 			return err
 		}
@@ -297,7 +297,7 @@ func serviceDestroyStateReady(state serviceDestroyState) bool {
 	if state.Service.DeploymentID != state.Deployment.DeploymentID || state.Service.RecipeID == "" || state.RecipeDigest == "" || state.Deployment.ConnectionID == "" || state.Deployment.Execution != "finished" || state.Deployment.Outcome != "succeeded" {
 		return false
 	}
-	if state.Service.Status != "experimental" && state.Service.Status != "active" && state.Service.Status != "degraded" {
+	if state.Service.Status != "experimental" && state.Service.Status != "active" && state.Service.Status != "stopped" && state.Service.Status != "degraded" {
 		return false
 	}
 	if state.Deployment.Resource != "active" && state.Deployment.Resource != "retained_tracked" {
@@ -307,6 +307,11 @@ func serviceDestroyStateReady(state serviceDestroyState) bool {
 		return false
 	}
 	return serviceDestroyTarget(state).Validate() == nil
+}
+
+func serviceHasActiveOperation(ctx context.Context, tx *sql.Tx, serviceID string) bool {
+	var count int
+	return tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE service_id=$1 AND task_status IN('queued','running')`, serviceID).Scan(&count) != nil || count != 0
 }
 
 func serviceDestroyTarget(state serviceDestroyState) cloudcontracts.ServiceDestroyTargetV1 {

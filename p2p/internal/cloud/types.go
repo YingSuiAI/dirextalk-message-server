@@ -43,6 +43,11 @@ const (
 	// install succeeds. The Stack generates the fresh challenge; this outbox
 	// contains no Worker-selected probe target or execution material.
 	OutboxKindServiceReadinessRequested = "cloud.service_readiness.requested"
+	// OutboxKindServiceOperationRequested is emitted only after a device
+	// signature binds an installed managed artifact and one fixed lifecycle
+	// action. It contains no command, path, URL, secret, or caller-selected
+	// Worker execution material.
+	OutboxKindServiceOperationRequested = "cloud.service.operation.requested"
 	// OutboxKindServiceDestroyRequested is emitted only after a fresh device
 	// signature binds the exact tracked EC2/EBS/ENI set. The Orchestrator, not
 	// ProductCore, later issues the typed Stack command and verifies read-back.
@@ -57,28 +62,32 @@ const (
 )
 
 var (
-	ErrIdempotencyConflict                 = errors.New("cloud idempotency key was reused with a different request")
-	ErrConnectionBootstrapConflict         = errors.New("cloud connection bootstrap conflicts with the requested revision")
-	ErrConnectionBootstrapExpired          = errors.New("cloud connection bootstrap has expired")
-	ErrConnectionBootstrapInvalid          = errors.New("cloud connection bootstrap is not in a completable state")
-	ErrConnectionBootstrapInputInvalid     = errors.New("cloud connection bootstrap registration input is invalid")
-	ErrPlanConfirmationConflict            = errors.New("cloud plan confirmation conflicts with the requested revision")
-	ErrPlanConfirmationInvalid             = errors.New("cloud plan confirmation is invalid")
-	ErrPlanQuoteExpired                    = errors.New("cloud quote has expired")
-	ErrPlanApprovalConflict                = errors.New("cloud plan approval conflicts with the requested revision")
-	ErrPlanApprovalInvalid                 = errors.New("cloud plan approval is invalid")
-	ErrPlanApprovalExpired                 = errors.New("cloud plan approval has expired")
-	ErrPlanApprovalSignature               = errors.New("cloud plan approval signature is invalid")
-	ErrRecipeExecutionManifestConflict     = errors.New("cloud recipe execution manifest conflicts with the current deployment")
-	ErrRecipeExecutionManifestInvalid      = errors.New("cloud recipe execution manifest is invalid")
-	ErrRecipeExecutionConfirmationConflict = errors.New("cloud recipe execution confirmation conflicts with the requested deployment")
-	ErrRecipeExecutionConfirmationInvalid  = errors.New("cloud recipe execution confirmation is invalid")
-	ErrRecipeExecutionApprovalExpired      = errors.New("cloud recipe execution approval has expired")
-	ErrRecipeExecutionApprovalSignature    = errors.New("cloud recipe execution approval signature is invalid")
-	ErrServiceDestroyConfirmationConflict  = errors.New("cloud service destroy confirmation conflicts with the current service")
-	ErrServiceDestroyConfirmationInvalid   = errors.New("cloud service destroy confirmation is invalid")
-	ErrServiceDestroyApprovalExpired       = errors.New("cloud service destroy approval has expired")
-	ErrServiceDestroyApprovalSignature     = errors.New("cloud service destroy approval signature is invalid")
+	ErrIdempotencyConflict                  = errors.New("cloud idempotency key was reused with a different request")
+	ErrConnectionBootstrapConflict          = errors.New("cloud connection bootstrap conflicts with the requested revision")
+	ErrConnectionBootstrapExpired           = errors.New("cloud connection bootstrap has expired")
+	ErrConnectionBootstrapInvalid           = errors.New("cloud connection bootstrap is not in a completable state")
+	ErrConnectionBootstrapInputInvalid      = errors.New("cloud connection bootstrap registration input is invalid")
+	ErrPlanConfirmationConflict             = errors.New("cloud plan confirmation conflicts with the requested revision")
+	ErrPlanConfirmationInvalid              = errors.New("cloud plan confirmation is invalid")
+	ErrPlanQuoteExpired                     = errors.New("cloud quote has expired")
+	ErrPlanApprovalConflict                 = errors.New("cloud plan approval conflicts with the requested revision")
+	ErrPlanApprovalInvalid                  = errors.New("cloud plan approval is invalid")
+	ErrPlanApprovalExpired                  = errors.New("cloud plan approval has expired")
+	ErrPlanApprovalSignature                = errors.New("cloud plan approval signature is invalid")
+	ErrRecipeExecutionManifestConflict      = errors.New("cloud recipe execution manifest conflicts with the current deployment")
+	ErrRecipeExecutionManifestInvalid       = errors.New("cloud recipe execution manifest is invalid")
+	ErrRecipeExecutionConfirmationConflict  = errors.New("cloud recipe execution confirmation conflicts with the requested deployment")
+	ErrRecipeExecutionConfirmationInvalid   = errors.New("cloud recipe execution confirmation is invalid")
+	ErrRecipeExecutionApprovalExpired       = errors.New("cloud recipe execution approval has expired")
+	ErrRecipeExecutionApprovalSignature     = errors.New("cloud recipe execution approval signature is invalid")
+	ErrServiceDestroyConfirmationConflict   = errors.New("cloud service destroy confirmation conflicts with the current service")
+	ErrServiceDestroyConfirmationInvalid    = errors.New("cloud service destroy confirmation is invalid")
+	ErrServiceDestroyApprovalExpired        = errors.New("cloud service destroy approval has expired")
+	ErrServiceDestroyApprovalSignature      = errors.New("cloud service destroy approval signature is invalid")
+	ErrServiceOperationConfirmationConflict = errors.New("cloud service operation conflicts with the current service")
+	ErrServiceOperationConfirmationInvalid  = errors.New("cloud service operation confirmation is invalid")
+	ErrServiceOperationApprovalExpired      = errors.New("cloud service operation approval has expired")
+	ErrServiceOperationApprovalSignature    = errors.New("cloud service operation approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted

@@ -24,9 +24,11 @@ const (
 	// the resolver and driver cannot drift to different action identifiers.
 	ActionID = recipeexec.FixedProbeActionID
 
-	CheckpointUnitInstalled  = "probe_unit_installed"
-	CheckpointServiceStarted = "probe_service_started"
-	CheckpointHealthVerified = "probe_health_verified"
+	CheckpointUnitInstalled    = "probe_unit_installed"
+	CheckpointServiceStarted   = "probe_service_started"
+	CheckpointHealthVerified   = "probe_health_verified"
+	CheckpointServiceStopped   = "probe_service_stopped"
+	CheckpointServiceRestarted = "probe_service_restarted"
 
 	SystemctlPath        = "/usr/bin/systemctl"
 	UnitName             = "dirextalk-cloud-worker-probe.service"
@@ -83,6 +85,23 @@ func CheckpointSequence() []string {
 	return append([]string(nil), fixedCheckpointSequence...)
 }
 
+func CheckpointSequenceForAction(actionID string) ([]string, bool) {
+	var checkpoints []string
+	switch actionID {
+	case recipeexec.FixedProbeActionID:
+		checkpoints = fixedCheckpointSequence
+	case recipeexec.FixedProbeStartID:
+		checkpoints = []string{CheckpointServiceStarted, CheckpointHealthVerified}
+	case recipeexec.FixedProbeStopID:
+		checkpoints = []string{CheckpointServiceStopped}
+	case recipeexec.FixedProbeRestartID:
+		checkpoints = []string{CheckpointServiceRestarted, CheckpointHealthVerified}
+	default:
+		return nil, false
+	}
+	return append([]string(nil), checkpoints...), true
+}
+
 // Host is the narrow privileged boundary. Driver always supplies fixed
 // constants to these methods; the Recipe task has no corresponding fields.
 type Host interface {
@@ -115,8 +134,9 @@ func (driver *Driver) Execute(ctx context.Context, request recipeexec.ActionRequ
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resumeIndex, ok := checkpointIndex(request.ResumeAfter)
-	if request.ActionID != recipeexec.FixedProbeActionID || !fixedBundle(request.Artifact) || !ok || len(request.VolumeSlots) != 0 || len(request.DataSlots) != 0 || len(request.SecretSlots) != 0 {
+	checkpoints, supported := CheckpointSequenceForAction(request.ActionID)
+	resumeIndex, ok := checkpointIndex(request.ResumeAfter, checkpoints)
+	if !supported || !fixedBundle(request.Artifact, request.ActionID) || !ok || len(request.VolumeSlots) != 0 || len(request.DataSlots) != 0 || len(request.SecretSlots) != 0 {
 		return recipeexec.PermanentExecutionFailure(ErrUnsupportedScope)
 	}
 	if !request.RootRequired || driver.host.EffectiveUID() != 0 {
@@ -126,7 +146,7 @@ func (driver *Driver) Execute(ctx context.Context, request recipeexec.ActionRequ
 		return err
 	}
 
-	if resumeIndex < 0 {
+	if request.ActionID == recipeexec.FixedProbeActionID && resumeIndex < 0 {
 		if err := driver.host.WriteFile(UnitPath, []byte(UnitContents), 0o644); err != nil {
 			return fmt.Errorf("write fixed probe unit: %w", err)
 		}
@@ -137,7 +157,7 @@ func (driver *Driver) Execute(ctx context.Context, request recipeexec.ActionRequ
 			return err
 		}
 	}
-	if resumeIndex < 1 {
+	if request.ActionID == recipeexec.FixedProbeActionID && resumeIndex < 1 {
 		if err := driver.host.Run(ctx, SystemctlPath, "enable", "--now", UnitName); err != nil {
 			return fmt.Errorf("start fixed probe unit: %w", err)
 		}
@@ -145,7 +165,7 @@ func (driver *Driver) Execute(ctx context.Context, request recipeexec.ActionRequ
 			return err
 		}
 	}
-	if resumeIndex < 2 {
+	if request.ActionID == recipeexec.FixedProbeActionID && resumeIndex < 2 {
 		if err := driver.host.CheckLoopback(ctx, ReadinessURL); err != nil {
 			return fmt.Errorf("%w: %w", ErrReadinessFailed, err)
 		}
@@ -153,14 +173,42 @@ func (driver *Driver) Execute(ctx context.Context, request recipeexec.ActionRequ
 			return err
 		}
 	}
+	if request.ActionID == recipeexec.FixedProbeStartID && resumeIndex < 0 {
+		if err := driver.host.Run(ctx, SystemctlPath, "start", UnitName); err != nil {
+			return fmt.Errorf("start fixed probe unit: %w", err)
+		}
+		if err := reporter.Checkpoint(ctx, CheckpointServiceStarted); err != nil {
+			return err
+		}
+	}
+	if request.ActionID == recipeexec.FixedProbeRestartID && resumeIndex < 0 {
+		if err := driver.host.Run(ctx, SystemctlPath, "restart", UnitName); err != nil {
+			return fmt.Errorf("restart fixed probe unit: %w", err)
+		}
+		if err := reporter.Checkpoint(ctx, CheckpointServiceRestarted); err != nil {
+			return err
+		}
+	}
+	if request.ActionID == recipeexec.FixedProbeStopID && resumeIndex < 0 {
+		if err := driver.host.Run(ctx, SystemctlPath, "stop", UnitName); err != nil {
+			return fmt.Errorf("stop fixed probe unit: %w", err)
+		}
+		return reporter.Checkpoint(ctx, CheckpointServiceStopped)
+	}
+	if (request.ActionID == recipeexec.FixedProbeStartID || request.ActionID == recipeexec.FixedProbeRestartID) && resumeIndex < 1 {
+		if err := driver.host.CheckLoopback(ctx, ReadinessURL); err != nil {
+			return fmt.Errorf("%w: %w", ErrReadinessFailed, err)
+		}
+		return reporter.Checkpoint(ctx, CheckpointHealthVerified)
+	}
 	return nil
 }
 
-func checkpointIndex(checkpoint string) (int, bool) {
+func checkpointIndex(checkpoint string, checkpoints []string) (int, bool) {
 	if checkpoint == "" {
 		return -1, true
 	}
-	for index, candidate := range fixedCheckpointSequence {
+	for index, candidate := range checkpoints {
 		if checkpoint == candidate {
 			return index, true
 		}
@@ -168,9 +216,23 @@ func checkpointIndex(checkpoint string) (int, bool) {
 	return -1, false
 }
 
-func fixedBundle(bundle recipeexec.Bundle) bool {
-	want := recipeexec.FixedProbeBundle()
-	return bundle.ArtifactDigest == want.ArtifactDigest && len(bundle.ActionIDs) == 1 && bundle.ActionIDs[0] == recipeexec.FixedProbeActionID
+func fixedBundle(bundle recipeexec.Bundle, actionID string) bool {
+	if actionID == recipeexec.FixedProbeActionID && sameBundle(bundle, recipeexec.FixedProbeBundle()) {
+		return true
+	}
+	return sameBundle(bundle, recipeexec.FixedProbeManagedBundle())
+}
+
+func sameBundle(bundle, want recipeexec.Bundle) bool {
+	if bundle.ArtifactDigest != want.ArtifactDigest || len(bundle.ActionIDs) != len(want.ActionIDs) {
+		return false
+	}
+	for i := range want.ActionIDs {
+		if bundle.ActionIDs[i] != want.ActionIDs[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // LocalHost is the production Linux backend. It invokes an absolute systemctl
@@ -251,7 +313,10 @@ func fixedSystemctlArguments(arguments []string) bool {
 	if len(arguments) == 1 && arguments[0] == "daemon-reload" {
 		return true
 	}
-	return len(arguments) == 3 && arguments[0] == "enable" && arguments[1] == "--now" && arguments[2] == UnitName
+	if len(arguments) == 3 && arguments[0] == "enable" && arguments[1] == "--now" && arguments[2] == UnitName {
+		return true
+	}
+	return len(arguments) == 2 && (arguments[0] == "start" || arguments[0] == "stop" || arguments[0] == "restart") && arguments[1] == UnitName
 }
 
 func validateProductionHost(goos string, effectiveUID int, stat func(string) (fs.FileInfo, error)) error {

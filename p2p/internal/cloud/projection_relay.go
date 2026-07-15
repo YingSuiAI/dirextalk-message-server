@@ -387,7 +387,7 @@ func validDeploymentProjection(value deploymentProjectionPayload) bool {
 func validServiceProjection(value serviceProjectionPayload) bool {
 	return validProjectionIdentifier(value.ServiceID) && validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.RecipeID) &&
 		validVisibleProjectionText(value.Name, 160, false) &&
-		allowedProjectionValue(value.Status, "experimental", "awaiting_management_acceptance", "active", "degraded", "destroying", "destroyed") &&
+		allowedProjectionValue(value.Status, "experimental", "awaiting_management_acceptance", "active", "stopped", "degraded", "destroying", "destroyed") &&
 		allowedProjectionValue(value.Integration, "not_requested", "pending", "connected", "degraded", "failed", "disconnected") &&
 		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
 }

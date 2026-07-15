@@ -82,6 +82,37 @@ func TestDriverResumesAfterTheExactDurableCheckpoint(t *testing.T) {
 	}
 }
 
+func TestDriverExecutesOnlyCompiledLifecycleActions(t *testing.T) {
+	tests := []struct {
+		name, action string
+		commands     []commandCall
+		checkpoints  []string
+		health       bool
+	}{
+		{name: "start", action: recipeexec.FixedProbeStartID, commands: []commandCall{{executable: SystemctlPath, arguments: []string{"start", UnitName}}}, checkpoints: []string{CheckpointServiceStarted, CheckpointHealthVerified}, health: true},
+		{name: "stop", action: recipeexec.FixedProbeStopID, commands: []commandCall{{executable: SystemctlPath, arguments: []string{"stop", UnitName}}}, checkpoints: []string{CheckpointServiceStopped}},
+		{name: "restart", action: recipeexec.FixedProbeRestartID, commands: []commandCall{{executable: SystemctlPath, arguments: []string{"restart", UnitName}}}, checkpoints: []string{CheckpointServiceRestarted, CheckpointHealthVerified}, health: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			host := &fakeHost{uid: 0}
+			reporter := &recordingReporter{}
+			request := validRequest()
+			request.ActionID = test.action
+			request.Artifact = recipeexec.FixedProbeManagedBundle()
+			if err := NewDriver(host).Execute(context.Background(), request, reporter); err != nil {
+				t.Fatal(err)
+			}
+			if host.writePath != "" || !reflect.DeepEqual(host.commands, test.commands) || !reflect.DeepEqual(reporter.checkpoints, test.checkpoints) {
+				t.Fatalf("host=%#v checkpoints=%v", host, reporter.checkpoints)
+			}
+			if (len(host.healthURLs) == 1) != test.health {
+				t.Fatalf("health URLs=%v", host.healthURLs)
+			}
+		})
+	}
+}
+
 func TestDriverRequiresRootAndTheRootApprovedScope(t *testing.T) {
 	tests := []struct {
 		name    string

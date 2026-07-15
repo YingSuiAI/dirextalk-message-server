@@ -15,6 +15,7 @@ import (
 
 const (
 	RecipeInstallRequested     = cloudmodule.OutboxKindRecipeExecutionInstallRequested
+	ServiceOperationRequested  = cloudmodule.OutboxKindServiceOperationRequested
 	RecipeInstallPhaseIssue    = "issue"
 	RecipeInstallPhaseObserve  = "observe"
 	RecipeInstallIssueAction   = "worker.recipe_task.issue"
@@ -157,7 +158,9 @@ func ValidateRecipeInstallClaim(c RecipeInstallClaim) error {
 		return errors.New("recipe install endpoint is invalid")
 	}
 	if c.Phase == RecipeInstallPhaseIssue {
-		if c.Kind != RecipeInstallRequested || c.AggregateType != "recipe_execution" || c.AggregateID != c.ExecutionID || c.OutboxID == "" || c.IssueRequest.Validate() != nil || c.Command.Action != RecipeInstallIssueAction {
+		installIntent := c.Kind == RecipeInstallRequested && c.AggregateType == "recipe_execution"
+		operationIntent := c.Kind == ServiceOperationRequested && c.AggregateType == "service_operation"
+		if (!installIntent && !operationIntent) || c.AggregateID != c.ExecutionID || c.OutboxID == "" || c.IssueRequest.Validate() != nil || c.Command.Action != RecipeInstallIssueAction {
 			return errors.New("recipe install issue claim is invalid")
 		}
 	} else if c.Phase == RecipeInstallPhaseObserve {

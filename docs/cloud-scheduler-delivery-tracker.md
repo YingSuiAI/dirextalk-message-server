@@ -449,6 +449,32 @@ stage; later checked workboard sections are the authoritative delivery record.
   and verified/blocked terminal states; pass the affected root and standalone
   Go checks and one accumulated security/spec review.
 
+### K. Device-approved managed Service lifecycle operations
+
+- [x] Add owner HTTP-only `cloud.services.operation.plan/approve`; accept only
+  `service_id`, expected revision and `start|stop|restart`, while deriving the
+  artifact, opaque action, root scope, timeout and checkpoints from the exact
+  installed managed Recipe. Keep Agent and MCP read-only.
+- [x] Bind deterministic-CBOR Ed25519 approval to the expected Service status,
+  Service/Deployment revisions, Connection, Recipe and installed/compiled
+  artifact digests plus the fixed lifecycle capability.
+- [x] Persist approval, sealed operation task, Job/Step and private outbox
+  atomically. Reject concurrent lifecycle or destroy work for the same Service
+  and fence execution against the exact signed Service revision and status.
+- [x] Reuse the signed `worker.recipe_task.issue/observe` channel without adding
+  a command, path, URL, slot or AWS capability. Persist the exact signed
+  envelope before I/O and replay it after disconnect or response loss.
+- [x] Extend the fixed audited Worker bundle with typed systemd
+  start/stop/restart actions and restart-persistent checkpoints; retain the old
+  install-only artifact digest for already approved executions.
+- [x] Project queued/running/terminal Job revisions; on success publish
+  `active` or `stopped`, on failure publish `degraded`, and in every outcome
+  leave the EC2 resource active, tracked and billable.
+- [x] Cover approval tampering/idempotency, exact command recovery, stale lease
+  and Service revision fencing, managed action execution, active-operation
+  destroy exclusion and stopped terminal state; pass the affected Go checks,
+  Linux builds and one accumulated security/spec review.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -473,7 +499,7 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Implement experimental-to-managed acceptance plus typed start/stop/restart and
+Implement device-approved experimental-to-managed acceptance and typed
 backup/restore operations without widening the Worker or Agent. Keep public
 ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
 credentials, Stack deployment and real-account tests disabled until those

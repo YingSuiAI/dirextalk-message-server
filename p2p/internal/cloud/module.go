@@ -70,6 +70,10 @@ const (
 	cloudServiceDestroyConfirmationConflictCode         = "cloud_service_destroy_confirmation_conflict"
 	cloudServiceDestroyApprovalExpiredCode              = "cloud_service_destroy_approval_expired"
 	cloudServiceDestroyApprovalSignatureCode            = "cloud_service_destroy_approval_signature_invalid"
+	cloudServiceOperationConfirmationInvalidCode        = "cloud_service_operation_confirmation_invalid"
+	cloudServiceOperationConfirmationConflictCode       = "cloud_service_operation_confirmation_conflict"
+	cloudServiceOperationApprovalExpiredCode            = "cloud_service_operation_approval_expired"
+	cloudServiceOperationApprovalSignatureCode          = "cloud_service_operation_approval_signature_invalid"
 )
 
 type Config struct {
@@ -111,8 +115,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
 		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
 		actionDeploymentsPairingResume:                      m.unavailableWrite,
-		actionServicesOperationPlan:                         m.unavailableWrite,
-		actionServicesOperationApprove:                      m.unavailableWrite,
+		actionServicesOperationPlan:                         m.prepareServiceOperation,
+		actionServicesOperationApprove:                      m.approveServiceOperation,
 		actionServicesDestroyPlan:                           m.prepareServiceDestroy,
 		actionServicesDestroyApprove:                        m.approveServiceDestroy,
 	}
@@ -478,6 +482,96 @@ func (m *Module) approveRecipeExecution(ctx context.Context, params map[string]a
 	return map[string]any{"execution": approved.Execution, "job": approved.Job}, nil
 }
 
+// prepareServiceOperation resolves the lifecycle capability from the exact
+// installed managed Recipe. The client may select only start, stop or restart;
+// it cannot select the Worker action, artifact, checkpoints, timeout or root
+// scope included in the device signing payload.
+func (m *Module) prepareServiceOperation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "expected_revision", "operation", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceOperationConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	serviceID, idempotencyKey := values.String("service_id"), values.String("idempotency_key")
+	operation := cloudcontracts.ServiceOperation(values.String("operation"))
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || expectedRevision <= 0 ||
+		(operation != cloudcontracts.ServiceOperationStart && operation != cloudcontracts.ServiceOperationStop && operation != cloudcontracts.ServiceOperationRestart) ||
+		ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceOperationConfirmationInvalidCode, "cloud service operation confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC()
+	prepared, err := store.PrepareCloudServiceOperation(ctx, PrepareServiceOperationRequest{
+		OwnerMXID: ownerMXID, ServiceID: serviceID, ExpectedRevision: expectedRevision, Operation: operation,
+		IdempotencyHash: digest(idempotencyKey), RequestDigest: digestFields(serviceID, fmt.Sprint(expectedRevision), string(operation)),
+		ApprovalID: m.newID("service_operation_approval"), ChallengeID: m.newID("service_operation_challenge"),
+		CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		return nil, serviceOperationConfirmationError(err)
+	}
+	return map[string]any{"confirmation": prepared.Confirmation}, nil
+}
+
+// approveServiceOperation verifies the exact device signature and atomically
+// queues a sealed Worker task. ProductCore never executes a VM command.
+func (m *Module) approveServiceOperation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceOperationConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	values := actionbase.Params(params)
+	serviceID, idempotencyKey := values.String("service_id"), values.String("idempotency_key")
+	expectedRevision := values.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || expectedRevision <= 0 || ContainsSensitiveGoalMaterial(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceOperationConfirmationInvalidCode, "cloud service operation confirmation is invalid")
+	}
+	if _, err := uuid.Parse(idempotencyKey); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	approval, err := decodeServiceOperationApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceOperationConfirmationInvalidCode, "cloud service operation confirmation is invalid")
+	}
+	ownerMXID := m.ownerMXID()
+	if ownerMXID == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now, jobEventID := m.now().UnixMilli(), m.newID("event")
+	approved, err := store.ApproveCloudServiceOperation(ctx, ApproveServiceOperationRequest{
+		OwnerMXID: ownerMXID, ServiceID: serviceID, ExpectedRevision: expectedRevision,
+		IdempotencyHash: digest(idempotencyKey), Approval: approval,
+		OperationID: m.newID("service_operation"), JobID: m.newID("service_operation"), OutboxID: m.newID("outbox"),
+		JobEventID: jobEventID, CreatedAt: now,
+	})
+	if err != nil {
+		return nil, serviceOperationApprovalError(err)
+	}
+	if approved.Created {
+		m.publish(ctx, "cloud.job.changed", jobEventID, jobPayload(approved.Job))
+	}
+	return map[string]any{"service": approved.Service, "operation": approved.Operation, "job": approved.Job}, nil
+}
+
 // prepareServiceDestroy resolves the exact private provider resource set from
 // durable read-back facts. The client can select only the Service revision;
 // it cannot add an instance, volume, network interface, Region, or AWS API.
@@ -633,6 +727,27 @@ func decodeServiceDestroyApprovalV1(value any) (cloudcontracts.ServiceDestroyApp
 	return approval, nil
 }
 
+func decodeServiceOperationApprovalV1(value any) (cloudcontracts.ServiceOperationApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.ServiceOperationApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.ServiceOperationApprovalV1
+	if err := decoder.Decode(&approval); err != nil {
+		return cloudcontracts.ServiceOperationApprovalV1{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudcontracts.ServiceOperationApprovalV1{}, errors.New("service operation approval contains trailing JSON")
+	}
+	if err := approval.Validate(); err != nil {
+		return cloudcontracts.ServiceOperationApprovalV1{}, err
+	}
+	return approval, nil
+}
+
 func planConfirmationError(err error) *actionbase.Error {
 	switch {
 	case errors.Is(err, ErrIdempotencyConflict):
@@ -705,6 +820,36 @@ func serviceDestroyConfirmationError(err error) *actionbase.Error {
 		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationConflictCode, "cloud service destroy confirmation conflicts with the current service")
 	case errors.Is(err, ErrServiceDestroyConfirmationInvalid):
 		return actionbase.CodedError(http.StatusConflict, cloudServiceDestroyConfirmationInvalidCode, "cloud service is not destroyable")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func serviceOperationConfirmationError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service operation confirmation")
+	case errors.Is(err, ErrServiceOperationConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceOperationConfirmationConflictCode, "cloud service operation confirmation conflicts with the current service")
+	case errors.Is(err, ErrServiceOperationConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceOperationConfirmationInvalidCode, "cloud service does not expose this managed operation")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+
+func serviceOperationApprovalError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service operation approval")
+	case errors.Is(err, ErrServiceOperationApprovalExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceOperationApprovalExpiredCode, "cloud service operation approval has expired")
+	case errors.Is(err, ErrServiceOperationApprovalSignature):
+		return actionbase.CodedError(http.StatusUnauthorized, cloudServiceOperationApprovalSignatureCode, "cloud service operation approval signature is invalid")
+	case errors.Is(err, ErrServiceOperationConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceOperationConfirmationConflictCode, "cloud service operation approval conflicts with the current service")
+	case errors.Is(err, ErrServiceOperationConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceOperationConfirmationInvalidCode, "cloud service operation approval is invalid")
 	default:
 		return actionbase.InternalError(err)
 	}

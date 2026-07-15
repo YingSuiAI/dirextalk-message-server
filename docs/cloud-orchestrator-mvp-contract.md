@@ -592,10 +592,20 @@ absent. The Orchestrator independently validates that receipt before publishing
 `degraded`/`blocked` with `destroy_blocked`. Agent, MCP and Worker receive no
 destroy capability or AWS credential.
 
-Only the fixed compiled probe Recipe and its Stack-witnessed readiness task are
-implemented. Secret delivery, selectable Recipes, OpenClaw/knowledge services,
-ingress, management acceptance, start/stop/restart and backup/restore still
-return `operation_not_enabled`. The repository does not yet deploy a researcher
+The fixed compiled probe Recipe now has a second immutable managed artifact
+whose owner-only HTTP approval binds one exact `start`, `stop` or `restart`
+action to the installed manifest, current Service status/revision and fixed
+root/checkpoint scope. The independent Orchestrator reuses the sealed Worker
+task channel behind `CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED`; it persists
+the signed command before I/O, publishes Job progress, and never changes the
+still-active billable resource axis. Stop success adds the distinct `stopped`
+Service status; start/restart success publishes `active`, and any terminal
+failure publishes `degraded`. The prior install-only artifact remains accepted
+for already approved installs but exposes no lifecycle capability.
+
+Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress,
+management acceptance and backup/restore still return
+`operation_not_enabled`. The repository does not yet deploy a researcher
 endpoint, build or publish the versioned Worker AMI containing the fixed
 binaries, deploy the Stack, or run a real-account AWS integration test.
 Those transitions

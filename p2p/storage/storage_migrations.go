@@ -1495,6 +1495,40 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud managed service operations v53",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_operation_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL, challenge_id TEXT NOT NULL UNIQUE, owner_mxid TEXT NOT NULL,
+					service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK (service_revision > 0), operation TEXT NOT NULL CHECK (operation IN ('start','stop','restart')),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK (deployment_revision > 0), cloud_connection_id TEXT NOT NULL,
+					recipe_id TEXT NOT NULL, recipe_digest TEXT NOT NULL, installed_manifest_digest TEXT NOT NULL, artifact_digest TEXT NOT NULL, action_id TEXT NOT NULL,
+					approval_json TEXT NOT NULL, signing_payload BYTEA NOT NULL, signer_key_id TEXT NOT NULL, service_json TEXT NOT NULL, deployment_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK (status IN ('pending','approved','expired')), prepare_idempotency_hash TEXT NOT NULL, prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT, approve_request_digest TEXT, signature TEXT, operation_id TEXT NOT NULL DEFAULT '', job_id TEXT NOT NULL DEFAULT '',
+					result_service_json TEXT NOT NULL DEFAULT '', result_job_json TEXT NOT NULL DEFAULT '', expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_operation_approvals_approve_idempotency_idx ON p2p_cloud_service_operation_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_operation_approvals_service_idx ON p2p_cloud_service_operation_approvals(service_id,created_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_operation_tasks (
+					operation_id TEXT PRIMARY KEY NOT NULL, approval_id TEXT NOT NULL UNIQUE, service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK (service_revision > 0),
+					expected_service_status TEXT NOT NULL CHECK (expected_service_status IN ('experimental','active','stopped','degraded')),
+					operation TEXT NOT NULL CHECK (operation IN ('start','stop','restart')), execution_id TEXT NOT NULL UNIQUE, deployment_id TEXT NOT NULL, plan_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL, instance_id TEXT NOT NULL, manifest_digest TEXT NOT NULL, input_digest TEXT NOT NULL, manifest_json TEXT NOT NULL,
+					checkpoint_sequence_json TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, job_id TEXT NOT NULL UNIQUE,
+					task_status TEXT NOT NULL CHECK (task_status IN ('queued','running','succeeded','failed','interrupted')),
+					task_attempt BIGINT NOT NULL DEFAULT 1 CHECK (task_attempt > 0), last_sequence BIGINT NOT NULL DEFAULT 0 CHECK (last_sequence >= 0),
+					last_checkpoint TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '', available_at BIGINT NOT NULL DEFAULT 0,
+					lease_owner TEXT NOT NULL DEFAULT '', lease_token TEXT NOT NULL DEFAULT '', lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_operation_tasks_claim_idx ON p2p_cloud_service_operation_tasks(task_status,available_at,lease_until,updated_at)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_operation_tasks_active_service_idx ON p2p_cloud_service_operation_tasks(service_id) WHERE task_status IN ('queued','running')`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

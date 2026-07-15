@@ -238,8 +238,7 @@ func newFixedProbeRecipeProcessor(client workerSessionClient, checkpointDirector
 	if !ok {
 		return nil, recipeexec.ErrExecutorConfiguration
 	}
-	bundle := recipeexec.FixedProbeBundle()
-	resolver, err := recipeexec.NewFixedBundleResolver([]recipeexec.Bundle{bundle})
+	resolver, err := recipeexec.NewFixedBundleResolver([]recipeexec.Bundle{recipeexec.FixedProbeBundle(), recipeexec.FixedProbeManagedBundle()})
 	if err != nil {
 		return nil, err
 	}
