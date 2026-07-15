@@ -17,6 +17,19 @@ import (
 )
 
 type LegacyAgentGatewayIngress = legacygatewaymodule.Ingress
+type LegacyAgentGatewayRunTerminalSource = legacygatewaymodule.RunTerminalSource
+type LegacyAgentGatewayMatrixSender = legacygatewaymodule.MatrixSender
+type LegacyAgentGatewayTerminalConsumer = legacygatewaymodule.TerminalConsumer
+
+// NewLegacyAgentGatewayTerminalConsumer remains fail-closed until the host
+// supplies both a committed vNext terminal source and an idempotent Matrix sender.
+func NewLegacyAgentGatewayTerminalConsumer(
+	store legacygatewaymodule.Store,
+	source LegacyAgentGatewayRunTerminalSource,
+	sender LegacyAgentGatewayMatrixSender,
+) (*LegacyAgentGatewayTerminalConsumer, error) {
+	return legacygatewaymodule.NewTerminalConsumer(store, source, sender)
+}
 
 type LegacyAgentGatewaySenderResolver interface {
 	QueryUserIDForSender(context.Context, spec.RoomID, spec.SenderID) (*spec.UserID, error)

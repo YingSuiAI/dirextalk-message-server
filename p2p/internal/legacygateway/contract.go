@@ -125,6 +125,7 @@ type InvocationRecord struct {
 	Inserted     bool
 	ErrorCode    string
 	UpdatedAt    time.Time
+	Terminal     TerminalDelivery
 }
 
 type Reservation struct {
@@ -136,8 +137,54 @@ type Reservation struct {
 // fences completion so a conflicting replay cannot update the first record.
 type Store interface {
 	ReserveInvocation(context.Context, InvocationCandidate) (Reservation, error)
+	LoadAcceptedInvocation(context.Context, string, string, string) (InvocationRecord, error)
 	MarkAccepted(context.Context, string, string, [32]byte, CreateRunReceipt, time.Time) (InvocationRecord, error)
 	MarkRejected(context.Context, string, string, [32]byte, string, time.Time) (InvocationRecord, error)
+	ReserveTerminal(context.Context, TerminalDelivery, time.Time) (TerminalReservation, error)
+	AdvanceTerminal(context.Context, string, string, [32]byte, TerminalPhase, TerminalPhase, time.Time) (TerminalDelivery, error)
+	PendingTerminals(context.Context, int) ([]TerminalDelivery, error)
+}
+
+type TerminalKind string
+
+const (
+	TerminalResult TerminalKind = "result"
+	TerminalError  TerminalKind = "error"
+)
+
+type TerminalPhase string
+
+const (
+	TerminalSendIntent TerminalPhase = "send_intent"
+	TerminalSent       TerminalPhase = "sent"
+	TerminalCommitted  TerminalPhase = "committed"
+	TerminalSourceACK  TerminalPhase = "source_ack"
+)
+
+type TerminalDelivery struct {
+	MatrixRoomID        string
+	RequestID           string
+	RunID               string
+	Cursor              string
+	Kind                TerminalKind
+	Digest              [32]byte
+	EventType           string
+	ContentJSON         []byte
+	MatrixTransactionID string
+	MatrixEventID       string
+	Phase               TerminalPhase
+}
+
+type TerminalReservationStatus string
+
+const (
+	TerminalReservationInserted TerminalReservationStatus = "inserted"
+	TerminalReservationReplay   TerminalReservationStatus = "replay"
+)
+
+type TerminalReservation struct {
+	Status   TerminalReservationStatus
+	Delivery TerminalDelivery
 }
 
 // ResultEventContent and ErrorEventContent only reserve the documented Matrix

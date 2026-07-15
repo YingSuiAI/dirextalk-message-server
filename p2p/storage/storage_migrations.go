@@ -1673,6 +1673,25 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: legacy agent terminal delivery v59",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_kind TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_digest BYTEA`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_cursor TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_event_type TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_content_json BYTEA`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS matrix_transaction_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS matrix_terminal_event_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD COLUMN IF NOT EXISTS terminal_phase TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_legacy_agent_invocations ADD CONSTRAINT p2p_legacy_agent_invocations_terminal_check CHECK ((terminal_phase='' AND terminal_kind='' AND terminal_digest IS NULL AND terminal_cursor='' AND terminal_event_type='' AND terminal_content_json IS NULL AND matrix_transaction_id='' AND matrix_terminal_event_id='') OR (state='accepted' AND terminal_phase IN ('send_intent','sent','committed','source_ack') AND terminal_kind IN ('result','error') AND octet_length(terminal_digest)=32 AND terminal_cursor<>'' AND terminal_event_type<>'' AND terminal_content_json IS NOT NULL AND matrix_transaction_id<>'' AND matrix_terminal_event_id<>''))`,
+				`CREATE UNIQUE INDEX p2p_legacy_agent_invocations_terminal_cursor_idx ON p2p_legacy_agent_invocations(terminal_cursor) WHERE terminal_cursor<>''`,
+				`CREATE UNIQUE INDEX p2p_legacy_agent_invocations_terminal_txn_idx ON p2p_legacy_agent_invocations(matrix_transaction_id) WHERE matrix_transaction_id<>''`,
+				`CREATE UNIQUE INDEX p2p_legacy_agent_invocations_terminal_event_idx ON p2p_legacy_agent_invocations(matrix_terminal_event_id) WHERE matrix_terminal_event_id<>''`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

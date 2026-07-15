@@ -16,8 +16,23 @@ const legacyAgentInvocationColumns = `
 	matrix_room_id, request_id, matrix_invoke_event_id, matrix_input_event_id, tenant_id, installation_id,
 	conversation_id, request_event_id, source_digest, idempotency_digest, request_digest,
 	preferred_connector_id, required_capabilities, dispatch_mode, grant_version, state,
-	run_id, routing_state, inserted, error_code, created_at, updated_at
+	run_id, routing_state, inserted, error_code, created_at, updated_at,
+	terminal_kind, terminal_digest, terminal_cursor, terminal_event_type, terminal_content_json,
+	matrix_transaction_id, matrix_terminal_event_id, terminal_phase
 `
+
+func (s *DatabaseStore) LoadAcceptedInvocation(
+	ctx context.Context, matrixRoomID, requestID, runID string,
+) (legacygateway.InvocationRecord, error) {
+	record, err := scanLegacyAgentInvocation(s.db.QueryRowContext(ctx, `
+		SELECT `+legacyAgentInvocationColumns+` FROM p2p_legacy_agent_invocations
+		WHERE matrix_room_id=$1 AND request_id=$2 AND run_id=$3 AND state='accepted'
+	`, matrixRoomID, requestID, runID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return legacygateway.InvocationRecord{}, legacygateway.ErrInvocationNotFound
+	}
+	return record, err
+}
 
 // ReserveInvocation durably claims one Matrix invocation without ever
 // overwriting an existing claim. Conflicts on the public request key, source
@@ -221,6 +236,113 @@ func (s *DatabaseStore) MarkRejected(
 	return record, err
 }
 
+func (s *DatabaseStore) ReserveTerminal(
+	ctx context.Context, delivery legacygateway.TerminalDelivery, updatedAt time.Time,
+) (legacygateway.TerminalReservation, error) {
+	if err := validateTerminalDelivery(delivery); err != nil {
+		return legacygateway.TerminalReservation{}, err
+	}
+	var reservation legacygateway.TerminalReservation
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		current, err := loadLegacyAgentInvocationForTransition(ctx, txn, delivery.MatrixRoomID, delivery.RequestID)
+		if err != nil {
+			return err
+		}
+		if current.State != legacygateway.InvocationAccepted || current.RunID != delivery.RunID {
+			return legacygateway.ErrInvalidInvocationTransition
+		}
+		if current.Terminal.Phase != "" {
+			if !terminalDeliveryMatches(current.Terminal, delivery) {
+				return legacygateway.ErrInvocationConflict
+			}
+			reservation = legacygateway.TerminalReservation{Status: legacygateway.TerminalReservationReplay, Delivery: current.Terminal}
+			return nil
+		}
+		row := txn.QueryRowContext(ctx, `
+			UPDATE p2p_legacy_agent_invocations SET terminal_kind=$3, terminal_digest=$4,
+				terminal_cursor=$5, terminal_event_type=$6, terminal_content_json=$7,
+				matrix_transaction_id=$8, matrix_terminal_event_id=$9, terminal_phase='send_intent', updated_at=$10
+			WHERE matrix_room_id=$1 AND request_id=$2 AND state='accepted' AND terminal_phase=''
+			RETURNING `+legacyAgentInvocationColumns,
+			delivery.MatrixRoomID, delivery.RequestID, delivery.Kind, delivery.Digest[:], delivery.Cursor,
+			delivery.EventType, delivery.ContentJSON, delivery.MatrixTransactionID, delivery.MatrixEventID,
+			normalizeInvocationTime(updatedAt))
+		stored, err := scanLegacyAgentInvocation(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return legacygateway.ErrInvalidInvocationTransition
+		}
+		if err != nil {
+			return err
+		}
+		reservation = legacygateway.TerminalReservation{Status: legacygateway.TerminalReservationInserted, Delivery: stored.Terminal}
+		return nil
+	})
+	return reservation, err
+}
+
+func (s *DatabaseStore) AdvanceTerminal(
+	ctx context.Context, matrixRoomID, requestID string, digest [32]byte,
+	from, to legacygateway.TerminalPhase, updatedAt time.Time,
+) (legacygateway.TerminalDelivery, error) {
+	if !validTerminalAdvance(from, to) {
+		return legacygateway.TerminalDelivery{}, legacygateway.ErrInvalidInvocationTransition
+	}
+	var delivery legacygateway.TerminalDelivery
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		current, err := loadLegacyAgentInvocationForTransition(ctx, txn, matrixRoomID, requestID)
+		if err != nil {
+			return err
+		}
+		if current.Terminal.Phase == "" || !bytes.Equal(current.Terminal.Digest[:], digest[:]) {
+			return legacygateway.ErrInvocationConflict
+		}
+		if terminalPhaseRank(current.Terminal.Phase) >= terminalPhaseRank(to) {
+			delivery = current.Terminal
+			return nil
+		}
+		if current.Terminal.Phase != from {
+			return legacygateway.ErrInvalidInvocationTransition
+		}
+		row := txn.QueryRowContext(ctx, `
+			UPDATE p2p_legacy_agent_invocations SET terminal_phase=$3, updated_at=$4
+			WHERE matrix_room_id=$1 AND request_id=$2 AND terminal_digest=$5 AND terminal_phase=$6
+			RETURNING `+legacyAgentInvocationColumns,
+			matrixRoomID, requestID, to, normalizeInvocationTime(updatedAt), digest[:], from)
+		stored, err := scanLegacyAgentInvocation(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return legacygateway.ErrInvalidInvocationTransition
+		}
+		if err == nil {
+			delivery = stored.Terminal
+		}
+		return err
+	})
+	return delivery, err
+}
+
+func (s *DatabaseStore) PendingTerminals(ctx context.Context, limit int) ([]legacygateway.TerminalDelivery, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+legacyAgentInvocationColumns+` FROM p2p_legacy_agent_invocations
+		WHERE terminal_phase IN ('send_intent','sent','committed') ORDER BY updated_at, matrix_room_id, request_id LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]legacygateway.TerminalDelivery, 0, limit)
+	for rows.Next() {
+		record, err := scanLegacyAgentInvocation(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, record.Terminal)
+	}
+	return result, rows.Err()
+}
+
 func loadLegacyAgentInvocationForTransition(
 	ctx context.Context,
 	txn *sql.Tx,
@@ -244,10 +366,10 @@ type legacyAgentInvocationScanner interface {
 
 func scanLegacyAgentInvocation(scanner legacyAgentInvocationScanner) (legacygateway.InvocationRecord, error) {
 	var record legacygateway.InvocationRecord
-	var sourceDigest, idempotencyDigest, requestDigest []byte
+	var sourceDigest, idempotencyDigest, requestDigest, terminalDigest, terminalContent []byte
 	var preferredConnectorID, runID sql.NullString
 	var inserted sql.NullBool
-	var persistedState string
+	var persistedState, terminalKind, terminalCursor, terminalEventType, matrixTransactionID, matrixEventID, terminalPhase string
 	err := scanner.Scan(
 		&record.MatrixRoomID,
 		&record.RequestID,
@@ -271,6 +393,14 @@ func scanLegacyAgentInvocation(scanner legacyAgentInvocationScanner) (legacygate
 		&record.ErrorCode,
 		&record.CreatedAt,
 		&record.UpdatedAt,
+		&terminalKind,
+		&terminalDigest,
+		&terminalCursor,
+		&terminalEventType,
+		&terminalContent,
+		&matrixTransactionID,
+		&matrixEventID,
+		&terminalPhase,
 	)
 	if err != nil {
 		return legacygateway.InvocationRecord{}, err
@@ -287,6 +417,18 @@ func scanLegacyAgentInvocation(scanner legacyAgentInvocationScanner) (legacygate
 	record.RunID = runID.String
 	record.Inserted = inserted.Valid && inserted.Bool
 	record.RequiredCapabilities = slices.Clone(record.RequiredCapabilities)
+	if terminalPhase != "" {
+		if len(terminalDigest) != len(record.Terminal.Digest) {
+			return legacygateway.InvocationRecord{}, errors.New("legacy agent terminal has an invalid digest length")
+		}
+		record.Terminal = legacygateway.TerminalDelivery{
+			MatrixRoomID: record.MatrixRoomID, RequestID: record.RequestID, RunID: record.RunID,
+			Cursor: terminalCursor, Kind: legacygateway.TerminalKind(terminalKind), EventType: terminalEventType,
+			ContentJSON: bytes.Clone(terminalContent), MatrixTransactionID: matrixTransactionID,
+			MatrixEventID: matrixEventID, Phase: legacygateway.TerminalPhase(terminalPhase),
+		}
+		copy(record.Terminal.Digest[:], terminalDigest)
+	}
 	switch persistedState {
 	case "reserved":
 		record.State = legacygateway.InvocationPending
@@ -328,4 +470,46 @@ func nullableText(value string) any {
 		return nil
 	}
 	return value
+}
+
+func validateTerminalDelivery(delivery legacygateway.TerminalDelivery) error {
+	if delivery.MatrixRoomID == "" || delivery.RequestID == "" || delivery.RunID == "" || delivery.Cursor == "" ||
+		delivery.EventType == "" || len(delivery.ContentJSON) == 0 || delivery.MatrixTransactionID == "" ||
+		delivery.MatrixEventID == "" || delivery.Phase != legacygateway.TerminalSendIntent ||
+		(delivery.Kind != legacygateway.TerminalResult && delivery.Kind != legacygateway.TerminalError) {
+		return legacygateway.ErrInvalidInvocationTransition
+	}
+	return nil
+}
+
+func terminalDeliveryMatches(stored, candidate legacygateway.TerminalDelivery) bool {
+	return stored.MatrixRoomID == candidate.MatrixRoomID && stored.RequestID == candidate.RequestID &&
+		stored.RunID == candidate.RunID && stored.Cursor == candidate.Cursor && stored.Kind == candidate.Kind &&
+		stored.Digest == candidate.Digest && stored.EventType == candidate.EventType &&
+		bytes.Equal(stored.ContentJSON, candidate.ContentJSON) &&
+		stored.MatrixTransactionID == candidate.MatrixTransactionID && stored.MatrixEventID == candidate.MatrixEventID
+}
+
+func terminalPhaseRank(phase legacygateway.TerminalPhase) int {
+	switch phase {
+	case legacygateway.TerminalSendIntent:
+		return 1
+	case legacygateway.TerminalSent:
+		return 2
+	case legacygateway.TerminalCommitted:
+		return 3
+	case legacygateway.TerminalSourceACK:
+		return 4
+	default:
+		return 0
+	}
+}
+
+func validTerminalAdvance(from, to legacygateway.TerminalPhase) bool {
+	return terminalPhaseRank(from) > 0 && terminalPhaseRank(to) == terminalPhaseRank(from)+1
+}
+
+func cloneTerminalDelivery(delivery legacygateway.TerminalDelivery) legacygateway.TerminalDelivery {
+	delivery.ContentJSON = bytes.Clone(delivery.ContentJSON)
+	return delivery
 }
