@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-15
 
+## 2026-07-15 Flutter AWS Connection Stack Onboarding
+
+Flutter now consumes the existing owner HTTP-only
+`cloud.connections.role_plan` and
+`cloud.connections.registration.complete` actions through a resumable AWS
+Connection Sheet. It creates one persistent Ed25519 approval identity in system
+secure storage, exports only its stable id and RFC 8410 SPKI public key, and
+fails closed if the stored private seed is corrupted.
+
+The client persists only safe Role Plan/idempotency metadata, opens the exact
+CloudFormation Quick Create handoff for the selected AWS partition, and submits
+Broker URL plus Stack ARN only for independent verification. Those two Stack
+outputs are not cached and are redacted from client diagnostics. This flow has
+no AK/SK upload and does not create EC2, activate a Connection, or begin
+billing.
+
 ## 2026-07-15 Cloud Agent Workload Navigation Summary
 
 Restricted `cloud_dialogue_mode=true` Native Agent planning may now attach an

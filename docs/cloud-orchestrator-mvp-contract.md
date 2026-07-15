@@ -365,6 +365,16 @@ the expected revision and completion idempotency digest to reject stale or
 conflicting completion attempts. A role-plan expiry is terminal for that
 bootstrap; the owner must request a new Role Plan.
 
+Flutter keeps one Ed25519 device approval seed in platform secure storage and
+sends only its stable key id and RFC 8410 SPKI public key in the Role Plan
+request. The client persists only the non-secret Region, idempotency keys,
+request fingerprint, and returned public Role Plan so an ambiguous transport
+failure or application restart can replay the exact request. Broker URL and
+Stack ARN remain in-memory form values and are redacted from diagnostics. The
+Connection Sheet opens an AWS-partition-aware CloudFormation Quick Create URL,
+contains no AK/SK upload, and labels registration as pending independent
+verification; neither client action creates EC2 or starts billing.
+
 `cloud.goals.create` accepts exactly:
 
 ```json

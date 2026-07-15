@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Retained encrypted Service backup is visible end to end; restore semantics require owner selection before mutation work
+- Status: AWS Connection Sheet and persistent device approval identity are complete; restore semantics require owner selection before the next mutation
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -512,6 +512,27 @@ stage; later checked workboard sections are the authoritative delivery record.
   encrypted snapshot count in Flutter without restore/delete controls
   (`dirextalk-flutter` `b06a35e`).
 
+### M. Flutter AWS Connection Stack onboarding
+
+- [x] Add a persistent Ed25519 device approval identity backed only by platform
+  secure storage. Export only the stable key id and RFC 8410 SPKI public key;
+  corrupted storage fails closed instead of silently rotating an identity
+  already bound to a Cloud Connection.
+- [x] Add typed HTTP-only Flutter adapters for
+  `cloud.connections.role_plan` and
+  `cloud.connections.registration.complete`; exclude reserved command paths
+  from collection-id inference and redact candidate Broker URL/Stack ARN from
+  client diagnostics.
+- [x] Add a resumable AWS Connection Sheet that persists only non-secret Role
+  Plan metadata and request fingerprints, opens the immutable CloudFormation
+  Quick Create handoff, and submits Stack outputs for independent verification.
+  It contains no AK/SK upload and explicitly states that this stage neither
+  creates EC2 nor starts billing.
+- [x] Cover RFC 8410 identity/signature golden behavior, secure persistence and
+  corruption, onboarding resume, China-partition URL encoding, typed request
+  routing/log redaction, and the complete widget handoff flow
+  (`dirextalk-flutter` `462c326`).
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -536,12 +557,13 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Owner must first select the restore contract recorded in the current task
-checkpoint: in-place retained-volume rollback (recommended), an identity-fenced
-isolated clone, or materialize-only restored volumes. After that decision,
-implement the selected separately quoted and device-approved typed operation
-for one retained backup, then experimental-to-managed acceptance, without
-widening the Worker or Agent. Keep public
+The safe Connection Stack onboarding path is now available in Flutter; it does
+not authorize resource creation. Owner must select the restore contract
+recorded in the current task checkpoint: in-place retained-volume rollback
+(recommended), an identity-fenced isolated clone, or materialize-only restored
+volumes. After that decision, implement the selected separately quoted and
+device-approved typed operation for one retained backup, then
+experimental-to-managed acceptance, without widening the Worker or Agent. Keep public
 ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
 credentials, Stack deployment and real-account tests disabled until those
 independent approval and provider boundaries are complete.
