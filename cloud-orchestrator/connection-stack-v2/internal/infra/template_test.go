@@ -34,10 +34,12 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"ApprovalUsesTable:",
 		"WorkerSessionsTable:",
 		"WorkerTasksTable:",
+		"ServiceReadinessTasksTable:",
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE",
 		"DIREXTALK_APPROVAL_USES_TABLE",
 		"DIREXTALK_WORKER_SESSIONS_TABLE",
 		"DIREXTALK_WORKER_TASKS_TABLE",
+		"DIREXTALK_SERVICE_READINESS_TASKS_TABLE",
 		"DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT",
 		"DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM",
 		"WorkerIdentityRsaPublicKeyPem:",
@@ -141,6 +143,10 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"BrokerRecipeTaskEventRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
 		"BrokerRecipeTaskClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 		"BrokerRecipeTaskEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerServiceReadinessClaimRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerServiceReadinessEventRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerServiceReadinessClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerServiceReadinessEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 	} {
 		if !strings.Contains(template, guardedBoundary) {
 			t.Fatalf("template boundary is not fail closed: missing %q", guardedBoundary)
@@ -156,7 +162,21 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
                     - dynamodb:TransactWriteItems
                   Resource:
                     - !GetAtt WorkerTasksTable.Arn
+                    - !GetAtt ServiceReadinessTasksTable.Arn
                 - !Ref "AWS::NoValue"`) {
-		t.Fatal("template does not scope Query and task mutation permissions to WorkerTasksTable")
+		t.Fatal("template does not scope Query and task mutation permissions to typed task tables")
+	}
+	if !strings.Contains(template, `ServiceReadinessTasksTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true`) {
+		t.Fatal("service readiness tasks are not retained, encrypted, deletion-protected, and point-in-time recoverable")
 	}
 }

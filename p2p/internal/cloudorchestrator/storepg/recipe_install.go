@@ -255,6 +255,11 @@ func (s *Store) CommitRecipeInstall(ctx context.Context, claim runtime.RecipeIns
 				return e
 			}
 		}
+		if result.Status == "succeeded" {
+			if e = ensureServiceReadinessTask(ctx, tx, claim, now); e != nil {
+				return e
+			}
+		}
 		execution, outcome, checkpoint, errorCode := "installing", "pending", "install_running", ""
 		stepStatus := "running"
 		switch result.Status {
@@ -262,7 +267,7 @@ func (s *Store) CommitRecipeInstall(ctx context.Context, claim runtime.RecipeIns
 			checkpoint = "install_issued"
 		case "running":
 		case "succeeded":
-			execution, outcome, checkpoint, stepStatus = "finished", "succeeded", "install_succeeded", "finished"
+			execution, outcome, checkpoint, stepStatus = "verifying", "pending", "readiness_queued", "running"
 		case "failed":
 			execution, outcome, checkpoint, stepStatus, errorCode = "finished", "failed", "install_failed", "failed", derefRecipeError(result.ErrorCode)
 		case "interrupted":
@@ -275,7 +280,11 @@ func (s *Store) CommitRecipeInstall(ctx context.Context, claim runtime.RecipeIns
 		if e = requireOneAffected(r); e != nil {
 			return e
 		}
-		r, e = tx.ExecContext(ctx, `UPDATE p2p_cloud_job_steps SET status=$1,checkpoint=$2,error_code=$3,summary=$4,revision=revision+1,updated_at=$5 WHERE job_id=$6 AND step_id='install'`, stepStatus, checkpoint, errorCode, "The sealed Recipe install task is tracked by digest and checkpoint only; service readiness remains unverified.", now, claim.JobID)
+		summary := "The sealed Recipe install task is tracked by digest and checkpoint only; service readiness remains unverified."
+		if result.Status == "succeeded" {
+			summary = "Recipe installation succeeded; a separate Stack-witnessed fixed readiness challenge is queued."
+		}
+		r, e = tx.ExecContext(ctx, `UPDATE p2p_cloud_job_steps SET status=$1,checkpoint=$2,error_code=$3,summary=$4,revision=revision+1,updated_at=$5 WHERE job_id=$6 AND step_id='install'`, stepStatus, checkpoint, errorCode, summary, now, claim.JobID)
 		if e != nil {
 			return e
 		}
@@ -442,6 +451,33 @@ func decodeRecipeInstallManifest(raw string, target *cloudcontracts.RecipeExecut
 func recipeInstallInputDigest(manifestDigest string) string {
 	sum := sha256.Sum256([]byte("dirextalk.recipe-install-input/v1\x00" + manifestDigest))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func ensureServiceReadinessTask(ctx context.Context, tx *sql.Tx, claim runtime.RecipeInstallClaim, now int64) error {
+	serviceID := stableID("cloud_service_", claim.DeploymentID, claim.ExecutionID, claim.ManifestDigest)
+	taskID := stableID("cloud_service_readiness_task_", serviceID, claim.ManifestDigest)
+	semanticDigest := cloudcontracts.FixedReadinessEvidenceDigestV1
+	_, err := tx.ExecContext(ctx, `INSERT INTO p2p_cloud_service_readiness_tasks
+		(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8,'unissued',$9,$9) ON CONFLICT (task_id) DO NOTHING`,
+		taskID, claim.ExecutionID, claim.DeploymentID, serviceID, claim.ConnectionID, claim.InstanceID, claim.ManifestDigest, semanticDigest, now)
+	if err != nil {
+		return err
+	}
+	var existingExecution, existingDeployment, existingService, existingManifest, existingInstall, existingSemantic, status string
+	if err = tx.QueryRowContext(ctx, `SELECT execution_id,deployment_id,service_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status FROM p2p_cloud_service_readiness_tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&existingExecution, &existingDeployment, &existingService, &existingManifest, &existingInstall, &existingSemantic, &status); err != nil {
+		return err
+	}
+	if existingExecution != claim.ExecutionID || existingDeployment != claim.DeploymentID || existingService != serviceID || existingManifest != claim.ManifestDigest || existingInstall != claim.ManifestDigest || existingSemantic != semanticDigest ||
+		(status != "unissued" && status != "queued" && status != "running" && status != "succeeded" && status != "failed" && status != "interrupted") {
+		return errors.New("service readiness task binding conflict")
+	}
+	outboxID := stableID("cloud_service_readiness_outbox_", taskID)
+	payload, _ := json.Marshal(map[string]string{"task_id": taskID})
+	_, err = tx.ExecContext(ctx, `INSERT INTO p2p_cloud_outbox(outbox_id,kind,aggregate_type,aggregate_id,payload_json,available_at,created_at)
+		VALUES($1,$2,'service_readiness_task',$3,$4,$5,$5) ON CONFLICT (outbox_id) DO NOTHING`,
+		outboxID, "cloud.service_readiness.requested", taskID, string(payload), now)
+	return err
 }
 func derefRecipeError(value *string) string {
 	if value == nil {

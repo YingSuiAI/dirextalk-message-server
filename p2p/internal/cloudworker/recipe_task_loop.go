@@ -49,25 +49,35 @@ func (loop *RecipeTaskLoop) ProcessOne(ctx context.Context) error {
 		return err
 	}
 	result, executeErr := loop.executor.ExecuteTask(ctx, claimed.Task, claimed.Manifest)
-	if executeErr != nil {
-		return loop.transport.Report(ctx, claimed, recipeexec.TaskStatusFailed, "", "recipe_execution_failed", "")
-	}
-	if !result.Completed || result.ManifestDigest != claimed.Task.RecipeExecutionManifestDigest {
+	if result.ManifestDigest != "" && result.ManifestDigest != claimed.Task.RecipeExecutionManifestDigest {
 		return errors.New("recipe execution did not complete its sealed checkpoints")
 	}
-	start := recipeCheckpointIndex(claimed.Task.CheckpointSequence, claimed.Task.LastCheckpoint) + 1
+	remoteIndex := recipeCheckpointIndex(claimed.Task.CheckpointSequence, claimed.Task.LastCheckpoint)
+	start := remoteIndex + 1
 	end := recipeCheckpointIndex(claimed.Task.CheckpointSequence, result.LastCheckpoint)
-	if start < 0 || end < start || end >= len(claimed.Task.CheckpointSequence) {
+	if start < 0 || end >= len(claimed.Task.CheckpointSequence) || (result.LastCheckpoint != "" && end < remoteIndex) {
 		return errors.New("recipe execution checkpoint result is invalid")
 	}
-	for index := start; index <= end; index++ {
+	for index := start; result.LastCheckpoint != "" && index <= end; index++ {
 		status := recipeexec.TaskStatusRunning
-		if index == len(claimed.Task.CheckpointSequence)-1 {
+		if executeErr == nil && result.Completed && index == len(claimed.Task.CheckpointSequence)-1 {
 			status = recipeexec.TaskStatusSucceeded
 		}
 		if err := loop.transport.Report(ctx, claimed, status, claimed.Task.CheckpointSequence[index], "", claimed.Task.RecipeExecutionManifestDigest); err != nil {
 			return err
 		}
+	}
+	if executeErr != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if recipeexec.IsPermanentExecutionFailure(executeErr) {
+			return loop.transport.Report(ctx, claimed, recipeexec.TaskStatusFailed, "", "recipe_execution_failed", "")
+		}
+		return executeErr
+	}
+	if !result.Completed {
+		return errors.New("recipe execution did not complete its sealed checkpoints")
 	}
 	return nil
 }

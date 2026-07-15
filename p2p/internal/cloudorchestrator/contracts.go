@@ -288,6 +288,10 @@ const (
 	// artifacts. It is a transport proof, not Recipe execution or service
 	// readiness.
 	ExecutionProbeTaskKind = "execution_probe"
+	// FixedReadinessEvidenceDigestV1 is SHA-256 over the exact immutable
+	// fixedprobe readiness response body. Keeping only the golden digest here
+	// avoids coupling the control-plane contract to Worker implementation code.
+	FixedReadinessEvidenceDigestV1 = "sha256:bfcfa00e992ba7e0dd053757a88a15d3beb99ecbe2701d441287a07e510e679c"
 )
 
 // ExecutionProbeManifestV1 is a sealed, digestable binding artifact for the

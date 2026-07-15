@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/recipeexec"
 )
 
 func TestParseConfigUsesOnlyStrictWorkerBootstrapInputs(t *testing.T) {
@@ -29,9 +30,35 @@ func TestParseConfigUsesOnlyStrictWorkerBootstrapInputs(t *testing.T) {
 	if !config.once || config.heartbeatInterval.String() != "15s" || config.expectedConnection != "connection-v2-0001" {
 		t.Fatalf("config = %#v", config)
 	}
+	if config.fixedProbeRecipe || config.recipeCheckpointDir != "" {
+		t.Fatalf("fixed Recipe unexpectedly enabled: %#v", config)
+	}
+	environment[recipeCheckpointDirEnv] = filepath.Join(directory, "checkpoints")
+	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
+		t.Fatal("parseConfig() accepted a checkpoint directory without the fixed Recipe gate")
+	}
+	environment[fixedProbeRecipeEnv] = "true"
+	if enabled, err := parseConfig(nil, func(key string) string { return environment[key] }); err != nil || !enabled.fixedProbeRecipe || enabled.recipeCheckpointDir != environment[recipeCheckpointDirEnv] {
+		t.Fatalf("enabled fixed Recipe config=%#v error=%v", enabled, err)
+	}
+	environment[fixedProbeRecipeEnv] = "sometimes"
+	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
+		t.Fatal("parseConfig() accepted an ambiguous fixed Recipe gate")
+	}
+	delete(environment, fixedProbeRecipeEnv)
+	delete(environment, recipeCheckpointDirEnv)
 	delete(environment, expectedEndpointEnv)
 	if _, err := parseConfig(nil, func(key string) string { return environment[key] }); err == nil {
 		t.Fatal("parseConfig() accepted a missing immutable bootstrap endpoint")
+	}
+}
+
+func TestFixedProbeProcessorFailsClosedWithoutRecipeTransport(t *testing.T) {
+	if _, err := newFixedProbeRecipeProcessor(&recordingWorkerSessionClient{}, t.TempDir()); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
+		t.Fatalf("newFixedProbeRecipeProcessor() error=%v, want %v", err, recipeexec.ErrExecutorConfiguration)
+	}
+	if _, err := newFixedProbeReadinessProcessor(&recordingWorkerSessionClient{}); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
+		t.Fatalf("newFixedProbeReadinessProcessor() error=%v, want %v", err, recipeexec.ErrExecutorConfiguration)
 	}
 }
 
@@ -75,6 +102,16 @@ type recordedTaskReport struct {
 type recordingRecipeTaskProcessor struct {
 	calls int
 	err   error
+}
+
+type recordingReadinessProcessor struct {
+	calls int
+	err   error
+}
+
+func (processor *recordingReadinessProcessor) ProcessOne(context.Context) error {
+	processor.calls++
+	return processor.err
 }
 
 func (processor *recordingRecipeTaskProcessor) ProcessOne(context.Context) error {
@@ -190,6 +227,7 @@ func validWorkerIdentityProof() cloudworker.InstanceIdentityProof {
 func TestWorkerCycleClaimsRecipeWorkOnlyThroughExplicitProcessorInjection(t *testing.T) {
 	client := &recordingWorkerSessionClient{}
 	processor := &recordingRecipeTaskProcessor{}
+	readiness := &recordingReadinessProcessor{}
 	if err := runWorkerCycle(context.Background(), client, validWorkerIdentityProof(), true); err != nil {
 		t.Fatalf("default runWorkerCycle() error = %v", err)
 	}
@@ -201,6 +239,12 @@ func TestWorkerCycleClaimsRecipeWorkOnlyThroughExplicitProcessorInjection(t *tes
 	}
 	if processor.calls != 1 {
 		t.Fatalf("configured cycle Recipe calls = %d", processor.calls)
+	}
+	if err := runWorkerCycleWithProcessors(context.Background(), client, validWorkerIdentityProof(), true, processor, readiness); err != nil {
+		t.Fatalf("configured runWorkerCycleWithProcessors() error = %v", err)
+	}
+	if processor.calls != 2 || readiness.calls != 1 {
+		t.Fatalf("configured cycle calls = recipe:%d readiness:%d", processor.calls, readiness.calls)
 	}
 }
 

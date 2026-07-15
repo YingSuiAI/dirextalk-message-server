@@ -29,15 +29,16 @@ import (
 )
 
 const (
-	databaseURLFileEnv      = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
-	researcherURLEnv        = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
-	researcherCAFileEnv     = "CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"
-	researcherCertFileEnv   = "CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"
-	researcherKeyFileEnv    = "CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"
-	researcherServerNameEnv = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
-	nodeSigningKeyFileEnv   = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
-	workerIDEnv             = "CLOUD_ORCHESTRATOR_WORKER_ID"
-	recipeInstallEnabledEnv = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
+	databaseURLFileEnv         = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
+	researcherURLEnv           = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
+	researcherCAFileEnv        = "CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"
+	researcherCertFileEnv      = "CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"
+	researcherKeyFileEnv       = "CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"
+	researcherServerNameEnv    = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
+	nodeSigningKeyFileEnv      = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
+	workerIDEnv                = "CLOUD_ORCHESTRATOR_WORKER_ID"
+	recipeInstallEnabledEnv    = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
+	serviceReadinessEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
 )
 
 var (
@@ -47,20 +48,21 @@ var (
 )
 
 type commandConfig struct {
-	databaseURLFile      string
-	researcherURL        string
-	researcherCAFile     string
-	researcherCertFile   string
-	researcherKeyFile    string
-	researcherServerName string
-	nodeSigningKeyFile   string
-	workerID             string
-	recipeInstallEnabled bool
-	once                 bool
-	pollInterval         time.Duration
-	lease                time.Duration
-	attemptTimeout       time.Duration
-	retryDelay           time.Duration
+	databaseURLFile         string
+	researcherURL           string
+	researcherCAFile        string
+	researcherCertFile      string
+	researcherKeyFile       string
+	researcherServerName    string
+	nodeSigningKeyFile      string
+	workerID                string
+	recipeInstallEnabled    bool
+	serviceReadinessEnabled bool
+	once                    bool
+	pollInterval            time.Duration
+	lease                   time.Duration
+	attemptTimeout          time.Duration
+	retryDelay              time.Duration
 }
 
 func main() {
@@ -110,6 +112,13 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	default:
 		return commandConfig{}, errConfigInvalid
 	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceReadinessEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceReadinessEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&config.once, "once", false, "process one research, connection-registration, quote, Worker-observation, and execution-probe pass")
@@ -132,7 +141,8 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	config.workerID = strings.TrimSpace(config.workerID)
 	if !validConfigPath(config.databaseURLFile) || config.researcherURL == "" || !validConfigPath(config.researcherCAFile) || !validConfigPath(config.researcherCertFile) || !validConfigPath(config.researcherKeyFile) || !validConfigPath(config.nodeSigningKeyFile) || !validResearcherServerName(config.researcherServerName) || !validWorkerID(config.workerID) ||
 		config.pollInterval <= 0 || config.lease <= 0 || config.lease > 5*time.Minute ||
-		config.attemptTimeout <= 0 || config.attemptTimeout >= config.lease || config.retryDelay <= 0 {
+		config.attemptTimeout <= 0 || config.attemptTimeout >= config.lease || config.retryDelay <= 0 ||
+		(config.serviceReadinessEnabled && !config.recipeInstallEnabled) {
 		return commandConfig{}, errConfigInvalid
 	}
 	if _, err := researcher.NewHTTP(researcher.HTTPConfig{Endpoint: config.researcherURL}); err != nil {
@@ -266,17 +276,21 @@ func run(ctx context.Context, config commandConfig) error {
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
 	var recipeInstallRunner iterationRunner
+	var serviceReadinessRunner iterationRunner
 	if config.recipeInstallEnabled {
 		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
+	if config.serviceReadinessEnabled {
+		serviceReadinessRunner = runtime.NewServiceReadinessRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -304,7 +318,7 @@ type iterationRunner interface {
 // Worker observation, or the restricted execution-probe transport must not
 // starve another durable loop; all errors are returned for the next retry
 // backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -328,7 +342,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if recipeInstallRunner != nil {
 		recipeInstalled, recipeInstallErr = recipeInstallRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr)
+	var readinessObserved bool
+	var serviceReadinessErr error
+	if serviceReadinessRunner != nil {
+		readinessObserved, serviceReadinessErr = serviceReadinessRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

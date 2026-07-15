@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Worker bootstrap/observation parity complete; execution task channel next
+- Status: Fixed Recipe execution and experimental readiness complete; managed lifecycle next
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -389,6 +389,35 @@ not represented as implementation tasks in this read-only parity stage.
   PostgreSQL, Worker and command tests, perform one accumulated
   security/spec review, and commit only current-stage files.
 
+### I. Fixed production Recipe and experimental Service readiness
+
+- [x] Add one immutable compiled non-business Recipe bundle whose descriptor,
+  action ID, Worker image/resource manifest and sealed execution manifest are
+  digest-bound; keep all task-selected commands, paths, ports and URLs absent.
+- [x] Add a restart-persistent private Worker checkpoint store with atomic
+  replace, compare-and-swap, binding-derived filenames and strict state
+  decoding; prove checkpoint recovery without claiming cross-process fencing.
+- [x] Add one audited root ActionDriver that installs only the fixed hardened
+  systemd probe service through absolute typed operations, plus a loopback-only
+  probe binary; keep the production gate disabled by default and fail closed
+  unless the fixed binaries, catalog, checkpoint store and transports all load.
+- [x] Add exact signed readiness issue/observe commands and active-bearer
+  claim/event routes. Persist only challenge digest/expiry and de-secreted
+  evidence, rotate a lost pre-event challenge safely, and fence every event by
+  Worker lease epoch, attempt and sequence.
+- [x] Require the fixed semantic body digest plus a distinct Stack observation
+  digest before creating a Service. Treat this only as Stack-witnessed
+  freshness suitable for `experimental`, not hostile-root-proof monitoring or
+  `managed` acceptance.
+- [x] Atomically create the Recipe-bound experimental Service and canonical
+  Service/Deployment/Job projections on success. On failure or interruption,
+  create no Service and retain the still-billable resource as
+  `retained_tracked` without stopping or destroying it.
+- [x] Pass standalone Stack tests/vet/Linux build, affected Orchestrator,
+  PostgreSQL, Worker, probe-service and command tests, Linux builds, secret and
+  dependency checks, one accumulated security/spec review, and commit only
+  current-stage files.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -413,12 +442,11 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Implement the first production-capable fixed Recipe bundle without widening
-the Worker into an arbitrary command runner. Add authenticated compiled
-artifact delivery, a durable Worker checkpoint store and one audited typed
-ActionDriver for a non-business test service, then prove restart recovery and
-an external readiness observation before creating an experimental Service.
-Root execution must stay inside the exclusive VM and may receive only approved
-opaque secret/data/volume slots. OpenClaw, knowledge-base nodes, public ingress,
-arbitrary AWS APIs, destroy, local AWS credentials, Stack deployment and real
-account tests remain outside this stage until their own typed boundaries exist.
+Implement the experimental-to-managed lifecycle and typed retained-resource
+operations without widening the Worker or Agent. Freeze management acceptance,
+backup/restore and start/stop/restart/destroy plan contracts; implement verified
+destroy in reverse dependency order with AWS read-back and `destroy_blocked`
+instead of optimistic success. Keep public ingress, secret delivery, selectable
+OpenClaw/knowledge Recipes, local AWS credentials, Stack deployment and real
+account tests disabled until those independent approval and provider boundaries
+are complete.

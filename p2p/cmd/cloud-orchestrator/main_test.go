@@ -47,6 +47,14 @@ func TestParseConfigUsesOnlySecretFileForDatabaseURL(t *testing.T) {
 	if key, err := readNodeSigningKey(config.nodeSigningKeyFile); err != nil || len(key) != ed25519.PrivateKeySize {
 		t.Fatalf("node signing key is not readable: len=%d err=%v", len(key), err)
 	}
+	env[serviceReadinessEnabledEnv] = "true"
+	if _, err := parseConfig(nil, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil }); err == nil {
+		t.Fatal("service readiness must not be enabled without the sealed Recipe install runner")
+	}
+	env[recipeInstallEnabledEnv] = "true"
+	if enabled, err := parseConfig(nil, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil }); err != nil || !enabled.recipeInstallEnabled || !enabled.serviceReadinessEnabled {
+		t.Fatalf("enabled Recipe/readiness config=%#v error=%v", enabled, err)
+	}
 }
 
 func TestParseConfigRejectsUnsafeStartupSettings(t *testing.T) {
@@ -101,17 +109,19 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	deploymentFailure := errors.New("deployment unavailable")
 	observationFailure := errors.New("worker observation unavailable")
 	executionProbeFailure := errors.New("execution probe unavailable")
+	readinessFailure := errors.New("service readiness unavailable")
 	research := &recordingIterationRunner{processed: true, err: researchFailure}
 	registration := &recordingIterationRunner{processed: true, err: registrationFailure}
 	quote := &recordingIterationRunner{processed: true, err: quoteFailure}
 	deployment := &recordingIterationRunner{processed: true, err: deploymentFailure}
 	observation := &recordingIterationRunner{processed: true, err: observationFailure}
 	executionProbe := &recordingIterationRunner{processed: true, err: executionProbeFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil)
-	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 {
+	readiness := &recordingIterationRunner{processed: true, err: readinessFailure}
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil, readiness)
+	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 || readiness.calls != 1 {
 		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d execution_probe_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls, executionProbe.calls)
 	}
-	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) || !errors.Is(err, executionProbeFailure) {
+	if !errors.Is(err, researchFailure) || !errors.Is(err, registrationFailure) || !errors.Is(err, quoteFailure) || !errors.Is(err, deploymentFailure) || !errors.Is(err, observationFailure) || !errors.Is(err, executionProbeFailure) || !errors.Is(err, readinessFailure) {
 		t.Fatalf("iteration error = %v, want all runner failures", err)
 	}
 }
@@ -123,7 +133,7 @@ func TestRunIterationAllowsProvisioningToRemainDisabledWhileRestrictedWorkersRun
 	observation := &recordingIterationRunner{processed: true}
 	executionProbe := &recordingIterationRunner{processed: true}
 
-	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil)
+	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil, nil)
 	if err != nil || !processed {
 		t.Fatalf("iteration = processed:%v err:%v", processed, err)
 	}

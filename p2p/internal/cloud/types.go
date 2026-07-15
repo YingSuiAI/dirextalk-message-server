@@ -39,6 +39,10 @@ const (
 	// control-plane intent. It does not issue a Worker task yet and may only be
 	// created after the separate RecipeExecutionApprovalV1 is verified.
 	OutboxKindRecipeExecutionInstallRequested = "cloud.recipe_execution.install.requested"
+	// OutboxKindServiceReadinessRequested is created only after a sealed Recipe
+	// install succeeds. The Stack generates the fresh challenge; this outbox
+	// contains no Worker-selected probe target or execution material.
+	OutboxKindServiceReadinessRequested = "cloud.service_readiness.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"

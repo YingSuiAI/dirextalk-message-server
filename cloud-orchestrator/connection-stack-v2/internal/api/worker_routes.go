@@ -38,6 +38,10 @@ func parseWorkerRoute(path string) (workerRoute, bool) {
 		return workerRoute{sessionID: parts[0], kind: "recipe_task_claim"}, true
 	case len(parts) == 4 && parts[1] == "recipe-tasks" && contract.ValidRecipeTaskID(parts[2]) && parts[3] == "events":
 		return workerRoute{sessionID: parts[0], taskID: parts[2], kind: "recipe_task_event"}, true
+	case len(parts) == 3 && parts[1] == "service-readiness-tasks" && parts[2] == "claim":
+		return workerRoute{sessionID: parts[0], kind: "service_readiness_claim"}, true
+	case len(parts) == 4 && parts[1] == "service-readiness-tasks" && contract.ValidRecipeTaskID(parts[2]) && parts[3] == "events":
+		return workerRoute{sessionID: parts[0], taskID: parts[2], kind: "service_readiness_event"}, true
 	default:
 		return workerRoute{}, false
 	}
@@ -64,7 +68,8 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 	}
 	if (route.kind == "heartbeat" && b.WorkerSessionEvents == nil) ||
 		((route.kind == "task_claim" || route.kind == "task_event") && b.WorkerTasks == nil) ||
-		((route.kind == "recipe_task_claim" || route.kind == "recipe_task_event") && b.RecipeTasks == nil) {
+		((route.kind == "recipe_task_claim" || route.kind == "recipe_task_event") && b.RecipeTasks == nil) ||
+		((route.kind == "service_readiness_claim" || route.kind == "service_readiness_event") && b.ServiceReadiness == nil) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
@@ -83,6 +88,10 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 		b.serveRecipeTaskClaim(response, request, route, raw)
 	case "recipe_task_event":
 		b.serveRecipeTaskEvent(response, request, route, raw)
+	case "service_readiness_claim":
+		b.serveServiceReadinessClaim(response, request, route, raw)
+	case "service_readiness_event":
+		b.serveServiceReadinessEvent(response, request, route, raw)
 	default:
 		writeError(response, http.StatusNotFound, "not_found")
 	}

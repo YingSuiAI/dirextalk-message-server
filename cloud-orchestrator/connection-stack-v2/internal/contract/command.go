@@ -36,6 +36,8 @@ const (
 	ActionDeploymentObserve        = "deployment.observe"
 	ActionWorkerTaskIssue          = "worker.task.issue"
 	ActionWorkerTaskObserve        = "worker.task.observe"
+	ActionServiceReadinessIssue    = "worker.service_readiness.issue"
+	ActionServiceReadinessObserve  = "worker.service_readiness.observe"
 	ActionDeploymentDestroy        = "deployment.destroy"
 
 	maxCommandLifetime = 5 * time.Minute
@@ -345,6 +347,8 @@ func knownAction(action string) bool {
 		ActionWorkerTaskObserve,
 		ActionWorkerRecipeTaskIssue,
 		ActionWorkerRecipeTaskObserve,
+		ActionServiceReadinessIssue,
+		ActionServiceReadinessObserve,
 		ActionDeploymentDestroy:
 		return true
 	default:

@@ -147,8 +147,17 @@ func (client *RecipeTaskClient) RetryPending(ctx context.Context) error {
 		return ErrNoPendingRecipeEvent
 	}
 	_, _, epoch, err := client.session.recipeTaskAuthorization()
-	if err != nil || epoch != client.pending.event.LeaseEpoch {
+	if err != nil {
 		return ErrRecipeTaskNotClaimed
+	}
+	if epoch != client.pending.event.LeaseEpoch {
+		// The old event is fenced by Stack after session renewal. Local durable
+		// checkpoints remain authoritative, so discard only transport progress
+		// and reclaim the task under the new lease/attempt.
+		client.pending = nil
+		client.claimed = nil
+		client.progress = recipeexec.Progress{}
+		return nil
 	}
 	next, err := client.progress.Advance(client.pending.event, epoch)
 	if err != nil {

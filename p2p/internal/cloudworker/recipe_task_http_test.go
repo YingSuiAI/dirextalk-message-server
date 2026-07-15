@@ -122,6 +122,73 @@ func TestRecipeTaskLoopUsesOnlyBoundBearerRoutesAndSealedExecutorInputs(t *testi
 	}
 }
 
+func TestRecipeTaskLoopPreservesRetryableCheckpointProgress(t *testing.T) {
+	manifest := testRecipeExecutionManifest()
+	digest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := recipeexec.TaskV1{Schema: recipeexec.TaskV1Schema, TaskID: "recipe-task-retry-0001", ExecutionID: manifest.ExecutionID,
+		DeploymentID: manifest.DeploymentID, TaskKind: recipeexec.TaskKindRecipeExecution, RecipeExecutionManifestDigest: digest,
+		InputDigest: recipeDigest('e'), CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...), Attempt: 1}
+	transient := errors.New("probe is starting")
+	transport := &loopRecipeTransport{claimed: ClaimedRecipeTask{Task: task, Manifest: manifest, Epoch: 1}}
+	loop := &RecipeTaskLoop{transport: transport, executor: loopRecipeExecutor{result: recipeexec.Result{ExecutionID: manifest.ExecutionID,
+		ManifestDigest: digest, LastCheckpoint: manifest.CheckpointSequence[1]}, err: transient}}
+	if err := loop.ProcessOne(context.Background()); !errors.Is(err, transient) {
+		t.Fatalf("ProcessOne() error=%v, want transient error", err)
+	}
+	if len(transport.reports) != 2 || transport.reports[0].status != recipeexec.TaskStatusRunning ||
+		transport.reports[0].checkpoint != manifest.CheckpointSequence[0] || transport.reports[1].checkpoint != manifest.CheckpointSequence[1] {
+		t.Fatalf("retryable reports=%#v", transport.reports)
+	}
+	for _, report := range transport.reports {
+		if report.status == recipeexec.TaskStatusFailed {
+			t.Fatalf("transient failure was made terminal: %#v", transport.reports)
+		}
+	}
+
+	transport = &loopRecipeTransport{claimed: ClaimedRecipeTask{Task: task, Manifest: manifest, Epoch: 1}}
+	loop = &RecipeTaskLoop{transport: transport, executor: loopRecipeExecutor{err: recipeexec.PermanentExecutionFailure(errors.New("scope rejected"))}}
+	if err := loop.ProcessOne(context.Background()); err != nil {
+		t.Fatalf("permanent ProcessOne() error=%v", err)
+	}
+	if len(transport.reports) != 1 || transport.reports[0].status != recipeexec.TaskStatusFailed || transport.reports[0].errorCode != "recipe_execution_failed" {
+		t.Fatalf("permanent reports=%#v", transport.reports)
+	}
+}
+
+type loopRecipeExecutor struct {
+	result recipeexec.Result
+	err    error
+}
+
+func (executor loopRecipeExecutor) ExecuteTask(context.Context, recipeexec.TaskV1, cloudorchestrator.RecipeExecutionManifestV1) (recipeexec.Result, error) {
+	return executor.result, executor.err
+}
+
+type loopRecipeReport struct {
+	status     recipeexec.TaskStatus
+	checkpoint string
+	errorCode  string
+}
+
+type loopRecipeTransport struct {
+	claimed ClaimedRecipeTask
+	reports []loopRecipeReport
+}
+
+func (transport *loopRecipeTransport) RetryPending(context.Context) error {
+	return ErrNoPendingRecipeEvent
+}
+func (transport *loopRecipeTransport) Claim(context.Context) (ClaimedRecipeTask, bool, error) {
+	return transport.claimed, true, nil
+}
+func (transport *loopRecipeTransport) Report(_ context.Context, _ ClaimedRecipeTask, status recipeexec.TaskStatus, checkpoint, errorCode, _ string) error {
+	transport.reports = append(transport.reports, loopRecipeReport{status: status, checkpoint: checkpoint, errorCode: errorCode})
+	return nil
+}
+
 func TestRecipeTaskTransportRejectsUnboundManifestBeforeExecution(t *testing.T) {
 	manifest := testRecipeExecutionManifest()
 	manifestDigest, err := manifest.Digest()
@@ -198,6 +265,29 @@ func TestRecipeTaskClientRetriesTheExactPendingEvent(t *testing.T) {
 	}
 	if len(eventBodies) != 2 || !bytes.Equal(eventBodies[0], eventBodies[1]) {
 		t.Fatalf("pending event was not retried exactly: %q != %q", eventBodies[0], eventBodies[1])
+	}
+}
+
+func TestRecipeTaskPendingEventYieldsToANewerSessionLease(t *testing.T) {
+	manifest := testRecipeExecutionManifest()
+	digest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := recipeexec.TaskV1{Schema: recipeexec.TaskV1Schema, TaskID: "recipe-task-0001", ExecutionID: manifest.ExecutionID, DeploymentID: manifest.DeploymentID, TaskKind: recipeexec.TaskKindRecipeExecution, RecipeExecutionManifestDigest: digest, InputDigest: recipeDigest('e'), CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...), Attempt: 1}
+	progress, err := recipeexec.NewProgress(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed := ClaimedRecipeTask{Task: task, Manifest: manifest, Epoch: 7}
+	event := recipeexec.EventV1{Schema: recipeexec.EventV1Schema, TaskID: task.TaskID, Attempt: task.Attempt, LeaseEpoch: 7, Sequence: 1, Status: recipeexec.TaskStatusRunning, Checkpoint: optionalRecipeString(task.CheckpointSequence[0]), EvidenceDigest: optionalRecipeString(digest), OccurredAt: canonicalInstant(time.Now())}
+	session := &SessionClient{state: SessionStateActive, access: "new-lease-token", epoch: 8}
+	client := &RecipeTaskClient{session: session, claimed: &claimed, progress: progress, pending: &pendingRecipeTaskEvent{claimed: claimed, event: event}}
+	if err := client.RetryPending(context.Background()); err != nil {
+		t.Fatalf("RetryPending() after lease rotation error = %v", err)
+	}
+	if client.pending != nil || client.claimed != nil || client.progress.Task.TaskID != "" || client.progress.LastSequence != 0 || client.progress.Terminal {
+		t.Fatal("stale Recipe event prevented reclaim under the new lease")
 	}
 }
 

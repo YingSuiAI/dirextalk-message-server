@@ -1419,6 +1419,36 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service readiness runner v50",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_readiness_tasks (
+					task_id TEXT PRIMARY KEY NOT NULL, execution_id TEXT NOT NULL, deployment_id TEXT NOT NULL, service_id TEXT NOT NULL UNIQUE,
+					cloud_connection_id TEXT NOT NULL, instance_id TEXT NOT NULL,
+					recipe_execution_manifest_digest TEXT NOT NULL, install_evidence_digest TEXT NOT NULL, semantic_expectation_digest TEXT NOT NULL,
+					task_status TEXT NOT NULL CHECK (task_status IN ('unissued','queued','running','succeeded','failed','interrupted')),
+					task_attempt BIGINT NOT NULL DEFAULT 1 CHECK (task_attempt > 0), last_sequence BIGINT NOT NULL DEFAULT 0 CHECK (last_sequence >= 0),
+					checkpoint TEXT NOT NULL DEFAULT '', challenge_digest TEXT NOT NULL DEFAULT '', semantic_evidence_digest TEXT NOT NULL DEFAULT '', stack_observation_digest TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '',
+					available_at BIGINT NOT NULL DEFAULT 0, lease_owner TEXT NOT NULL DEFAULT '', lease_token TEXT NOT NULL DEFAULT '', lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_readiness_tasks_claim_idx ON p2p_cloud_service_readiness_tasks(task_status, available_at, lease_until, updated_at)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_readiness_commands (
+					command_id TEXT PRIMARY KEY NOT NULL, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, deployment_id TEXT NOT NULL, service_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL, request_digest TEXT NOT NULL, command_attempt INTEGER NOT NULL CHECK (command_attempt > 0),
+					action TEXT NOT NULL CHECK (action IN ('worker.service_readiness.issue','worker.service_readiness.observe')),
+					node_key_id TEXT NOT NULL, expected_generation BIGINT NOT NULL CHECK (expected_generation > 0), node_counter BIGINT NOT NULL CHECK (node_counter > 0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '', payload_sha256 TEXT NOT NULL DEFAULT '', request_sha256 TEXT NOT NULL DEFAULT '', signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL DEFAULT 0,
+					state TEXT NOT NULL CHECK (state IN ('allocated','signed','indeterminate','accepted','expired','failed')),
+					last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE (cloud_connection_id, node_counter), UNIQUE (task_id, action, request_digest, command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_readiness_commands_task_idx ON p2p_cloud_service_readiness_commands(task_id, action, command_attempt DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

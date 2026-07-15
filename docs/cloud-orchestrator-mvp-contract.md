@@ -49,8 +49,9 @@ AWS SDK integration in the message-server process.
   quotes from EC2 metadata/offerings and AWS Price List reads. Behind its
   disabled-by-default mutation gate it also has typed EC2 create/read-back,
   IID-verified Worker claims, heartbeat/task routes, the fixed digest-bound
-  `execution_probe`, and the sealed Recipe task transport; it still has no
-  broad AWS provider permission or Recipe/root executor. ProductCore receives only de-secreted projections,
+  `execution_probe`, the sealed Recipe task transport, and a fixed
+  Stack-witnessed service-readiness challenge; it still has no broad AWS
+  provider permission or arbitrary Recipe/root executor. ProductCore receives only de-secreted projections,
   never raw receipts, endpoints, bearer hashes, task event bodies or secrets;
   the Message Server does not host the Worker session broker.
 - The source additionally defines a private deterministic-CBOR
@@ -70,13 +71,23 @@ AWS SDK integration in the message-server process.
   and checkpoint-order substitution; the existing non-root `cloud-worker`
   parser continues to reject this new schema. `Executor.ExecuteTask` further
   refuses to invoke an action driver unless the sealed manifest and durable
-  checkpoint match the delivered task. The Connection Stack and Worker now
-  expose a separate strict Recipe claim/event transport, but the production
-  Worker injects no bundle catalog, checkpoint store or action driver and
-  therefore does not claim Recipe work. Compiled artifact delivery, a real
-  root executor and external service readiness are still absent. Consequently
-  this stage cannot deploy OpenClaw, a knowledge-base node, a website, a model,
-  or any other production service, and it provides no new AWS mutation path.
+  checkpoint match the delivered task. The Connection Stack and Worker expose
+  a separate strict Recipe claim/event transport. Production remains disabled
+  by default; when explicitly enabled, the exclusive-VM Worker admits exactly
+  one compiled non-business probe bundle, persists its declared checkpoints
+  with local compare-and-swap, and invokes only a fixed audited systemd
+  ActionDriver with no task-selected command, path, port, URL, volume, data, or
+  secret slot. The registered Worker image digest authenticates the compiled
+  catalog, while the sealed manifest binds its exact descriptor digest and
+  action ID. After install, a separate active-bearer task carries a fresh
+  Stack-generated challenge and checks only the compiled loopback semantic
+  document. The Stack persists the challenge digest, never its plaintext, and
+  creates an independent observation digest before the Orchestrator may create
+  an `experimental` Service. This proves control-plane-witnessed freshness but
+  is not hostile-root-proof external monitoring; `managed` maturity still
+  needs a probe outside the VM trust boundary. This stage still cannot deploy
+  OpenClaw, a knowledge-base node, a website, a model, or any other production
+  service, and it provides no arbitrary AWS mutation path.
 - The domain package also defines a distinct, short-lived
   `RecipeExecutionApprovalV1`. It is intentionally not an extension of the
   purchase `ApprovalV1`: the device signing payload binds the approved Plan
@@ -246,15 +257,22 @@ ingress, or AWS mutation. The current Go module exposes exact heartbeat, task
 claim and task-event routes plus one retained/PITR/SSE task table behind the
 disabled-by-default deployment gate.
 
-The same retained task table now separates sealed Recipe records by an exact
+The retained Worker task table separates sealed Recipe records by an exact
 record kind. Signed issue atomically fences the node counter, receipt and task;
 the active Worker bearer may claim only the canonical manifest and may advance
 only the next declared checkpoint under its lease epoch and attempt. The
 Orchestrator stores the exact signed command for response-loss recovery and
 projects only checkpoint/error summaries. The Cloud Worker Recipe loop is an
-explicit dependency-injection boundary and remains disabled in production
-until a trusted artifact catalog, durable local checkpoint store and audited
-typed ActionDriver are supplied together.
+explicit dependency-injection boundary. Its default remains fail-closed; its
+only production-capable implementation supplies the fixed compiled probe
+catalog, a private restart-persistent checkpoint store, and one typed
+ActionDriver together. A second retained/PITR/SSE Stack table stores only
+readiness task bindings, challenge digest/expiry, event hash, semantic digest,
+and Stack observation digest. Exact bearer event replay is fenced by Worker
+lease epoch, attempt, and sequence. A successful observation atomically
+creates the experimental Service and safe Service/Deployment/Job projections;
+a failed observation creates no Service and moves the still-billable resource
+to `retained_tracked` without stopping or destroying it.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
@@ -272,11 +290,11 @@ The implementation persists recipes, verified quotes, quote command receipts,
 private connection bootstraps and registration command receipts, jobs and job
 steps, plus goals, plans, canonical Plan versions, one-time approval challenges,
 connections, deployments, services, alerts, Cloud audit events, private
-research/quote/registration/provision/execution-probe/recipe-execution-install
+research/quote/registration/provision/execution-probe/recipe-execution-install/service-readiness
 outbox records, Worker-bootstrap observation leases and exact signed
 observation-command receipts, sealed execution-probe artifacts, trusted
-recipe-execution manifests, execution approval challenges, independent task
-observation leases, command journals, and projection outbox records. The de-secreted
+  recipe-execution manifests, execution approval challenges, independent task
+and readiness observation leases, command journals, and projection outbox records. The de-secreted
 private observation evidence and task artifacts are kept separate from public
 projections. The consumed approval signature stays in the private approval
 table; it is not part of any ProductCore response, event, MCP result, or Agent
@@ -557,16 +575,18 @@ separate plan and confirmation.
 ## Explicitly not enabled yet
 
 The current slice does not upload credentials or deploy a Connection Stack on
-the owner's behalf, install a service, expose a network endpoint, or destroy a
-resource. It can issue a reviewed CloudFormation handoff and persist a
+the owner's behalf, expose a network endpoint, or destroy a resource. It can
+issue a reviewed CloudFormation handoff and persist a
 research-only intent. The Go Broker enables signed registration verification,
 read-only On-Demand quotes and `deployment.observe`; `deployment.create`, the
 IID-verified Worker claim and the fixed `execution_probe` task/event channel
-exist behind the disabled-by-default mutation gate. Recipe installation,
-secret delivery and lifecycle commands still return `operation_not_enabled`.
-It does not yet deploy a
-researcher endpoint, build or publish a Worker AMI, execute a Recipe, or run a
-real-account AWS integration test.
+exist behind the disabled-by-default mutation gate. Only the fixed compiled
+probe Recipe and its Stack-witnessed readiness task are implemented; secret
+delivery, selectable Recipes, OpenClaw/knowledge services, ingress, and
+lifecycle commands still return `operation_not_enabled`. The repository does
+not yet deploy a researcher endpoint, build or publish the versioned Worker
+AMI containing the fixed binaries, deploy the Stack, or run a real-account AWS
+integration test.
 Those transitions
 must be implemented through the typed Connection
 Stack/Broker path; neither the Eino Agent tool, external MCP, nor the

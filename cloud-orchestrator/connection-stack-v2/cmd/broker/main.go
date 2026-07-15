@@ -64,6 +64,11 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	if err != nil {
 		return api.Broker{}, err
 	}
+	serviceReadiness, err := commandstore.NewDynamoServiceReadinessStore(dynamoClient, config.receiptsTable, config.countersTable,
+		config.workerSessionsTable, config.serviceReadinessTasksTable)
+	if err != nil {
+		return api.Broker{}, err
+	}
 	registration, err := provider.NewRegistrationAttestor(provider.RegistrationConfig{
 		ConnectionID: config.connectionID, ConnectionGeneration: config.connectionGeneration, NodeKeyID: config.nodeKeyID,
 		AccountID: config.accountID, Region: config.region, StackARN: config.stackARN, URLSuffix: config.urlSuffix,
@@ -106,20 +111,20 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 			WorkerBootstrapEndpoint:      config.workerBootstrapEndpoint,
 		},
 		WorkerIdentity: workerIdentity, WorkerTokens: api.CryptoWorkerTokenGenerator{},
-		WorkerTasks: workerTasks, RecipeTasks: workerTasks, WorkerSessionEvents: repository,
+		WorkerTasks: workerTasks, RecipeTasks: workerTasks, ServiceReadiness: serviceReadiness, WorkerSessionEvents: repository,
 	}, nil
 }
 
 type runtimeConfig struct {
-	connectionID, nodeKeyID, nodePublicKeySPKIBase64                                        string
-	deviceApprovalKeyID, deviceApprovalPublicKeySPKIBase64                                  string
-	accountID, region, stackARN, urlSuffix, stageName                                       string
-	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone, workerSecurityGroupID string
-	workerResourceManifestDigest, workerBootstrapEndpoint, workerIdentityRSAPublicKeyPEM    string
-	receiptsTable, countersTable, issuedQuotesTable                                         string
-	deploymentReservationsTable, approvalUsesTable, workerSessionsTable, workerTasksTable   string
-	connectionGeneration                                                                    int64
-	deploymentEnabled                                                                       bool
+	connectionID, nodeKeyID, nodePublicKeySPKIBase64                                                                  string
+	deviceApprovalKeyID, deviceApprovalPublicKeySPKIBase64                                                            string
+	accountID, region, stackARN, urlSuffix, stageName                                                                 string
+	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone, workerSecurityGroupID                           string
+	workerResourceManifestDigest, workerBootstrapEndpoint, workerIdentityRSAPublicKeyPEM                              string
+	receiptsTable, countersTable, issuedQuotesTable                                                                   string
+	deploymentReservationsTable, approvalUsesTable, workerSessionsTable, workerTasksTable, serviceReadinessTasksTable string
+	connectionGeneration                                                                                              int64
+	deploymentEnabled                                                                                                 bool
 }
 
 func runtimeConfigFromEnvironment() (runtimeConfig, error) {
@@ -139,8 +144,9 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 		receiptsTable:                 requiredEnvironment("DIREXTALK_COMMAND_RECEIPTS_TABLE"), countersTable: requiredEnvironment("DIREXTALK_CONNECTION_COUNTERS_TABLE"),
 		issuedQuotesTable:           requiredEnvironment("DIREXTALK_ISSUED_QUOTES_TABLE"),
 		deploymentReservationsTable: requiredEnvironment("DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE"), approvalUsesTable: requiredEnvironment("DIREXTALK_APPROVAL_USES_TABLE"),
-		workerSessionsTable: requiredEnvironment("DIREXTALK_WORKER_SESSIONS_TABLE"),
-		workerTasksTable:    requiredEnvironment("DIREXTALK_WORKER_TASKS_TABLE"),
+		workerSessionsTable:        requiredEnvironment("DIREXTALK_WORKER_SESSIONS_TABLE"),
+		workerTasksTable:           requiredEnvironment("DIREXTALK_WORKER_TASKS_TABLE"),
+		serviceReadinessTasksTable: requiredEnvironment("DIREXTALK_SERVICE_READINESS_TASKS_TABLE"),
 	}
 	generation, err := strconv.ParseInt(requiredEnvironment("DIREXTALK_CONNECTION_GENERATION"), 10, 64)
 	if err != nil || generation < 1 || generation > 9007199254740991 {
@@ -158,13 +164,18 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	default:
 		return runtimeConfig{}, errors.New("invalid deployment create gate")
 	}
-	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.workerBootstrapEndpoint == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.approvalUsesTable == "" || config.workerSessionsTable == "" || config.workerTasksTable == "" {
+	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.workerBootstrapEndpoint == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.approvalUsesTable == "" || config.workerSessionsTable == "" || config.workerTasksTable == "" || config.serviceReadinessTasksTable == "" {
 		return runtimeConfig{}, errors.New("incomplete broker configuration")
 	}
 	for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable,
-		config.deploymentReservationsTable, config.approvalUsesTable, config.workerSessionsTable} {
+		config.deploymentReservationsTable, config.approvalUsesTable, config.workerSessionsTable, config.serviceReadinessTasksTable} {
 		if config.workerTasksTable == existing {
 			return runtimeConfig{}, errors.New("worker task table must be isolated")
+		}
+	}
+	for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable} {
+		if config.serviceReadinessTasksTable == existing {
+			return runtimeConfig{}, errors.New("service readiness task table must be isolated")
 		}
 	}
 	return config, nil

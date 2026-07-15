@@ -97,6 +97,8 @@ type Broker struct {
 	WorkerTokens        WorkerTokenGenerator
 	WorkerTasks         commandstore.WorkerTaskRepository
 	RecipeTasks         commandstore.RecipeTaskRepository
+	ServiceReadiness    commandstore.ServiceReadinessRepository
+	ReadinessChallenges ReadinessChallengeGenerator
 	WorkerSessionEvents commandstore.WorkerSessionEventRepository
 	Now                 func() time.Time
 }
@@ -198,6 +200,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		b.executeRecipeTask(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionServiceReadinessIssue || command.Action == contract.ActionServiceReadinessObserve {
+		if !b.DeploymentEnabled || b.ServiceReadiness == nil {
+			writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+			return
+		}
+		b.executeServiceReadiness(response, request, command, now)
 		return
 	}
 	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {

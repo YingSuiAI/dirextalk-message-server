@@ -12,17 +12,22 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/fixedprobe"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/recipeexec"
 )
 
 const (
 	bootstrapManifestFileEnv = "CLOUD_WORKER_BOOTSTRAP_MANIFEST_FILE"
 	expectedConnectionIDEnv  = "CLOUD_WORKER_EXPECTED_CONNECTION_ID"
 	expectedEndpointEnv      = "CLOUD_WORKER_EXPECTED_BOOTSTRAP_ENDPOINT"
+	fixedProbeRecipeEnv      = "CLOUD_WORKER_FIXED_PROBE_RECIPE_ENABLED"
+	recipeCheckpointDirEnv   = "CLOUD_WORKER_RECIPE_CHECKPOINT_DIR"
 )
 
 var (
@@ -31,11 +36,13 @@ var (
 )
 
 type commandConfig struct {
-	manifestFile       string
-	expectedConnection string
-	expectedEndpoint   string
-	once               bool
-	heartbeatInterval  time.Duration
+	manifestFile        string
+	expectedConnection  string
+	expectedEndpoint    string
+	recipeCheckpointDir string
+	fixedProbeRecipe    bool
+	once                bool
+	heartbeatInterval   time.Duration
 }
 
 type identityProofProvider interface {
@@ -63,6 +70,18 @@ type recipeTaskProcessor interface {
 	ProcessOne(context.Context) error
 }
 
+type serviceReadinessProcessor interface {
+	ProcessOne(context.Context) error
+}
+
+type recipeTaskClientProvider interface {
+	NewRecipeTaskClient() (*cloudworker.RecipeTaskClient, error)
+}
+
+type serviceReadinessTaskClientProvider interface {
+	NewServiceReadinessTaskClient() (*cloudworker.ServiceReadinessTaskClient, error)
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -82,20 +101,30 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 		return commandConfig{}, errConfigInvalid
 	}
 	config := commandConfig{
-		manifestFile:       strings.TrimSpace(getenv(bootstrapManifestFileEnv)),
-		expectedConnection: strings.TrimSpace(getenv(expectedConnectionIDEnv)),
-		expectedEndpoint:   strings.TrimSpace(getenv(expectedEndpointEnv)),
-		heartbeatInterval:  30 * time.Second,
+		manifestFile:        strings.TrimSpace(getenv(bootstrapManifestFileEnv)),
+		expectedConnection:  strings.TrimSpace(getenv(expectedConnectionIDEnv)),
+		expectedEndpoint:    strings.TrimSpace(getenv(expectedEndpointEnv)),
+		recipeCheckpointDir: strings.TrimSpace(getenv(recipeCheckpointDirEnv)),
+		heartbeatInterval:   30 * time.Second,
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(fixedProbeRecipeEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.fixedProbeRecipe = true
+	default:
+		return commandConfig{}, errConfigInvalid
 	}
 	flags := flag.NewFlagSet("cloud-worker", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.BoolVar(&config.once, "once", false, "claim one session, send one heartbeat, and process at most one fixed transport probe")
+	flags.BoolVar(&config.once, "once", false, "claim one session and process at most one pass of each explicitly enabled fixed Worker capability")
 	flags.DurationVar(&config.heartbeatInterval, "heartbeat-interval", config.heartbeatInterval, "outbound heartbeat interval")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return commandConfig{}, errConfigInvalid
 	}
 	if !validConfigPath(config.manifestFile) || config.expectedConnection == "" || config.expectedEndpoint == "" ||
-		config.heartbeatInterval <= 0 {
+		config.heartbeatInterval <= 0 ||
+		(config.fixedProbeRecipe && (!validConfigPath(config.recipeCheckpointDir) || !filepath.IsAbs(config.recipeCheckpointDir))) ||
+		(!config.fixedProbeRecipe && config.recipeCheckpointDir != "") {
 		return commandConfig{}, errConfigInvalid
 	}
 	return config, nil
@@ -168,8 +197,20 @@ func runWithDependencies(
 		}
 		return errRunFailed
 	}
+	var recipe recipeTaskProcessor
+	var readiness serviceReadinessProcessor
+	if config.fixedProbeRecipe {
+		recipe, err = newFixedProbeRecipeProcessor(client, config.recipeCheckpointDir)
+		if err != nil {
+			return errRunFailed
+		}
+		readiness, err = newFixedProbeReadinessProcessor(client)
+		if err != nil {
+			return errRunFailed
+		}
+	}
 	if config.once {
-		if err := runWorkerCycle(ctx, client, proof, true); err != nil {
+		if err := runWorkerCycleWithProcessors(ctx, client, proof, true, recipe, readiness); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -184,12 +225,49 @@ func runWithDependencies(
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			_ = runWorkerCycle(ctx, client, proof, false)
+			_ = runWorkerCycleWithProcessors(ctx, client, proof, false, recipe, readiness)
 			if ctx.Err() != nil {
 				return nil
 			}
 		}
 	}
+}
+
+func newFixedProbeRecipeProcessor(client workerSessionClient, checkpointDirectory string) (recipeTaskProcessor, error) {
+	provider, ok := client.(recipeTaskClientProvider)
+	if !ok {
+		return nil, recipeexec.ErrExecutorConfiguration
+	}
+	bundle := recipeexec.FixedProbeBundle()
+	resolver, err := recipeexec.NewFixedBundleResolver([]recipeexec.Bundle{bundle})
+	if err != nil {
+		return nil, err
+	}
+	checkpointStore, err := recipeexec.NewFileCheckpointStore(checkpointDirectory)
+	if err != nil {
+		return nil, err
+	}
+	driver, err := fixedprobe.NewProductionDriver()
+	if err != nil {
+		return nil, err
+	}
+	transport, err := provider.NewRecipeTaskClient()
+	if err != nil {
+		return nil, err
+	}
+	return cloudworker.NewRecipeTaskLoop(transport, resolver, checkpointStore, driver)
+}
+
+func newFixedProbeReadinessProcessor(client workerSessionClient) (serviceReadinessProcessor, error) {
+	provider, ok := client.(serviceReadinessTaskClientProvider)
+	if !ok {
+		return nil, recipeexec.ErrExecutorConfiguration
+	}
+	transport, err := provider.NewServiceReadinessTaskClient()
+	if err != nil {
+		return nil, err
+	}
+	return cloudworker.NewServiceReadinessTaskLoop(transport, fixedprobe.NewLocalHost())
 }
 
 // runWorkerCycle keeps regular session telemetry independent from the fixed
@@ -200,11 +278,14 @@ func runWorkerCycle(ctx context.Context, client workerSessionClient, proof cloud
 	return runWorkerCycleWithRecipe(ctx, client, proof, failFast, nil)
 }
 
-// runWorkerCycleWithRecipe is the explicit injection boundary for the
-// separately trusted Recipe executor. Production currently passes nil, so a
-// Worker without a fixed bundle catalog, durable checkpoint store, and action
-// driver cannot even claim a Recipe task.
+// runWorkerCycleWithRecipe preserves the narrower test/injection boundary.
+// Production uses runWorkerCycleWithProcessors only after every fixed
+// capability dependency has been constructed successfully.
 func runWorkerCycleWithRecipe(ctx context.Context, client workerSessionClient, proof cloudworker.InstanceIdentityProof, failFast bool, recipe recipeTaskProcessor) error {
+	return runWorkerCycleWithProcessors(ctx, client, proof, failFast, recipe, nil)
+}
+
+func runWorkerCycleWithProcessors(ctx context.Context, client workerSessionClient, proof cloudworker.InstanceIdentityProof, failFast bool, recipe recipeTaskProcessor, readiness serviceReadinessProcessor) error {
 	if err := client.Heartbeat(ctx); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -243,6 +324,16 @@ func runWorkerCycleWithRecipe(ctx context.Context, client workerSessionClient, p
 	}
 	if recipe != nil {
 		if err := recipe.ProcessOne(ctx); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if failFast {
+				return err
+			}
+		}
+	}
+	if readiness != nil {
+		if err := readiness.ProcessOne(ctx); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
