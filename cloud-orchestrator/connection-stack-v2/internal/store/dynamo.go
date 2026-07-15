@@ -199,7 +199,7 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	action, err := stringAttribute(item, "action")
-	if err != nil || (action != contract.ActionRegistrationVerify && action != contract.ActionQuoteRequest && action != contract.ActionDeploymentCreate && action != contract.ActionDeploymentObserve) {
+	if err != nil || !validReceiptAction(action) {
 		return Record{}, NewError("receipt_store_invalid")
 	}
 	resultJSON, err := stringAttribute(item, "result_json")
@@ -210,10 +210,20 @@ func recordFromItem(item map[string]dynamodbtypes.AttributeValue) (Record, error
 }
 
 func validateRecord(record Record) error {
-	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || (record.Action != contract.ActionRegistrationVerify && record.Action != contract.ActionQuoteRequest && record.Action != contract.ActionDeploymentCreate && record.Action != contract.ActionDeploymentObserve) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
+	if !contract.ValidConnectionID(record.ConnectionID) || !contract.ValidID(record.CommandID) || !validSHA256(record.RequestSHA256) || record.ExpectedGeneration < 1 || record.ExpectedGeneration > maxSafeInteger || record.NodeCounter < 0 || record.NodeCounter > maxSafeInteger || !validReceiptAction(record.Action) || len(record.ResultJSON) == 0 || len(record.ResultJSON) > contract.MaxCommandBytes {
 		return NewError("receipt_store_invalid")
 	}
 	return nil
+}
+
+func validReceiptAction(action string) bool {
+	switch action {
+	case contract.ActionRegistrationVerify, contract.ActionQuoteRequest, contract.ActionDeploymentCreate,
+		contract.ActionDeploymentObserve, contract.ActionWorkerTaskIssue, contract.ActionWorkerTaskObserve:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateIssuedQuote(record Record, quote IssuedQuote) error {

@@ -80,22 +80,24 @@ func NewStaticKeyResolver(connectionID, nodeKeyID, publicKeySPKIB64 string, gene
 	}, nil
 }
 
-// Broker is a fail-closed HTTP command endpoint. It admits durable registration
-// and quote reads, plus the complete typed deployment transaction only when
-// explicitly enabled. It does not receive Worker traffic or report a service ready.
+// Broker is a fail-closed HTTP boundary. It admits durable registration and
+// quote reads, plus typed deployment and fixed execution-probe traffic only
+// when explicitly enabled. It never reports a user service ready.
 type Broker struct {
-	Resolver           KeyResolver
-	Store              commandstore.Repository
-	Registration       RegistrationAttestor
-	Quote              QuoteProvider
-	DeploymentEnabled  bool
-	ApprovalResolver   ApprovalKeyResolver
-	DeploymentStore    commandstore.DeploymentRepository
-	DeploymentProvider DeploymentProvider
-	DeploymentBoundary DeploymentBoundary
-	WorkerIdentity     WorkerIdentityVerifier
-	WorkerTokens       WorkerTokenGenerator
-	Now                func() time.Time
+	Resolver            KeyResolver
+	Store               commandstore.Repository
+	Registration        RegistrationAttestor
+	Quote               QuoteProvider
+	DeploymentEnabled   bool
+	ApprovalResolver    ApprovalKeyResolver
+	DeploymentStore     commandstore.DeploymentRepository
+	DeploymentProvider  DeploymentProvider
+	DeploymentBoundary  DeploymentBoundary
+	WorkerIdentity      WorkerIdentityVerifier
+	WorkerTokens        WorkerTokenGenerator
+	WorkerTasks         commandstore.WorkerTaskRepository
+	WorkerSessionEvents commandstore.WorkerSessionEventRepository
+	Now                 func() time.Time
 }
 
 func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -103,6 +105,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("X-Content-Type-Options", "nosniff")
 	if bootstrapSessionID, ok := workerClaimSessionID(request.URL.Path); ok {
 		b.serveWorkerClaim(response, request, bootstrapSessionID)
+		return
+	}
+	if route, ok := parseWorkerRoute(request.URL.Path); ok {
+		b.serveWorkerRoute(response, request, route)
 		return
 	}
 	if request.URL.Path != commandPath || request.URL.RawQuery != "" {
@@ -175,6 +181,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	}
 	if command.Action == contract.ActionDeploymentObserve {
 		b.executeDeploymentObserve(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionWorkerTaskIssue || command.Action == contract.ActionWorkerTaskObserve {
+		if !b.DeploymentEnabled || b.WorkerTasks == nil {
+			writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+			return
+		}
+		b.executeWorkerTask(response, request, command, now)
 		return
 	}
 	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {

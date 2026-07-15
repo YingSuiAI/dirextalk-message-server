@@ -23,6 +23,13 @@ func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T)
 			t.Fatalf("gate %q unexpectedly accepted", invalid)
 		}
 	}
+
+	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_DEPLOYMENT_CREATE_ENABLED", "false")
+	t.Setenv("DIREXTALK_WORKER_TASKS_TABLE", "receipts")
+	if _, err := runtimeConfigFromEnvironment(); err == nil {
+		t.Fatal("worker task table unexpectedly shared the command receipt table")
+	}
 }
 
 func setValidRuntimeEnvironment(t *testing.T) {
@@ -53,6 +60,7 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE":       "deployments",
 		"DIREXTALK_APPROVAL_USES_TABLE":                 "approval-uses",
 		"DIREXTALK_WORKER_SESSIONS_TABLE":               "worker-sessions",
+		"DIREXTALK_WORKER_TASKS_TABLE":                  "worker-tasks",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

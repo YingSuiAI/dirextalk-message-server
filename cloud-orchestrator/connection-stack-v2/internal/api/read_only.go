@@ -195,7 +195,16 @@ func writeProviderError(response http.ResponseWriter, err error) {
 func writeStoreError(response http.ResponseWriter, err error) {
 	code := commandstore.Code(err)
 	status := http.StatusServiceUnavailable
-	if code == "command_id_conflict" || code == "stale_node_counter" || code == "deployment_id_conflict" || code == "approval_already_consumed" || code == "challenge_already_consumed" || code == "deployment_reservation_conflict" || code == "worker_session_conflict" {
+	switch code {
+	case "worker_task_invalid", "worker_event_invalid", "worker_task_event_invalid":
+		status = http.StatusBadRequest
+	case "worker_task_unauthorized":
+		status = http.StatusUnauthorized
+	case "worker_task_not_found":
+		status = http.StatusNotFound
+	case "command_id_conflict", "stale_node_counter", "deployment_id_conflict", "approval_already_consumed",
+		"challenge_already_consumed", "deployment_reservation_conflict", "worker_session_conflict",
+		"worker_event_conflict", "worker_task_conflict", "worker_task_claim_race", "worker_task_event_conflict":
 		status = http.StatusConflict
 	}
 	writeError(response, status, code)

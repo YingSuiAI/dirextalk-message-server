@@ -150,6 +150,8 @@ func TestExecutionProbeTaskResultMappingAndRetryClassification(t *testing.T) {
 		{name: "rate_limited", stackError: &broker.Error{Code: "throttled", StatusCode: 429}, wantPrefix: "broker_unavailable"},
 		{name: "timeout", stackError: &broker.Error{Code: "broker_timeout"}, wantPrefix: "broker_timeout"},
 		{name: "unavailable", stackError: &broker.Error{Code: "broker_unavailable", StatusCode: 409}, wantPrefix: "broker_unavailable"},
+		{name: "worker task unavailable", stackError: &broker.Error{Code: "worker_task_unavailable", StatusCode: 503}, wantPrefix: "worker_task_unavailable"},
+		{name: "worker session expired", stackError: &broker.Error{Code: "worker_session_expired", StatusCode: 401}, wantPrefix: "worker_session_expired"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := classifyExecutionProbeBrokerError(test.stackError)

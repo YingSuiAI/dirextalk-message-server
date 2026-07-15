@@ -34,23 +34,23 @@ AWS SDK integration in the message-server process.
   Matrix config, model key, AWS SDK, Docker socket, or migration capability.
   Its mounted Ed25519 node key signs exact durable envelopes but is never
   persisted or sent to the Message Server. The typed `deployment.create`
-  runner is present only as a tested control-plane component: the production
-  main process deliberately leaves provision outbox entries unclaimed. It may
-  prepare signed `deployment.observe` and `execution_probe` envelopes, but
-  those calls have no currently enabled Stack-side executor. The historical
+  runner and fixed execution-probe runner are typed control-plane components;
+  the production process claims them only when their feature gates are enabled.
+  It submits signed `deployment.observe` and `execution_probe` envelopes to
+  the standalone Stack. The historical
   Node/SAM Connection Stack and its Worker-session implementation were removed
   from `dirextalk-deployer` in `016c62b` to eliminate a Node runtime from this
   product boundary. Its replacement is the independent Go module at
   `cloud-orchestrator/connection-stack-v2/`: today it validates the closed
   outer command envelope at `POST /v2/commands`, persists an atomic command
   receipt/counter fence, verifies registration, and issues bounded On-Demand
-  quotes from EC2 metadata/offerings and AWS Price List reads. It has no Worker
-  HTTP routes, IMDS verification, EC2 mutation/read-back, broad AWS provider
-  permission, or root executor. The production Orchestrator remains gated
-  until those components are ported and reviewed as complete typed
-  capabilities. ProductCore therefore receives no Worker/session evidence,
-  task artifacts, raw receipts, endpoints, or secrets, and the Message Server
-  neither hosts a Worker session broker nor enables an AWS mutation executor.
+  quotes from EC2 metadata/offerings and AWS Price List reads. Behind its
+  disabled-by-default mutation gate it also has typed EC2 create/read-back,
+  IID-verified Worker claims, heartbeat/task routes, and only the fixed
+  digest-bound `execution_probe`; it still has no broad AWS provider permission
+  or Recipe/root executor. ProductCore receives only de-secreted projections,
+  never raw receipts, endpoints, bearer hashes, task event bodies or secrets;
+  the Message Server does not host the Worker session broker.
 - The source additionally defines a private deterministic-CBOR
   `RecipeExecutionManifestV1` and a pure `cloudworker/recipeexec`
   coordinator. The manifest seals an execution/deployment/Plan-revision/
@@ -226,17 +226,17 @@ reuse its exact persisted envelope; only the Stack's explicit
 implements this observation/store behavior and the existing provision runner
 consumes it.
 
-The future Stack contract also specifies a separately typed active-bearer
-Worker task channel. Its eventual AWS-owned store must retain only a
+The Stack implements a separately typed active-bearer fixed Worker task
+channel. Its AWS-owned store retains only a
 de-secreted `(deployment_id, task_id)` record, so a lost Worker response can
 replay the exact task event without changing its sequence, lease, checkpoint,
 or execution-manifest digest. The Orchestrator may create the sole issue
 outbox only after private bootstrap evidence becomes active, and the non-root
 `cloud-worker` may send only the two fixed `execution_probe` transport events.
-Those future events cannot establish Recipe/root execution, service health,
-public ingress, or AWS mutation. The current Go module has the IID-verified
-active-bearer bootstrap session, but still has no Worker task/event route or
-task DynamoDB table; that fixed execution-probe channel is the next stage.
+Those events cannot establish Recipe/root execution, service health, public
+ingress, or AWS mutation. The current Go module exposes exact heartbeat, task
+claim and task-event routes plus one retained/PITR/SSE task table behind the
+disabled-by-default deployment gate.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan
@@ -542,10 +542,11 @@ The current slice does not upload credentials or deploy a Connection Stack on
 the owner's behalf, install a service, expose a network endpoint, or destroy a
 resource. It can issue a reviewed CloudFormation handoff and persist a
 research-only intent. The Go Broker enables signed registration verification,
-read-only On-Demand quotes and `deployment.observe`; `deployment.create` plus
-IID-verified Worker claim exist as one complete typed bootstrap transaction but
-are off by default. Worker task/event, secret, installation and lifecycle
-commands still return `operation_not_enabled`. It does not yet deploy a
+read-only On-Demand quotes and `deployment.observe`; `deployment.create`, the
+IID-verified Worker claim and the fixed `execution_probe` task/event channel
+exist behind the disabled-by-default mutation gate. Recipe installation,
+secret delivery and lifecycle commands still return `operation_not_enabled`.
+It does not yet deploy a
 researcher endpoint, build or publish a Worker AMI, execute a Recipe, or run a
 real-account AWS integration test.
 Those transitions

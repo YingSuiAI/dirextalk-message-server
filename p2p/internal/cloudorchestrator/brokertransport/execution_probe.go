@@ -245,6 +245,10 @@ func classifyExecutionProbeBrokerError(err error) error {
 	if brokerError.Code == "expired_command" {
 		return runtime.ExecutionProbeCommandExpired(err)
 	}
+	switch brokerError.Code {
+	case "worker_task_unavailable", "worker_session_unavailable", "worker_session_expired":
+		return runtime.ExecutionProbeRetryable(brokerError.Code, err)
+	}
 	if brokerError.StatusCode == 429 || brokerError.StatusCode >= 500 {
 		return runtime.ExecutionProbeRetryable("broker_unavailable", err)
 	}

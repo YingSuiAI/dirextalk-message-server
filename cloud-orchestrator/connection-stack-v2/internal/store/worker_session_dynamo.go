@@ -76,7 +76,7 @@ func (s *DynamoRepository) ActivateWorkerSession(ctx context.Context, claim Work
 		"expected_ami_id = :expected_ami_id AND expected_instance_type = :expected_instance_type AND expected_architecture = :expected_architecture AND " +
 		"expected_vpc_id = :expected_vpc_id AND expected_subnet_id = :expected_subnet_id AND expected_availability_zone = :expected_availability_zone AND " +
 		"expected_security_group_id = :expected_security_group_id AND expires_at = :expires_at AND lease_epoch = :lease_epoch AND (#state = :bound OR #state = :active)"
-	input := &dynamodb.TransactWriteItemsInput{TransactItems: []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.workerSessionsTable, Key: map[string]dynamodbtypes.AttributeValue{"bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: claim.Session.BootstrapSessionID}}, ConditionExpression: stringPtr(condition), UpdateExpression: stringPtr("SET #state = :active, lease_epoch = lease_epoch + :one, lease_expires_at = :lease_expires_at, token_sha256 = :token_sha256, last_sequence = :zero, ttl_epoch_seconds = :ttl REMOVE last_event_at"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: values}}}}
+	input := &dynamodb.TransactWriteItemsInput{TransactItems: []dynamodbtypes.TransactWriteItem{{Update: &dynamodbtypes.Update{TableName: &s.workerSessionsTable, Key: map[string]dynamodbtypes.AttributeValue{"bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: claim.Session.BootstrapSessionID}}, ConditionExpression: stringPtr(condition), UpdateExpression: stringPtr("SET #state = :active, lease_epoch = lease_epoch + :one, lease_expires_at = :lease_expires_at, token_sha256 = :token_sha256, last_sequence = :zero, ttl_epoch_seconds = :ttl REMOVE last_event_at, last_event_sha256"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: values}}}}
 	_, writeErr := s.client.TransactWriteItems(ctx, input)
 	stored, found, readErr := s.LookupWorkerSession(ctx, claim.Session.BootstrapSessionID)
 	if readErr != nil {
@@ -89,6 +89,49 @@ func (s *DynamoRepository) ActivateWorkerSession(ctx context.Context, claim Work
 		return WorkerSession{}, NewError("worker_session_conflict")
 	}
 	return WorkerSession{}, NewError("worker_session_store_invalid")
+}
+
+func (s *DynamoRepository) RecordWorkerSessionEvent(ctx context.Context, event WorkerSessionEvent) (WorkerSession, bool, error) {
+	if s == nil || s.client == nil || !contract.ValidConnectionID(event.ConnectionID) || !contract.ValidID(event.DeploymentID) || !contract.ValidID(event.BootstrapSessionID) || !workerInstancePattern.MatchString(event.ExpectedInstanceID) || event.LeaseEpoch < 1 || event.Sequence < 1 || !validSHA256(event.TokenSHA256) || !validSHA256(event.EventSHA256) || !canonicalWorkerEventInstant(event.OccurredAt) || !canonicalWorkerEventInstant(event.Now) {
+		return WorkerSession{}, false, NewError("worker_event_invalid")
+	}
+	previous := event.Sequence - 1
+	values := map[string]dynamodbtypes.AttributeValue{
+		":active":            &dynamodbtypes.AttributeValueMemberS{Value: "active"},
+		":connection_id":     &dynamodbtypes.AttributeValueMemberS{Value: event.ConnectionID},
+		":deployment_id":     &dynamodbtypes.AttributeValueMemberS{Value: event.DeploymentID},
+		":instance_id":       &dynamodbtypes.AttributeValueMemberS{Value: event.ExpectedInstanceID},
+		":lease_epoch":       &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(event.LeaseEpoch, 10)},
+		":token_sha256":      &dynamodbtypes.AttributeValueMemberS{Value: event.TokenSHA256},
+		":now":               &dynamodbtypes.AttributeValueMemberS{Value: event.Now},
+		":previous_sequence": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(previous, 10)},
+		":sequence":          &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(event.Sequence, 10)},
+		":occurred_at":       &dynamodbtypes.AttributeValueMemberS{Value: event.OccurredAt},
+		":last_event_sha256": &dynamodbtypes.AttributeValueMemberS{Value: event.EventSHA256},
+	}
+	condition := "#state = :active AND connection_id = :connection_id AND deployment_id = :deployment_id AND expected_instance_id = :instance_id AND lease_epoch = :lease_epoch AND token_sha256 = :token_sha256 AND lease_expires_at > :now AND last_sequence = :previous_sequence"
+	update := &dynamodbtypes.Update{TableName: &s.workerSessionsTable, Key: map[string]dynamodbtypes.AttributeValue{"bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: event.BootstrapSessionID}}, ConditionExpression: stringPtr(condition), UpdateExpression: stringPtr("SET last_sequence = :sequence, last_event_at = :occurred_at, last_event_sha256 = :last_event_sha256"), ExpressionAttributeNames: map[string]string{"#state": "state"}, ExpressionAttributeValues: values}
+	_, writeErr := s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []dynamodbtypes.TransactWriteItem{{Update: update}}})
+	stored, found, readErr := s.LookupWorkerSession(ctx, event.BootstrapSessionID)
+	if readErr != nil {
+		return WorkerSession{}, false, readErr
+	}
+	if found && workerSessionEventBinding(stored, event) && stored.LastSequence == event.Sequence && stored.LastEventSHA256 == event.EventSHA256 && stored.LastEventAt == event.OccurredAt {
+		return stored, writeErr != nil, nil
+	}
+	if writeErr != nil {
+		return WorkerSession{}, false, NewError("worker_event_conflict")
+	}
+	return WorkerSession{}, false, NewError("worker_session_store_invalid")
+}
+
+func workerSessionEventBinding(session WorkerSession, event WorkerSessionEvent) bool {
+	return session.State == "active" && session.ConnectionID == event.ConnectionID && session.DeploymentID == event.DeploymentID && session.BootstrapSessionID == event.BootstrapSessionID && session.ExpectedInstanceID == event.ExpectedInstanceID && session.LeaseEpoch == event.LeaseEpoch && session.TokenSHA256 == event.TokenSHA256 && session.LeaseExpiresAt > event.Now
+}
+
+func canonicalWorkerEventInstant(value string) bool {
+	parsed, err := time.Parse("2006-01-02T15:04:05.000Z", value)
+	return err == nil && parsed.UTC().Format("2006-01-02T15:04:05.000Z") == value
 }
 
 func workerSessionItem(session WorkerSession) map[string]dynamodbtypes.AttributeValue {
@@ -114,7 +157,7 @@ func workerSessionFromItem(item map[string]dynamodbtypes.AttributeValue) (Worker
 		"expected_instance_type": {}, "expected_architecture": {}, "expected_vpc_id": {}, "expected_subnet_id": {},
 		"expected_availability_zone": {}, "expected_security_group_id": {}, "expected_instance_id": {}, "state": {},
 		"expires_at": {}, "lease_epoch": {}, "lease_expires_at": {}, "token_sha256": {}, "last_sequence": {},
-		"last_event_at": {}, "ttl_epoch_seconds": {},
+		"last_event_at": {}, "last_event_sha256": {}, "ttl_epoch_seconds": {},
 	}
 	for name := range item {
 		if _, ok := allowed[name]; !ok {
@@ -143,7 +186,7 @@ func workerSessionFromItem(item map[string]dynamodbtypes.AttributeValue) (Worker
 	if err != nil {
 		return WorkerSession{}, err
 	}
-	optional := map[string]*string{"expected_instance_id": &result.ExpectedInstanceID, "lease_expires_at": &result.LeaseExpiresAt, "token_sha256": &result.TokenSHA256, "last_event_at": &result.LastEventAt}
+	optional := map[string]*string{"expected_instance_id": &result.ExpectedInstanceID, "lease_expires_at": &result.LeaseExpiresAt, "token_sha256": &result.TokenSHA256, "last_event_at": &result.LastEventAt, "last_event_sha256": &result.LastEventSHA256}
 	for name, target := range optional {
 		if value, ok := item[name].(*dynamodbtypes.AttributeValueMemberS); ok {
 			*target = value.Value
@@ -165,9 +208,9 @@ func validWorkerSession(session WorkerSession) bool {
 	}
 	switch session.State {
 	case "issued":
-		return session.ExpectedInstanceID == "" && session.LeaseEpoch == 0 && session.LeaseExpiresAt == "" && session.TokenSHA256 == "" && session.LastSequence == 0 && session.LastEventAt == ""
+		return session.ExpectedInstanceID == "" && session.LeaseEpoch == 0 && session.LeaseExpiresAt == "" && session.TokenSHA256 == "" && session.LastSequence == 0 && session.LastEventAt == "" && session.LastEventSHA256 == ""
 	case "bound":
-		return workerInstancePattern.MatchString(session.ExpectedInstanceID) && session.LeaseEpoch == 0 && session.LeaseExpiresAt == "" && session.TokenSHA256 == "" && session.LastSequence == 0 && session.LastEventAt == ""
+		return workerInstancePattern.MatchString(session.ExpectedInstanceID) && session.LeaseEpoch == 0 && session.LeaseExpiresAt == "" && session.TokenSHA256 == "" && session.LastSequence == 0 && session.LastEventAt == "" && session.LastEventSHA256 == ""
 	case "active":
 		if !workerInstancePattern.MatchString(session.ExpectedInstanceID) || session.LeaseEpoch < 1 || !validSHA256(session.TokenSHA256) {
 			return false
@@ -177,10 +220,10 @@ func validWorkerSession(session WorkerSession) bool {
 			return false
 		}
 		if session.LastSequence == 0 {
-			return session.LastEventAt == ""
+			return session.LastEventAt == "" && session.LastEventSHA256 == ""
 		}
 		eventAt, eventErr := time.Parse("2006-01-02T15:04:05.000Z", session.LastEventAt)
-		return eventErr == nil && eventAt.UTC().Format("2006-01-02T15:04:05.000Z") == session.LastEventAt
+		return eventErr == nil && eventAt.UTC().Format("2006-01-02T15:04:05.000Z") == session.LastEventAt && validSHA256(session.LastEventSHA256)
 	default:
 		return false
 	}

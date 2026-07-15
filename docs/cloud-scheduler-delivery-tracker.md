@@ -107,11 +107,14 @@ The current implementation boundary is exactly
   only read-back EC2/EBS/ENI evidence. The fixed claim route verifies AWS IID
   signatures and independent EC2 state before rotating a short lease; the
   signed `deployment.observe` read returns only de-secreted active evidence.
-  Worker tasks/root/readiness/lifecycle actions remain `operation_not_enabled`.
+  The same gate admits only the fixed digest-bound `execution_probe` task and
+  its de-secreted heartbeat/checkpoint events. Recipe/root/readiness/lifecycle
+  actions remain `operation_not_enabled`.
 - The CloudFormation execution role always grants its own log/receipt writes
   and the bounded quote read APIs. RunInstances/create-time tagging/read-back
-  statements exist only behind the same explicit gate. It has no IAM PassRole,
-  Secrets Manager, S3 write, Worker, ingress, or lifecycle permission. The Go
+  statements and exact Worker session/task-table access exist only behind the
+  same explicit gate. It has no IAM PassRole, Secrets Manager, S3 write,
+  ingress, root-execution, or lifecycle permission. The Go
   artifact is supplied through a versioned S3
   artifact parameter by an approved external pipeline or the AWS console; no
   deploy helper is shipped here.
@@ -336,6 +339,29 @@ not represented as implementation tasks in this read-only parity stage.
   Cloud Worker, store and command tests, one accumulated security/spec review,
   and commit only current-stage files.
 
+### G. Fixed Worker execution-probe channel
+
+- [x] Add exact signed `worker.task.issue` and `worker.task.observe` contracts
+  compatible with the existing Orchestrator golden envelopes; admit only the
+  digest-bound `execution_probe` task kind.
+- [x] Add active-bearer heartbeat, task claim and task event routes with exact
+  session/deployment/task path binding, lease epoch fencing and expiry checks.
+- [x] Persist one retained/PITR/SSE `WorkerTasksTable` keyed by deployment/task;
+  keep only immutable digests and the latest de-secreted sequence/checkpoint/
+  error summary, never raw event JSON, logs, commands, URLs or secret values.
+- [x] Atomically fence the signed node counter, command receipt and conditional
+  task reservation so neither a conflict nor a lost response can leave a
+  committed success receipt without its exact task.
+- [x] Make claim and event processing response-loss safe with strongly
+  consistent read-back, deterministic task ordering, attempt fencing and exact
+  event-hash replay; keep heartbeat evidence in the Worker session record.
+- [x] Wire the standalone Go Lambda and default-off CloudFormation routes/IAM
+  to the existing non-root `cloud-worker`, without adding Recipe, root, shell,
+  ingress, secret or general AWS capabilities.
+- [x] Pass standalone Go tests/vet/Linux Lambda build and affected
+  Orchestrator/Worker/store tests, perform one accumulated security/spec review,
+  and commit only current-stage files.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -349,9 +375,9 @@ not represented as implementation tasks in this read-only parity stage.
 - The deployer contains no Connection Stack/Worker bundle or Cloud-specific npm
   runtime; the standalone Connection Stack contains Go code only and is absent
   from the root Message Server module dependency graph.
-- A valid signed registration/quote command reaches only its bounded Go
-  attestor/read provider; every other non-deployment command reaches only the
-  fail-closed gate.
+- A valid signed registration/quote/observe/fixed-probe command reaches only
+  its bounded Go provider or AWS-owned state store; every other command reaches
+  only the fail-closed gate.
   Malformed, expired, future-dated, oversized, duplicate-key, wrong-key, and
   query-bearing requests cannot reach any provider operation. With the default
   gate a deployment command is rejected before proof/provider execution; when
@@ -360,11 +386,12 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Implement the next fixed Worker execution-probe slice without widening the
-Stack into an arbitrary command runner. Add the AWS-owned active-bearer task
-and bounded event stores/routes required by the existing non-root Cloud Worker
-and Orchestrator probe runner, preserving exact replay/sequence/lease fencing.
-It may carry only the fixed `execution_probe` task and de-secreted checkpoint
-evidence. Recipe/root execution, service secrets, public ingress, destroy,
-local AWS credentials, Stack deployment and real-account tests remain outside
-that slice until their own typed boundaries exist.
+Implement the first sealed private-Recipe installation slice without widening
+the Stack into an arbitrary command runner. Reuse the existing
+`RecipeExecutionManifestV1`, owner approval and coordinator contracts to add a
+separate typed install task, compiled artifact delivery, durable checkpoint
+resume and honest experimental-service verification. Root execution must stay
+inside the exclusive VM and may receive only approved opaque secret/data/volume
+slots; public ingress, arbitrary AWS APIs, destroy, local AWS credentials,
+Stack deployment and real-account tests remain outside that slice until their
+own typed boundaries exist.

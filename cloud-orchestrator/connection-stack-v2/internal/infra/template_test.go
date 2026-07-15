@@ -33,9 +33,11 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"DeploymentReservationsTable:",
 		"ApprovalUsesTable:",
 		"WorkerSessionsTable:",
+		"WorkerTasksTable:",
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE",
 		"DIREXTALK_APPROVAL_USES_TABLE",
 		"DIREXTALK_WORKER_SESSIONS_TABLE",
+		"DIREXTALK_WORKER_TASKS_TABLE",
 		"DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT",
 		"DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM",
 		"WorkerIdentityRsaPublicKeyPem:",
@@ -45,6 +47,14 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"AttributeName: ttl_epoch_seconds",
 		"POST /v2/worker-sessions/{session_id}/claim",
 		"/POST/v2/worker-sessions/*/claim",
+		"POST /v2/worker-sessions/{session_id}/tasks/claim",
+		"POST /v2/worker-sessions/{session_id}/tasks/{task_id}/events",
+		"POST /v2/worker-sessions/{session_id}/events",
+		"/POST/v2/worker-sessions/*/tasks/claim",
+		"/POST/v2/worker-sessions/*/tasks/*/events",
+		"/POST/v2/worker-sessions/*/events",
+		"AccessFixedExecutionProbeTasksOnly",
+		"!If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref \"AWS::NoValue\"]",
 		"WorkerBootstrapEndpoint:",
 		"WorkerSecurityGroup:",
 		"DIREXTALK_WORKER_SECURITY_GROUP_ID",
@@ -82,7 +92,8 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"ec2:StartInstances",
 		"ec2:StopInstances",
 		"dynamodb:Scan",
-		"dynamodb:Query",
+		"WorkerTaskEventsTable",
+		"DIREXTALK_WORKER_TASK_EVENTS_TABLE",
 		"StageName: \"$default\"",
 	} {
 		if strings.Contains(strings.ToLower(template), strings.ToLower(forbidden)) {
@@ -93,9 +104,49 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"BrokerWorkerClaimRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
 		"BrokerWorkerClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 		"WorkerSessionsTable:\n    Type: AWS::DynamoDB::Table\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain",
+		`WorkerTasksTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: task_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+        - AttributeName: task_id
+          KeyType: RANGE`,
+		"BrokerWorkerTaskClaimRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerTaskEventRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerSessionEventRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerTaskClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerTaskEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerWorkerSessionEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 	} {
 		if !strings.Contains(template, guardedBoundary) {
 			t.Fatalf("template boundary is not fail closed: missing %q", guardedBoundary)
 		}
+	}
+	if strings.Count(template, "- dynamodb:Query") != 1 || !strings.Contains(template, `- !If
+                - DeploymentCreateEnabled
+                - Sid: AccessFixedExecutionProbeTasksOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:Query
+                    - dynamodb:TransactWriteItems
+                  Resource:
+                    - !GetAtt WorkerTasksTable.Arn
+                - !Ref "AWS::NoValue"`) {
+		t.Fatal("template does not scope Query and task mutation permissions to WorkerTasksTable")
 	}
 }
