@@ -198,6 +198,21 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.services.restore.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.restore.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.restore.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "agent.password",
       "auth": "owner",
       "transport": "http_and_ws_request"

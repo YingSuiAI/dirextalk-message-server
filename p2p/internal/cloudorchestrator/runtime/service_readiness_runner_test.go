@@ -103,7 +103,7 @@ func serviceReadinessClaim(t *testing.T, now time.Time) ServiceReadinessClaim {
 		Phase: ServiceReadinessPhaseIssue, OutboxID: "outbox-ready-0001", Kind: "cloud.service_readiness.requested",
 		AggregateType: "service_readiness_task", AggregateID: issue.TaskID, LeaseToken: "lease-ready-0001",
 		ExecutionID: issue.ExecutionID, DeploymentID: issue.DeploymentID, ServiceID: issue.ServiceID, ConnectionID: "connection-ready-0001",
-		Region: "us-east-1", InstanceID: "i-0123456789abcdef0", TaskID: issue.TaskID,
+		Region: "us-east-1", InstanceID: "i-0123456789abcdef0", TaskID: issue.TaskID, Purpose: "install", JobID: "job-ready-0001",
 		BrokerEndpoint: "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com/prod/v2/commands", NodeKeyID: "node-key-1",
 		SemanticExpectationDigest: issue.SemanticExpectationDigest, ExpectedGeneration: 1, TaskAttempt: 1, IssueRequest: issue,
 		Command: ServiceReadinessCommand{CommandID: "command-ready-0001", ExecutionID: issue.ExecutionID, DeploymentID: issue.DeploymentID,

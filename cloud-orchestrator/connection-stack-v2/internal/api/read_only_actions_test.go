@@ -104,6 +104,25 @@ func TestBrokerCommitsQuoteAndNeverPersistsProviderFailure(t *testing.T) {
 	}
 }
 
+func TestBrokerCommitsReadOnlyServiceRestorePlanAndReplaysIt(t *testing.T) {
+	privateKey := testPrivateKey()
+	store := newMemoryCommandStore()
+	now := time.Date(2026, 7, 15, 1, 2, 4, 0, time.UTC)
+	planner := &recordingServiceRestorePlanner{}
+	broker := readOnlyTestBroker(privateKey, store, &recordingRegistrationAttestor{}, &recordingQuoteProvider{}, func() time.Time { return now })
+	broker.ServiceRestorePlanner = planner
+	broker.ServiceRestorePlanEnabled = true
+	raw := signedServiceRestorePlanCommand(t, privateKey, "command-restore-plan-0001", 17)
+
+	first := serve(t, broker, "POST", "/v2/commands", raw)
+	assertResultBinding(t, first, "restore_plan_ready", "committed", contract.ActionServiceRestorePlan)
+	replay := serve(t, broker, "POST", "/v2/commands", raw)
+	assertResultBinding(t, replay, "idempotent", "idempotent", contract.ActionServiceRestorePlan)
+	if planner.calls != 1 || len(store.records) != 1 || store.lastCounters["connection-0001"] != 17 {
+		t.Fatalf("restore plan calls=%d records=%d counters=%#v", planner.calls, len(store.records), store.lastCounters)
+	}
+}
+
 func TestBrokerConcurrentExactReplayCreatesOneDurableReceipt(t *testing.T) {
 	privateKey := testPrivateKey()
 	store := newMemoryCommandStore()
@@ -238,6 +257,12 @@ func signedQuoteCommand(t *testing.T, privateKey ed25519.PrivateKey, commandID s
 		[]byte(`{"quote_request_id":"quote-request-0001","plan_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","region":"ap-northeast-1","candidates":[{"candidate_id":"candidate-0001","tier":"recommended","instance_type":"t3.large","purchase_option":"on_demand","estimated_disk_gib":40}]}`))
 }
 
+func signedServiceRestorePlanCommand(t *testing.T, privateKey ed25519.PrivateKey, commandID string, counter int64) []byte {
+	t.Helper()
+	return signedReadOnlyCommand(t, privateKey, commandID, counter, contract.ActionServiceRestorePlan,
+		[]byte(`{"schema":"dirextalk.aws.service-restore-plan/v1","restore_plan_id":"restore-plan-0001","service_id":"service-restore-0001","deployment_id":"deployment-restore-0001","backup_id":"backup-restore-0001","instance_id":"i-0123456789abcdef0","region":"us-east-1","image_id":"ami-0123456789abcdef0","snapshot_refs":[{"original_volume_id":"vol-0123456789abcdef0","snapshot_id":"snap-0123456789abcdef0"}]}`))
+}
+
 func signedReadOnlyCommand(t *testing.T, privateKey ed25519.PrivateKey, commandID string, counter int64, action string, payload []byte) []byte {
 	t.Helper()
 	sum := sha256.Sum256(payload)
@@ -298,6 +323,14 @@ type recordingQuoteProvider struct {
 	mu    sync.Mutex
 	calls int
 	err   error
+}
+
+type recordingServiceRestorePlanner struct{ calls int }
+
+func (p *recordingServiceRestorePlanner) Plan(_ context.Context, command contract.Command, request contract.ServiceRestorePlanRequest, now time.Time) (contract.ServiceRestorePlan, error) {
+	p.calls++
+	requestSHA, _ := command.RequestSHA256()
+	return contract.ServiceRestorePlan{Schema: contract.ServiceRestorePlanSchema, RestorePlanID: request.RestorePlanID, ConnectionID: command.ConnectionID, CommandID: command.CommandID, RequestSHA256: requestSHA, ServiceID: request.ServiceID, DeploymentID: request.DeploymentID, BackupID: request.BackupID, InstanceID: request.InstanceID, Region: request.Region, AvailabilityZone: "us-east-1a", RestoreMode: "in_place", DowntimeRequired: true, OriginalVolumeRetention: "manual", FailurePolicy: "reattach_original", QuoteID: "quote-restore-plan-0001", Currency: "USD", EstimatedHourlyMinor: 1, EstimatedThirtyDayMinor: 640, QuotedAt: contract.CanonicalInstant(now), ValidUntil: contract.CanonicalInstant(now.Add(15 * time.Minute)), Unincluded: []string{"taxes"}, VolumeSwaps: []contract.ServiceRestoreVolumeSwap{{OriginalVolumeID: request.SnapshotRefs[0].OriginalVolumeID, SnapshotID: request.SnapshotRefs[0].SnapshotID, DeviceName: "/dev/xvda", VolumeType: "gp3", SizeGiB: 80, IOPS: 3000, ThroughputMiB: 125, Encrypted: true, DeleteOnTermination: true}}}, nil
 }
 
 func (p *recordingQuoteProvider) Quote(

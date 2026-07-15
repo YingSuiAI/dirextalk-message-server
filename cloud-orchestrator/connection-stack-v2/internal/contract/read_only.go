@@ -429,6 +429,13 @@ func IdempotentResult(command Command, raw []byte) ([]byte, error) {
 		}
 		result.Status, result.Receipt.Disposition = "idempotent", "idempotent"
 		return json.Marshal(result)
+	case ActionServiceRestorePlan:
+		var result ServiceRestorePlanResult
+		if err := decodeServiceRestorePlanResult(raw, &result); err != nil || result.Status != "restore_plan_ready" || result.Receipt.Disposition != "committed" || ValidateServiceRestorePlanResult(command, result) != nil {
+			return nil, errCode("receipt_store_invalid")
+		}
+		result.Status, result.Receipt.Disposition = "idempotent", "idempotent"
+		return json.Marshal(result)
 	default:
 		return nil, errCode("operation_not_enabled")
 	}
@@ -453,6 +460,12 @@ func ValidateCommittedResult(command Command, raw []byte) error {
 		}
 		request, err := command.QuoteRequest()
 		if err != nil || ValidateQuoteResult(command, request, result) != nil {
+			return errCode("receipt_store_invalid")
+		}
+		return nil
+	case ActionServiceRestorePlan:
+		var result ServiceRestorePlanResult
+		if err := decodeServiceRestorePlanResult(raw, &result); err != nil || result.Status != "restore_plan_ready" || result.Receipt.Disposition != "committed" || ValidateServiceRestorePlanResult(command, result) != nil {
 			return errCode("receipt_store_invalid")
 		}
 		return nil

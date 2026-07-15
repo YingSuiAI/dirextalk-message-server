@@ -54,7 +54,7 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	dynamoClient := dynamodb.NewFromConfig(awsConfig)
 	repository, err := commandstore.NewDynamoRepository(commandstore.DynamoConfig{
 		Client: dynamoClient, ReceiptsTable: config.receiptsTable,
-		CountersTable: config.countersTable, IssuedQuotesTable: config.issuedQuotesTable, DeploymentReservationsTable: config.deploymentReservationsTable, DeploymentDestroyTable: config.deploymentDestroyTable, ServiceBackupsTable: config.serviceBackupsTable, ApprovalUsesTable: config.approvalUsesTable, WorkerSessionsTable: config.workerSessionsTable,
+		CountersTable: config.countersTable, IssuedQuotesTable: config.issuedQuotesTable, DeploymentReservationsTable: config.deploymentReservationsTable, DeploymentDestroyTable: config.deploymentDestroyTable, ServiceBackupsTable: config.serviceBackupsTable, ServiceRestoresTable: config.serviceRestoresTable, ApprovalUsesTable: config.approvalUsesTable, WorkerSessionsTable: config.workerSessionsTable,
 	})
 	if err != nil {
 		return api.Broker{}, err
@@ -85,11 +85,19 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	if err != nil {
 		return api.Broker{}, err
 	}
+	ec2Client := ec2.NewFromConfig(awsConfig)
+	var restorePlanner api.ServiceRestorePlanner
+	if config.serviceRestorePlanEnabled {
+		restorePlanner, err = provider.NewServiceRestorePlanProvider(ec2Client, pricing.NewFromConfig(pricingConfig))
+		if err != nil {
+			return api.Broker{}, err
+		}
+	}
 	var deploymentProvider api.DeploymentProvider
 	var deploymentDestroyProvider api.DeploymentDestroyProvider
 	var serviceBackupProvider api.ServiceBackupProvider
+	var serviceRestoreProvider api.ServiceRestoreProvider
 	var workerIdentity api.WorkerIdentityVerifier
-	ec2Client := ec2.NewFromConfig(awsConfig)
 	if config.deploymentEnabled {
 		deploymentProvider, err = provider.NewEC2DeploymentProvider(ec2Client)
 		if err != nil {
@@ -112,12 +120,19 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 			return api.Broker{}, err
 		}
 	}
+	if config.serviceRestoreEnabled {
+		serviceRestoreProvider, err = provider.NewEC2ServiceRestoreProvider(ec2Client)
+		if err != nil {
+			return api.Broker{}, err
+		}
+	}
 	return api.Broker{
-		Resolver: resolver, Store: repository, Registration: registration, Quote: quote,
-		DeploymentEnabled: config.deploymentEnabled, DeploymentDestroyEnabled: config.deploymentDestroyEnabled, ServiceBackupEnabled: config.serviceBackupEnabled, ApprovalResolver: approvalResolver,
+		Resolver: resolver, Store: repository, Registration: registration, Quote: quote, ServiceRestorePlanner: restorePlanner,
+		DeploymentEnabled: config.deploymentEnabled, DeploymentDestroyEnabled: config.deploymentDestroyEnabled, ServiceBackupEnabled: config.serviceBackupEnabled, ServiceRestorePlanEnabled: config.serviceRestorePlanEnabled, ServiceRestoreEnabled: config.serviceRestoreEnabled, ApprovalResolver: approvalResolver,
 		DeploymentStore: repository, DeploymentProvider: deploymentProvider,
 		DeploymentDestroyStore: repository, DeploymentDestroyProvider: deploymentDestroyProvider,
 		ServiceBackupStore: repository, ServiceBackupProvider: serviceBackupProvider,
+		ServiceRestoreStore: repository, ServiceRestoreProvider: serviceRestoreProvider,
 		DeploymentBoundary: api.DeploymentBoundary{
 			WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: config.workerAMIID},
 			WorkerNetwork: contract.WorkerNetworkReference{
@@ -133,17 +148,19 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 }
 
 type runtimeConfig struct {
-	connectionID, nodeKeyID, nodePublicKeySPKIBase64                                                                                                               string
-	deviceApprovalKeyID, deviceApprovalPublicKeySPKIBase64                                                                                                         string
-	accountID, region, stackARN, urlSuffix, stageName                                                                                                              string
-	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone, workerSecurityGroupID                                                                        string
-	workerResourceManifestDigest, workerBootstrapEndpoint, workerIdentityRSAPublicKeyPEM                                                                           string
-	receiptsTable, countersTable, issuedQuotesTable                                                                                                                string
-	deploymentReservationsTable, deploymentDestroyTable, serviceBackupsTable, approvalUsesTable, workerSessionsTable, workerTasksTable, serviceReadinessTasksTable string
-	connectionGeneration                                                                                                                                           int64
-	deploymentEnabled                                                                                                                                              bool
-	deploymentDestroyEnabled                                                                                                                                       bool
-	serviceBackupEnabled                                                                                                                                           bool
+	connectionID, nodeKeyID, nodePublicKeySPKIBase64                                                                                                                                     string
+	deviceApprovalKeyID, deviceApprovalPublicKeySPKIBase64                                                                                                                               string
+	accountID, region, stackARN, urlSuffix, stageName                                                                                                                                    string
+	workerAMIID, workerVPCID, workerSubnetID, workerAvailabilityZone, workerSecurityGroupID                                                                                              string
+	workerResourceManifestDigest, workerBootstrapEndpoint, workerIdentityRSAPublicKeyPEM                                                                                                 string
+	receiptsTable, countersTable, issuedQuotesTable                                                                                                                                      string
+	deploymentReservationsTable, deploymentDestroyTable, serviceBackupsTable, serviceRestoresTable, approvalUsesTable, workerSessionsTable, workerTasksTable, serviceReadinessTasksTable string
+	connectionGeneration                                                                                                                                                                 int64
+	deploymentEnabled                                                                                                                                                                    bool
+	deploymentDestroyEnabled                                                                                                                                                             bool
+	serviceBackupEnabled                                                                                                                                                                 bool
+	serviceRestorePlanEnabled                                                                                                                                                            bool
+	serviceRestoreEnabled                                                                                                                                                                bool
 }
 
 func runtimeConfigFromEnvironment() (runtimeConfig, error) {
@@ -165,6 +182,7 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 		deploymentReservationsTable: requiredEnvironment("DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE"), approvalUsesTable: requiredEnvironment("DIREXTALK_APPROVAL_USES_TABLE"),
 		deploymentDestroyTable:     requiredEnvironment("DIREXTALK_DEPLOYMENT_DESTROY_TABLE"),
 		serviceBackupsTable:        requiredEnvironment("DIREXTALK_SERVICE_BACKUPS_TABLE"),
+		serviceRestoresTable:       requiredEnvironment("DIREXTALK_SERVICE_RESTORES_TABLE"),
 		workerSessionsTable:        requiredEnvironment("DIREXTALK_WORKER_SESSIONS_TABLE"),
 		workerTasksTable:           requiredEnvironment("DIREXTALK_WORKER_TASKS_TABLE"),
 		serviceReadinessTasksTable: requiredEnvironment("DIREXTALK_SERVICE_READINESS_TASKS_TABLE"),
@@ -201,6 +219,22 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	default:
 		return runtimeConfig{}, errors.New("invalid service backup gate")
 	}
+	switch requiredEnvironment("DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED") {
+	case "true":
+		config.serviceRestorePlanEnabled = true
+	case "false":
+		config.serviceRestorePlanEnabled = false
+	default:
+		return runtimeConfig{}, errors.New("invalid service restore plan gate")
+	}
+	switch requiredEnvironment("DIREXTALK_SERVICE_RESTORE_ENABLED") {
+	case "true":
+		config.serviceRestoreEnabled = true
+	case "false":
+		config.serviceRestoreEnabled = false
+	default:
+		return runtimeConfig{}, errors.New("invalid service restore gate")
+	}
 	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.workerBootstrapEndpoint == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.deploymentDestroyTable == "" || config.serviceBackupsTable == "" || config.approvalUsesTable == "" || config.workerSessionsTable == "" || config.workerTasksTable == "" || config.serviceReadinessTasksTable == "" {
 		return runtimeConfig{}, errors.New("incomplete broker configuration")
 	}
@@ -223,6 +257,11 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable} {
 		if config.serviceBackupsTable == existing {
 			return runtimeConfig{}, errors.New("service backup table must be isolated")
+		}
+	}
+	for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.serviceBackupsTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable} {
+		if config.serviceRestoresTable == existing {
+			return runtimeConfig{}, errors.New("service restore table must be isolated")
 		}
 	}
 	return config, nil

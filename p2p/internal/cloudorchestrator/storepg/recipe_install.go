@@ -457,18 +457,24 @@ func ensureServiceReadinessTask(ctx context.Context, tx *sql.Tx, claim runtime.R
 	serviceID := stableID("cloud_service_", claim.DeploymentID, claim.ExecutionID, claim.ManifestDigest)
 	taskID := stableID("cloud_service_readiness_task_", serviceID, claim.ManifestDigest)
 	semanticDigest := cloudcontracts.FixedReadinessEvidenceDigestV1
+	jobID := claim.JobID
+	if jobID == "" {
+		if err := tx.QueryRowContext(ctx, `SELECT job_id FROM p2p_cloud_jobs WHERE deployment_id=$1 AND kind='install'`, claim.DeploymentID).Scan(&jobID); err != nil {
+			return err
+		}
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO p2p_cloud_service_readiness_tasks
-		(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8,'unissued',$9,$9) ON CONFLICT (task_id) DO NOTHING`,
-		taskID, claim.ExecutionID, claim.DeploymentID, serviceID, claim.ConnectionID, claim.InstanceID, claim.ManifestDigest, semanticDigest, now)
+		(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,purpose,job_id,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8,'unissued','install',$9,$10,$10) ON CONFLICT (task_id) DO NOTHING`,
+		taskID, claim.ExecutionID, claim.DeploymentID, serviceID, claim.ConnectionID, claim.InstanceID, claim.ManifestDigest, semanticDigest, jobID, now)
 	if err != nil {
 		return err
 	}
-	var existingExecution, existingDeployment, existingService, existingManifest, existingInstall, existingSemantic, status string
-	if err = tx.QueryRowContext(ctx, `SELECT execution_id,deployment_id,service_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status FROM p2p_cloud_service_readiness_tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&existingExecution, &existingDeployment, &existingService, &existingManifest, &existingInstall, &existingSemantic, &status); err != nil {
+	var existingExecution, existingDeployment, existingService, existingManifest, existingInstall, existingSemantic, status, purpose, existingJobID string
+	if err = tx.QueryRowContext(ctx, `SELECT execution_id,deployment_id,service_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,purpose,job_id FROM p2p_cloud_service_readiness_tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&existingExecution, &existingDeployment, &existingService, &existingManifest, &existingInstall, &existingSemantic, &status, &purpose, &existingJobID); err != nil {
 		return err
 	}
-	if existingExecution != claim.ExecutionID || existingDeployment != claim.DeploymentID || existingService != serviceID || existingManifest != claim.ManifestDigest || existingInstall != claim.ManifestDigest || existingSemantic != semanticDigest ||
+	if existingExecution != claim.ExecutionID || existingDeployment != claim.DeploymentID || existingService != serviceID || existingManifest != claim.ManifestDigest || existingInstall != claim.ManifestDigest || existingSemantic != semanticDigest || purpose != "install" || existingJobID != jobID ||
 		(status != "unissued" && status != "queued" && status != "running" && status != "succeeded" && status != "failed" && status != "interrupted") {
 		return errors.New("service readiness task binding conflict")
 	}

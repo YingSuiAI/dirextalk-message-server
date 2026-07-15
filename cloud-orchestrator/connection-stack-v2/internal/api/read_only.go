@@ -42,6 +42,10 @@ type QuoteProvider interface {
 	Quote(ctx context.Context, command contract.Command, request contract.QuoteRequest, now time.Time) (contract.Quote, error)
 }
 
+type ServiceRestorePlanner interface {
+	Plan(ctx context.Context, command contract.Command, request contract.ServiceRestorePlanRequest, now time.Time) (contract.ServiceRestorePlan, error)
+}
+
 type Error struct {
 	Code       string
 	StatusCode int
@@ -135,6 +139,22 @@ func (b Broker) executeReadOnly(response http.ResponseWriter, request *http.Requ
 				}
 			}
 		}
+	case contract.ActionServiceRestorePlan:
+		if b.ServiceRestorePlanner == nil {
+			writeError(response, http.StatusServiceUnavailable, "service_restore_plan_provider_unavailable")
+			return
+		}
+		restoreRequest, parseErr := command.ServiceRestorePlanRequest()
+		if parseErr != nil {
+			writeError(response, http.StatusBadRequest, contract.Code(parseErr))
+			return
+		}
+		plan, providerErr := b.ServiceRestorePlanner.Plan(request.Context(), command, restoreRequest, now)
+		if providerErr != nil {
+			writeProviderError(response, providerErr)
+			return
+		}
+		resultJSON, err = contract.MarshalCommittedServiceRestorePlanResult(command, plan)
 	default:
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return

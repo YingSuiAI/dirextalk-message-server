@@ -1231,3 +1231,33 @@ resource-axis transition. `cloud.job.changed` also accepts the existing
 `kind: "backup"` Jobs. The Flutter Service detail page renders backup status,
 manual retention, retained AMI and encrypted snapshot count, but deliberately
 contains no restore or backup-delete control.
+
+## 2026-07-15 — Original-instance retained-volume restore v1
+
+Three owner-authenticated, HTTP-only actions add the separately approved
+in-place restore flow: `cloud.services.restore.plan`,
+`cloud.services.restore.confirmation.prepare`, and
+`cloud.services.restore.approve`. The server and read-only Connection Stack
+derive the current Service/Deployment/backup revisions, original EC2 instance,
+Region/AZ, exact volume/snapshot/device mapping, and disclosed EBS estimate.
+The client can only sign the returned five-minute deterministic approval; it
+cannot submit AWS mutation parameters. Agent tokens, WebSocket requests, and
+public MCP cannot call these actions.
+
+Approval atomically records a restore Job and durable command ledger. The
+typed Connection Stack mutation and Orchestrator consumer each have an
+independent default-off gate. When enabled in a separately authorized stage,
+the Stack creates replacement volumes idempotently, stops the original
+instance, swaps exact device mappings, reads back the result, and attempts to
+reattach the retained originals on failure. AWS mapping evidence remains
+`verifying` until an independent Worker semantic-readiness check succeeds;
+fallback and unverified recovery never become success.
+
+`cloud.services.list/get` and strict `cloud.service.changed` summaries add an
+optional `restores` array. Each entry exposes restore/plan/backup identity,
+status, revision, timestamps, and the original/replacement volume IDs so all
+retained billable resources remain visible. An active or blocked restore
+excludes new start/stop/restart, backup, restore, and destroy approvals. The
+Flutter Service detail flow performs the device signature, persists only
+non-secret resumable metadata, displays progress and retained-volume charges,
+and never implies automatic cleanup.

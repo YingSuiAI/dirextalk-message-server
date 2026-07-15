@@ -88,9 +88,12 @@ type Broker struct {
 	Store                     commandstore.Repository
 	Registration              RegistrationAttestor
 	Quote                     QuoteProvider
+	ServiceRestorePlanner     ServiceRestorePlanner
 	DeploymentEnabled         bool
 	DeploymentDestroyEnabled  bool
 	ServiceBackupEnabled      bool
+	ServiceRestorePlanEnabled bool
+	ServiceRestoreEnabled     bool
 	ApprovalResolver          ApprovalKeyResolver
 	DeploymentStore           commandstore.DeploymentRepository
 	DeploymentProvider        DeploymentProvider
@@ -98,6 +101,8 @@ type Broker struct {
 	DeploymentDestroyProvider DeploymentDestroyProvider
 	ServiceBackupStore        commandstore.ServiceBackupRepository
 	ServiceBackupProvider     ServiceBackupProvider
+	ServiceRestoreStore       commandstore.ServiceRestoreRepository
+	ServiceRestoreProvider    ServiceRestoreProvider
 	DeploymentBoundary        DeploymentBoundary
 	WorkerIdentity            WorkerIdentityVerifier
 	WorkerTokens              WorkerTokenGenerator
@@ -170,6 +175,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
+	if command.Action == contract.ActionServiceRestorePlan && !b.ServiceRestorePlanEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
+	if command.Action == contract.ActionServiceRestore && !b.ServiceRestoreEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
 
 	now := time.Now().UTC()
 	if b.Now != nil {
@@ -212,6 +225,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		b.executeServiceBackup(response, request, command, now)
 		return
 	}
+	if command.Action == contract.ActionServiceRestore {
+		if b.ApprovalResolver == nil || b.ServiceRestoreStore == nil || b.ServiceRestoreProvider == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		b.executeServiceRestore(response, request, command, now)
+		return
+	}
 	if command.Action == contract.ActionDeploymentObserve {
 		b.executeDeploymentObserve(response, request, command, now)
 		return
@@ -240,7 +261,7 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		b.executeServiceReadiness(response, request, command, now)
 		return
 	}
-	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest {
+	if command.Action != contract.ActionRegistrationVerify && command.Action != contract.ActionQuoteRequest && command.Action != contract.ActionServiceRestorePlan {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}

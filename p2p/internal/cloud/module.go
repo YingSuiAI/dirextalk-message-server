@@ -44,6 +44,9 @@ const (
 	actionServicesOperationApprove                      = "cloud.services.operation.approve"
 	actionServicesDestroyPlan                           = "cloud.services.destroy.plan"
 	actionServicesDestroyApprove                        = "cloud.services.destroy.approve"
+	actionServicesRestorePlan                           = "cloud.services.restore.plan"
+	actionServicesRestoreConfirmationPrepare            = "cloud.services.restore.confirmation.prepare"
+	actionServicesRestoreApprove                        = "cloud.services.restore.approve"
 	cloudUnavailableCode                                = "cloud_orchestrator_unavailable"
 	cloudIdempotencyInvalidCode                         = "cloud_idempotency_key_invalid"
 	cloudGoalInvalidCode                                = "cloud_goal_invalid"
@@ -74,6 +77,12 @@ const (
 	cloudServiceOperationConfirmationConflictCode       = "cloud_service_operation_confirmation_conflict"
 	cloudServiceOperationApprovalExpiredCode            = "cloud_service_operation_approval_expired"
 	cloudServiceOperationApprovalSignatureCode          = "cloud_service_operation_approval_signature_invalid"
+	cloudServiceRestorePlanInvalidCode                  = "cloud_service_restore_plan_invalid"
+	cloudServiceRestorePlanConflictCode                 = "cloud_service_restore_plan_conflict"
+	cloudServiceRestoreConfirmationInvalidCode          = "cloud_service_restore_confirmation_invalid"
+	cloudServiceRestoreConfirmationConflictCode         = "cloud_service_restore_confirmation_conflict"
+	cloudServiceRestoreApprovalExpiredCode              = "cloud_service_restore_approval_expired"
+	cloudServiceRestoreApprovalSignatureCode            = "cloud_service_restore_approval_signature_invalid"
 )
 
 type Config struct {
@@ -119,7 +128,129 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionServicesOperationApprove:                      m.approveServiceOperation,
 		actionServicesDestroyPlan:                           m.prepareServiceDestroy,
 		actionServicesDestroyApprove:                        m.approveServiceDestroy,
+		actionServicesRestorePlan:                           m.createServiceRestorePlan,
+		actionServicesRestoreConfirmationPrepare:            m.prepareServiceRestore,
+		actionServicesRestoreApprove:                        m.approveServiceRestore,
 	}
+}
+
+// createServiceRestorePlan queues an independently verified, read-only AWS
+// plan for one retained backup. ProductCore accepts no Region, instance,
+// snapshot, volume, device, price, or network value from the caller.
+func (m *Module) createServiceRestorePlan(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "backup_id", "expected_revision", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceRestorePlanStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	v := actionbase.Params(params)
+	serviceID, backupID, key := v.String("service_id"), v.String("backup_id"), v.String("idempotency_key")
+	revision := v.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || !cloudIdentifierPattern.MatchString(backupID) || revision <= 0 || ContainsSensitiveGoalMaterial(key) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceRestorePlanInvalidCode, "cloud service restore plan is invalid")
+	}
+	if _, err := uuid.Parse(key); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	owner := m.ownerMXID()
+	if owner == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UnixMilli()
+	eventID := m.newID("event")
+	created, err := store.CreateCloudServiceRestorePlan(ctx, CreateServiceRestorePlanRequest{OwnerMXID: owner, ServiceID: serviceID, BackupID: backupID, ExpectedRevision: revision, IdempotencyHash: digest(key), RequestDigest: digestFields(serviceID, backupID, fmt.Sprint(revision)), RestorePlanID: m.newID("service_restore_plan"), JobID: m.newID("service_restore_plan"), OutboxID: m.newID("outbox"), JobEventID: eventID, CreatedAt: now})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrIdempotencyConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different restore plan")
+		case errors.Is(err, ErrServiceRestorePlanConflict):
+			return nil, actionbase.CodedError(http.StatusConflict, cloudServiceRestorePlanConflictCode, "cloud service restore plan conflicts with the current service")
+		case errors.Is(err, ErrServiceRestorePlanInvalid):
+			return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceRestorePlanInvalidCode, "cloud service restore plan is invalid")
+		default:
+			return nil, actionbase.InternalError(err)
+		}
+	}
+	if created.Created {
+		m.publish(ctx, "cloud.job.changed", eventID, jobPayload(created.Job))
+	}
+	return map[string]any{"restore_plan": created.Plan, "job": created.Job}, nil
+}
+
+func (m *Module) prepareServiceRestore(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "restore_plan_id", "expected_revision", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceRestoreConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	v := actionbase.Params(params)
+	serviceID, planID, key := v.String("service_id"), v.String("restore_plan_id"), v.String("idempotency_key")
+	revision := v.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || !cloudIdentifierPattern.MatchString(planID) || revision <= 0 || ContainsSensitiveGoalMaterial(key) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceRestoreConfirmationInvalidCode, "cloud service restore confirmation is invalid")
+	}
+	if _, err := uuid.Parse(key); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	owner := m.ownerMXID()
+	if owner == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC()
+	prepared, err := store.PrepareCloudServiceRestore(ctx, PrepareServiceRestoreRequest{OwnerMXID: owner, ServiceID: serviceID, RestorePlanID: planID, ExpectedRevision: revision, IdempotencyHash: digest(key), RequestDigest: digestFields(serviceID, planID, fmt.Sprint(revision)), ApprovalID: m.newID("service_restore_approval"), ChallengeID: m.newID("service_restore_challenge"), CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli()})
+	if err != nil {
+		return nil, serviceRestoreConfirmationError(err)
+	}
+	return map[string]any{"confirmation": prepared.Confirmation}, nil
+}
+
+func (m *Module) approveServiceRestore(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "service_id", "restore_plan_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(ServiceRestoreConfirmationStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	v := actionbase.Params(params)
+	serviceID, planID, key := v.String("service_id"), v.String("restore_plan_id"), v.String("idempotency_key")
+	revision := v.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(serviceID) || !cloudIdentifierPattern.MatchString(planID) || revision <= 0 || ContainsSensitiveGoalMaterial(key) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceRestoreConfirmationInvalidCode, "cloud service restore confirmation is invalid")
+	}
+	if _, err := uuid.Parse(key); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	approval, err := decodeServiceRestoreApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudServiceRestoreConfirmationInvalidCode, "cloud service restore confirmation is invalid")
+	}
+	owner := m.ownerMXID()
+	if owner == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now, eventID := m.now().UnixMilli(), m.newID("event")
+	approved, err := store.ApproveCloudServiceRestore(ctx, ApproveServiceRestoreRequest{OwnerMXID: owner, ServiceID: serviceID, RestorePlanID: planID, ExpectedRevision: revision, IdempotencyHash: digest(key), Approval: approval, JobID: m.newID("service_restore"), OutboxID: m.newID("outbox"), JobEventID: eventID, CreatedAt: now})
+	if err != nil {
+		return nil, serviceRestoreApprovalError(err)
+	}
+	if approved.Created {
+		m.publish(ctx, "cloud.job.changed", eventID, jobPayload(approved.Job))
+	}
+	return map[string]any{"service": approved.Service, "restore": approved.Restore, "job": approved.Job}, nil
 }
 
 // createConnectionRolePlan creates a short-lived, immutable CloudFormation
@@ -821,6 +952,56 @@ func decodeServiceBackupApprovalV1(value any) (cloudcontracts.ServiceBackupAppro
 		return approval, err
 	}
 	return approval, nil
+}
+
+func decodeServiceRestoreApprovalV1(value any) (cloudcontracts.ServiceRestoreApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.ServiceRestoreApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.ServiceRestoreApprovalV1
+	if err = decoder.Decode(&approval); err != nil {
+		return approval, err
+	}
+	var trailing any
+	if err = decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return approval, errors.New("service restore approval contains trailing JSON")
+	}
+	if err = approval.Validate(); err != nil {
+		return approval, err
+	}
+	return approval, nil
+}
+
+func serviceRestoreConfirmationError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service restore confirmation")
+	case errors.Is(err, ErrServiceRestoreConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceRestoreConfirmationConflictCode, "cloud service restore confirmation conflicts with the current plan")
+	case errors.Is(err, ErrServiceRestoreConfirmationInvalid):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceRestoreConfirmationInvalidCode, "cloud service restore plan is not ready for confirmation")
+	default:
+		return actionbase.InternalError(err)
+	}
+}
+func serviceRestoreApprovalError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different cloud service restore approval")
+	case errors.Is(err, ErrServiceRestoreApprovalExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceRestoreApprovalExpiredCode, "cloud service restore approval or quote has expired")
+	case errors.Is(err, ErrServiceRestoreApprovalSignature):
+		return actionbase.CodedError(http.StatusForbidden, cloudServiceRestoreApprovalSignatureCode, "cloud service restore approval signature is invalid")
+	case errors.Is(err, ErrServiceRestoreConfirmationConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudServiceRestoreConfirmationConflictCode, "cloud service restore approval conflicts with the current plan")
+	case errors.Is(err, ErrServiceRestoreConfirmationInvalid):
+		return actionbase.CodedError(http.StatusBadRequest, cloudServiceRestoreConfirmationInvalidCode, "cloud service restore approval is invalid")
+	default:
+		return actionbase.InternalError(err)
+	}
 }
 
 func planConfirmationError(err error) *actionbase.Error {

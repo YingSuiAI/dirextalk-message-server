@@ -718,6 +718,13 @@ func (s *DatabaseStore) ListCloudServices(ctx context.Context) ([]cloudmodule.Se
 	for index := range items {
 		items[index].Backups = backups[items[index].ServiceID]
 	}
+	restores, err := s.listCloudServiceRestores(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		items[index].Restores = restores[items[index].ServiceID]
+	}
 	return items, nil
 }
 
@@ -736,7 +743,43 @@ func (s *DatabaseStore) GetCloudService(ctx context.Context, id string) (cloudmo
 		return cloudmodule.Service{}, false, err
 	}
 	item.Backups = backups[id]
+	restores, err := s.listCloudServiceRestores(ctx, id)
+	if err != nil {
+		return cloudmodule.Service{}, false, err
+	}
+	item.Restores = restores[id]
 	return item, true, nil
+}
+
+func (s *DatabaseStore) listCloudServiceRestores(ctx context.Context, serviceID string) (map[string][]cloudmodule.ServiceRestore, error) {
+	query := `SELECT restore_id,restore_plan_id,service_id,deployment_id,backup_id,restore_status,original_volume_ids_json,replacement_volume_ids_json,revision,created_at,updated_at FROM p2p_cloud_service_restores`
+	var rows *sql.Rows
+	var err error
+	if serviceID == "" {
+		rows, err = s.db.QueryContext(ctx, query+` ORDER BY created_at DESC,restore_id`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query+` WHERE service_id=$1 ORDER BY created_at DESC,restore_id`, serviceID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string][]cloudmodule.ServiceRestore{}
+	for rows.Next() {
+		var item cloudmodule.ServiceRestore
+		var originalJSON, replacementJSON string
+		if err = rows.Scan(&item.RestoreID, &item.RestorePlanID, &item.ServiceID, &item.DeploymentID, &item.BackupID, &item.Status, &originalJSON, &replacementJSON, &item.Revision, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(originalJSON), &item.OriginalVolumeIDs); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(replacementJSON), &item.ReplacementVolumeIDs); err != nil {
+			return nil, err
+		}
+		result[item.ServiceID] = append(result[item.ServiceID], item)
+	}
+	return result, rows.Err()
 }
 
 func (s *DatabaseStore) listCloudServiceBackups(ctx context.Context, serviceID string) (map[string][]cloudmodule.ServiceBackup, error) {

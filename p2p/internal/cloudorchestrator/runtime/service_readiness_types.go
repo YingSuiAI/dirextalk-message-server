@@ -114,6 +114,7 @@ type ServiceReadinessResult struct {
 type ServiceReadinessClaim struct {
 	Phase, OutboxID, Kind, AggregateType, AggregateID, LeaseToken                  string
 	ExecutionID, DeploymentID, ServiceID, ConnectionID, Region, InstanceID, TaskID string
+	Purpose, RestoreID, JobID                                                      string
 	BrokerEndpoint, NodeKeyID, SemanticExpectationDigest                           string
 	ExpectedGeneration, TaskAttempt                                                int64
 	Command                                                                        ServiceReadinessCommand
@@ -162,6 +163,9 @@ func ValidateServiceReadinessClaim(c ServiceReadinessClaim) error {
 		!deploymentDigestPattern.MatchString(c.SemanticExpectationDigest) ||
 		cloudmodule.ValidateConnectionRegistrationEndpoint(c.BrokerEndpoint, c.Region) != nil {
 		return errors.New("service readiness claim is invalid")
+	}
+	if c.JobID == "" || (c.Purpose != "install" && c.Purpose != "restore") || (c.Purpose == "install" && c.RestoreID != "") || (c.Purpose == "restore" && !validResearchIdentifier("restore_id", c.RestoreID)) {
+		return errors.New("service readiness purpose is invalid")
 	}
 	if c.Command.CommandID == "" || c.Command.ExecutionID != c.ExecutionID || c.Command.DeploymentID != c.DeploymentID ||
 		c.Command.ServiceID != c.ServiceID || c.Command.TaskID != c.TaskID || c.Command.ConnectionID != c.ConnectionID ||

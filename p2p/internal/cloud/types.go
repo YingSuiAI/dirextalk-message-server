@@ -55,6 +55,11 @@ const (
 	// OutboxKindServiceBackupRequested is emitted only after a device-approved
 	// exact snapshot scope has been durably committed.
 	OutboxKindServiceBackupRequested = "cloud.service.backup.requested"
+	// OutboxKindServiceRestorePlanRequested is read-only planning work. Its
+	// payload is derived from one retained backup and the tracked original
+	// instance; clients cannot supply provider resources or device mappings.
+	OutboxKindServiceRestorePlanRequested = "cloud.service.restore.plan.requested"
+	OutboxKindServiceRestoreRequested     = "cloud.service.restore.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"
@@ -95,6 +100,12 @@ var (
 	ErrServiceBackupConfirmationInvalid     = errors.New("cloud service backup confirmation is invalid")
 	ErrServiceBackupApprovalExpired         = errors.New("cloud service backup approval has expired")
 	ErrServiceBackupApprovalSignature       = errors.New("cloud service backup approval signature is invalid")
+	ErrServiceRestorePlanConflict           = errors.New("cloud service restore plan conflicts with the current service")
+	ErrServiceRestorePlanInvalid            = errors.New("cloud service restore plan is invalid")
+	ErrServiceRestoreConfirmationConflict   = errors.New("cloud service restore confirmation conflicts with the current plan")
+	ErrServiceRestoreConfirmationInvalid    = errors.New("cloud service restore confirmation is invalid")
+	ErrServiceRestoreApprovalExpired        = errors.New("cloud service restore approval has expired")
+	ErrServiceRestoreApprovalSignature      = errors.New("cloud service restore approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted
@@ -346,16 +357,17 @@ func QuoteJobID(outboxID string) string {
 // Service is intentionally separate from Deployment so a failed integration
 // cannot turn an otherwise running service into a failed cloud resource.
 type Service struct {
-	ServiceID    string          `json:"service_id"`
-	DeploymentID string          `json:"deployment_id"`
-	RecipeID     string          `json:"recipe_id,omitempty"`
-	Name         string          `json:"name"`
-	Status       string          `json:"service_status"`
-	Integration  string          `json:"integration_status"`
-	Revision     int64           `json:"revision"`
-	CreatedAt    int64           `json:"created_at"`
-	UpdatedAt    int64           `json:"updated_at"`
-	Backups      []ServiceBackup `json:"backups,omitempty"`
+	ServiceID    string           `json:"service_id"`
+	DeploymentID string           `json:"deployment_id"`
+	RecipeID     string           `json:"recipe_id,omitempty"`
+	Name         string           `json:"name"`
+	Status       string           `json:"service_status"`
+	Integration  string           `json:"integration_status"`
+	Revision     int64            `json:"revision"`
+	CreatedAt    int64            `json:"created_at"`
+	UpdatedAt    int64            `json:"updated_at"`
+	Backups      []ServiceBackup  `json:"backups,omitempty"`
+	Restores     []ServiceRestore `json:"restores,omitempty"`
 }
 
 type Recipe struct {

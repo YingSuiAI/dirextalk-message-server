@@ -281,6 +281,11 @@ func publishServiceBackupProjection(ctx context.Context, tx *sql.Tx, c runtime.S
 		"revision": service.Revision, "created_at": service.CreatedAt, "updated_at": service.UpdatedAt,
 		"backups": service.Backups,
 	}
+	_, restores, err := loadServiceRestoreProjectionCollections(ctx, tx, c.ServiceID)
+	if err != nil {
+		return err
+	}
+	payload["restores"] = restores
 	return writeEventAndProjection(ctx, tx, stableID("cloud_event_", service.ServiceID, fmt.Sprint(service.Revision), "backup_terminal"), "cloud.service.changed", "service", service.ServiceID, service.Revision, payload, now)
 }
 

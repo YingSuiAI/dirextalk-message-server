@@ -40,6 +40,8 @@ const (
 	ActionServiceReadinessObserve  = "worker.service_readiness.observe"
 	ActionDeploymentDestroy        = "deployment.destroy"
 	ActionServiceBackup            = "service.backup"
+	ActionServiceRestorePlan       = "service.restore.plan"
+	ActionServiceRestore           = "service.restore"
 
 	maxCommandLifetime = 5 * time.Minute
 	maxClockSkew       = time.Minute
@@ -310,6 +312,15 @@ func (c Command) SignatureBase() (string, error) {
 		if err != nil {
 			return "", err
 		}
+	} else if c.Action == ActionServiceRestore {
+		if err := c.ValidateServiceRestoreBinding(); err != nil {
+			return "", err
+		}
+		var err error
+		proofDigest, err = c.ServiceRestoreApprovalPayloadSHA256()
+		if err != nil {
+			return "", err
+		}
 	}
 	return fmt.Sprintf(
 		"%s\n"+
@@ -369,7 +380,9 @@ func knownAction(action string) bool {
 		ActionServiceReadinessIssue,
 		ActionServiceReadinessObserve,
 		ActionDeploymentDestroy,
-		ActionServiceBackup:
+		ActionServiceBackup,
+		ActionServiceRestorePlan,
+		ActionServiceRestore:
 		return true
 	default:
 		return false
@@ -377,7 +390,7 @@ func knownAction(action string) bool {
 }
 
 func actionRequiresApprovalProof(action string) bool {
-	return action == ActionDeploymentCreate || action == ActionDeploymentDestroy || action == ActionServiceBackup
+	return action == ActionDeploymentCreate || action == ActionDeploymentDestroy || action == ActionServiceBackup || action == ActionServiceRestore
 }
 
 // ValidConnectionID and ValidNodeKeyID are shared by Stack configuration and

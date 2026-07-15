@@ -1568,6 +1568,92 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service restore plans v55",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_restore_plans (
+					restore_plan_id TEXT PRIMARY KEY NOT NULL, owner_mxid TEXT NOT NULL, service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0), plan_id TEXT NOT NULL, cloud_connection_id TEXT NOT NULL,
+					backup_id TEXT NOT NULL, backup_revision BIGINT NOT NULL CHECK(backup_revision>0), recipe_id TEXT NOT NULL, recipe_digest TEXT NOT NULL,
+					instance_id TEXT NOT NULL, region TEXT NOT NULL, image_id TEXT NOT NULL, snapshot_refs_json TEXT NOT NULL,
+					plan_status TEXT NOT NULL CHECK(plan_status IN('planning','ready_for_confirmation','failed','expired','approved')),
+					availability_zone TEXT NOT NULL DEFAULT '', quote_id TEXT NOT NULL DEFAULT '', currency TEXT NOT NULL DEFAULT '', estimated_hourly_minor BIGINT NOT NULL DEFAULT 0,
+					estimated_thirty_day_minor BIGINT NOT NULL DEFAULT 0, quoted_at BIGINT NOT NULL DEFAULT 0, valid_until BIGINT NOT NULL DEFAULT 0,
+					unincluded_json TEXT NOT NULL DEFAULT '[]', volume_swaps_json TEXT NOT NULL DEFAULT '[]', broker_receipt_json TEXT NOT NULL DEFAULT '',
+					job_id TEXT NOT NULL UNIQUE, revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0), last_error_code TEXT NOT NULL DEFAULT '',
+					idempotency_hash TEXT NOT NULL, request_digest TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_restore_plans_active_service_idx ON p2p_cloud_service_restore_plans(service_id) WHERE plan_status IN('planning','ready_for_confirmation','approved')`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_restore_plans_backup_idx ON p2p_cloud_service_restore_plans(backup_id,created_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_restore_plan_commands (
+					command_id TEXT PRIMARY KEY NOT NULL, restore_plan_id TEXT NOT NULL, cloud_connection_id TEXT NOT NULL, request_digest TEXT NOT NULL,
+					command_attempt INTEGER NOT NULL CHECK(command_attempt>0), action TEXT NOT NULL CHECK(action='service.restore.plan'), node_key_id TEXT NOT NULL,
+					expected_generation BIGINT NOT NULL CHECK(expected_generation>0), node_counter BIGINT NOT NULL CHECK(node_counter>0), canonical_payload_json TEXT NOT NULL DEFAULT '',
+					payload_sha256 TEXT NOT NULL DEFAULT '', request_sha256 TEXT NOT NULL DEFAULT '', signed_envelope_json TEXT NOT NULL DEFAULT '', issued_at BIGINT NOT NULL DEFAULT 0,
+					expires_at BIGINT NOT NULL DEFAULT 0, state TEXT NOT NULL CHECK(state IN('allocated','signed','indeterminate','expired','accepted','failed')),
+					receipt_json TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(cloud_connection_id,node_counter), UNIQUE(restore_plan_id,request_digest,command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_restore_plan_commands_plan_idx ON p2p_cloud_service_restore_plan_commands(restore_plan_id,command_attempt DESC)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service restore approvals v56",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_restore_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL, challenge_id TEXT NOT NULL UNIQUE, owner_mxid TEXT NOT NULL, restore_plan_id TEXT NOT NULL UNIQUE,
+					restore_plan_revision BIGINT NOT NULL CHECK(restore_plan_revision>0), service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0), backup_id TEXT NOT NULL, backup_revision BIGINT NOT NULL CHECK(backup_revision>0),
+					cloud_connection_id TEXT NOT NULL, signer_key_id TEXT NOT NULL, approval_json TEXT NOT NULL, signing_payload BYTEA NOT NULL,
+					service_json TEXT NOT NULL, deployment_json TEXT NOT NULL, restore_plan_json TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN('pending','approved','expired')),
+					prepare_idempotency_hash TEXT NOT NULL, prepare_request_digest TEXT NOT NULL, approve_idempotency_hash TEXT, approve_request_digest TEXT,
+					signature TEXT NOT NULL DEFAULT '', job_id TEXT NOT NULL DEFAULT '', result_service_json TEXT NOT NULL DEFAULT '', result_restore_json TEXT NOT NULL DEFAULT '', result_job_json TEXT NOT NULL DEFAULT '',
+					expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_restore_approvals_approve_idempotency_idx ON p2p_cloud_service_restore_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_restores (
+					restore_id TEXT PRIMARY KEY NOT NULL, restore_plan_id TEXT NOT NULL UNIQUE, approval_id TEXT NOT NULL UNIQUE, service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0), backup_id TEXT NOT NULL, backup_revision BIGINT NOT NULL CHECK(backup_revision>0),
+					plan_id TEXT NOT NULL, cloud_connection_id TEXT NOT NULL, instance_id TEXT NOT NULL, region TEXT NOT NULL, availability_zone TEXT NOT NULL,
+					volume_swaps_json TEXT NOT NULL, original_volume_retention TEXT NOT NULL CHECK(original_volume_retention='manual'), failure_policy TEXT NOT NULL CHECK(failure_policy='reattach_original'),
+					job_id TEXT NOT NULL UNIQUE, restore_status TEXT NOT NULL CHECK(restore_status IN('queued','running','verifying','succeeded','failed','restore_blocked')),
+					revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_restores_active_service_idx ON p2p_cloud_service_restores(service_id) WHERE restore_status IN('queued','running','verifying','restore_blocked')`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service restore commands v57",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_service_restores ADD COLUMN IF NOT EXISTS receipt_json TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_restores ADD COLUMN IF NOT EXISTS original_volume_ids_json TEXT NOT NULL DEFAULT '[]'`,
+				`ALTER TABLE p2p_cloud_service_restores ADD COLUMN IF NOT EXISTS replacement_volume_ids_json TEXT NOT NULL DEFAULT '[]'`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks DROP CONSTRAINT IF EXISTS p2p_cloud_service_readiness_tasks_service_id_key`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'install'`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS restore_id TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS job_id TEXT NOT NULL DEFAULT ''`,
+				`UPDATE p2p_cloud_service_readiness_tasks task SET job_id=(SELECT job.job_id FROM p2p_cloud_jobs job WHERE job.deployment_id=task.deployment_id AND job.kind='install' ORDER BY job.created_at DESC,job.job_id LIMIT 1) WHERE task.job_id='' AND EXISTS(SELECT 1 FROM p2p_cloud_jobs job WHERE job.deployment_id=task.deployment_id AND job.kind='install')`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_readiness_tasks_install_service_idx ON p2p_cloud_service_readiness_tasks(service_id) WHERE purpose='install'`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_readiness_tasks_restore_idx ON p2p_cloud_service_readiness_tasks(restore_id) WHERE purpose='restore'`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_restore_commands (
+					command_id TEXT PRIMARY KEY NOT NULL, restore_id TEXT NOT NULL, approval_id TEXT NOT NULL, service_id TEXT NOT NULL, deployment_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL, request_digest TEXT NOT NULL, command_attempt INTEGER NOT NULL CHECK(command_attempt>0), action TEXT NOT NULL CHECK(action='service.restore'),
+					node_key_id TEXT NOT NULL, expected_generation BIGINT NOT NULL CHECK(expected_generation>0), node_counter BIGINT NOT NULL CHECK(node_counter>0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '', payload_sha256 TEXT NOT NULL DEFAULT '', request_sha256 TEXT NOT NULL DEFAULT '', signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL DEFAULT 0, state TEXT NOT NULL CHECK(state IN('allocated','signed','indeterminate','expired','accepted','failed')),
+					receipt_json TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(cloud_connection_id,node_counter), UNIQUE(restore_id,request_digest,command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_restore_commands_restore_idx ON p2p_cloud_service_restore_commands(restore_id,command_attempt DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

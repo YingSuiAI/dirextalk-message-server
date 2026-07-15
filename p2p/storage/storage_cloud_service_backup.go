@@ -42,7 +42,7 @@ func (s *DatabaseStore) PrepareCloudServiceBackup(ctx context.Context, request c
 		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision {
 			return cloudmodule.ErrServiceBackupConfirmationConflict
 		}
-		if !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) {
+		if !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) || serviceHasActiveRestore(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceBackupConfirmationInvalid
 		}
 		keyID, _, err := lockCloudDeviceApprovalKey(ctx, tx, request.OwnerMXID, state.Deployment.ConnectionID)
@@ -103,7 +103,7 @@ func (s *DatabaseStore) ApproveCloudServiceBackup(ctx context.Context, request c
 		if err != nil {
 			return err
 		}
-		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) {
+		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) || serviceHasActiveRestore(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceBackupConfirmationConflict
 		}
 		storedApproval, err := decodeStoredServiceBackupApproval(stored.ApprovalJSON)

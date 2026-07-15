@@ -67,6 +67,14 @@ func TestParseConfigUsesOnlySecretFileForDatabaseURL(t *testing.T) {
 	if enabled, err := parseConfig(nil, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil }); err != nil || !enabled.serviceBackupEnabled {
 		t.Fatalf("enabled service backup config=%#v error=%v", enabled, err)
 	}
+	env[serviceRestorePlanEnabledEnv] = "true"
+	if enabled, err := parseConfig(nil, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil }); err != nil || !enabled.serviceRestorePlanEnabled {
+		t.Fatalf("enabled service restore plan config=%#v error=%v", enabled, err)
+	}
+	env[serviceRestoreEnabledEnv] = "true"
+	if enabled, err := parseConfig(nil, func(key string) string { return env[key] }, func() (string, error) { return "host-a", nil }); err != nil || !enabled.serviceRestoreEnabled {
+		t.Fatalf("enabled service restore config=%#v error=%v", enabled, err)
+	}
 }
 
 func TestParseConfigRejectsUnsafeStartupSettings(t *testing.T) {
@@ -97,6 +105,16 @@ func TestParseConfigRejectsUnsafeStartupSettings(t *testing.T) {
 		t.Fatal("unknown service destroy gate value must fail closed")
 	}
 	delete(validEndpointEnv, serviceDestroyEnabledEnv)
+	validEndpointEnv[serviceRestorePlanEnabledEnv] = "sometimes"
+	if _, err := parseConfig(nil, func(key string) string { return validEndpointEnv[key] }, func() (string, error) { return "host-a", nil }); err == nil {
+		t.Fatal("unknown service restore plan gate value must fail closed")
+	}
+	delete(validEndpointEnv, serviceRestorePlanEnabledEnv)
+	validEndpointEnv[serviceRestoreEnabledEnv] = "sometimes"
+	if _, err := parseConfig(nil, func(key string) string { return validEndpointEnv[key] }, func() (string, error) { return "host-a", nil }); err == nil {
+		t.Fatal("unknown service restore gate value must fail closed")
+	}
+	delete(validEndpointEnv, serviceRestoreEnabledEnv)
 	if _, err := parseConfig([]string{"--worker-id", "unsafe\nworker"}, func(key string) string { return validEndpointEnv[key] }, func() (string, error) { return "host-a", nil }); err == nil {
 		t.Fatal("control characters in a worker id must be rejected before database access")
 	}
@@ -136,7 +154,7 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	executionProbe := &recordingIterationRunner{processed: true, err: executionProbeFailure}
 	readiness := &recordingIterationRunner{processed: true, err: readinessFailure}
 	destroy := &recordingIterationRunner{processed: true, err: destroyFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil, readiness, nil, nil, destroy)
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil, readiness, nil, nil, nil, nil, destroy)
 	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 || readiness.calls != 1 || destroy.calls != 1 {
 		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d execution_probe_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls, executionProbe.calls)
 	}
@@ -152,7 +170,7 @@ func TestRunIterationAllowsProvisioningToRemainDisabledWhileRestrictedWorkersRun
 	observation := &recordingIterationRunner{processed: true}
 	executionProbe := &recordingIterationRunner{processed: true}
 
-	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil, nil, nil, nil, nil)
+	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil || !processed {
 		t.Fatalf("iteration = processed:%v err:%v", processed, err)
 	}

@@ -17,6 +17,24 @@ func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T)
 		}
 	}
 	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_RESTORE_ENABLED", "true")
+	config, err = runtimeConfigFromEnvironment()
+	if err != nil || !config.serviceRestoreEnabled {
+		t.Fatalf("restore true gate config=(%#v,%v)", config, err)
+	}
+	for _, invalid := range []string{"", "TRUE", "1"} {
+		setValidRuntimeEnvironment(t)
+		t.Setenv("DIREXTALK_SERVICE_RESTORE_ENABLED", invalid)
+		if _, err := runtimeConfigFromEnvironment(); err == nil {
+			t.Fatalf("restore gate %q unexpectedly accepted", invalid)
+		}
+	}
+	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_RESTORES_TABLE", "receipts")
+	if _, err := runtimeConfigFromEnvironment(); err == nil {
+		t.Fatal("service restore table unexpectedly shared the receipt table")
+	}
+	setValidRuntimeEnvironment(t)
 	t.Setenv("DIREXTALK_DEPLOYMENT_DESTROY_TABLE", "receipts")
 	if _, err := runtimeConfigFromEnvironment(); err == nil {
 		t.Fatal("deployment destroy table unexpectedly shared the receipt table")
@@ -38,6 +56,19 @@ func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T)
 	t.Setenv("DIREXTALK_SERVICE_BACKUPS_TABLE", "receipts")
 	if _, err := runtimeConfigFromEnvironment(); err == nil {
 		t.Fatal("service backup table unexpectedly shared the receipt table")
+	}
+	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED", "true")
+	config, err = runtimeConfigFromEnvironment()
+	if err != nil || !config.serviceRestorePlanEnabled {
+		t.Fatalf("restore plan true gate config=(%#v,%v)", config, err)
+	}
+	for _, invalid := range []string{"", "TRUE", "1"} {
+		setValidRuntimeEnvironment(t)
+		t.Setenv("DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED", invalid)
+		if _, err := runtimeConfigFromEnvironment(); err == nil {
+			t.Fatalf("restore plan gate %q unexpectedly accepted", invalid)
+		}
 	}
 
 	setValidRuntimeEnvironment(t)
@@ -102,6 +133,7 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE":       "deployments",
 		"DIREXTALK_DEPLOYMENT_DESTROY_TABLE":            "deployment-destroys",
 		"DIREXTALK_SERVICE_BACKUPS_TABLE":               "service-backups",
+		"DIREXTALK_SERVICE_RESTORES_TABLE":              "service-restores",
 		"DIREXTALK_APPROVAL_USES_TABLE":                 "approval-uses",
 		"DIREXTALK_WORKER_SESSIONS_TABLE":               "worker-sessions",
 		"DIREXTALK_WORKER_TASKS_TABLE":                  "worker-tasks",
@@ -109,6 +141,8 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_DEPLOYMENT_CREATE_ENABLED":           "false",
 		"DIREXTALK_DEPLOYMENT_DESTROY_ENABLED":          "false",
 		"DIREXTALK_SERVICE_BACKUP_ENABLED":              "false",
+		"DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED":        "false",
+		"DIREXTALK_SERVICE_RESTORE_ENABLED":             "false",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

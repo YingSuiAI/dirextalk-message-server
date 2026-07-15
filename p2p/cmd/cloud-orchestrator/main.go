@@ -29,19 +29,21 @@ import (
 )
 
 const (
-	databaseURLFileEnv         = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
-	researcherURLEnv           = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
-	researcherCAFileEnv        = "CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"
-	researcherCertFileEnv      = "CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"
-	researcherKeyFileEnv       = "CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"
-	researcherServerNameEnv    = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
-	nodeSigningKeyFileEnv      = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
-	workerIDEnv                = "CLOUD_ORCHESTRATOR_WORKER_ID"
-	recipeInstallEnabledEnv    = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
-	serviceReadinessEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
-	serviceDestroyEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_DESTROY_ENABLED"
-	serviceOperationEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED"
-	serviceBackupEnabledEnv    = "CLOUD_ORCHESTRATOR_SERVICE_BACKUP_ENABLED"
+	databaseURLFileEnv           = "CLOUD_ORCHESTRATOR_DATABASE_URL_FILE"
+	researcherURLEnv             = "CLOUD_ORCHESTRATOR_RESEARCHER_URL"
+	researcherCAFileEnv          = "CLOUD_ORCHESTRATOR_RESEARCHER_CA_FILE"
+	researcherCertFileEnv        = "CLOUD_ORCHESTRATOR_RESEARCHER_CERT_FILE"
+	researcherKeyFileEnv         = "CLOUD_ORCHESTRATOR_RESEARCHER_KEY_FILE"
+	researcherServerNameEnv      = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
+	nodeSigningKeyFileEnv        = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
+	workerIDEnv                  = "CLOUD_ORCHESTRATOR_WORKER_ID"
+	recipeInstallEnabledEnv      = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
+	serviceReadinessEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
+	serviceDestroyEnabledEnv     = "CLOUD_ORCHESTRATOR_SERVICE_DESTROY_ENABLED"
+	serviceOperationEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED"
+	serviceBackupEnabledEnv      = "CLOUD_ORCHESTRATOR_SERVICE_BACKUP_ENABLED"
+	serviceRestorePlanEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_RESTORE_PLAN_ENABLED"
+	serviceRestoreEnabledEnv     = "CLOUD_ORCHESTRATOR_SERVICE_RESTORE_ENABLED"
 )
 
 var (
@@ -51,24 +53,26 @@ var (
 )
 
 type commandConfig struct {
-	databaseURLFile         string
-	researcherURL           string
-	researcherCAFile        string
-	researcherCertFile      string
-	researcherKeyFile       string
-	researcherServerName    string
-	nodeSigningKeyFile      string
-	workerID                string
-	recipeInstallEnabled    bool
-	serviceReadinessEnabled bool
-	serviceDestroyEnabled   bool
-	serviceOperationEnabled bool
-	serviceBackupEnabled    bool
-	once                    bool
-	pollInterval            time.Duration
-	lease                   time.Duration
-	attemptTimeout          time.Duration
-	retryDelay              time.Duration
+	databaseURLFile           string
+	researcherURL             string
+	researcherCAFile          string
+	researcherCertFile        string
+	researcherKeyFile         string
+	researcherServerName      string
+	nodeSigningKeyFile        string
+	workerID                  string
+	recipeInstallEnabled      bool
+	serviceReadinessEnabled   bool
+	serviceDestroyEnabled     bool
+	serviceOperationEnabled   bool
+	serviceBackupEnabled      bool
+	serviceRestorePlanEnabled bool
+	serviceRestoreEnabled     bool
+	once                      bool
+	pollInterval              time.Duration
+	lease                     time.Duration
+	attemptTimeout            time.Duration
+	retryDelay                time.Duration
 }
 
 func main() {
@@ -143,6 +147,20 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	case "", "false", "0":
 	case "true", "1":
 		config.serviceBackupEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceRestorePlanEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceRestorePlanEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceRestoreEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceRestoreEnabled = true
 	default:
 		return commandConfig{}, errConfigInvalid
 	}
@@ -307,6 +325,8 @@ func run(ctx context.Context, config commandConfig) error {
 	var serviceDestroyRunner iterationRunner
 	var serviceOperationRunner iterationRunner
 	var serviceBackupRunner iterationRunner
+	var serviceRestorePlanRunner iterationRunner
+	var serviceRestoreRunner iterationRunner
 	if config.recipeInstallEnabled {
 		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
@@ -322,14 +342,20 @@ func run(ctx context.Context, config commandConfig) error {
 	if config.serviceBackupEnabled {
 		serviceBackupRunner = runtime.NewServiceBackupRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
+	if config.serviceRestorePlanEnabled {
+		serviceRestorePlanRunner = runtime.NewServiceRestorePlanRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
+	if config.serviceRestoreEnabled {
+		serviceRestoreRunner = runtime.NewServiceRestoreRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -355,7 +381,7 @@ type iterationRunner interface {
 // runIteration gives each independent control-plane loop one chance per poll.
 // A failure in one durable control-plane runner must not starve the others;
 // all errors are returned together for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -399,7 +425,17 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if serviceBackupRunner != nil {
 		serviceBackedUp, serviceBackupErr = serviceBackupRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceDestroyErr)
+	var serviceRestorePlanned bool
+	var serviceRestorePlanErr error
+	if serviceRestorePlanRunner != nil {
+		serviceRestorePlanned, serviceRestorePlanErr = serviceRestorePlanRunner.RunOnce(ctx)
+	}
+	var serviceRestored bool
+	var serviceRestoreErr error
+	if serviceRestoreRunner != nil {
+		serviceRestored, serviceRestoreErr = serviceRestoreRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceRestorePlanned || serviceRestored || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceRestorePlanErr, serviceRestoreErr, serviceDestroyErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

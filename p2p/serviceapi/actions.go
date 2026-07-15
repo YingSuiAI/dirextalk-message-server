@@ -72,6 +72,9 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.services.operation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.destroy.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 
 	{Name: "agent.password", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.matrix_session.create", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},

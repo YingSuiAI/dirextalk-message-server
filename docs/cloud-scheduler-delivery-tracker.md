@@ -509,7 +509,8 @@ stage; later checked workboard sections are the authoritative delivery record.
   the Service revision without changing its status/resource axes when a backup
   reaches a terminal state, publish the strict full Service summary with only
   retained AMI/snapshot identifiers, and render status, manual retention and
-  encrypted snapshot count in Flutter without restore/delete controls
+  encrypted snapshot count in Flutter; restore/delete controls remained gated
+  at that stage
   (`dirextalk-flutter` `b06a35e`).
 
 ### M. Flutter AWS Connection Stack onboarding
@@ -554,6 +555,35 @@ stage; later checked workboard sections are the authoritative delivery record.
   routing/log redaction, quote review, ambiguous retry, static analysis and a
   Flutter Web release build (`dirextalk-flutter` `92b5698`).
 
+### O. Original-instance retained-volume rollback
+
+- [x] Freeze `ServiceRestoreApprovalV1` and the typed `service.restore`
+  command/result contracts around one retained backup, the original instance,
+  exact encrypted replacement-volume mappings, manual original-volume
+  retention and `reattach_original` failure policy. Keep both Stack and
+  Orchestrator mutation gates default-off.
+- [x] Add the standalone Go Connection Stack provider and durable DynamoDB
+  reservation/receipt path. Use deterministic CreateVolume ClientTokens,
+  enforce stop/detach/attach/start convergence, persist fallback phase outside
+  the VM, and return only AWS-read-back `aws_restore_applied`,
+  `aws_original_restored` or `restore_blocked` evidence.
+- [x] Add PostgreSQL v57 signed-command journaling and single-counter replay,
+  the independent `ServiceRestoreRunner`, terminal non-success projection and
+  critical alerts. An applied AWS mapping enters `verifying`, never success.
+- [x] Reuse the typed Worker/Stack semantic-readiness challenge with a
+  restore-purpose task. Only AWS mapping evidence plus semantic readiness can
+  finish the restore as succeeded; fallback and blocked results remain failed
+  or blocked with resources tracked.
+- [x] Include durable restore summaries in `cloud.services.list/get` and strict
+  `cloud.service.changed` projections. Flutter now persists the short-lived
+  plan/confirmation idempotency flow, verifies the shared Go/Dart
+  deterministic-CBOR golden, signs on the device, shows Region/cost/downtime
+  and retained-volume warnings, and renders restore progress/history.
+- [x] Cover exact signed-envelope reuse, current-volume/revision binding,
+  applied-to-verifying behavior, semantic verification, verified original
+  fallback, blocked non-success, strict projection and Flutter contract/UI
+  checks. No real AWS mutation is enabled by this stage close.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -578,18 +608,11 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-The owner selected **in-place retained-volume rollback on the original EC2
-instance**. Freeze and implement one separately quoted, device-approved restore
-operation for one retained backup while preserving the existing Service,
-Deployment and instance identities. It requires downtime, creates replacement
-encrypted volumes from the exact retained snapshots in the same AZ, swaps the
-approved device mappings only while the instance is stopped, and succeeds only
-after AWS read-back plus Worker/service health verification. Original volumes
-remain retained and tracked by default. Any partial failure must reattach and
-read back the original set when possible; otherwise it remains
-`restore_blocked` and must never project restored success. After this typed
-restore stage, implement experimental-to-managed acceptance without widening
-the Worker or Agent. Keep public ingress, secret delivery, selectable
+Implement **experimental-to-managed acceptance** as the next separately
+device-approved Service lifecycle stage. It must prove locked artifacts,
+restart recovery, health probes, volume/secret slots, upgrade/rollback,
+backup/restore and destroy contracts before changing maturity. Do not widen
+the Worker or Agent, and keep public ingress, secret delivery, selectable
 OpenClaw/knowledge Recipes, local AWS credentials, Stack deployment and
-real-account tests disabled until those independent approval and provider
-boundaries are complete.
+real-account tests disabled until their independent approval/provider stages
+are complete.

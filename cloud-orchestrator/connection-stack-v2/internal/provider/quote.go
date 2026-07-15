@@ -233,9 +233,11 @@ func zonesByInstance(values []ec2types.InstanceTypeOffering, request contract.Qu
 
 type priceDocument struct {
 	Product struct {
-		Attributes struct {
-			InstanceType string `json:"instanceType"`
-			RegionCode   string `json:"regionCode"`
+		ProductFamily string `json:"productFamily"`
+		Attributes    struct {
+			InstanceType  string `json:"instanceType"`
+			RegionCode    string `json:"regionCode"`
+			VolumeAPIName string `json:"volumeApiName"`
 		} `json:"attributes"`
 	} `json:"product"`
 	Terms struct {

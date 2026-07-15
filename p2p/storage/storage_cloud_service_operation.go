@@ -60,7 +60,7 @@ func (s *DatabaseStore) PrepareCloudServiceOperation(ctx context.Context, reques
 			return cloudmodule.ErrServiceOperationConfirmationInvalid
 		}
 		var active int
-		if err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE service_id=$1 AND task_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_backups WHERE service_id=$1 AND backup_status IN('queued','running'))`, request.ServiceID).Scan(&active); err != nil || active != 0 {
+		if err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE service_id=$1 AND task_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_backups WHERE service_id=$1 AND backup_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_restores WHERE service_id=$1 AND restore_status IN('queued','running','verifying','restore_blocked'))`, request.ServiceID).Scan(&active); err != nil || active != 0 {
 			if err != nil {
 				return err
 			}
@@ -163,7 +163,7 @@ func (s *DatabaseStore) ApproveCloudServiceOperation(ctx context.Context, reques
 			return cloudmodule.ErrServiceOperationConfirmationInvalid
 		}
 		var active int
-		if err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE service_id=$1 AND task_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_backups WHERE service_id=$1 AND backup_status IN('queued','running'))`, request.ServiceID).Scan(&active); err != nil || active != 0 {
+		if err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM p2p_cloud_service_operation_tasks WHERE service_id=$1 AND task_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_backups WHERE service_id=$1 AND backup_status IN('queued','running'))+(SELECT COUNT(*) FROM p2p_cloud_service_restores WHERE service_id=$1 AND restore_status IN('queued','running','verifying','restore_blocked'))`, request.ServiceID).Scan(&active); err != nil || active != 0 {
 			if err != nil {
 				return err
 			}

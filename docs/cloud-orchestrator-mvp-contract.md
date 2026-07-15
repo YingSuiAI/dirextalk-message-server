@@ -653,12 +653,57 @@ summary and the owner HTTP fallback to show backup status and retained resource
 evidence; it exposes no restore or delete mutation while those operations are
 still gated.
 
-Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress,
-management acceptance and restore/rollback still return
-`operation_not_enabled`. The repository does not yet deploy a researcher
-endpoint, build or publish the versioned Worker AMI containing the fixed
-binaries, deploy the Stack, or run a real-account AWS integration test.
-Those transitions
-must be implemented through the typed Connection
-Stack/Broker path; neither the Eino Agent tool, external MCP, nor the
-Message Server gains arbitrary AWS access.
+### Original-instance retained-volume restore
+
+The selected restore mode is `in_place` on the existing EC2 instance. It does
+not create a clone and does not change the Service, Deployment or instance
+identity. The public owner flow is split so that no client can provide AWS
+resource parameters:
+
+1. `cloud.services.restore.plan` accepts only `service_id`, the current Service
+   revision, one retained `backup_id`, and a UUID idempotency key. It queues a
+   private read-only planning Job.
+2. The independent Orchestrator asks the Connection Stack to read back the
+   exact instance/AZ/device mappings, original EBS specifications and retained
+   snapshots, and to produce a 15-minute EBS replacement cost estimate. The
+   ready plan is persisted before any confirmation is possible.
+3. `cloud.services.restore.confirmation.prepare` returns a five-minute
+   `ServiceRestoreApprovalV1` challenge derived only from that ready plan.
+   `cloud.services.restore.approve` consumes the exact device signature and
+   atomically records the restore Job, ledger and private outbox.
+
+The signing target binds Service/Deployment/backup revisions, Connection,
+Recipe, original instance, Region/AZ, quote and expiry, and every exact
+`original_volume_id + snapshot_id + device_name + volume_type + size + IOPS +
+throughput + encryption + DeleteOnTermination` swap. It also fixes
+`downtime_required=true`, original-volume retention `manual`, and failure
+policy `reattach_original`.
+
+Execution creates encrypted replacement volumes before stopping the original
+instance. It swaps mappings only after every replacement volume is available.
+Success requires AWS read-back of the running original instance with every
+approved replacement mapping plus fresh Worker identity and service health
+evidence. Only then may the Deployment ledger make replacement volumes current;
+all original volumes remain retained/tracked and billable. A partial failure
+must attempt to stop the instance, detach replacements, reattach the exact
+original mappings, restart, and read back the fallback. Until either restored
+health or original-set fallback is independently proven, the operation is
+`restore_blocked`; it never projects restored success and never auto-deletes
+an original or replacement volume.
+
+The typed restore executor is implemented but fail-closed by two independent
+default-off gates: `CLOUD_ORCHESTRATOR_SERVICE_RESTORE_ENABLED` in the
+Orchestrator and `DIREXTALK_SERVICE_RESTORE_ENABLED` in the Connection Stack.
+Its signed command, AWS receipt and node counter are durable before/after every
+network boundary. `aws_restore_applied` creates a restore-purpose semantic
+readiness task and remains `verifying`; `aws_original_restored` is failed and
+`restore_blocked` is blocked with an alert. Service list/get and strict Service
+events include the durable restore summary.
+
+Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress and
+management acceptance still return `operation_not_enabled`. The repository
+does not yet deploy a researcher endpoint, build or publish the versioned
+Worker AMI containing the fixed binaries, deploy the Stack, enable either
+restore mutation gate, or run a real-account AWS integration test. Those
+transitions must use the typed Connection Stack/Broker path; neither the Eino
+Agent tool, external MCP, nor the Message Server gains arbitrary AWS access.

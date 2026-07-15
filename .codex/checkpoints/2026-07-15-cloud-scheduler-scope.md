@@ -19,6 +19,24 @@
 
 ## Last completed stage
 
+Stage M (original-instance retained-volume restore) is complete in the current
+worktree. It adds the device-bound plan/approval contract, durable Orchestrator
+command ledger, default-off typed Connection Stack mutation with compensation,
+semantic readiness verification, retained-volume visibility, lifecycle
+exclusion, and the Flutter approval/progress flow. Focused server, Stack and
+Flutter tests, server builds, Flutter analyze, and the Web release build pass.
+
+Flutter device-signed deployment intent is complete:
+
+- Flutter `92b5698` renders QuoteV1, verifies the fixed first-deployment scope,
+  matches the Go deterministic-CBOR golden and resumes the exact signed
+  approval/idempotency keys after response loss.
+- Server docs `23ad570` record that the current provision consumer is disabled;
+  the UI therefore says approval queues an intent and does not create or bill.
+- Focused Flutter tests, analyze and Web release build passed. The Web build
+  found and fixed a dart2js unsafe-int boundary by failing closed above
+  Number.MAX_SAFE_INTEGER.
+
 Stage L (retained service backup) is complete in commit `3c37f30`:
 
 - Device-approved `cloud.services.operation.plan/approve` supports `backup`.
@@ -63,32 +81,16 @@ The owner visibility closeout is also complete:
 
 ## Current decision boundary
 
-The next tracker item is a separately quoted and device-approved restore or
-rollback operation. A naive "launch a recovered clone from the AMI" is unsafe:
-the image contains the old Worker/service identity, checkpoints, and possibly
-integration credentials, so the clone may create a double-active identity
-before bootstrap rotation.
-
-Choose one Stage M contract before implementation:
-
-1. **In-place retained-volume rollback (recommended):** create encrypted EBS
-   volumes from the approved snapshots, stop the current instance, replace the
-   attached volumes on their exact device mappings, restart and verify, while
-   retaining the previous volumes for a separately approved rollback/destroy.
-   This has explicit downtime and EBS charges but avoids duplicate identity.
-2. **Isolated recovered clone:** launch a second instance from the retained AMI
-   while retaining the original. This first requires pre-network boot fencing
-   plus Worker/service identity and secret rotation before any service starts.
-3. **Materialize only:** create encrypted restored EBS volumes and leave them
-   unattached. This avoids downtime and double-active identity, but a separate
-   approved cutover is required before it becomes a service restore.
+The next tracker stage is **experimental-to-managed acceptance**. It must not
+change maturity until the locked artifact, restart recovery, probes,
+volume/secret slots, upgrade/rollback, backup/restore, and destroy contracts
+have all been verified and accepted with a new device-bound approval.
 
 ## Continuation
 
-- Keep the goal active; this is a product decision pause, not a technical
-  blocker or completed goal.
-- After the user selects 1, 2, or 3, freeze only that external contract and
-  implement its quote, approval, durable command, AWS read-back, recovery,
-  focused tests, one stage-end review, tracker update, and commit.
+- Keep the overall Cloud Scheduler goal active after committing Stage M.
+- Implement experimental-to-managed acceptance as one independent stage.
+- Keep both restore mutation gates disabled and do not run real AWS tests until
+  their separately authorized provider/deployment stage.
 - Do not use `rootkey.csv`, the supplied model token, or real AWS until the
   chosen mutation contract and its safety gates pass the fake/provider stage.

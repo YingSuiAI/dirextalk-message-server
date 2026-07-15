@@ -28,6 +28,7 @@ type DynamoConfig struct {
 	DeploymentReservationsTable string
 	DeploymentDestroyTable      string
 	ServiceBackupsTable         string
+	ServiceRestoresTable        string
 	ApprovalUsesTable           string
 	WorkerSessionsTable         string
 }
@@ -40,15 +41,16 @@ type DynamoRepository struct {
 	deploymentReservationsTable string
 	deploymentDestroyTable      string
 	serviceBackupsTable         string
+	serviceRestoresTable        string
 	approvalUsesTable           string
 	workerSessionsTable         string
 }
 
 func NewDynamoRepository(config DynamoConfig) (*DynamoRepository, error) {
-	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || !validTableName(config.DeploymentReservationsTable) || !validTableName(config.DeploymentDestroyTable) || !validTableName(config.ServiceBackupsTable) || !validTableName(config.ApprovalUsesTable) || !validTableName(config.WorkerSessionsTable) || !uniqueStrings(config.ReceiptsTable, config.CountersTable, config.IssuedQuotesTable, config.DeploymentReservationsTable, config.DeploymentDestroyTable, config.ServiceBackupsTable, config.ApprovalUsesTable, config.WorkerSessionsTable) {
+	if config.Client == nil || !validTableName(config.ReceiptsTable) || !validTableName(config.CountersTable) || !validTableName(config.IssuedQuotesTable) || !validTableName(config.DeploymentReservationsTable) || !validTableName(config.DeploymentDestroyTable) || !validTableName(config.ServiceBackupsTable) || !validTableName(config.ServiceRestoresTable) || !validTableName(config.ApprovalUsesTable) || !validTableName(config.WorkerSessionsTable) || !uniqueStrings(config.ReceiptsTable, config.CountersTable, config.IssuedQuotesTable, config.DeploymentReservationsTable, config.DeploymentDestroyTable, config.ServiceBackupsTable, config.ServiceRestoresTable, config.ApprovalUsesTable, config.WorkerSessionsTable) {
 		return nil, errors.New("invalid DynamoDB receipt store configuration")
 	}
-	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable, deploymentReservationsTable: config.DeploymentReservationsTable, deploymentDestroyTable: config.DeploymentDestroyTable, serviceBackupsTable: config.ServiceBackupsTable, approvalUsesTable: config.ApprovalUsesTable, workerSessionsTable: config.WorkerSessionsTable}, nil
+	return &DynamoRepository{client: config.Client, receiptsTable: config.ReceiptsTable, countersTable: config.CountersTable, issuedQuotesTable: config.IssuedQuotesTable, deploymentReservationsTable: config.DeploymentReservationsTable, deploymentDestroyTable: config.DeploymentDestroyTable, serviceBackupsTable: config.ServiceBackupsTable, serviceRestoresTable: config.ServiceRestoresTable, approvalUsesTable: config.ApprovalUsesTable, workerSessionsTable: config.WorkerSessionsTable}, nil
 }
 
 func uniqueStrings(values ...string) bool {
@@ -224,7 +226,7 @@ func validReceiptAction(action string) bool {
 	switch action {
 	case contract.ActionRegistrationVerify, contract.ActionQuoteRequest, contract.ActionDeploymentCreate,
 		contract.ActionDeploymentObserve, contract.ActionWorkerTaskIssue, contract.ActionWorkerTaskObserve,
-		contract.ActionWorkerRecipeTaskIssue, contract.ActionWorkerRecipeTaskObserve, contract.ActionDeploymentDestroy, contract.ActionServiceBackup:
+		contract.ActionWorkerRecipeTaskIssue, contract.ActionWorkerRecipeTaskObserve, contract.ActionDeploymentDestroy, contract.ActionServiceBackup, contract.ActionServiceRestore:
 		return true
 	default:
 		return false

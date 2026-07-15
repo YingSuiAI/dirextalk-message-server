@@ -89,6 +89,18 @@ Parameters:
     AllowedValues:
       - "false"
       - "true"
+  EnableServiceRestorePlan:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableServiceRestore:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
 
 Rules:
   DeploymentCreateRequiresWorkerIdentityKey:
@@ -104,6 +116,8 @@ Conditions:
   DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
   DeploymentDestroyEnabled: !Equals [!Ref EnableDeploymentDestroy, "true"]
   ServiceBackupEnabled: !Equals [!Ref EnableServiceBackup, "true"]
+  ServiceRestorePlanEnabled: !Equals [!Ref EnableServiceRestorePlan, "true"]
+  ServiceRestoreEnabled: !Equals [!Ref EnableServiceRestore, "true"]
 
 Resources:
   WorkerSecurityGroup:
@@ -259,6 +273,28 @@ Resources:
         - AttributeName: backup_id
           KeyType: RANGE
 
+  ServiceRestoresTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: restore_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: restore_id
+          KeyType: RANGE
+
   ApprovalUsesTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -379,6 +415,7 @@ Resources:
                   - !GetAtt DeploymentReservationsTable.Arn
                   - !GetAtt DeploymentDestroyTable.Arn
                   - !GetAtt ServiceBackupsTable.Arn
+                  - !GetAtt ServiceRestoresTable.Arn
                   - !GetAtt ApprovalUsesTable.Arn
                   - !If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref "AWS::NoValue"]
               - !If
@@ -409,6 +446,123 @@ Resources:
                     StringEquals:
                       ec2:ResourceTag/dirextalk:managed: "true"
                       ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestorePlanEnabled
+                - Sid: PlanInPlaceServiceRestoreReadOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeImages
+                    - ec2:DescribeInstances
+                    - ec2:DescribeSnapshots
+                    - ec2:DescribeVolumes
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: ObserveInPlaceServiceRestoreOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: CreateReplacementFromTrackedBackupSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateVolume
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/DirextalkConnectionId: !Ref ConnectionId
+                      ec2:ResourceTag/DirextalkRetention: manual
+                    "Null":
+                      ec2:ResourceTag/DirextalkBackupId: "false"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: CreateTaggedReplacementVolumesOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateVolume
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/dirextalk:managed: "true"
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRetention: manual
+                    "Null":
+                      aws:RequestTag/dirextalk:deployment-id: "false"
+                      aws:RequestTag/DirextalkRestoreId: "false"
+                      aws:RequestTag/DirextalkServiceId: "false"
+                      aws:RequestTag/DirextalkDeploymentId: "false"
+                      aws:RequestTag/DirextalkBackupId: "false"
+                      aws:RequestTag/DirextalkOriginalVolumeId: "false"
+                      aws:RequestTag/DirextalkDeviceName: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - dirextalk:managed
+                        - dirextalk:connection-id
+                        - dirextalk:deployment-id
+                        - DirextalkConnectionId
+                        - DirextalkRestoreId
+                        - DirextalkServiceId
+                        - DirextalkDeploymentId
+                        - DirextalkBackupId
+                        - DirextalkOriginalVolumeId
+                        - DirextalkDeviceName
+                        - DirextalkRetention
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: TagReplacementVolumesAtCreationOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: CreateVolume
+                      aws:RequestTag/dirextalk:managed: "true"
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: SwapTrackedDeploymentVolumesOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:AttachVolume
+                    - ec2:DetachVolume
+                    - ec2:ModifyInstanceAttribute
+                    - ec2:StartInstances
+                    - ec2:StopInstances
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: MarkReplacementFallbackOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRestorePhase: fallback
+                    "Null":
+                      ec2:ResourceTag/DirextalkRestoreId: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - DirextalkRestorePhase
                 - !Ref "AWS::NoValue"
               - !If
                 - ServiceBackupEnabled
@@ -582,6 +736,7 @@ Resources:
           DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
           DIREXTALK_DEPLOYMENT_DESTROY_TABLE: !Ref DeploymentDestroyTable
           DIREXTALK_SERVICE_BACKUPS_TABLE: !Ref ServiceBackupsTable
+          DIREXTALK_SERVICE_RESTORES_TABLE: !Ref ServiceRestoresTable
           DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
           DIREXTALK_WORKER_SESSIONS_TABLE: !Ref WorkerSessionsTable
           DIREXTALK_WORKER_TASKS_TABLE: !Ref WorkerTasksTable
@@ -591,6 +746,8 @@ Resources:
           DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
           DIREXTALK_DEPLOYMENT_DESTROY_ENABLED: !Ref EnableDeploymentDestroy
           DIREXTALK_SERVICE_BACKUP_ENABLED: !Ref EnableServiceBackup
+          DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED: !Ref EnableServiceRestorePlan
+          DIREXTALK_SERVICE_RESTORE_ENABLED: !Ref EnableServiceRestore
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api

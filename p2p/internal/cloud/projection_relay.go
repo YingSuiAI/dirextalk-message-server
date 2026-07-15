@@ -243,16 +243,17 @@ type deploymentProjectionPayload struct {
 }
 
 type serviceProjectionPayload struct {
-	ServiceID    string                           `json:"service_id"`
-	DeploymentID string                           `json:"deployment_id"`
-	RecipeID     string                           `json:"recipe_id"`
-	Name         string                           `json:"name"`
-	Status       string                           `json:"service_status"`
-	Integration  string                           `json:"integration_status"`
-	Revision     int64                            `json:"revision"`
-	CreatedAt    int64                            `json:"created_at"`
-	UpdatedAt    int64                            `json:"updated_at"`
-	Backups      []serviceBackupProjectionPayload `json:"backups,omitempty"`
+	ServiceID    string                            `json:"service_id"`
+	DeploymentID string                            `json:"deployment_id"`
+	RecipeID     string                            `json:"recipe_id"`
+	Name         string                            `json:"name"`
+	Status       string                            `json:"service_status"`
+	Integration  string                            `json:"integration_status"`
+	Revision     int64                             `json:"revision"`
+	CreatedAt    int64                             `json:"created_at"`
+	UpdatedAt    int64                             `json:"updated_at"`
+	Backups      []serviceBackupProjectionPayload  `json:"backups,omitempty"`
+	Restores     []serviceRestoreProjectionPayload `json:"restores,omitempty"`
 }
 
 type serviceBackupProjectionPayload struct {
@@ -266,6 +267,20 @@ type serviceBackupProjectionPayload struct {
 	Revision        int64    `json:"revision"`
 	CreatedAt       int64    `json:"created_at"`
 	UpdatedAt       int64    `json:"updated_at"`
+}
+
+type serviceRestoreProjectionPayload struct {
+	RestoreID            string   `json:"restore_id"`
+	RestorePlanID        string   `json:"restore_plan_id"`
+	ServiceID            string   `json:"service_id"`
+	DeploymentID         string   `json:"deployment_id"`
+	BackupID             string   `json:"backup_id"`
+	Status               string   `json:"status"`
+	OriginalVolumeIDs    []string `json:"original_volume_ids,omitempty"`
+	ReplacementVolumeIDs []string `json:"replacement_volume_ids,omitempty"`
+	Revision             int64    `json:"revision"`
+	CreatedAt            int64    `json:"created_at"`
+	UpdatedAt            int64    `json:"updated_at"`
 }
 
 type connectionProjectionPayload struct {
@@ -335,6 +350,9 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 		}
 		if value.Backups != nil {
 			payload["backups"] = serviceBackupProjectionSummaries(value.Backups)
+		}
+		if value.Restores != nil {
+			payload["restores"] = serviceRestoreProjectionSummaries(value.Restores)
 		}
 		return payload, nil
 	case "cloud.connection.changed":
@@ -420,6 +438,42 @@ func validServiceProjection(value serviceProjectionPayload) bool {
 		}
 		seen[backup.BackupID] = struct{}{}
 	}
+	seenRestores := make(map[string]struct{}, len(value.Restores))
+	for _, restore := range value.Restores {
+		if !validServiceRestoreProjection(restore, value.ServiceID, value.DeploymentID) {
+			return false
+		}
+		if _, exists := seenRestores[restore.RestoreID]; exists {
+			return false
+		}
+		seenRestores[restore.RestoreID] = struct{}{}
+	}
+	return true
+}
+
+func validServiceRestoreProjection(value serviceRestoreProjectionPayload, serviceID, deploymentID string) bool {
+	if !(validProjectionIdentifier(value.RestoreID) && validProjectionIdentifier(value.RestorePlanID) && validProjectionIdentifier(value.BackupID) &&
+		value.ServiceID == serviceID && value.DeploymentID == deploymentID &&
+		allowedProjectionValue(value.Status, "queued", "running", "verifying", "succeeded", "failed", "restore_blocked") &&
+		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt) {
+		return false
+	}
+	if (value.Status == "queued" || value.Status == "running") && len(value.OriginalVolumeIDs) == 0 && len(value.ReplacementVolumeIDs) == 0 {
+		return true
+	}
+	if len(value.OriginalVolumeIDs) == 0 || len(value.ReplacementVolumeIDs) == 0 {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for _, volumeID := range append(append([]string(nil), value.OriginalVolumeIDs...), value.ReplacementVolumeIDs...) {
+		if !validEC2ResourceID(volumeID, "vol-") {
+			return false
+		}
+		if _, exists := seen[volumeID]; exists {
+			return false
+		}
+		seen[volumeID] = struct{}{}
+	}
 	return true
 }
 
@@ -475,6 +529,19 @@ func serviceBackupProjectionSummaries(values []serviceBackupProjectionPayload) [
 			"status": value.Status, "retention_policy": value.RetentionPolicy, "image_id": value.ImageID,
 			"snapshot_ids": append([]string(nil), value.SnapshotIDs...), "revision": value.Revision,
 			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		})
+	}
+	return result
+}
+
+func serviceRestoreProjectionSummaries(values []serviceRestoreProjectionPayload) []any {
+	result := make([]any, 0, len(values))
+	for _, value := range values {
+		result = append(result, map[string]any{
+			"restore_id": value.RestoreID, "restore_plan_id": value.RestorePlanID, "service_id": value.ServiceID,
+			"deployment_id": value.DeploymentID, "backup_id": value.BackupID, "status": value.Status,
+			"original_volume_ids": append([]string(nil), value.OriginalVolumeIDs...), "replacement_volume_ids": append([]string(nil), value.ReplacementVolumeIDs...),
+			"revision": value.Revision, "created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
 		})
 	}
 	return result
