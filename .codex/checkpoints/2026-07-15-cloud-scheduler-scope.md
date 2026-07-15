@@ -6,61 +6,72 @@
 - Branch: `adam/0714`
 - Task tracker: [../../docs/cloud-scheduler-delivery-tracker.md](../../docs/cloud-scheduler-delivery-tracker.md)
 
-## Outcome and fixed boundaries
+## Fixed boundaries
 
-- The Eino Cloud Deployment Planner is a Message Server native Agent Skill at
-  `p2p/nativeagent/skills/cloud_deployment_planner/`. It is not a Codex Skill,
-  a public MCP mutation tool, or a deployer asset.
-- The user AWS Connection Stack is a separate control-plane product boundary.
-  Its old Node/SAM bundle has been removed from `dirextalk-deployer`; it must
-  be rebuilt as an independent nested Go module at
-  `cloud-orchestrator/connection-stack-v2/`.
-- The Message Server root module must not import an AWS SDK, execute AWS CLI,
-  or gain an npm/Node runtime dependency. The nested Go module may have its
-  own Go Lambda dependencies and is never imported by the root server binary.
-- The current port is fail closed: no credential bootstrap, EC2 creation,
-  Worker root execution, ingress, lifecycle mutation, or real AWS test is
-  enabled until the independently reviewed broker parity stage exists.
-- Do not touch normal deployer, updater, or release scripts for the Go port.
-  Preserve the unrelated Message Server `.run/Cloud Worker Tests.run.xml` and
-  Flutter `pubspec.lock` worktree changes.
+- The Eino Cloud Deployment Planner remains a Message Server native Agent
+  Skill at `p2p/nativeagent/skills/cloud_deployment_planner/`.
+- AWS mutations remain behind the standalone typed Go Connection Stack. The
+  Message Server does not import an AWS SDK, run AWS CLI, or require Node/npm.
+- Agent and public MCP surfaces cannot approve spending, upload secrets, open
+  ingress, restore, destroy, or invoke arbitrary AWS APIs.
+- Do not change normal deployer, updater, or release scripts for this feature.
+- Preserve the unrelated untracked `.run/Cloud Worker Tests.run.xml` file.
 
-## Verified work
+## Last completed stage
 
-- `e4a8a6a feat(cloud): persist recipe execution confirmations` and
-  `c5c61cc feat(nativeagent): package cloud planner skill` are committed in
-  Message Server. Focused native-Agent tests and the Message Server build
-  passed for the latter.
-- `016c62b chore(deployer): remove connection stack bundle` is committed in
-  `dirextalk-deployer`. It removes the historical Node/SAM Connection Stack,
-  its 24 focused tests, and the sole test-suite registration while preserving
-  normal deployer lifecycle behavior. Its focused distribution test and
-  explicit Git-Bash `npm test` passed.
-- Live worktree facts at resume: Message Server has only the active tracker
-  edit plus the unrelated untracked run configuration; deployer is clean.
-- No AWS credential, model token, or real cloud account was read, printed,
-  persisted, or used in this cleanup/port stage.
+Stage L (retained service backup) is complete in commit `3c37f30`:
 
-## Current stage
+- Device-approved `cloud.services.operation.plan/approve` supports `backup`.
+- Approval binds exact Service/Deployment revisions, connection, recipe,
+  instance, complete EBS volume set, quote scope, and manual retention.
+- ProductCore persists Approval, backup ledger, Job/Step, and private outbox
+  atomically; the Orchestrator persists the signed `service.backup` command
+  before I/O and safely replays it after response loss.
+- The Connection Stack defaults backup off, consumes approvals once, creates
+  a deterministic retained AMI with encrypted snapshots, and verifies the
+  AWS terminal state by read-back.
+- Backup success or failure does not change Service/Resource lifecycle axes;
+  retained backups are listed through Service list/get and are not deleted by
+  service destruction.
 
-Build the standalone Go Connection Stack foundation as one coherent boundary:
+Verified at stage close:
 
-1. Port the closed signed-command and approval validation contract into the
-   nested Go module, with durable contract tests independent of Node.
-2. Add the Go Lambda Broker entry point and CloudFormation asset without
-   importing it into the Message Server root module.
-3. Keep unported resource-mutating operations explicitly rejected rather than
-   silently claiming old Node feature parity.
+- Standalone Stack: `go test ./... -count=1`, `go vet ./...`, and Linux amd64
+  Broker build passed.
+- Root affected packages: focused `go test`, `go vet`, and Linux amd64
+  Cloud Orchestrator build passed.
+- Post-review ServiceBackup storage, runtime, and cloud boundary tests passed.
+- `git diff --check`, dependency-boundary checks, and added-diff secret scan
+  passed. No real AWS request or cloud spend occurred.
 
-## Verification and continuation
+## Current decision boundary
 
-- Before the current stage, inspect the existing Cloud Orchestrator HTTPS
-  client and the deleted Stack's historical protocol; no live AWS invocation
-  is allowed.
-- At stage close run the nested module's Go tests/build, the affected Message
-  Server Cloud Orchestrator tests/build, `git diff --check`, and one
-  accumulated contract review. Then update the task tracker and commit only
-  current-task changes.
-- Next concrete action: establish the Go module's protocol compatibility
-  surface from the existing Go Broker client and historical Stack contract,
-  then implement the Go-only Lambda boundary.
+The next tracker item is a separately quoted and device-approved restore or
+rollback operation. A naive "launch a recovered clone from the AMI" is unsafe:
+the image contains the old Worker/service identity, checkpoints, and possibly
+integration credentials, so the clone may create a double-active identity
+before bootstrap rotation.
+
+Choose one Stage M contract before implementation:
+
+1. **In-place retained-volume rollback (recommended):** create encrypted EBS
+   volumes from the approved snapshots, stop the current instance, replace the
+   attached volumes on their exact device mappings, restart and verify, while
+   retaining the previous volumes for a separately approved rollback/destroy.
+   This has explicit downtime and EBS charges but avoids duplicate identity.
+2. **Isolated recovered clone:** launch a second instance from the retained AMI
+   while retaining the original. This first requires pre-network boot fencing
+   plus Worker/service identity and secret rotation before any service starts.
+3. **Materialize only:** create encrypted restored EBS volumes and leave them
+   unattached. This avoids downtime and double-active identity, but a separate
+   approved cutover is required before it becomes a service restore.
+
+## Continuation
+
+- Keep the goal active; this is a product decision pause, not a technical
+  blocker or completed goal.
+- After the user selects 1, 2, or 3, freeze only that external contract and
+  implement its quote, approval, durable command, AWS read-back, recovery,
+  focused tests, one stage-end review, tracker update, and commit.
+- Do not use `rootkey.csv`, the supplied model token, or real AWS until the
+  chosen mutation contract and its safety gates pass the fake/provider stage.
