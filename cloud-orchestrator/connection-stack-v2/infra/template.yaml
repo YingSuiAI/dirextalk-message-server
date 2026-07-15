@@ -301,7 +301,7 @@ Resources:
                   - !If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref "AWS::NoValue"]
               - !If
                 - DeploymentCreateEnabled
-                - Sid: AccessFixedExecutionProbeTasksOnly
+                - Sid: AccessTypedWorkerTasksOnly
                   Effect: Allow
                   Action:
                     - dynamodb:GetItem
@@ -469,6 +469,22 @@ Resources:
       RouteKey: "POST /v2/worker-sessions/{session_id}/tasks/{task_id}/events"
       Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
 
+  BrokerRecipeTaskClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/recipe-tasks/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerRecipeTaskEventRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/recipe-tasks/{task_id}/events"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
   BrokerStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -519,6 +535,24 @@ Resources:
       FunctionName: !Ref BrokerFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/tasks/*/events"
+
+  BrokerRecipeTaskClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/recipe-tasks/claim"
+
+  BrokerRecipeTaskEventInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/recipe-tasks/*/events"
 
 Outputs:
   ConnectionId:

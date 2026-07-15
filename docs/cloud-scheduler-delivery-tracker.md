@@ -362,6 +362,33 @@ not represented as implementation tasks in this read-only parity stage.
   Orchestrator/Worker/store tests, perform one accumulated security/spec review,
   and commit only current-stage files.
 
+### H. Sealed private-Recipe task transport
+
+- [x] Claim approved `cloud.recipe_execution.install.requested` outbox intents
+  in the independent Orchestrator and revalidate the active Connection,
+  Deployment, EC2 resource, Worker lease, approved manifest and install Job
+  before every external attempt.
+- [x] Add exact signed `worker.recipe_task.issue` and
+  `worker.recipe_task.observe` commands carrying only the canonical sealed
+  `RecipeExecutionManifestV1`, immutable digests, opaque slots and declared
+  checkpoints; exclude commands, URLs, paths, artifact bodies and secret
+  values.
+- [x] Persist issue/observe commands, leases and Recipe task projections in
+  PostgreSQL with response-loss replay, stale-lease fencing and monotonic
+  Job/Step completion; cover issue, defer/reclaim, observe and success with a
+  real PostgreSQL integration test.
+- [x] Extend the standalone Go Connection Stack with atomic counter/receipt/
+  task reservation, strict manifest digest verification, active-bearer claim
+  and lease/attempt/sequence/checkpoint-fenced event routes on the existing
+  retained Worker task table.
+- [x] Add a separate Cloud Worker Recipe client and executor injection
+  boundary. A Worker can claim only when a fixed digest/action catalog, CAS
+  checkpoint store and typed action driver are all explicitly supplied; the
+  production command supplies none and therefore remains fail-closed.
+- [x] Pass standalone Stack tests/vet/Linux build and affected Orchestrator,
+  PostgreSQL, Worker and command tests, perform one accumulated
+  security/spec review, and commit only current-stage files.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -386,12 +413,12 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Implement the first sealed private-Recipe installation slice without widening
-the Stack into an arbitrary command runner. Reuse the existing
-`RecipeExecutionManifestV1`, owner approval and coordinator contracts to add a
-separate typed install task, compiled artifact delivery, durable checkpoint
-resume and honest experimental-service verification. Root execution must stay
-inside the exclusive VM and may receive only approved opaque secret/data/volume
-slots; public ingress, arbitrary AWS APIs, destroy, local AWS credentials,
-Stack deployment and real-account tests remain outside that slice until their
-own typed boundaries exist.
+Implement the first production-capable fixed Recipe bundle without widening
+the Worker into an arbitrary command runner. Add authenticated compiled
+artifact delivery, a durable Worker checkpoint store and one audited typed
+ActionDriver for a non-business test service, then prove restart recovery and
+an external readiness observation before creating an experimental Service.
+Root execution must stay inside the exclusive VM and may receive only approved
+opaque secret/data/volume slots. OpenClaw, knowledge-base nodes, public ingress,
+arbitrary AWS APIs, destroy, local AWS credentials, Stack deployment and real
+account tests remain outside this stage until their own typed boundaries exist.

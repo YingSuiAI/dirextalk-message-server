@@ -120,12 +120,20 @@ type ActionDriver interface {
 	Execute(ctx context.Context, request ActionRequest, checkpoints CheckpointReporter) error
 }
 
-// Executor coordinates one sealed manifest. It is intentionally not wired to
-// the cloud-worker command or Connection Stack task protocol yet.
+// Executor coordinates one sealed manifest. The task transport can inject it,
+// but the production cloud-worker deliberately provides no resolver, store, or
+// driver until a separately audited fixed bundle is available.
 type Executor struct {
 	Resolver BundleResolver
 	Store    CheckpointStore
 	Driver   ActionDriver
+}
+
+// Configured reports whether every trusted execution dependency was supplied.
+// Transport loops must check this before claiming work; Execute retains the
+// same check as a second fail-closed boundary.
+func (executor Executor) Configured() bool {
+	return executor.Resolver != nil && executor.Store != nil && executor.Driver != nil
 }
 
 // Result reports only non-secret, durable execution progress. Completed does
@@ -149,8 +157,11 @@ func (executor Executor) Execute(ctx context.Context, manifest cloudorchestrator
 }
 
 // ExecuteTask is the execution entry point for a delivered Recipe task. It
-// rejects a task whose manifest or durable resume checkpoint differs from the
-// trusted local state before it can call an ActionDriver. It still does not
+// rejects a task whose manifest differs or whose remote checkpoint is ahead
+// of trusted local state before it can call an ActionDriver. Local state may
+// be ahead after an accepted action checkpoint whose HTTP event response was
+// lost; that safe prefix is returned so transport can replay the missing
+// de-secreted events without re-running the action. It still does not
 // perform artifact delivery, secret retrieval, process execution, or cloud
 // control; those remain dependencies of a later isolated executor.
 func (executor Executor) ExecuteTask(ctx context.Context, task TaskV1, manifest cloudorchestrator.RecipeExecutionManifestV1) (Result, error) {
@@ -167,7 +178,7 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 	if err := manifest.Validate(); err != nil {
 		return Result{}, fmt.Errorf("recipe execution manifest: %w", err)
 	}
-	if executor.Resolver == nil || executor.Store == nil || executor.Driver == nil {
+	if !executor.Configured() {
 		return Result{}, ErrExecutorConfiguration
 	}
 	manifestDigest, err := manifest.Digest()
@@ -198,8 +209,11 @@ func (executor Executor) execute(ctx context.Context, manifest cloudorchestrator
 	if err := validateCheckpointState(state, binding, manifest.CheckpointSequence); err != nil {
 		return Result{}, err
 	}
-	if task != nil && state.Checkpoint != task.LastCheckpoint {
-		return Result{}, ErrTaskCheckpointBinding
+	if task != nil {
+		taskIndex := taskCheckpointIndex(task.CheckpointSequence, task.LastCheckpoint)
+		if taskIndex > state.Index {
+			return Result{}, ErrTaskCheckpointBinding
+		}
 	}
 	resumed := state.Index >= 0
 	result := resultForState(binding, state, resumed)

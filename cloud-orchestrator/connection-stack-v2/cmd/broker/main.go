@@ -106,7 +106,7 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 			WorkerBootstrapEndpoint:      config.workerBootstrapEndpoint,
 		},
 		WorkerIdentity: workerIdentity, WorkerTokens: api.CryptoWorkerTokenGenerator{},
-		WorkerTasks: workerTasks, WorkerSessionEvents: repository,
+		WorkerTasks: workerTasks, RecipeTasks: workerTasks, WorkerSessionEvents: repository,
 	}, nil
 }
 

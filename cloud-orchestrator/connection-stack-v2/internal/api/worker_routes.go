@@ -34,6 +34,10 @@ func parseWorkerRoute(path string) (workerRoute, bool) {
 		return workerRoute{sessionID: parts[0], kind: "task_claim"}, true
 	case len(parts) == 4 && parts[1] == "tasks" && contract.ValidID(parts[2]) && parts[3] == "events":
 		return workerRoute{sessionID: parts[0], taskID: parts[2], kind: "task_event"}, true
+	case len(parts) == 3 && parts[1] == "recipe-tasks" && parts[2] == "claim":
+		return workerRoute{sessionID: parts[0], kind: "recipe_task_claim"}, true
+	case len(parts) == 4 && parts[1] == "recipe-tasks" && contract.ValidRecipeTaskID(parts[2]) && parts[3] == "events":
+		return workerRoute{sessionID: parts[0], taskID: parts[2], kind: "recipe_task_event"}, true
 	default:
 		return workerRoute{}, false
 	}
@@ -54,7 +58,13 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusUnsupportedMediaType, "unsupported_content_type")
 		return
 	}
-	if !b.DeploymentEnabled || b.DeploymentStore == nil || b.WorkerTasks == nil || b.WorkerSessionEvents == nil {
+	if !b.DeploymentEnabled || b.DeploymentStore == nil {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
+	if (route.kind == "heartbeat" && b.WorkerSessionEvents == nil) ||
+		((route.kind == "task_claim" || route.kind == "task_event") && b.WorkerTasks == nil) ||
+		((route.kind == "recipe_task_claim" || route.kind == "recipe_task_event") && b.RecipeTasks == nil) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
@@ -69,6 +79,10 @@ func (b Broker) serveWorkerRoute(response http.ResponseWriter, request *http.Req
 		b.serveWorkerTaskClaim(response, request, route, raw)
 	case "task_event":
 		b.serveWorkerTaskEvent(response, request, route, raw)
+	case "recipe_task_claim":
+		b.serveRecipeTaskClaim(response, request, route, raw)
+	case "recipe_task_event":
+		b.serveRecipeTaskEvent(response, request, route, raw)
 	default:
 		writeError(response, http.StatusNotFound, "not_found")
 	}

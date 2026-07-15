@@ -107,7 +107,7 @@ func TestRunIterationAttemptsEveryIndependentOutboxAfterFailures(t *testing.T) {
 	deployment := &recordingIterationRunner{processed: true, err: deploymentFailure}
 	observation := &recordingIterationRunner{processed: true, err: observationFailure}
 	executionProbe := &recordingIterationRunner{processed: true, err: executionProbeFailure}
-	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe)
+	processed, err := runIteration(t.Context(), research, registration, quote, deployment, observation, executionProbe, nil)
 	if !processed || research.calls != 1 || registration.calls != 1 || quote.calls != 1 || deployment.calls != 1 || observation.calls != 1 || executionProbe.calls != 1 {
 		t.Fatalf("iteration = processed:%v research_calls:%d registration_calls:%d quote_calls:%d deployment_calls:%d observation_calls:%d execution_probe_calls:%d", processed, research.calls, registration.calls, quote.calls, deployment.calls, observation.calls, executionProbe.calls)
 	}
@@ -123,7 +123,7 @@ func TestRunIterationAllowsProvisioningToRemainDisabledWhileRestrictedWorkersRun
 	observation := &recordingIterationRunner{processed: true}
 	executionProbe := &recordingIterationRunner{processed: true}
 
-	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe)
+	processed, err := runIteration(t.Context(), research, registration, quote, nil, observation, executionProbe, nil)
 	if err != nil || !processed {
 		t.Fatalf("iteration = processed:%v err:%v", processed, err)
 	}

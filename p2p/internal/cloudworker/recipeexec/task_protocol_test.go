@@ -240,6 +240,25 @@ func TestExecutorExecuteTaskRequiresTheBoundTaskAndDurableResumeCheckpoint(t *te
 		t.Fatalf("driver calls = %d after a task/store checkpoint mismatch", driver.calls)
 	}
 
+	completedState := recipeexec.CheckpointState{
+		Binding:    recipeexec.Binding{ExecutionID: manifest.ExecutionID, ManifestDigest: manifestDigest},
+		Checkpoint: manifest.CheckpointSequence[len(manifest.CheckpointSequence)-1],
+		Index:      len(manifest.CheckpointSequence) - 1,
+		Completed:  true,
+	}
+	driver = &fakeDriver{}
+	executor = recipeexec.Executor{
+		Resolver: fakeResolver{bundle: recipeexec.Bundle{ArtifactDigest: manifest.ArtifactDigest, ActionIDs: []string{manifest.ActionID}}},
+		Store:    &memoryStore{state: completedState},
+		Driver:   driver,
+	}
+	if result, err := executor.ExecuteTask(context.Background(), task, manifest); err != nil || !result.Completed || result.LastCheckpoint != completedState.Checkpoint {
+		t.Fatalf("ExecuteTask() with local checkpoint ahead = (%#v, %v)", result, err)
+	}
+	if driver.calls != 0 {
+		t.Fatalf("driver calls = %d while replaying missing task events", driver.calls)
+	}
+
 	unbound := task
 	unbound.RecipeExecutionManifestDigest = sha256('f')
 	executor = recipeexec.Executor{

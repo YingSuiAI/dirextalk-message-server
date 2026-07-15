@@ -37,7 +37,9 @@ AWS SDK integration in the message-server process.
   runner and fixed execution-probe runner are typed control-plane components;
   the production process claims them only when their feature gates are enabled.
   It submits signed `deployment.observe` and `execution_probe` envelopes to
-  the standalone Stack. The historical
+  the standalone Stack. Behind a separate default-off gate it can also claim
+  an approved private install intent, sign the exact Recipe issue/observe
+  envelopes, and durably replay them after response loss. The historical
   Node/SAM Connection Stack and its Worker-session implementation were removed
   from `dirextalk-deployer` in `016c62b` to eliminate a Node runtime from this
   product boundary. Its replacement is the independent Go module at
@@ -46,9 +48,9 @@ AWS SDK integration in the message-server process.
   receipt/counter fence, verifies registration, and issues bounded On-Demand
   quotes from EC2 metadata/offerings and AWS Price List reads. Behind its
   disabled-by-default mutation gate it also has typed EC2 create/read-back,
-  IID-verified Worker claims, heartbeat/task routes, and only the fixed
-  digest-bound `execution_probe`; it still has no broad AWS provider permission
-  or Recipe/root executor. ProductCore receives only de-secreted projections,
+  IID-verified Worker claims, heartbeat/task routes, the fixed digest-bound
+  `execution_probe`, and the sealed Recipe task transport; it still has no
+  broad AWS provider permission or Recipe/root executor. ProductCore receives only de-secreted projections,
   never raw receipts, endpoints, bearer hashes, task event bodies or secrets;
   the Message Server does not host the Worker session broker.
 - The source additionally defines a private deterministic-CBOR
@@ -68,11 +70,13 @@ AWS SDK integration in the message-server process.
   and checkpoint-order substitution; the existing non-root `cloud-worker`
   parser continues to reject this new schema. `Executor.ExecuteTask` further
   refuses to invoke an action driver unless the sealed manifest and durable
-  checkpoint match the delivered task. Its runtime remains deliberately
-  unwired to the current Worker task broker, the Connection Stack, artifact
-  delivery, and a root executor. Consequently it cannot deploy OpenClaw, a
-  knowledge-base node, a website, a model, or any other service, and it
-  provides no AWS mutation path.
+  checkpoint match the delivered task. The Connection Stack and Worker now
+  expose a separate strict Recipe claim/event transport, but the production
+  Worker injects no bundle catalog, checkpoint store or action driver and
+  therefore does not claim Recipe work. Compiled artifact delivery, a real
+  root executor and external service readiness are still absent. Consequently
+  this stage cannot deploy OpenClaw, a knowledge-base node, a website, a model,
+  or any other production service, and it provides no new AWS mutation path.
 - The domain package also defines a distinct, short-lived
   `RecipeExecutionApprovalV1`. It is intentionally not an extension of the
   purchase `ApprovalV1`: the device signing payload binds the approved Plan
@@ -84,9 +88,11 @@ AWS SDK integration in the message-server process.
   device challenge only after a private registrar has bound the manifest to
   the current approved Plan, an active deployment resource, the Broker Worker
   manifest digest, and an active Worker observation. Its approval creates only
-  a queued `install` Job/Step and private execution-ID outbox intent; the
-  production Orchestrator does not claim it, and it cannot issue a Worker task,
-  execute root automation, deliver artifacts, or mutate AWS.
+  a queued `install` Job/Step and private execution-ID outbox intent. The
+  production Orchestrator claims it only when its dedicated default-off feature
+  gate is enabled, then it may issue and observe the exact sealed Worker task.
+  It still cannot execute root automation, deliver artifacts, expose ingress,
+  or mutate arbitrary AWS resources.
 - The user-owned AWS Connection Stack is the AWS mutation boundary. Its Broker
   Lambda accepts a closed command set only. A Worker has root only inside its
   own exclusive VM and receives no EC2/IAM/EBS control credentials.
@@ -208,9 +214,11 @@ digest, and active Worker observation. The returned
 `cloud.deployments.recipe_execution.approve` consumes that exact signed
 challenge. Its one transaction creates only a queued/pending `install`
 Job/Step and a private `cloud.recipe_execution.install.requested` outbox
-record containing the opaque execution ID. It does not change the Deployment,
-claim a Worker task, invoke the recipe coordinator, deliver an artifact, run
-root commands, create an AWS resource, or make a service ready.
+record containing the opaque execution ID. The independent Orchestrator may
+claim that intent only behind its dedicated default-off gate and, after
+revalidating all active bindings, issue and observe the exact sealed task. The
+approval transaction itself does not change the Deployment, deliver an
+artifact, run root commands, create an AWS resource, or make a service ready.
 
 After the typed creator records its private Worker receipt, the standalone Go
 Stack implements a durable signed `deployment.observe` read.
@@ -237,6 +245,16 @@ Those events cannot establish Recipe/root execution, service health, public
 ingress, or AWS mutation. The current Go module exposes exact heartbeat, task
 claim and task-event routes plus one retained/PITR/SSE task table behind the
 disabled-by-default deployment gate.
+
+The same retained task table now separates sealed Recipe records by an exact
+record kind. Signed issue atomically fences the node counter, receipt and task;
+the active Worker bearer may claim only the canonical manifest and may advance
+only the next declared checkpoint under its lease epoch and attempt. The
+Orchestrator stores the exact signed command for response-loss recovery and
+projects only checkpoint/error summaries. The Cloud Worker Recipe loop is an
+explicit dependency-injection boundary and remains disabled in production
+until a trusted artifact catalog, durable local checkpoint store and audited
+typed ActionDriver are supplied together.
 
 If the challenge or its bound Quote expires before approval, the same
 transaction instead marks the approval and Plan `expired`, emits a safe Plan

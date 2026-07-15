@@ -1,6 +1,7 @@
 // cloud-worker is the deliberately narrow outbound bootstrap process for one
-// exclusive Cloud Worker VM. This first stage performs no recipe execution,
-// shell invocation, Docker control, AWS SDK call, or cloud mutation.
+// exclusive Cloud Worker VM. Its production default performs no Recipe work;
+// the separate Recipe loop exists only behind explicit trusted dependency
+// injection and has no shell, Docker, AWS SDK, or cloud-control fallback.
 package main
 
 import (
@@ -57,6 +58,10 @@ type workerSessionClient interface {
 }
 
 type workerSessionClientFactory func(cloudworker.BootstrapManifest, cloudworker.SessionClientConfig) (workerSessionClient, error)
+
+type recipeTaskProcessor interface {
+	ProcessOne(context.Context) error
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -192,6 +197,14 @@ func runWithDependencies(
 // for a later retry; it never starts a shell, container, Recipe, AWS call, or
 // dynamic installer as a fallback.
 func runWorkerCycle(ctx context.Context, client workerSessionClient, proof cloudworker.InstanceIdentityProof, failFast bool) error {
+	return runWorkerCycleWithRecipe(ctx, client, proof, failFast, nil)
+}
+
+// runWorkerCycleWithRecipe is the explicit injection boundary for the
+// separately trusted Recipe executor. Production currently passes nil, so a
+// Worker without a fixed bundle catalog, durable checkpoint store, and action
+// driver cannot even claim a Recipe task.
+func runWorkerCycleWithRecipe(ctx context.Context, client workerSessionClient, proof cloudworker.InstanceIdentityProof, failFast bool, recipe recipeTaskProcessor) error {
 	if err := client.Heartbeat(ctx); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -226,6 +239,16 @@ func runWorkerCycle(ctx context.Context, client workerSessionClient, proof cloud
 		}
 		if failFast {
 			return err
+		}
+	}
+	if recipe != nil {
+		if err := recipe.ProcessOne(ctx); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if failFast {
+				return err
+			}
 		}
 	}
 	return nil

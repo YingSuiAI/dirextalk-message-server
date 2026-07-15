@@ -72,6 +72,16 @@ type recordedTaskReport struct {
 	evidenceDigest string
 }
 
+type recordingRecipeTaskProcessor struct {
+	calls int
+	err   error
+}
+
+func (processor *recordingRecipeTaskProcessor) ProcessOne(context.Context) error {
+	processor.calls++
+	return processor.err
+}
+
 func (client *recordingWorkerSessionClient) Claim(_ context.Context, proof cloudworker.InstanceIdentityProof) error {
 	client.claimProofs = append(client.claimProofs, proof)
 	return nil
@@ -174,6 +184,23 @@ func validWorkerIdentityProof() cloudworker.InstanceIdentityProof {
 	return cloudworker.InstanceIdentityProof{
 		DocumentB64:  base64.StdEncoding.EncodeToString([]byte(`{"instanceId":"i-0123456789abcdef0"}`)),
 		SignatureB64: base64.StdEncoding.EncodeToString([]byte("iid-signature")),
+	}
+}
+
+func TestWorkerCycleClaimsRecipeWorkOnlyThroughExplicitProcessorInjection(t *testing.T) {
+	client := &recordingWorkerSessionClient{}
+	processor := &recordingRecipeTaskProcessor{}
+	if err := runWorkerCycle(context.Background(), client, validWorkerIdentityProof(), true); err != nil {
+		t.Fatalf("default runWorkerCycle() error = %v", err)
+	}
+	if processor.calls != 0 {
+		t.Fatalf("default cycle reached Recipe processor %d times", processor.calls)
+	}
+	if err := runWorkerCycleWithRecipe(context.Background(), client, validWorkerIdentityProof(), true, processor); err != nil {
+		t.Fatalf("configured runWorkerCycleWithRecipe() error = %v", err)
+	}
+	if processor.calls != 1 {
+		t.Fatalf("configured cycle Recipe calls = %d", processor.calls)
 	}
 }
 

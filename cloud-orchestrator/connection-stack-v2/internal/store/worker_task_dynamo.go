@@ -337,6 +337,9 @@ func (s *DynamoWorkerTaskStore) queryWorkerTasks(ctx context.Context, deployment
 			return nil, NewError("worker_task_unavailable")
 		}
 		for _, item := range output.Items {
+			if _, recipeRecord := item["record_kind"]; recipeRecord {
+				continue
+			}
 			task, parseErr := workerTaskFromItem(item)
 			if parseErr != nil || task.DeploymentID != deploymentID {
 				return nil, NewError("worker_task_store_invalid")

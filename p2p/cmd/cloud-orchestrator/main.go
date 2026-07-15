@@ -37,6 +37,7 @@ const (
 	researcherServerNameEnv = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
 	nodeSigningKeyFileEnv   = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
 	workerIDEnv             = "CLOUD_ORCHESTRATOR_WORKER_ID"
+	recipeInstallEnabledEnv = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
 )
 
 var (
@@ -54,6 +55,7 @@ type commandConfig struct {
 	researcherServerName string
 	nodeSigningKeyFile   string
 	workerID             string
+	recipeInstallEnabled bool
 	once                 bool
 	pollInterval         time.Duration
 	lease                time.Duration
@@ -100,6 +102,13 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 		lease:                2 * time.Minute,
 		attemptTimeout:       90 * time.Second,
 		retryDelay:           time.Minute,
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(recipeInstallEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.recipeInstallEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
 	}
 	flags := flag.NewFlagSet("cloud-orchestrator", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -256,14 +265,18 @@ func run(ctx context.Context, config commandConfig) error {
 	executionProbeRunner := runtime.NewExecutionProbeRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
+	var recipeInstallRunner iterationRunner
+	if config.recipeInstallEnabled {
+		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -291,7 +304,7 @@ type iterationRunner interface {
 // Worker observation, or the restricted execution-probe transport must not
 // starve another durable loop; all errors are returned for the next retry
 // backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -310,7 +323,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if executionProbeRunner != nil {
 		executionProbed, executionProbeErr = executionProbeRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr)
+	var recipeInstalled bool
+	var recipeInstallErr error
+	if recipeInstallRunner != nil {
+		recipeInstalled, recipeInstallErr = recipeInstallRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

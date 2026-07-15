@@ -53,7 +53,11 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"/POST/v2/worker-sessions/*/tasks/claim",
 		"/POST/v2/worker-sessions/*/tasks/*/events",
 		"/POST/v2/worker-sessions/*/events",
-		"AccessFixedExecutionProbeTasksOnly",
+		"POST /v2/worker-sessions/{session_id}/recipe-tasks/claim",
+		"POST /v2/worker-sessions/{session_id}/recipe-tasks/{task_id}/events",
+		"/POST/v2/worker-sessions/*/recipe-tasks/claim",
+		"/POST/v2/worker-sessions/*/recipe-tasks/*/events",
+		"AccessTypedWorkerTasksOnly",
 		"!If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref \"AWS::NoValue\"]",
 		"WorkerBootstrapEndpoint:",
 		"WorkerSecurityGroup:",
@@ -94,6 +98,8 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"dynamodb:Scan",
 		"WorkerTaskEventsTable",
 		"DIREXTALK_WORKER_TASK_EVENTS_TABLE",
+		"RecipeTasksTable",
+		"DIREXTALK_RECIPE_TASKS_TABLE",
 		"StageName: \"$default\"",
 	} {
 		if strings.Contains(strings.ToLower(template), strings.ToLower(forbidden)) {
@@ -131,6 +137,10 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 		"BrokerWorkerTaskClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 		"BrokerWorkerTaskEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 		"BrokerWorkerSessionEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerRecipeTaskClaimRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerRecipeTaskEventRoute:\n    Type: AWS::ApiGatewayV2::Route\n    Condition: DeploymentCreateEnabled",
+		"BrokerRecipeTaskClaimInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
+		"BrokerRecipeTaskEventInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: DeploymentCreateEnabled",
 	} {
 		if !strings.Contains(template, guardedBoundary) {
 			t.Fatalf("template boundary is not fail closed: missing %q", guardedBoundary)
@@ -138,7 +148,7 @@ func TestTemplateKeepsTypedMutationBehindDisabledByDefaultGate(t *testing.T) {
 	}
 	if strings.Count(template, "- dynamodb:Query") != 1 || !strings.Contains(template, `- !If
                 - DeploymentCreateEnabled
-                - Sid: AccessFixedExecutionProbeTasksOnly
+                - Sid: AccessTypedWorkerTasksOnly
                   Effect: Allow
                   Action:
                     - dynamodb:GetItem

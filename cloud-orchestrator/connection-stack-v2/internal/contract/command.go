@@ -343,6 +343,8 @@ func knownAction(action string) bool {
 		ActionDeploymentObserve,
 		ActionWorkerTaskIssue,
 		ActionWorkerTaskObserve,
+		ActionWorkerRecipeTaskIssue,
+		ActionWorkerRecipeTaskObserve,
 		ActionDeploymentDestroy:
 		return true
 	default:
