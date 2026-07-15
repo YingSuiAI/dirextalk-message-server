@@ -41,6 +41,7 @@ const (
 	serviceReadinessEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
 	serviceDestroyEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_DESTROY_ENABLED"
 	serviceOperationEnabledEnv = "CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED"
+	serviceBackupEnabledEnv    = "CLOUD_ORCHESTRATOR_SERVICE_BACKUP_ENABLED"
 )
 
 var (
@@ -62,6 +63,7 @@ type commandConfig struct {
 	serviceReadinessEnabled bool
 	serviceDestroyEnabled   bool
 	serviceOperationEnabled bool
+	serviceBackupEnabled    bool
 	once                    bool
 	pollInterval            time.Duration
 	lease                   time.Duration
@@ -134,6 +136,13 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	case "", "false", "0":
 	case "true", "1":
 		config.serviceOperationEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceBackupEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceBackupEnabled = true
 	default:
 		return commandConfig{}, errConfigInvalid
 	}
@@ -297,6 +306,7 @@ func run(ctx context.Context, config commandConfig) error {
 	var serviceReadinessRunner iterationRunner
 	var serviceDestroyRunner iterationRunner
 	var serviceOperationRunner iterationRunner
+	var serviceBackupRunner iterationRunner
 	if config.recipeInstallEnabled {
 		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
@@ -309,14 +319,17 @@ func run(ctx context.Context, config commandConfig) error {
 	if config.serviceOperationEnabled {
 		serviceOperationRunner = runtime.NewServiceOperationRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
+	if config.serviceBackupEnabled {
+		serviceBackupRunner = runtime.NewServiceBackupRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceDestroyRunner); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceDestroyRunner)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -342,7 +355,7 @@ type iterationRunner interface {
 // runIteration gives each independent control-plane loop one chance per poll.
 // A failure in one durable control-plane runner must not starve the others;
 // all errors are returned together for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceDestroyRunner iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceDestroyRunner iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -381,7 +394,12 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if serviceOperationRunner != nil {
 		serviceOperated, serviceOperationErr = serviceOperationRunner.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceDestroyErr)
+	var serviceBackedUp bool
+	var serviceBackupErr error
+	if serviceBackupRunner != nil {
+		serviceBackedUp, serviceBackupErr = serviceBackupRunner.RunOnce(ctx)
+	}
+	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceDestroyed, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceDestroyErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

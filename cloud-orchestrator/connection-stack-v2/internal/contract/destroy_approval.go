@@ -16,9 +16,9 @@ const (
 )
 
 var (
-	destroyInstanceIDPattern         = regexp.MustCompile(`^i-[0-9a-f]{8,32}$`)
-	destroyVolumeIDPattern           = regexp.MustCompile(`^vol-[0-9a-f]{8,32}$`)
-	destroyNetworkInterfaceIDPattern = regexp.MustCompile(`^eni-[0-9a-f]{8,32}$`)
+	destroyInstanceIDPattern         = regexp.MustCompile(`^i-[0-9a-f]{8,17}$`)
+	destroyVolumeIDPattern           = regexp.MustCompile(`^vol-[0-9a-f]{8,17}$`)
+	destroyNetworkInterfaceIDPattern = regexp.MustCompile(`^eni-[0-9a-f]{8,17}$`)
 )
 
 type ServiceDestroyApprovalProof struct {

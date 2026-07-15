@@ -21,6 +21,24 @@ func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T)
 	if _, err := runtimeConfigFromEnvironment(); err == nil {
 		t.Fatal("deployment destroy table unexpectedly shared the receipt table")
 	}
+	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_BACKUP_ENABLED", "true")
+	config, err = runtimeConfigFromEnvironment()
+	if err != nil || !config.serviceBackupEnabled {
+		t.Fatalf("backup true gate config=(%#v,%v)", config, err)
+	}
+	for _, invalid := range []string{"", "TRUE", "1"} {
+		setValidRuntimeEnvironment(t)
+		t.Setenv("DIREXTALK_SERVICE_BACKUP_ENABLED", invalid)
+		if _, err := runtimeConfigFromEnvironment(); err == nil {
+			t.Fatalf("backup gate %q unexpectedly accepted", invalid)
+		}
+	}
+	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_SERVICE_BACKUPS_TABLE", "receipts")
+	if _, err := runtimeConfigFromEnvironment(); err == nil {
+		t.Fatal("service backup table unexpectedly shared the receipt table")
+	}
 
 	setValidRuntimeEnvironment(t)
 	t.Setenv("DIREXTALK_DEPLOYMENT_CREATE_ENABLED", "false")
@@ -83,12 +101,14 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_ISSUED_QUOTES_TABLE":                 "quotes",
 		"DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE":       "deployments",
 		"DIREXTALK_DEPLOYMENT_DESTROY_TABLE":            "deployment-destroys",
+		"DIREXTALK_SERVICE_BACKUPS_TABLE":               "service-backups",
 		"DIREXTALK_APPROVAL_USES_TABLE":                 "approval-uses",
 		"DIREXTALK_WORKER_SESSIONS_TABLE":               "worker-sessions",
 		"DIREXTALK_WORKER_TASKS_TABLE":                  "worker-tasks",
 		"DIREXTALK_SERVICE_READINESS_TASKS_TABLE":       "service-readiness-tasks",
 		"DIREXTALK_DEPLOYMENT_CREATE_ENABLED":           "false",
 		"DIREXTALK_DEPLOYMENT_DESTROY_ENABLED":          "false",
+		"DIREXTALK_SERVICE_BACKUP_ENABLED":              "false",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

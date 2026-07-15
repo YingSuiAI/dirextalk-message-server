@@ -67,7 +67,7 @@ func (s *DatabaseStore) PrepareCloudServiceDestroy(ctx context.Context, request 
 		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision {
 			return cloudmodule.ErrServiceDestroyConfirmationConflict
 		}
-		if !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) {
+		if !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceDestroyConfirmationInvalid
 		}
 		keyID, _, err := lockCloudDeviceApprovalKey(ctx, tx, request.OwnerMXID, state.Deployment.ConnectionID)
@@ -159,7 +159,7 @@ func (s *DatabaseStore) ApproveCloudServiceDestroy(ctx context.Context, request 
 		if err != nil {
 			return err
 		}
-		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) {
+		if state.OwnerMXID != request.OwnerMXID || state.Service.Revision != request.ExpectedRevision || !serviceDestroyStateReady(state) || serviceHasActiveOperation(ctx, tx, request.ServiceID) || serviceHasActiveBackup(ctx, tx, request.ServiceID) {
 			return cloudmodule.ErrServiceDestroyConfirmationConflict
 		}
 		storedApproval, err := decodeStoredServiceDestroyApproval(stored.ApprovalJSON)

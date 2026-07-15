@@ -236,7 +236,7 @@ func (f *fakeDynamo) TransactWriteItems(_ context.Context, input *dynamodb.Trans
 
 func mustDynamoRepository(t *testing.T, client DynamoAPI) *DynamoRepository {
 	t.Helper()
-	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes", DeploymentReservationsTable: "deployments", DeploymentDestroyTable: "deployment-destroys", ApprovalUsesTable: "approval-uses", WorkerSessionsTable: "worker-sessions"})
+	repository, err := NewDynamoRepository(DynamoConfig{Client: client, ReceiptsTable: "receipts", CountersTable: "counters", IssuedQuotesTable: "quotes", DeploymentReservationsTable: "deployments", DeploymentDestroyTable: "deployment-destroys", ServiceBackupsTable: "service-backups", ApprovalUsesTable: "approval-uses", WorkerSessionsTable: "worker-sessions"})
 	if err != nil {
 		t.Fatalf("NewDynamoRepository(): %v", err)
 	}

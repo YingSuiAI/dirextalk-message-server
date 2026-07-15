@@ -322,7 +322,9 @@ Cloud mutation.
 | `cloud.plans.approve` | verifies that exact device signature, then atomically queues the private provision intent; it does not create an AWS resource itself | HTTP-only |
 | `cloud.deployments.recipe_execution.confirmation.prepare` | resolves only a privately registered trusted manifest for the deployment and returns a short-lived device challenge | HTTP-only |
 | `cloud.deployments.recipe_execution.approve` | verifies that exact device signature, then atomically queues a private `install` intent; it does not issue a Worker task or execute the recipe | HTTP-only |
-| `cloud.deployments.pairing.resume`, `cloud.services.*.plan/approve` | declared high-risk contracts; return `503 cloud_orchestrator_unavailable` until their independent control-plane transitions are installed | HTTP-only |
+| `cloud.services.operation.plan/approve` | device-approves one exact compiled `start`/`stop`/`restart` Worker action or one exact retained encrypted `backup`; each queues only its private typed intent | HTTP-only |
+| `cloud.services.destroy.plan/approve` | device-approves the exact tracked EC2/EBS/ENI set and queues only a private verified-destroy intent | HTTP-only |
+| `cloud.deployments.pairing.resume` | declared high-risk contract; returns `503 cloud_orchestrator_unavailable` until its independent transition is installed | HTTP-only |
 
 `cloud.connections.role_plan` accepts exactly:
 
@@ -474,9 +476,9 @@ is available to the control plane after restarts.
 
 The independent Orchestrator writes only `p2p_cloud_events` and
 `p2p_cloud_projection_outbox` in its fenced transaction. The Message Server
-owns the relay to `p2p_events`: it claims one projection with a lease, decodes
-only fixed `cloud.goal.changed`, `cloud.plan.changed`, `cloud.job.changed`, and
-`cloud.deployment.changed` schemas, and calls its local events module with
+owns the relay to `p2p_events`: it claims one projection with a lease and
+decodes only the fixed Goal, Plan, Job, Deployment, Service and Connection
+changed schemas before calling its local events module with
 `dedupe_key=cloud-event:<cloud_event_id>`. It acknowledges only after that
 append. A crash between append and acknowledgement is therefore safe to replay
 without duplicating an owner event. Unknown types, extra fields, malformed
@@ -604,8 +606,24 @@ management acceptance and publishes `active` only for a managed Recipe. Any
 terminal failure publishes `degraded`. The prior install-only artifact remains accepted
 for already approved installs but exposes no lifecycle capability.
 
+The same owner-only Service operation actions now accept `backup` as a
+separate deterministic-CBOR approval intent. That proof binds the exact
+Service/Deployment revisions, Connection, Recipe digest, tracked instance,
+complete EBS volume set and `manual` retention. ProductCore atomically creates
+a retained-backup ledger and backup Job without changing Service status or the
+active billable resource axis. The independent Orchestrator persists the exact
+signed `service.backup` envelope before I/O and replays it after response loss.
+Behind the Stack's independent default-off `EnableServiceBackup` gate, a
+one-use DynamoDB reservation consumes the approval/challenge before EC2
+mutation. A deterministic unique AMI name fences retries because `CreateImage`
+has no ClientToken. Success requires read-back of an available retained AMI
+and one completed encrypted snapshot for every approved volume. `NoReboot=true`
+makes this crash-consistent rather than application-consistent. The retained
+AMI/snapshots remain listed on the Service and are not implicitly removed by
+failure, Job completion or Service destruction.
+
 Secret delivery, selectable Recipes, OpenClaw/knowledge services, ingress,
-management acceptance and backup/restore still return
+management acceptance and restore/rollback still return
 `operation_not_enabled`. The repository does not yet deploy a researcher
 endpoint, build or publish the versioned Worker AMI containing the fixed
 binaries, deploy the Stack, or run a real-account AWS integration test.

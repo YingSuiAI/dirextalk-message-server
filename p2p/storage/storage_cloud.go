@@ -705,7 +705,20 @@ func (s *DatabaseStore) ListCloudServices(ctx context.Context) ([]cloudmodule.Se
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	backups, err := s.listCloudServiceBackups(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		items[index].Backups = backups[items[index].ServiceID]
+	}
+	return items, nil
 }
 
 func (s *DatabaseStore) GetCloudService(ctx context.Context, id string) (cloudmodule.Service, bool, error) {
@@ -718,7 +731,48 @@ func (s *DatabaseStore) GetCloudService(ctx context.Context, id string) (cloudmo
 	} else if err != nil {
 		return cloudmodule.Service{}, false, err
 	}
+	backups, err := s.listCloudServiceBackups(ctx, id)
+	if err != nil {
+		return cloudmodule.Service{}, false, err
+	}
+	item.Backups = backups[id]
 	return item, true, nil
+}
+
+func (s *DatabaseStore) listCloudServiceBackups(ctx context.Context, serviceID string) (map[string][]cloudmodule.ServiceBackup, error) {
+	query := `SELECT backup_id,service_id,deployment_id,backup_status,retention_policy,image_id,snapshots_json,revision,created_at,updated_at FROM p2p_cloud_service_backups`
+	var rows *sql.Rows
+	var err error
+	if serviceID == "" {
+		rows, err = s.db.QueryContext(ctx, query+` ORDER BY created_at DESC,backup_id`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query+` WHERE service_id=$1 ORDER BY created_at DESC,backup_id`, serviceID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string][]cloudmodule.ServiceBackup{}
+	for rows.Next() {
+		var item cloudmodule.ServiceBackup
+		var snapshotsJSON string
+		if err = rows.Scan(&item.BackupID, &item.ServiceID, &item.DeploymentID, &item.Status, &item.RetentionPolicy, &item.ImageID, &snapshotsJSON, &item.Revision, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		var snapshots []struct {
+			SnapshotID string `json:"snapshot_id"`
+		}
+		if json.Unmarshal([]byte(snapshotsJSON), &snapshots) != nil {
+			return nil, errors.New("cloud service backup snapshots are invalid")
+		}
+		for _, snapshot := range snapshots {
+			if snapshot.SnapshotID != "" {
+				item.SnapshotIDs = append(item.SnapshotIDs, snapshot.SnapshotID)
+			}
+		}
+		result[item.ServiceID] = append(result[item.ServiceID], item)
+	}
+	return result, rows.Err()
 }
 
 func (s *DatabaseStore) ListCloudRecipes(ctx context.Context) ([]cloudmodule.Recipe, error) {

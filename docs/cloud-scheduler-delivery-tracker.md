@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Typed verified Service destruction complete; managed acceptance and retained-resource operations next
+- Status: Device-approved retained encrypted Service backup complete; restore and management acceptance next
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -107,14 +107,15 @@ The current implementation boundary is exactly
   only read-back EC2/EBS/ENI evidence. The fixed claim route verifies AWS IID
   signatures and independent EC2 state before rotating a short lease; the
   signed `deployment.observe` read returns only de-secreted active evidence.
-  The same gate admits only the fixed digest-bound `execution_probe` task and
-  its de-secreted heartbeat/checkpoint events. Recipe/root/readiness/lifecycle
-  actions remain `operation_not_enabled`.
+  The same gate admits only fixed digest-bound Worker tasks, the sealed Recipe
+  install/readiness flow and compiled start/stop/restart actions; it never
+  accepts arbitrary commands, paths or AWS APIs. Verified destruction and
+  retained encrypted backup use their own independent default-off gates.
 - The CloudFormation execution role always grants its own log/receipt writes
-  and the bounded quote read APIs. RunInstances/create-time tagging/read-back
-  statements and exact Worker session/task-table access exist only behind the
-  same explicit gate. It has no IAM PassRole, Secrets Manager, S3 write,
-  ingress, root-execution, or lifecycle permission. The Go
+  and the bounded quote read APIs. RunInstances/Worker-task permissions,
+  exact-resource destruction and tagged CreateImage/read-back permissions
+  exist only behind their respective explicit gates. It has no IAM PassRole,
+  Secrets Manager, S3 write, ingress or arbitrary AWS permission. The Go
   artifact is supplied through a versioned S3
   artifact parameter by an approved external pipeline or the AWS console; no
   deploy helper is shipped here.
@@ -476,6 +477,35 @@ stage; later checked workboard sections are the authoritative delivery record.
   destroy exclusion and stopped terminal state; pass the affected Go checks,
   Linux builds and one accumulated security/spec review.
 
+### L. Device-approved retained encrypted Service backup
+
+- [x] Extend the existing owner HTTP-only Service operation prepare/approve
+  actions with `operation=backup`; bind one Ed25519 approval to the exact
+  Service/Deployment revisions, Connection, Recipe digest, EC2 instance,
+  complete tracked EBS volume set and manual-retention policy. Agent, MCP and
+  Worker receive no approval or AWS control capability.
+- [x] Atomically persist the private approval, retained-backup ledger,
+  backup Job/Step and outbox intent without changing the Service status or
+  Deployment resource axis. Exclude concurrent lifecycle, backup and destroy
+  work for the same Service.
+- [x] Persist the exact signed `service.backup` command and node counter before
+  network I/O; replay the identical envelope after timeout, response loss or
+  an incomplete AWS transition.
+- [x] Add the standalone Stack's one-use approval/challenge reservation and
+  retained/PITR/SSE backup table behind an independent default-off gate. The
+  typed provider uses a deterministic unique AMI name as the mutation fence,
+  because EC2 `CreateImage` has no ClientToken, and creates no independent AWS
+  control path.
+- [x] Return success only after AWS read-back verifies the retained AMI and one
+  completed encrypted snapshot for every approved volume. The backup is
+  crash-consistent (`NoReboot=true`), manually retained and remains visible
+  through `cloud.services.list/get`; success, failure and Service destruction
+  do not implicitly delete it.
+- [x] Cover deterministic-CBOR parity, approval/resource drift, durable command
+  ordering, Stack reservation/replay, unique-name recovery, encrypted
+  read-back and PostgreSQL terminal axes; pass the affected Go checks, Linux
+  builds and one accumulated security/spec review.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -500,8 +530,9 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Implement device-approved experimental-to-managed acceptance and typed
-backup/restore operations without widening the Worker or Agent. Keep public
+Implement a separately device-approved typed restore/rollback plan for one
+retained backup, then experimental-to-managed acceptance, without widening the
+Worker or Agent. Keep public
 ingress, secret delivery, selectable OpenClaw/knowledge Recipes, local AWS
 credentials, Stack deployment and real-account tests disabled until those
 independent approval and provider boundaries are complete.

@@ -52,6 +52,9 @@ const (
 	// signature binds the exact tracked EC2/EBS/ENI set. The Orchestrator, not
 	// ProductCore, later issues the typed Stack command and verifies read-back.
 	OutboxKindServiceDestroyRequested = "cloud.service.destroy.requested"
+	// OutboxKindServiceBackupRequested is emitted only after a device-approved
+	// exact snapshot scope has been durably committed.
+	OutboxKindServiceBackupRequested = "cloud.service.backup.requested"
 
 	ConnectionBootstrapAwaitingStack      = "awaiting_stack"
 	ConnectionBootstrapVerificationQueued = "verification_queued"
@@ -88,6 +91,10 @@ var (
 	ErrServiceOperationConfirmationInvalid  = errors.New("cloud service operation confirmation is invalid")
 	ErrServiceOperationApprovalExpired      = errors.New("cloud service operation approval has expired")
 	ErrServiceOperationApprovalSignature    = errors.New("cloud service operation approval signature is invalid")
+	ErrServiceBackupConfirmationConflict    = errors.New("cloud service backup conflicts with the current service")
+	ErrServiceBackupConfirmationInvalid     = errors.New("cloud service backup confirmation is invalid")
+	ErrServiceBackupApprovalExpired         = errors.New("cloud service backup approval has expired")
+	ErrServiceBackupApprovalSignature       = errors.New("cloud service backup approval signature is invalid")
 )
 
 // Goal is the private, durable user intent. Prompt is intentionally omitted
@@ -339,15 +346,16 @@ func QuoteJobID(outboxID string) string {
 // Service is intentionally separate from Deployment so a failed integration
 // cannot turn an otherwise running service into a failed cloud resource.
 type Service struct {
-	ServiceID    string `json:"service_id"`
-	DeploymentID string `json:"deployment_id"`
-	RecipeID     string `json:"recipe_id,omitempty"`
-	Name         string `json:"name"`
-	Status       string `json:"service_status"`
-	Integration  string `json:"integration_status"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	ServiceID    string          `json:"service_id"`
+	DeploymentID string          `json:"deployment_id"`
+	RecipeID     string          `json:"recipe_id,omitempty"`
+	Name         string          `json:"name"`
+	Status       string          `json:"service_status"`
+	Integration  string          `json:"integration_status"`
+	Revision     int64           `json:"revision"`
+	CreatedAt    int64           `json:"created_at"`
+	UpdatedAt    int64           `json:"updated_at"`
+	Backups      []ServiceBackup `json:"backups,omitempty"`
 }
 
 type Recipe struct {

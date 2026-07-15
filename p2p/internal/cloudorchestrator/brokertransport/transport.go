@@ -25,6 +25,7 @@ var _ runtime.QuoteTransport = (*Transport)(nil)
 var _ runtime.ConnectionRegistrationTransport = (*Transport)(nil)
 var _ runtime.DeploymentProvisionTransport = (*Transport)(nil)
 var _ runtime.ServiceDestroyTransport = (*Transport)(nil)
+var _ runtime.ServiceBackupTransport = (*Transport)(nil)
 
 // Transport keeps the mounted node key in process memory only. The key is
 // never serialized, returned, or written to PostgreSQL.

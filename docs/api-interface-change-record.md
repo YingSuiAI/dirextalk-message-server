@@ -1167,3 +1167,22 @@ start/restart preserves `experimental` until explicit management acceptance
 (managed Recipes return `active`), terminal failure returns `degraded`, and the
 resource remains active and billable. Agent tokens and public MCP have no plan,
 approve or lifecycle mutation capability.
+
+## 2026-07-15 — Retained encrypted cloud Service backup v1
+
+`cloud.services.operation.plan` now also accepts `operation: "backup"`.
+Its confirmation carries a distinct `service_backup` approval that binds the
+current Service/Deployment revisions, Connection, Recipe digest, tracked EC2
+instance, complete EBS volume set and `retention_policy: "manual"`.
+`cloud.services.operation.approve` accepts that exact device-signed approval
+and returns `{service, operation: "backup", backup, job}`. Both actions remain
+owner-authenticated and HTTP-only; Agent and public MCP permissions are
+unchanged.
+
+`cloud.services.list/get` add an optional `backups` array to each Service.
+Each item contains `backup_id`, `service_id`, `deployment_id`, `status`,
+`retention_policy`, optional retained `image_id`/`snapshot_ids`, its own
+revision and timestamps. Backup progress is reported by the returned Job and
+existing `cloud.job.changed` events. Backup success or failure does not change
+the Service status or Deployment resource axis; retained AMI/snapshot cleanup
+and restore are separate future approved operations.

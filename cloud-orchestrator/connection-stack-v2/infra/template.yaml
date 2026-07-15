@@ -83,6 +83,12 @@ Parameters:
     AllowedValues:
       - "false"
       - "true"
+  EnableServiceBackup:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
 
 Rules:
   DeploymentCreateRequiresWorkerIdentityKey:
@@ -97,6 +103,7 @@ Conditions:
   HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
   DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
   DeploymentDestroyEnabled: !Equals [!Ref EnableDeploymentDestroy, "true"]
+  ServiceBackupEnabled: !Equals [!Ref EnableServiceBackup, "true"]
 
 Resources:
   WorkerSecurityGroup:
@@ -230,6 +237,28 @@ Resources:
         - AttributeName: deployment_id
           KeyType: RANGE
 
+  ServiceBackupsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: backup_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: backup_id
+          KeyType: RANGE
+
   ApprovalUsesTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -349,6 +378,7 @@ Resources:
                   - !GetAtt IssuedQuotesTable.Arn
                   - !GetAtt DeploymentReservationsTable.Arn
                   - !GetAtt DeploymentDestroyTable.Arn
+                  - !GetAtt ServiceBackupsTable.Arn
                   - !GetAtt ApprovalUsesTable.Arn
                   - !If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref "AWS::NoValue"]
               - !If
@@ -379,6 +409,66 @@ Resources:
                     StringEquals:
                       ec2:ResourceTag/dirextalk:managed: "true"
                       ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: ImageTrackedWorkerInstanceOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateImage
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: CreateTaggedServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateImage
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRetention: manual
+                    "Null":
+                      aws:RequestTag/DirextalkBackupId: "false"
+                      aws:RequestTag/DirextalkServiceId: "false"
+                      aws:RequestTag/DirextalkDeploymentId: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - DirextalkConnectionId
+                        - DirextalkBackupId
+                        - DirextalkServiceId
+                        - DirextalkDeploymentId
+                        - DirextalkRetention
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: TagServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: CreateImage
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: ObserveServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeImages
+                    - ec2:DescribeSnapshots
+                  Resource: "*"
                 - !Ref "AWS::NoValue"
               - !If
                 - DeploymentDestroyEnabled
@@ -491,6 +581,7 @@ Resources:
           DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
           DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
           DIREXTALK_DEPLOYMENT_DESTROY_TABLE: !Ref DeploymentDestroyTable
+          DIREXTALK_SERVICE_BACKUPS_TABLE: !Ref ServiceBackupsTable
           DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
           DIREXTALK_WORKER_SESSIONS_TABLE: !Ref WorkerSessionsTable
           DIREXTALK_WORKER_TASKS_TABLE: !Ref WorkerTasksTable
@@ -499,6 +590,7 @@ Resources:
           DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM: !Ref WorkerIdentityRsaPublicKeyPem
           DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
           DIREXTALK_DEPLOYMENT_DESTROY_ENABLED: !Ref EnableDeploymentDestroy
+          DIREXTALK_SERVICE_BACKUP_ENABLED: !Ref EnableServiceBackup
 
   BrokerAPI:
     Type: AWS::ApiGatewayV2::Api

@@ -161,6 +161,38 @@ type DeploymentDestroyRepository interface {
 	FinalizeDeploymentDestroy(ctx context.Context, reservation DeploymentDestroyReservation, receipt Record) (stored Record, created bool, err error)
 }
 
+// ServiceBackupReservation consumes one exact device approval before any EBS
+// snapshot is requested. Replays keep the same command identity so provider
+// mutation identity cannot drift after a timeout or process restart.
+type ServiceBackupReservation struct {
+	ConnectionID       string
+	BackupID           string
+	ServiceID          string
+	DeploymentID       string
+	CommandID          string
+	RequestSHA256      string
+	ExpectedGeneration int64
+	NodeCounter        int64
+	ApprovalID         string
+	ChallengeID        string
+	SignerKeyID        string
+	RequestJSON        []byte
+	ResultJSON         []byte
+	State              string
+}
+
+func (reservation ServiceBackupReservation) SameIdentity(other ServiceBackupReservation) bool {
+	return reservation.ConnectionID == other.ConnectionID && reservation.BackupID == other.BackupID && reservation.ServiceID == other.ServiceID && reservation.DeploymentID == other.DeploymentID && reservation.CommandID == other.CommandID && reservation.RequestSHA256 == other.RequestSHA256 && reservation.ExpectedGeneration == other.ExpectedGeneration && reservation.NodeCounter == other.NodeCounter && reservation.ApprovalID == other.ApprovalID && reservation.ChallengeID == other.ChallengeID && reservation.SignerKeyID == other.SignerKeyID && string(reservation.RequestJSON) == string(other.RequestJSON)
+}
+
+type ServiceBackupRepository interface {
+	Repository
+	LookupDeployment(ctx context.Context, connectionID, deploymentID string) (DeploymentReservation, bool, error)
+	LookupServiceBackup(ctx context.Context, connectionID, backupID string) (ServiceBackupReservation, bool, error)
+	ReserveServiceBackup(ctx context.Context, reservation ServiceBackupReservation) (stored ServiceBackupReservation, created bool, err error)
+	FinalizeServiceBackup(ctx context.Context, reservation ServiceBackupReservation, receipt Record) (stored Record, created bool, err error)
+}
+
 type Error struct{ Code string }
 
 func (e *Error) Error() string {

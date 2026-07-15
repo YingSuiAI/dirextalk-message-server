@@ -97,6 +97,10 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_cloud_recipe_execution_approvals_owner_approve_idempotency_idx",
 		"p2p_cloud_recipe_execution_approvals_execution_active_idx",
 		"p2p_cloud_recipe_execution_approvals_execution_status_idx",
+		"p2p_cloud_service_backup_approvals_approve_idempotency_idx",
+		"p2p_cloud_service_backup_approvals_service_idx",
+		"p2p_cloud_service_backups_claim_idx",
+		"p2p_cloud_service_backup_commands_backup_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {

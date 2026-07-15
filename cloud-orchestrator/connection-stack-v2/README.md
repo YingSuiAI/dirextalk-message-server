@@ -64,6 +64,22 @@ individual AWS read-back proves every identifier absent. Transition states
 return `deployment_destroy_in_progress`; unavailable or denied provider calls
 never become success.
 
+`service.backup` is another separately gated typed action. With
+`EnableServiceBackup=true`, it verifies a fresh device proof bound to the
+exact Service/Deployment revisions, Connection, Recipe digest, original
+tracked instance and complete EBS volume set. The Stack consumes the
+approval/challenge and reserves the request before calling EC2. Because
+`CreateImage` has no ClientToken, the provider uses a deterministic unique AMI
+name derived from Connection and backup IDs as its mutation fence; exact
+retries read back the same image instead of creating another backup.
+
+The provider requests `NoReboot=true`, so this is a crash-consistent backup,
+not an application-consistent backup. It returns a committed receipt only
+after the AMI is available and every approved volume has exactly one completed
+encrypted snapshot with the expected tags. Both the AMI and snapshots are
+retained and reported as manually managed resources. Service stop, failure,
+destruction, or backup Job completion does not delete them.
+
 This is intentional. A partial mutation path must fail closed rather than make
 an untracked or billable resource and claim feature parity.
 
@@ -106,15 +122,16 @@ Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
 ```
 
 No local or real AWS account test is authorized by this module yet. With the
-default gate, the Lambda execution role can write only its own logs/receipt
+default gates, the Lambda execution role can write only its own logs/receipt
 tables and call the quote read APIs. The conditional mutation statements exist
-only when their explicit create or destroy gate is true; they permit the fixed
-RunInstances shape and tags or exact tagged-resource termination/deletion plus
-EC2/EBS/ENI read-back. They never grant IAM pass-role, Secrets Manager,
+only when their explicit create, destroy or backup gate is true; they permit
+the fixed RunInstances shape and tags, exact tagged-resource
+termination/deletion, or tagged CreateImage plus AMI/snapshot read-back. They
+never grant IAM pass-role, Secrets Manager,
 secret-bootstrap, ingress or arbitrary AWS permissions.
 
 ## Next lifecycle boundary
 
-Add separately approved start/stop/restart and backup/restore contracts, then
-management acceptance. Do not add arbitrary AWS passthrough, credentials,
+Add a separately approved restore/rollback contract for one retained backup,
+then management acceptance. Do not add arbitrary AWS passthrough, credentials,
 public ingress or user-selected root commands to those boundaries.

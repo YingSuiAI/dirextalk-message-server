@@ -1529,6 +1529,45 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: cloud service backups v54",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_backup_approvals (
+					approval_id TEXT PRIMARY KEY NOT NULL, challenge_id TEXT NOT NULL UNIQUE, owner_mxid TEXT NOT NULL,
+					backup_id TEXT NOT NULL UNIQUE, service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0), cloud_connection_id TEXT NOT NULL,
+					recipe_id TEXT NOT NULL, recipe_digest TEXT NOT NULL, instance_id TEXT NOT NULL, volume_ids_json TEXT NOT NULL, retention_policy TEXT NOT NULL CHECK(retention_policy='manual'),
+					signer_key_id TEXT NOT NULL, approval_json TEXT NOT NULL, signing_payload BYTEA NOT NULL, service_json TEXT NOT NULL, deployment_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK(status IN('pending','approved','expired')), prepare_idempotency_hash TEXT NOT NULL, prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT, approve_request_digest TEXT, signature TEXT NOT NULL DEFAULT '', job_id TEXT NOT NULL DEFAULT '',
+					result_service_json TEXT NOT NULL DEFAULT '', result_backup_json TEXT NOT NULL DEFAULT '', result_job_json TEXT NOT NULL DEFAULT '',
+					expires_at BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_backup_approvals_approve_idempotency_idx ON p2p_cloud_service_backup_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_backup_approvals_service_idx ON p2p_cloud_service_backup_approvals(service_id,created_at DESC)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_backups (
+					backup_id TEXT PRIMARY KEY NOT NULL, approval_id TEXT NOT NULL UNIQUE, service_id TEXT NOT NULL, service_revision BIGINT NOT NULL CHECK(service_revision>0),
+					deployment_id TEXT NOT NULL, deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0), plan_id TEXT NOT NULL, cloud_connection_id TEXT NOT NULL,
+					instance_id TEXT NOT NULL, volume_ids_json TEXT NOT NULL, retention_policy TEXT NOT NULL CHECK(retention_policy='manual'), job_id TEXT NOT NULL UNIQUE,
+					backup_status TEXT NOT NULL CHECK(backup_status IN('queued','running','available','failed')), image_id TEXT NOT NULL DEFAULT '', snapshots_json TEXT NOT NULL DEFAULT '[]', receipt_json TEXT NOT NULL DEFAULT '',
+					revision BIGINT NOT NULL DEFAULT 1 CHECK(revision>0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_backups_claim_idx ON p2p_cloud_service_backups(backup_status,updated_at)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_backups_active_service_idx ON p2p_cloud_service_backups(service_id) WHERE backup_status IN('queued','running')`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_backup_commands (
+					command_id TEXT PRIMARY KEY NOT NULL, backup_id TEXT NOT NULL, approval_id TEXT NOT NULL, service_id TEXT NOT NULL, deployment_id TEXT NOT NULL,
+					cloud_connection_id TEXT NOT NULL, request_digest TEXT NOT NULL, command_attempt INTEGER NOT NULL CHECK(command_attempt>0), action TEXT NOT NULL CHECK(action='service.backup'),
+					node_key_id TEXT NOT NULL, expected_generation BIGINT NOT NULL CHECK(expected_generation>0), node_counter BIGINT NOT NULL CHECK(node_counter>0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '', payload_sha256 TEXT NOT NULL DEFAULT '', request_sha256 TEXT NOT NULL DEFAULT '', signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL DEFAULT 0, state TEXT NOT NULL CHECK(state IN('allocated','signed','indeterminate','accepted','failed')),
+					receipt_json TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), last_error_code TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+					UNIQUE(cloud_connection_id,node_counter), UNIQUE(backup_id,request_digest,command_attempt)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_backup_commands_backup_idx ON p2p_cloud_service_backup_commands(backup_id,command_attempt DESC)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

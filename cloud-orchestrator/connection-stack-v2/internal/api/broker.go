@@ -90,11 +90,14 @@ type Broker struct {
 	Quote                     QuoteProvider
 	DeploymentEnabled         bool
 	DeploymentDestroyEnabled  bool
+	ServiceBackupEnabled      bool
 	ApprovalResolver          ApprovalKeyResolver
 	DeploymentStore           commandstore.DeploymentRepository
 	DeploymentProvider        DeploymentProvider
 	DeploymentDestroyStore    commandstore.DeploymentDestroyRepository
 	DeploymentDestroyProvider DeploymentDestroyProvider
+	ServiceBackupStore        commandstore.ServiceBackupRepository
+	ServiceBackupProvider     ServiceBackupProvider
 	DeploymentBoundary        DeploymentBoundary
 	WorkerIdentity            WorkerIdentityVerifier
 	WorkerTokens              WorkerTokenGenerator
@@ -163,6 +166,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
+	if command.Action == contract.ActionServiceBackup && !b.ServiceBackupEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
 
 	now := time.Now().UTC()
 	if b.Now != nil {
@@ -195,6 +202,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		b.executeDeploymentDestroy(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionServiceBackup {
+		if b.ApprovalResolver == nil || b.ServiceBackupStore == nil || b.ServiceBackupProvider == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		b.executeServiceBackup(response, request, command, now)
 		return
 	}
 	if command.Action == contract.ActionDeploymentObserve {
