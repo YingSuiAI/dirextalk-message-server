@@ -516,8 +516,12 @@ signed challenge that bind all of:
 The ProductCore prepare/approve actions now use the active Connection's
 device-key registry and a persisted one-time challenge. They bind the exact
 canonical signing payload before the provision intent becomes visible. Dart
-golden-vector verification and the later typed Worker/Broker create command
-remain release gates for any actual provider mutation.
+golden-vector verification remains a release gate. The independent Go Stack
+now parses the exact Orchestrator-generated `deployment.create` envelope and
+verifies its deterministic-CBOR ApprovalV1/device signature byte-compatibly,
+but the HTTP action remains disabled until approval consumption, deployment
+reservation, fixed Worker/quote enforcement, provider mutation and AWS
+read-back form one durable transaction boundary.
 
 When the typed Worker creation executor is enabled, the UI label is
 **“确认创建并开始计费”**. Before that executor exists, the current confirmation

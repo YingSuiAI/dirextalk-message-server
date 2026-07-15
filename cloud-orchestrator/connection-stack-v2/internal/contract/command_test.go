@@ -172,7 +172,7 @@ func TestParseRejectsAmbiguousOrTamperedEnvelope(t *testing.T) {
 	}
 }
 
-func TestDeploymentCreateParsesButCannotVerifyUntilProofParity(t *testing.T) {
+func TestDeploymentCreateRejectsIncompleteTypedProofBeforeSignature(t *testing.T) {
 	command, _, publicKey := signedTestCommand(t, ActionDeploymentCreate)
 	command.ApprovalProof = json.RawMessage(`{"approval_id":"approval-0001"}`)
 	command.SignatureB64 = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
@@ -187,11 +187,11 @@ func TestDeploymentCreateParsesButCannotVerifyUntilProofParity(t *testing.T) {
 	if !parsed.HasApprovalProof() {
 		t.Fatal("HasApprovalProof() = false")
 	}
-	if got := Code(parsed.VerifyNodeSignature(publicKey)); got != "operation_not_enabled" {
-		t.Fatalf("VerifyNodeSignature() code = %q, want operation_not_enabled", got)
+	if got := Code(parsed.VerifyNodeSignature(publicKey)); got != "invalid_deployment_request" {
+		t.Fatalf("VerifyNodeSignature() code = %q, want invalid_deployment_request", got)
 	}
-	if _, err := parsed.SignatureBase(); Code(err) != "operation_not_enabled" {
-		t.Fatalf("SignatureBase() code = %q, want operation_not_enabled", Code(err))
+	if _, err := parsed.SignatureBase(); Code(err) != "invalid_deployment_request" {
+		t.Fatalf("SignatureBase() code = %q, want invalid_deployment_request", Code(err))
 	}
 }
 

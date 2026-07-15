@@ -34,14 +34,14 @@ tables. Exact retries return the stored result as `idempotent`; command-id and
 stale-counter conflicts fail closed. Stored results are validated again before
 they are returned.
 
-All other operations return `operation_not_enabled`. `deployment.create` is
-rejected before signature verification because its
-deterministic-CBOR `ApprovalV1` verifier, one-time approval consumption,
-receipt/counter transaction, EC2 read-back, and provider mutation must be
-ported and reviewed as one capability. Apart from the bounded receipt-table
-writes above, no EC2, EBS, VPC, or IAM mutation, Worker session, root command,
-secret delivery, public service, or billable resource creation is implemented
-by this stage.
+All other operations return `operation_not_enabled`. The module now contains a
+cross-module-compatible `deployment.create` request, node-signature and
+deterministic-CBOR `ApprovalV1` verifier, but the HTTP Broker still rejects the
+action before invoking them. One-time approval consumption, deployment
+reservation, EC2 read-back, and provider mutation must be ported and reviewed
+as one capability. Apart from the bounded receipt-table writes above, no EC2,
+EBS, VPC, or IAM mutation, Worker session, root command, secret delivery,
+public service, or billable resource creation is implemented by this stage.
 
 This is intentional. A partial mutation path must fail closed rather than make
 an untracked or billable resource and claim feature parity.
@@ -92,8 +92,8 @@ Manager, Worker, secret-bootstrap, or network-management permission.
 
 ## Next parity boundary
 
-A later mutation stage must separately add deterministic-CBOR ApprovalV1
-verification, one-time approval consumption, deployment reservation, fixed
-Worker artifact/network enforcement, and AWS read-back before any provider
+The next mutation stage must add one-time ApprovalV1 consumption, deployment
+reservation, fixed Worker artifact/network/issued-quote enforcement,
+deterministic EC2 ClientToken handling, and AWS read-back before any provider
 mutation is enabled. Until that whole boundary lands, this module remains a
 safe Go-only registration and quote Broker rather than a cloud executor.

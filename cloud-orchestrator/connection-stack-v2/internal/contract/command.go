@@ -96,10 +96,9 @@ func Code(err error) string {
 	return "invalid_command"
 }
 
-// Command is the exact outer JSON envelope. ApprovalProof remains raw on
-// purpose: this fail-closed foundation never interprets or forwards it before
-// the deterministic-CBOR ApprovalV1 verifier and one-time consume store are
-// ported.
+// Command is the exact outer JSON envelope. ApprovalProof remains raw until an
+// action-specific deployment validator verifies its exact ApprovalV1 shape and
+// deterministic-CBOR signature payload.
 type Command struct {
 	Schema             string          `json:"schema"`
 	ConnectionID       string          `json:"connection_id"`
@@ -254,16 +253,12 @@ func (c Command) ValidateAt(now time.Time) error {
 	return nil
 }
 
-// VerifyNodeSignature validates the registered Ed25519 node signature for a
-// non-mutating envelope. deployment.create deliberately returns
-// operation_not_enabled until its ApprovalV1 deterministic-CBOR verifier is
-// ported; callers must never use this method to bypass that gate.
+// VerifyNodeSignature validates the registered Ed25519 node signature. This
+// does not enable deployment.create; the HTTP Broker retains its separate
+// one-time approval/storage/provider gate.
 func (c Command) VerifyNodeSignature(publicKey ed25519.PublicKey) error {
 	if err := c.ValidateStructure(); err != nil {
 		return err
-	}
-	if c.Action == ActionDeploymentCreate {
-		return errCode("operation_not_enabled")
 	}
 	if len(publicKey) != ed25519.PublicKeySize {
 		return errCode("invalid_node_public_key")
@@ -279,12 +274,19 @@ func (c Command) VerifyNodeSignature(publicKey ed25519.PublicKey) error {
 	return nil
 }
 
-// SignatureBase is byte-compatible with the existing V2 Go Broker client for
-// every action that has no ApprovalV1 proof. Four approval lines are retained
-// with empty values; omitting them would create a different signed protocol.
+// SignatureBase is byte-compatible with the existing V2 Go Broker client.
+// The deployment ApprovalV1 payload digest occupies only its dedicated line.
 func (c Command) SignatureBase() (string, error) {
+	proofDigest := ""
 	if c.IsDeploymentCreate() {
-		return "", errCode("operation_not_enabled")
+		if err := c.ValidateDeploymentBinding(); err != nil {
+			return "", err
+		}
+		var err error
+		proofDigest, err = c.ApprovalProofPayloadSHA256()
+		if err != nil {
+			return "", err
+		}
 	}
 	return fmt.Sprintf(
 		"%s\n"+
@@ -301,7 +303,7 @@ func (c Command) SignatureBase() (string, error) {
 			"approval_binding_sha256=\n"+
 			"approval_challenge_id=\n"+
 			"approval_signature_sha256=\n"+
-			"approval_proof_payload_sha256=\n",
+			"approval_proof_payload_sha256=%s\n",
 		CommandSignatureSchema,
 		c.Schema,
 		c.ConnectionID,
@@ -313,13 +315,13 @@ func (c Command) SignatureBase() (string, error) {
 		c.NodeCounter,
 		c.Action,
 		c.PayloadSHA256,
+		proofDigest,
 	), nil
 }
 
 // RequestSHA256 is the durable idempotency identity for non-deployment
 // commands. It is intentionally the hash of the signature base rather than of
-// the outer HTTP JSON bytes. deployment.create returns operation_not_enabled
-// until its ApprovalV1 proof digest can be calculated byte-compatibly.
+// the outer HTTP JSON bytes.
 func (c Command) RequestSHA256() (string, error) {
 	signatureBase, err := c.SignatureBase()
 	if err != nil {

@@ -1,6 +1,6 @@
 # Cloud Cleanup, Agent + Client Delivery Tracker
 
-- Status: Go read-only Broker parity complete; mutation fail-closed
+- Status: deployment command/ApprovalV1 parity frozen; mutation fail-closed
 - Scope frozen: 2026-07-15 Asia/Shanghai
 - Owning repositories: `dirextalk-message-server`, `dirextalk-flutter`
 - Delivery branch: `adam/0714`
@@ -282,6 +282,25 @@ not represented as implementation tasks in this read-only parity stage.
   tests and template checks; perform one accumulated review and commit only
   current-task files.
 
+### E. Typed deployment mutation boundary
+
+- [x] Port the exact `deployment.create` payload and node-signature binding to
+  the standalone Go Stack without enabling its HTTP action.
+- [x] Port deterministic-CBOR ApprovalV1 payload generation, strict nested
+  shape validation and device-signature verification.
+- [x] Add a cross-module golden command produced by the Orchestrator and
+  verified by the Stack, including proof drift and expanded-scope rejection.
+- [ ] Add the registered device-key resolver and one-time approval/challenge
+  consumption to the same atomic deployment reservation transaction.
+- [ ] Bind the request to the persisted issued quote, fixed Worker
+  AMI/network/manifest and an exact deterministic EC2 ClientToken.
+- [ ] Implement the typed create provider behind a disabled-by-default runtime
+  gate, with fake provider fault injection and AWS read-back evidence.
+- [ ] Commit the receipt, approval consumption, deployment reservation and
+  discovered EC2/EBS/ENI identities atomically before returning success.
+- [ ] Enable `deployment.create` only after replay, response-loss, concurrent
+  approval consumption, stale generation/counter and read-back tests pass.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -304,9 +323,8 @@ not represented as implementation tasks in this read-only parity stage.
 
 ## Next action
 
-Freeze the next typed mutation boundary before enabling it: deterministic-CBOR
-ApprovalV1 verification, one-time approval consumption, durable deployment
-reservation, fixed Worker artifact/network enforcement, idempotent provider
-mutation, and AWS read-back must land as one coherent stage. Until then, do not
-enable `deployment.create`, add Worker routes, read local AWS credentials,
-deploy the Stack, or run real-account tests.
+Implement workboard E's atomic approval-consumption/deployment-reservation
+store and disabled-by-default typed provider seam. Fixed Worker bindings,
+deterministic ClientToken and AWS read-back evidence must be enforced before
+the HTTP action can be enabled. Until then, do not add Worker routes, read
+local AWS credentials, deploy the Stack, or run real-account tests.
