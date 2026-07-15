@@ -48,6 +48,19 @@ func TestCompiledRecipeArtifactIsStrictAndOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestCompiledRecipeArtifactZeroRuntimeProfilePreservesLegacyDigest(t *testing.T) {
+	legacy := compiledRecipeArtifact()
+	legacyDigest, err := legacy.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := legacy
+	zero.RuntimeProfile = &cloudorchestrator.OCIServiceRuntimeProfileV1{}
+	if digest, err := zero.Digest(); err != nil || digest != legacyDigest {
+		t.Fatalf("zero profile digest=%q legacy=%q err=%v", digest, legacyDigest, err)
+	}
+}
+
 func TestCompiledRecipeArtifactRejectsExecutableAndAmbiguousCapabilities(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -87,13 +100,20 @@ func TestCompiledRecipeArtifactDigestBindsEveryCapabilityBoundary(t *testing.T) 
 	mutations := []func(*cloudorchestrator.CompiledRecipeArtifactV1){
 		func(v *cloudorchestrator.CompiledRecipeArtifactV1) { v.RecipeRevision++ },
 		func(v *cloudorchestrator.CompiledRecipeArtifactV1) { v.Requirements.MinMemoryMiB++ },
-		func(v *cloudorchestrator.CompiledRecipeArtifactV1) { v.ArtifactDigest = compiledDigest("f") },
+		func(v *cloudorchestrator.CompiledRecipeArtifactV1) {
+			v.ArtifactDigest = compiledDigest("f")
+			v.ImageSource = cloudorchestrator.OCIImageSourceReferenceV1("ghcr.io/dirextalk/private-recipe@" + compiledDigest("f"))
+		},
+		func(v *cloudorchestrator.CompiledRecipeArtifactV1) {
+			v.ImageSource = cloudorchestrator.OCIImageSourceReferenceV1("quay.io/dirextalk/private-recipe@" + v.ArtifactDigest)
+		},
 		func(v *cloudorchestrator.CompiledRecipeArtifactV1) {
 			v.Actions[0].RootRequired = !v.Actions[0].RootRequired
 		},
 		func(v *cloudorchestrator.CompiledRecipeArtifactV1) {
 			v.Actions[0].CheckpointSequence[0] = "different_checkpoint"
 		},
+		func(v *cloudorchestrator.CompiledRecipeArtifactV1) { v.SemanticReadiness.Path = "/different-semantic" },
 		func(v *cloudorchestrator.CompiledRecipeArtifactV1) {
 			v.VolumeSlots[0].ReadOnly = !v.VolumeSlots[0].ReadOnly
 		},
@@ -117,7 +137,7 @@ func TestCompiledRecipeArtifactGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(canonical)
-	const want = "6e37b290ea9f5af060eaa35c9b0def92f8f008f69d1b841433bb10a36e180dba"
+	const want = "be48112f183921de6a9d1ad914f535836610a70db46d103db5cfceebe7aef52b"
 	if got := hex.EncodeToString(sum[:]); got != want {
 		t.Fatalf("compiled artifact payload digest=%s", got)
 	}
@@ -128,11 +148,12 @@ func compiledRecipeArtifact() cloudorchestrator.CompiledRecipeArtifactV1 {
 		SchemaVersion: cloudorchestrator.CompiledRecipeArtifactV1Schema, RecipeID: "recipe-private-0001", RecipeDigest: compiledDigest("a"), RecipeRevision: 4,
 		OfficialSourceArtifactDigests: []string{compiledDigest("c"), compiledDigest("b")}, Architecture: cloudorchestrator.ArchitectureAMD64,
 		Requirements:                 cloudorchestrator.ResourceRequirementsV1{MinVCPU: 4, MinMemoryMiB: 8192, MinDiskGiB: 80, Architecture: cloudorchestrator.ArchitectureAMD64},
-		WorkerResourceManifestDigest: compiledDigest("d"), ArtifactDigest: compiledDigest("e"), MediaType: "application/vnd.dirextalk.recipe", SizeBytes: 1048576,
+		WorkerResourceManifestDigest: compiledDigest("d"), ArtifactDigest: compiledDigest("e"), ImageSource: cloudorchestrator.OCIImageSourceReferenceV1("ghcr.io/dirextalk/private-recipe@" + compiledDigest("e")), MediaType: "application/vnd.dirextalk.recipe", SizeBytes: 1048576,
 		Actions: []cloudorchestrator.CompiledRecipeActionV1{
 			{Kind: cloudorchestrator.CompiledRecipeActionRestart, ActionID: "service_restart_v1", RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"service_restarted", "health_verified"}},
 			{Kind: cloudorchestrator.CompiledRecipeActionInstall, ActionID: "service_install_v1", RootRequired: true, TimeoutSeconds: 1800, CheckpointSequence: []string{"artifact_verified", "service_installed", "health_verified"}},
 		},
+		SemanticReadiness:    cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18080, Path: "/openclaw/semantic", ExpectedStatus: 200, BodySHA256: compiledDigest("8")},
 		HealthContractDigest: compiledDigest("6"), LifecycleContractDigest: compiledDigest("7"),
 		VolumeSlots: []cloudorchestrator.RecipeVolumeSlotRequirementV1{{SlotID: "logs", Purpose: "durable logs", ReadOnly: false}, {SlotID: "model", Purpose: "local model data", ReadOnly: true}},
 		DataSlots:   []cloudorchestrator.RecipeDataSlotRequirementV1{{SlotID: "knowledge", Purpose: "knowledge corpus", ReadOnly: true}},

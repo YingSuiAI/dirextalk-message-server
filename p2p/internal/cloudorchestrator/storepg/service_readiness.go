@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/broker"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator/runtime"
 )
@@ -43,9 +46,11 @@ func (s *Store) claimServiceReadinessIssue(ctx context.Context, workerID string,
 	if token == "" {
 		return claim, false, errors.New("service readiness lease token is invalid")
 	}
+	var semanticProbeJSON string
 	err = tx.QueryRowContext(ctx, `SELECT outbox.outbox_id,outbox.kind,outbox.aggregate_type,outbox.aggregate_id,
 		task.execution_id,task.deployment_id,task.service_id,task.task_id,task.cloud_connection_id,connection.region,task.instance_id,
-		task.recipe_execution_manifest_digest,task.install_evidence_digest,task.semantic_expectation_digest,task.task_attempt,task.purpose,task.restore_id,task.job_id,
+		task.recipe_execution_manifest_digest,task.install_evidence_digest,task.artifact_digest,task.semantic_probe_json,task.semantic_expectation_digest,task.task_attempt,task.purpose,task.restore_id,task.job_id,
+		task.monitor_generation,task.monitor_service_revision,task.monitor_deployment_revision,task.monitor_resource_status,task.worker_lease_epoch,
 		broker.broker_command_url,broker.node_key_id,broker.connection_generation
 		FROM p2p_cloud_outbox outbox JOIN p2p_cloud_service_readiness_tasks task ON task.task_id=outbox.aggregate_id
 		JOIN p2p_cloud_deployments deployment ON deployment.deployment_id=task.deployment_id
@@ -54,23 +59,33 @@ func (s *Store) claimServiceReadinessIssue(ctx context.Context, workerID string,
 		JOIN p2p_cloud_deployment_resources resource ON resource.deployment_id=task.deployment_id
 		JOIN p2p_cloud_worker_bootstrap_observations observation ON observation.deployment_id=task.deployment_id
 		JOIN p2p_cloud_recipe_install_tasks install ON install.execution_id=task.execution_id
-		JOIN p2p_cloud_jobs job ON job.job_id=task.job_id
+		LEFT JOIN p2p_cloud_jobs job ON job.job_id=task.job_id
 		LEFT JOIN p2p_cloud_service_restores restore ON restore.restore_id=task.restore_id
+		LEFT JOIN p2p_cloud_services service ON service.service_id=task.service_id
+		LEFT JOIN p2p_cloud_service_monitors monitor ON monitor.service_id=task.service_id
 		WHERE outbox.kind=$1 AND outbox.aggregate_type='service_readiness_task' AND outbox.completed_at=0 AND outbox.available_at<=$2 AND outbox.lease_until<=$2
 		AND task.task_status='unissued'
-		AND ((task.purpose='install' AND task.restore_id='' AND deployment.execution_status='verifying' AND deployment.outcome_status='pending' AND deployment.resource_status='active' AND job.kind='install' AND job.checkpoint IN('readiness_queued','readiness_issuing'))
-		 OR (task.purpose='restore' AND restore.restore_id=task.restore_id AND restore.restore_status='verifying' AND job.kind='restore' AND job.checkpoint IN('restore_readiness_queued','restore_readiness_issuing')))
+		AND ((task.purpose='install' AND task.restore_id='' AND deployment.execution_status='verifying' AND deployment.outcome_status='pending' AND deployment.resource_status='active' AND job.kind='install' AND job.execution_status='verifying' AND job.outcome_status='pending' AND job.checkpoint IN('readiness_queued','readiness_issuing'))
+		 OR (task.purpose='restore' AND restore.restore_id=task.restore_id AND restore.restore_status='verifying' AND job.kind='restore' AND job.execution_status='verifying' AND job.outcome_status='pending' AND job.checkpoint IN('restore_readiness_queued','restore_readiness_issuing'))
+		 OR (task.purpose='monitor' AND task.restore_id='' AND task.job_id='' AND service.service_id=task.service_id AND service.deployment_id=task.deployment_id AND service.service_status IN('active','experimental','degraded') AND service.revision=task.monitor_service_revision
+			AND monitor.current_task_id=task.task_id AND monitor.monitor_status='checking' AND monitor.generation=task.monitor_generation
+			AND deployment.execution_status='finished' AND deployment.outcome_status='succeeded' AND deployment.resource_status IN('active','retained_tracked') AND deployment.revision=task.monitor_deployment_revision
+			AND resource.resource_status=task.monitor_resource_status AND observation.worker_lease_epoch=task.worker_lease_epoch))
 		AND connection.status='active' AND connection.region=broker.broker_region AND resource.cloud_connection_id=task.cloud_connection_id AND resource.resource_status IN('active','retained_tracked')
 		AND observation.worker_session_state='active' AND observation.worker_lease_expires_at>$2 AND install.task_status='succeeded'
-		AND job.execution_status='verifying' AND job.outcome_status='pending'
 		ORDER BY outbox.available_at,outbox.created_at,outbox.outbox_id FOR UPDATE OF outbox SKIP LOCKED LIMIT 1`, cloudmodule.OutboxKindServiceReadinessRequested, now).Scan(
 		&claim.OutboxID, &claim.Kind, &claim.AggregateType, &claim.AggregateID, &claim.ExecutionID, &claim.DeploymentID, &claim.ServiceID, &claim.TaskID, &claim.ConnectionID, &claim.Region, &claim.InstanceID,
-		&claim.IssueRequest.RecipeExecutionManifestDigest, &claim.IssueRequest.InstallEvidenceDigest, &claim.SemanticExpectationDigest, &claim.TaskAttempt, &claim.Purpose, &claim.RestoreID, &claim.JobID, &claim.BrokerEndpoint, &claim.NodeKeyID, &claim.ExpectedGeneration)
+		&claim.RecipeExecutionManifestDigest, &claim.InstallEvidenceDigest, &claim.ArtifactDigest, &semanticProbeJSON, &claim.SemanticExpectationDigest, &claim.TaskAttempt, &claim.Purpose, &claim.RestoreID, &claim.JobID,
+		&claim.MonitorGeneration, &claim.MonitorServiceRevision, &claim.MonitorDeploymentRevision, &claim.MonitorResourceStatus, &claim.WorkerLeaseEpoch,
+		&claim.BrokerEndpoint, &claim.NodeKeyID, &claim.ExpectedGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Rollback()
 		return runtime.ServiceReadinessClaim{}, false, nil
 	}
 	if err != nil {
+		return claim, false, err
+	}
+	if claim.SemanticProbe, err = decodeServiceReadinessProbe(semanticProbeJSON); err != nil {
 		return claim, false, err
 	}
 	claim.Phase = runtime.ServiceReadinessPhaseIssue
@@ -81,6 +96,10 @@ func (s *Store) claimServiceReadinessIssue(ctx context.Context, workerID string,
 	claim.IssueRequest.ServiceID = claim.ServiceID
 	claim.IssueRequest.TaskID = claim.TaskID
 	claim.IssueRequest.ProbeKind = runtime.ServiceReadinessProbeKind
+	claim.IssueRequest.RecipeExecutionManifestDigest = claim.RecipeExecutionManifestDigest
+	claim.IssueRequest.InstallEvidenceDigest = claim.InstallEvidenceDigest
+	claim.IssueRequest.ArtifactDigest = claim.ArtifactDigest
+	claim.IssueRequest.SemanticProbe = claim.SemanticProbe
 	claim.IssueRequest.SemanticExpectationDigest = claim.SemanticExpectationDigest
 	result, e := tx.ExecContext(ctx, `UPDATE p2p_cloud_outbox SET lease_owner=$1,lease_token=$2,lease_until=$3,attempts=attempts+1,last_error_code='' WHERE outbox_id=$4 AND completed_at=0 AND lease_until<=$5`, workerID, token, now+lease.Milliseconds(), claim.OutboxID, now)
 	if e != nil {
@@ -113,27 +132,38 @@ func (s *Store) claimServiceReadinessObserve(ctx context.Context, workerID strin
 	if token == "" {
 		return claim, false, errors.New("service readiness lease token is invalid")
 	}
+	var semanticProbeJSON string
 	err = tx.QueryRowContext(ctx, `SELECT task.execution_id,task.deployment_id,task.service_id,task.task_id,task.cloud_connection_id,connection.region,task.instance_id,
-		task.recipe_execution_manifest_digest,task.install_evidence_digest,task.semantic_expectation_digest,task.task_attempt,task.purpose,task.restore_id,task.job_id,
+		task.recipe_execution_manifest_digest,task.install_evidence_digest,task.artifact_digest,task.semantic_probe_json,task.semantic_expectation_digest,task.task_attempt,task.purpose,task.restore_id,task.job_id,
+		task.monitor_generation,task.monitor_service_revision,task.monitor_deployment_revision,task.monitor_resource_status,task.worker_lease_epoch,
 		broker.broker_command_url,broker.node_key_id,broker.connection_generation
 		FROM p2p_cloud_service_readiness_tasks task JOIN p2p_cloud_deployments deployment ON deployment.deployment_id=task.deployment_id
 		JOIN p2p_cloud_connections connection ON connection.cloud_connection_id=task.cloud_connection_id JOIN p2p_cloud_connection_brokers broker ON broker.cloud_connection_id=task.cloud_connection_id
 		JOIN p2p_cloud_deployment_resources resource ON resource.deployment_id=task.deployment_id JOIN p2p_cloud_worker_bootstrap_observations observation ON observation.deployment_id=task.deployment_id
 		JOIN p2p_cloud_recipe_install_tasks install ON install.execution_id=task.execution_id
-		JOIN p2p_cloud_jobs job ON job.job_id=task.job_id LEFT JOIN p2p_cloud_service_restores restore ON restore.restore_id=task.restore_id
+		LEFT JOIN p2p_cloud_jobs job ON job.job_id=task.job_id LEFT JOIN p2p_cloud_service_restores restore ON restore.restore_id=task.restore_id
+		LEFT JOIN p2p_cloud_services service ON service.service_id=task.service_id LEFT JOIN p2p_cloud_service_monitors monitor ON monitor.service_id=task.service_id
 		WHERE task.task_status IN('queued','running') AND task.available_at<=$1 AND task.lease_until<=$1
-		AND ((task.purpose='install' AND task.restore_id='' AND deployment.execution_status='verifying' AND deployment.outcome_status='pending' AND deployment.resource_status='active' AND job.kind='install' AND job.checkpoint IN('readiness_queued','readiness_issuing','readiness_issued','readiness_running'))
-		 OR (task.purpose='restore' AND restore.restore_id=task.restore_id AND restore.restore_status='verifying' AND job.kind='restore' AND job.checkpoint IN('restore_readiness_queued','restore_readiness_issuing','restore_readiness_issued','restore_readiness_running')))
+		AND ((task.purpose='install' AND task.restore_id='' AND deployment.execution_status='verifying' AND deployment.outcome_status='pending' AND deployment.resource_status='active' AND job.kind='install' AND job.execution_status='verifying' AND job.outcome_status='pending' AND job.checkpoint IN('readiness_queued','readiness_issuing','readiness_issued','readiness_running'))
+		 OR (task.purpose='restore' AND restore.restore_id=task.restore_id AND restore.restore_status='verifying' AND job.kind='restore' AND job.execution_status='verifying' AND job.outcome_status='pending' AND job.checkpoint IN('restore_readiness_queued','restore_readiness_issuing','restore_readiness_issued','restore_readiness_running'))
+		 OR (task.purpose='monitor' AND task.restore_id='' AND task.job_id='' AND service.service_id=task.service_id AND service.deployment_id=task.deployment_id AND service.service_status IN('active','experimental','degraded') AND service.revision=task.monitor_service_revision
+			AND monitor.current_task_id=task.task_id AND monitor.monitor_status='checking' AND monitor.generation=task.monitor_generation
+			AND deployment.execution_status='finished' AND deployment.outcome_status='succeeded' AND deployment.resource_status IN('active','retained_tracked') AND deployment.revision=task.monitor_deployment_revision
+			AND resource.resource_status=task.monitor_resource_status AND observation.worker_lease_epoch=task.worker_lease_epoch))
 		AND connection.status='active' AND connection.region=broker.broker_region
 		AND resource.cloud_connection_id=task.cloud_connection_id AND resource.instance_id=task.instance_id AND resource.resource_status IN('active','retained_tracked')
 		AND observation.worker_session_state='active' AND observation.worker_lease_expires_at>$1 AND install.task_status='succeeded'
-		AND job.execution_status='verifying' AND job.outcome_status='pending'
-		ORDER BY task.available_at,task.updated_at,task.task_id FOR UPDATE OF task SKIP LOCKED LIMIT 1`, now).Scan(&claim.ExecutionID, &claim.DeploymentID, &claim.ServiceID, &claim.TaskID, &claim.ConnectionID, &claim.Region, &claim.InstanceID, &claim.IssueRequest.RecipeExecutionManifestDigest, &claim.IssueRequest.InstallEvidenceDigest, &claim.SemanticExpectationDigest, &claim.TaskAttempt, &claim.Purpose, &claim.RestoreID, &claim.JobID, &claim.BrokerEndpoint, &claim.NodeKeyID, &claim.ExpectedGeneration)
+		ORDER BY task.available_at,task.updated_at,task.task_id FOR UPDATE OF task SKIP LOCKED LIMIT 1`, now).Scan(&claim.ExecutionID, &claim.DeploymentID, &claim.ServiceID, &claim.TaskID, &claim.ConnectionID, &claim.Region, &claim.InstanceID, &claim.RecipeExecutionManifestDigest, &claim.InstallEvidenceDigest, &claim.ArtifactDigest, &semanticProbeJSON, &claim.SemanticExpectationDigest, &claim.TaskAttempt, &claim.Purpose, &claim.RestoreID, &claim.JobID,
+		&claim.MonitorGeneration, &claim.MonitorServiceRevision, &claim.MonitorDeploymentRevision, &claim.MonitorResourceStatus, &claim.WorkerLeaseEpoch,
+		&claim.BrokerEndpoint, &claim.NodeKeyID, &claim.ExpectedGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Rollback()
 		return runtime.ServiceReadinessClaim{}, false, nil
 	}
 	if err != nil {
+		return claim, false, err
+	}
+	if claim.SemanticProbe, err = decodeServiceReadinessProbe(semanticProbeJSON); err != nil {
 		return claim, false, err
 	}
 	claim.IssueRequest = runtime.ServiceReadinessIssueRequest{}
@@ -154,6 +184,19 @@ func (s *Store) claimServiceReadinessObserve(ctx context.Context, workerID strin
 		return claim, false, err
 	}
 	return claim, true, nil
+}
+
+func decodeServiceReadinessProbe(raw string) (cloudcontracts.OCIServiceLoopbackProbeV1, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var probe cloudcontracts.OCIServiceLoopbackProbeV1
+	if err := decoder.Decode(&probe); err != nil || probe.Validate() != nil {
+		return cloudcontracts.OCIServiceLoopbackProbeV1{}, errors.New("service readiness semantic probe is invalid")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return cloudcontracts.OCIServiceLoopbackProbeV1{}, errors.New("service readiness semantic probe is invalid")
+	}
+	return probe, nil
 }
 
 func prepareServiceReadinessCommand(ctx context.Context, tx *sql.Tx, claim runtime.ServiceReadinessClaim, now int64) (runtime.ServiceReadinessCommand, error) {
@@ -213,7 +256,7 @@ func (s *Store) PersistServiceReadinessCommand(ctx context.Context, claim runtim
 }
 func (s *Store) MarkServiceReadinessStarted(ctx context.Context, claim runtime.ServiceReadinessClaim) error {
 	return s.withServiceReadinessClaim(ctx, claim, func(tx *sql.Tx, now int64) error {
-		if claim.Phase == runtime.ServiceReadinessPhaseObserve {
+		if claim.Phase == runtime.ServiceReadinessPhaseObserve || claim.Purpose == "monitor" {
 			return nil
 		}
 		var planID, kind string
@@ -287,6 +330,9 @@ func (s *Store) CommitServiceReadiness(ctx context.Context, claim runtime.Servic
 		if claim.Purpose == "restore" {
 			return commitRestoreReadinessResult(ctx, tx, claim, result, now)
 		}
+		if claim.Purpose == "monitor" {
+			return commitServiceMonitorReadinessResult(ctx, tx, claim, result, now)
+		}
 		jobExecution, jobOutcome, jobCheckpoint, stepStatus, summary := "verifying", "pending", "readiness_running", "running", "The Stack-witnessed fixed readiness challenge is pending; no experimental Service is active yet."
 		if result.Status == "queued" {
 			jobCheckpoint = "readiness_issued"
@@ -315,7 +361,14 @@ func (s *Store) CommitServiceReadiness(ctx context.Context, claim runtime.Servic
 			if e = tx.QueryRowContext(ctx, `SELECT plan_id,cloud_connection_id FROM p2p_cloud_deployments WHERE deployment_id=$1`, claim.DeploymentID).Scan(&planID, &connectionID); e != nil {
 				return e
 			}
-			if _, e = transitionDeployment(ctx, tx, claim.DeploymentID, planID, connectionID, now, "finished", "succeeded", "active"); e != nil {
+			r, e = tx.ExecContext(ctx, `UPDATE p2p_cloud_deployment_resources SET resource_status='retained_tracked',updated_at=$1 WHERE deployment_id=$2 AND cloud_connection_id=$3 AND instance_id=$4 AND resource_status='active'`, now, claim.DeploymentID, claim.ConnectionID, claim.InstanceID)
+			if e != nil {
+				return e
+			}
+			if e = requireOneAffected(r); e != nil {
+				return e
+			}
+			if _, e = transitionDeployment(ctx, tx, claim.DeploymentID, planID, connectionID, now, "finished", "succeeded", "retained_tracked"); e != nil {
 				return e
 			}
 		} else if result.Status == "failed" || result.Status == "interrupted" {
@@ -528,6 +581,9 @@ func (s *Store) withServiceReadinessClaim(ctx context.Context, claim runtime.Ser
 	return tx.Commit()
 }
 func verifyServiceReadinessBindings(ctx context.Context, tx *sql.Tx, claim runtime.ServiceReadinessClaim, now int64) error {
+	if claim.Purpose == "monitor" {
+		return verifyServiceMonitorReadinessBindings(ctx, tx, claim, now)
+	}
 	var execution, deployment, service, connection, instance, manifest, installEvidence, semantic, status, purpose, restoreID, jobID string
 	var manifestDeployment, manifestPlan, manifestConnection, approvedManifestDigest, manifestStatus string
 	var deploymentPlan, deploymentConnection, deploymentExecution, deploymentOutcome, deploymentResource string

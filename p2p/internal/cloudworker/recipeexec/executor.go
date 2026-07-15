@@ -62,6 +62,7 @@ type Bundle struct {
 	ArtifactDigest string
 	ActionIDs      []string
 	SecretTargets  []SecretTarget
+	RuntimeProfile *cloudorchestrator.OCIServiceRuntimeProfileV1
 }
 
 // SecretTarget is trusted local catalog data. Neither the sealed manifest nor
@@ -415,6 +416,7 @@ func cloneBundle(bundle Bundle) Bundle {
 	clone := bundle
 	clone.ActionIDs = append([]string(nil), bundle.ActionIDs...)
 	clone.SecretTargets = append([]SecretTarget(nil), bundle.SecretTargets...)
+	clone.RuntimeProfile = cloudorchestrator.CloneOCIServiceRuntimeProfileV1(bundle.RuntimeProfile)
 	return clone
 }
 

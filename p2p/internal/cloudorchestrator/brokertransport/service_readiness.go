@@ -30,7 +30,7 @@ func (t *Transport) buildServiceReadiness(command runtime.ServiceReadinessComman
 	input := broker.ServiceReadinessCommandInput{ConnectionID: command.ConnectionID, CommandID: command.CommandID, NodeKeyID: command.NodeKeyID, ExpectedGeneration: command.ExpectedGeneration, NodeCounter: command.NodeCounter, IssuedAt: issued, ExpiresAt: expires, Action: action, PrivateKey: t.privateKey}
 	switch value := request.(type) {
 	case runtime.ServiceReadinessIssueRequest:
-		input.Issue = broker.ServiceReadinessIssueRequest{Schema: value.Schema, ExecutionID: value.ExecutionID, DeploymentID: value.DeploymentID, ServiceID: value.ServiceID, TaskID: value.TaskID, ProbeKind: value.ProbeKind, RecipeExecutionManifestDigest: value.RecipeExecutionManifestDigest, InstallEvidenceDigest: value.InstallEvidenceDigest, SemanticExpectationDigest: value.SemanticExpectationDigest}
+		input.Issue = broker.ServiceReadinessIssueRequest{Schema: value.Schema, ExecutionID: value.ExecutionID, DeploymentID: value.DeploymentID, ServiceID: value.ServiceID, TaskID: value.TaskID, ProbeKind: value.ProbeKind, RecipeExecutionManifestDigest: value.RecipeExecutionManifestDigest, InstallEvidenceDigest: value.InstallEvidenceDigest, ArtifactDigest: value.ArtifactDigest, SemanticProbe: broker.ServiceReadinessProbeV1{Scheme: string(value.SemanticProbe.Scheme), Port: value.SemanticProbe.Port, Path: value.SemanticProbe.Path, ExpectedStatus: value.SemanticProbe.ExpectedStatus, BodySHA256: value.SemanticProbe.BodySHA256}, SemanticExpectationDigest: value.SemanticExpectationDigest}
 	case runtime.ServiceReadinessObserveRequest:
 		input.Observe = broker.ServiceReadinessObserveRequest{DeploymentID: value.DeploymentID, ServiceID: value.ServiceID, TaskID: value.TaskID}
 	default:

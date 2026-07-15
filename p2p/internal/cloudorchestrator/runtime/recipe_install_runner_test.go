@@ -33,6 +33,25 @@ func TestRecipeInstallRunnerPersistsExactEnvelopeBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestRecipeInstallRunnerVerifiesArtifactAfterAcceptedIssueAndReplaysIssueEnvelope(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &recipeInstallMemoryStore{claim: recipeInstallTestClaim(t)}
+	transport := &recipeInstallMemoryTransport{now: now, store: store}
+	ensurer := &recipeArtifactEnsurerTest{store: store, transport: transport, fail: true}
+	runner := NewRecipeInstallRunnerWithArtifactTransfer(store, transport, ensurer, Config{WorkerID: "recipe-runner-artifact", Lease: 2 * time.Minute, AttemptTimeout: time.Minute, RetryDelay: time.Minute, Now: func() time.Time { return now }})
+
+	processed, err := runner.RunOnce(t.Context())
+	if err != nil || !processed || !store.deferred || store.committed || ensurer.calls != 1 || transport.buildCalls != 1 {
+		t.Fatalf("first RunOnce processed=%v err=%v store=%#v transport=%#v ensurer=%#v", processed, err, store, transport, ensurer)
+	}
+	ensurer.fail = false
+	store.deferred = false
+	processed, err = runner.RunOnce(t.Context())
+	if err != nil || !processed || !store.committed || ensurer.calls != 2 || transport.buildCalls != 1 || len(transport.envelopes) != 2 || transport.envelopes[0] != transport.envelopes[1] {
+		t.Fatalf("replay RunOnce processed=%v err=%v store=%#v transport=%#v ensurer=%#v", processed, err, store, transport, ensurer)
+	}
+}
+
 func TestRecipeInstallResultRetainsSafeFailureCheckpoint(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	claim := recipeInstallTestClaim(t)
@@ -81,6 +100,12 @@ func (s *recipeInstallMemoryStore) MarkRecipeInstallStarted(context.Context, Rec
 }
 func (s *recipeInstallMemoryStore) PersistRecipeInstallCommand(_ context.Context, _ RecipeInstallClaim, signed SignedRecipeInstallCommand) error {
 	s.persisted = signed.EnvelopeJSON != ""
+	s.claim.Command.SignedEnvelope = signed.EnvelopeJSON
+	s.claim.Command.PayloadJSON = signed.PayloadJSON
+	s.claim.Command.PayloadSHA256 = signed.PayloadSHA256
+	s.claim.Command.RequestSHA256 = signed.RequestSHA256
+	s.claim.Command.IssuedAt = signed.IssuedAt
+	s.claim.Command.ExpiresAt = signed.ExpiresAt
 	return nil
 }
 func (s *recipeInstallMemoryStore) CommitRecipeInstall(context.Context, RecipeInstallClaim, RecipeInstallResult) error {
@@ -104,18 +129,40 @@ type recipeInstallMemoryTransport struct {
 	store                           *recipeInstallMemoryStore
 	requested, requestBeforePersist bool
 	requestErr                      error
+	buildCalls                      int
+	envelopes                       []string
 }
 
 func (t *recipeInstallMemoryTransport) BuildRecipeInstallIssueCommand(_ RecipeInstallCommand, _ RecipeInstallIssueRequest, _ time.Time) (SignedRecipeInstallCommand, error) {
+	t.buildCalls++
 	return SignedRecipeInstallCommand{EnvelopeJSON: `{"action":"worker.recipe_task.issue"}`, PayloadJSON: `{"sealed":true}`, PayloadSHA256: strings.Repeat("a", 64), RequestSHA256: strings.Repeat("b", 64), IssuedAt: t.now, ExpiresAt: t.now.Add(4 * time.Minute)}, nil
 }
 func (t *recipeInstallMemoryTransport) RequestRecipeInstallIssue(_ context.Context, _ string, _ RecipeInstallCommand, _ SignedRecipeInstallCommand, r RecipeInstallIssueRequest) (RecipeInstallResult, error) {
 	t.requested = true
 	t.requestBeforePersist = t.store == nil || !t.store.persisted
+	t.envelopes = append(t.envelopes, t.store.claim.Command.SignedEnvelope)
 	if t.requestErr != nil {
 		return RecipeInstallResult{}, t.requestErr
 	}
 	return RecipeInstallResult{ExecutionID: r.ExecutionID, DeploymentID: r.DeploymentID, TaskID: r.TaskID, Status: "queued", Attempt: 1, UpdatedAt: t.now}, nil
+}
+
+type recipeArtifactEnsurerTest struct {
+	store     *recipeInstallMemoryStore
+	transport *recipeInstallMemoryTransport
+	calls     int
+	fail      bool
+}
+
+func (ensurer *recipeArtifactEnsurerTest) Ensure(context.Context, RecipeInstallClaim) error {
+	ensurer.calls++
+	if ensurer.transport == nil || !ensurer.transport.requested || ensurer.store == nil || ensurer.store.committed {
+		return errors.New("artifact verification ran outside accepted-issue boundary")
+	}
+	if ensurer.fail {
+		return errors.New("artifact upload unavailable")
+	}
+	return nil
 }
 func (t *recipeInstallMemoryTransport) BuildRecipeInstallObserveCommand(RecipeInstallCommand, RecipeInstallObserveRequest, time.Time) (SignedRecipeInstallCommand, error) {
 	return SignedRecipeInstallCommand{}, nil
@@ -127,7 +174,7 @@ func (t *recipeInstallMemoryTransport) RequestRecipeInstallObserve(context.Conte
 func recipeInstallTestManifest(t *testing.T) cloudcontracts.RecipeExecutionManifestV1 {
 	t.Helper()
 	digest := func(c string) string { return "sha256:" + strings.Repeat(c, 64) }
-	m := cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: "execution-recipe-0001", DeploymentID: "deployment-recipe-0001", PlanID: "plan-recipe-0001", PlanHash: digest("a"), PlanRevision: 1, RecipeDigest: digest("b"), WorkerResourceManifestDigest: digest("c"), ArtifactDigest: digest("d"), ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"}}
+	m := cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: "execution-recipe-0001", DeploymentID: "deployment-recipe-0001", PlanID: "plan-recipe-0001", PlanHash: digest("a"), PlanRevision: 1, RecipeDigest: digest("b"), WorkerResourceManifestDigest: digest("c"), ArtifactDigest: digest("d"), ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"}, SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: digest("e")}}
 	if err := m.Validate(); err != nil {
 		t.Fatal(err)
 	}

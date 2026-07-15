@@ -38,6 +38,13 @@ type CloudPlanner interface {
 	CreateResearchGoal(context.Context, string, string, string) (map[string]any, error)
 }
 
+// CloudRecipePlanner is an optional, still research-only extension used when
+// the client has already bound one current private Recipe before the model
+// request starts. The model never receives recipe selection parameters.
+type CloudRecipePlanner interface {
+	CreateResearchGoalWithRecipe(context.Context, string, string, string, int64, string) (map[string]any, error)
+}
+
 // CloudStatusReader exposes only a de-secretsed Cloud projection to the
 // Eino Agent. It has no approval, secret, provider, or lifecycle mutation
 // method, so cloud dialogue can report progress without becoming a control

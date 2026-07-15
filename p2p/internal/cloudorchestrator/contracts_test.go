@@ -98,43 +98,7 @@ func TestContractsRejectSecretMaterialAndUnapprovedIngress(t *testing.T) {
 
 func validPlan(t *testing.T, now time.Time) cloudorchestrator.PlanV1 {
 	t.Helper()
-	recipe := cloudorchestrator.RecipeV1{
-		SchemaVersion: cloudorchestrator.SchemaVersionV1,
-		RecipeID:      "recipe-knowledge-node-1",
-		Name:          "Knowledge node",
-		Maturity:      cloudorchestrator.RecipeExperimental,
-		Sources: []cloudorchestrator.RecipeSourceV1{{
-			URL:            "https://github.com/example/knowledge-node",
-			Version:        "v1.2.3",
-			Commit:         "0123456789abcdef0123456789abcdef01234567",
-			ArtifactDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			License:        "Apache-2.0",
-			RetrievedAt:    now,
-			Official:       true,
-		}},
-		Requirements: cloudorchestrator.ResourceRequirementsV1{
-			MinVCPU:      4,
-			MinMemoryMiB: 8192,
-			MinDiskGiB:   80,
-			Architecture: cloudorchestrator.ArchitectureAMD64,
-		},
-		Install: cloudorchestrator.InstallContractV1{
-			RootRequired:    true,
-			TimeoutSeconds:  1800,
-			CheckpointNames: []string{"image-pulled", "service-started"},
-			Steps: []cloudorchestrator.InstallStepV1{{
-				ID: "install-service", Summary: "Install the official image", TimeoutSeconds: 900,
-			}},
-		},
-		Health: cloudorchestrator.HealthContractV1{
-			Liveness:  cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeHTTP, Target: "/healthz"},
-			Readiness: cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeHTTP, Target: "/readyz"},
-			Semantic:  cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeCommand, Target: "verify-index"},
-		},
-		Lifecycle: cloudorchestrator.LifecycleContractV1{
-			Start: "start-service", Stop: "stop-service", Restart: "restart-service", Upgrade: "upgrade-service", Rollback: "rollback-service", Backup: "backup-data", Restore: "restore-data", Destroy: "destroy-service",
-		},
-	}
+	recipe := validRecipe(t, now)
 	recipeDigest, err := recipe.Digest()
 	if err != nil {
 		t.Fatalf("recipe.Digest() error = %v", err)
@@ -221,4 +185,45 @@ func validPlan(t *testing.T, now time.Time) cloudorchestrator.PlanV1 {
 		t.Fatalf("plan.Validate() error = %v", err)
 	}
 	return plan
+}
+
+func validRecipe(t *testing.T, now time.Time) cloudorchestrator.RecipeV1 {
+	t.Helper()
+	return cloudorchestrator.RecipeV1{
+		SchemaVersion: cloudorchestrator.SchemaVersionV1,
+		RecipeID:      "recipe-knowledge-node-1",
+		Name:          "Knowledge node",
+		Maturity:      cloudorchestrator.RecipeExperimental,
+		Sources: []cloudorchestrator.RecipeSourceV1{{
+			URL:            "https://github.com/example/knowledge-node",
+			Version:        "v1.2.3",
+			Commit:         "0123456789abcdef0123456789abcdef01234567",
+			ArtifactDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			License:        "Apache-2.0",
+			RetrievedAt:    now,
+			Official:       true,
+		}},
+		Requirements: cloudorchestrator.ResourceRequirementsV1{
+			MinVCPU:      4,
+			MinMemoryMiB: 8192,
+			MinDiskGiB:   80,
+			Architecture: cloudorchestrator.ArchitectureAMD64,
+		},
+		Install: cloudorchestrator.InstallContractV1{
+			RootRequired:    true,
+			TimeoutSeconds:  1800,
+			CheckpointNames: []string{"image-pulled", "service-started"},
+			Steps: []cloudorchestrator.InstallStepV1{{
+				ID: "install-service", Summary: "Install the official image", TimeoutSeconds: 900,
+			}},
+		},
+		Health: cloudorchestrator.HealthContractV1{
+			Liveness:  cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeHTTP, Target: "/healthz"},
+			Readiness: cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeHTTP, Target: "/readyz"},
+			Semantic:  cloudorchestrator.ProbeV1{Kind: cloudorchestrator.ProbeCommand, Target: "verify-index"},
+		},
+		Lifecycle: cloudorchestrator.LifecycleContractV1{
+			Start: "start-service", Stop: "stop-service", Restart: "restart-service", Upgrade: "upgrade-service", Rollback: "rollback-service", Backup: "backup-data", Restore: "restore-data", Destroy: "destroy-service",
+		},
+	}
 }

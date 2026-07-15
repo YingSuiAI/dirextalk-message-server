@@ -427,6 +427,7 @@ func seedCloudRecipeExecutionReadyDeployment(t *testing.T, store *DatabaseStore,
 		PlanID: planV1.PlanID, PlanHash: planHash, PlanRevision: planV1.Revision, RecipeDigest: planV1.Recipe.Digest,
 		WorkerResourceManifestDigest: workerResourceDigest, ArtifactDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+		SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 	}
 	for _, requirement := range recipe.SecretSlots {
 		reference, err := cloudcontracts.SecretReferenceForRecipeSlot(planV1.PlanID, requirement)

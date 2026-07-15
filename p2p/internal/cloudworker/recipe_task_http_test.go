@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -158,6 +159,49 @@ func TestRecipeTaskLoopPreservesRetryableCheckpointProgress(t *testing.T) {
 	}
 }
 
+func TestRecipeTaskLoopPreparesDynamicArtifactBeforeExecutorLookup(t *testing.T) {
+	manifest := testRecipeExecutionManifest()
+	digest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := recipeexec.TaskV1{Schema: recipeexec.TaskV1Schema, TaskID: "recipe-task-prepare-0001", ExecutionID: manifest.ExecutionID, DeploymentID: manifest.DeploymentID, TaskKind: recipeexec.TaskKindRecipeExecution, RecipeExecutionManifestDigest: digest, InputDigest: recipeDigest('e'), CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...), Attempt: 1}
+	access := &recipeexec.ArtifactAccessV1{Method: http.MethodGet, URL: "https://artifacts.example.invalid/archive?versionId=version-0001&temporary=secret", ExpiresAt: "2026-07-16T10:10:00.000Z", VersionID: "version-0001", MediaType: recipeexec.RecipeArtifactMediaTypeV1, SizeBytes: 1024, ArchiveSHA256: strings.Repeat("a", 64)}
+	prepared := false
+	transport := &loopRecipeTransport{claimed: ClaimedRecipeTask{Task: task, Manifest: manifest, ArtifactAccess: access, Epoch: 1}}
+	loop := &RecipeTaskLoop{transport: transport, preparer: loopArtifactPreparer{prepared: &prepared}, executor: orderedRecipeExecutor{t: t, prepared: &prepared, result: recipeexec.Result{ExecutionID: manifest.ExecutionID, ManifestDigest: digest, LastCheckpoint: task.CheckpointSequence[len(task.CheckpointSequence)-1], Completed: true}}}
+	if err := loop.ProcessOne(context.Background()); err != nil {
+		t.Fatalf("ProcessOne() error = %v", err)
+	}
+	if !prepared || len(transport.reports) != len(task.CheckpointSequence) {
+		t.Fatalf("dynamic preparation=%v reports=%#v", prepared, transport.reports)
+	}
+}
+
+type loopArtifactPreparer struct{ prepared *bool }
+
+func (preparer loopArtifactPreparer) Prepare(_ context.Context, claimed ClaimedRecipeTask) error {
+	if claimed.ArtifactAccess == nil {
+		return ErrRecipeArtifactUnavailable
+	}
+	*preparer.prepared = true
+	return nil
+}
+
+type orderedRecipeExecutor struct {
+	t        *testing.T
+	prepared *bool
+	result   recipeexec.Result
+}
+
+func (executor orderedRecipeExecutor) ExecuteTask(context.Context, recipeexec.TaskV1, cloudorchestrator.RecipeExecutionManifestV1) (recipeexec.Result, error) {
+	executor.t.Helper()
+	if !*executor.prepared {
+		executor.t.Fatal("executor resolved the task before artifact registration")
+	}
+	return executor.result, nil
+}
+
 type loopRecipeExecutor struct {
 	result recipeexec.Result
 	err    error
@@ -211,6 +255,44 @@ func TestRecipeTaskTransportRejectsUnboundManifestBeforeExecution(t *testing.T) 
 	}
 	if _, found, err := client.Claim(context.Background()); err == nil || found {
 		t.Fatalf("unbound claim = found:%v error:%v", found, err)
+	}
+}
+
+func TestRecipeTaskClientTreatsArtifactPendingAsNoWorkAndKeepsAccessTransient(t *testing.T) {
+	manifest := testRecipeExecutionManifest()
+	manifestDigest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := recipeexec.TaskV1{Schema: recipeexec.TaskV1Schema, TaskID: "recipe-task-0001", ExecutionID: manifest.ExecutionID, DeploymentID: manifest.DeploymentID, TaskKind: recipeexec.TaskKindRecipeExecution, RecipeExecutionManifestDigest: manifestDigest, InputDigest: recipeDigest('e'), CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...), Attempt: 1}
+	access := recipeexec.ArtifactAccessV1{Method: http.MethodGet, URL: "https://artifacts.example.invalid/archive?versionId=version-0001&temporary=secret", ExpiresAt: "2026-07-16T10:10:00.000Z", VersionID: "version-0001", MediaType: recipeexec.RecipeArtifactMediaTypeV1, SizeBytes: 1024, ArchiveSHA256: strings.Repeat("a", 64)}
+	var claims int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		claims++
+		if claims == 1 {
+			writeWorkerJSON(t, writer, http.StatusOK, recipeexec.TaskClaimResponseV1{Schema: recipeexec.TaskClaimResponseV1Schema, Status: "artifact_pending", LeaseEpoch: 7})
+			return
+		}
+		writeWorkerJSON(t, writer, http.StatusOK, recipeexec.TaskClaimResponseV1{Schema: recipeexec.TaskClaimResponseV1Schema, Status: "claimed", LeaseEpoch: 7, Task: &task, Manifest: &manifest, ArtifactAccess: &access})
+	}))
+	defer server.Close()
+	endpoint, _ := url.Parse(server.URL + "/v2/worker-sessions")
+	bootstrap := validTestManifest(endpoint.String())
+	bootstrap.WorkerImageDigest = manifest.WorkerResourceManifestDigest
+	session := &SessionClient{manifest: bootstrap, endpoint: endpoint, client: server.Client(), now: time.Now, state: SessionStateActive, access: "token", epoch: 7}
+	client, err := session.NewRecipeTaskClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := client.Claim(context.Background()); err != nil || found {
+		t.Fatalf("artifact pending claim = found:%v error:%v", found, err)
+	}
+	claimed, found, err := client.Claim(context.Background())
+	if err != nil || !found || claimed.ArtifactAccess == nil || *claimed.ArtifactAccess != access {
+		t.Fatalf("artifact claim = %#v, found:%v error:%v", claimed, found, err)
+	}
+	if client.claimed == nil || client.claimed.ArtifactAccess != nil {
+		t.Fatal("temporary artifact access was retained in Recipe task session state")
 	}
 }
 
@@ -350,6 +432,7 @@ func testRecipeExecutionManifest() cloudorchestrator.RecipeExecutionManifestV1 {
 		PlanID: "plan-recipe-0001", PlanHash: recipeDigest('a'), PlanRevision: 1, RecipeDigest: recipeDigest('b'), WorkerResourceManifestDigest: recipeDigest('c'),
 		ArtifactDigest: recipeDigest('d'), ActionID: "install-service", RootRequired: true, TimeoutSeconds: 60,
 		CheckpointSequence: []string{"artifact_verified", "install_complete", "health_verified"},
+		SemanticReadiness:  cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18080, Path: "/ready", ExpectedStatus: 200, BodySHA256: FixedReadinessEvidenceDigest()},
 	}
 }
 

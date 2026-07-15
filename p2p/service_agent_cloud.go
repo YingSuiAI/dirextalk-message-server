@@ -20,6 +20,13 @@ func (p serviceNativeCloudPlannerPort) CreateResearchGoal(ctx context.Context, g
 	return p.service.cloudModule.CreateResearchGoal(ctx, goal, connectionID, idempotencyKey)
 }
 
+func (p serviceNativeCloudPlannerPort) CreateResearchGoalWithRecipe(ctx context.Context, goal, connectionID, recipeID string, recipeRevision int64, idempotencyKey string) (map[string]any, error) {
+	if p.service == nil || p.service.cloudModule == nil {
+		return nil, fmt.Errorf("cloud orchestrator is not configured")
+	}
+	return p.service.cloudModule.CreateResearchGoalWithRecipe(ctx, goal, connectionID, recipeID, recipeRevision, idempotencyKey)
+}
+
 func (p serviceNativeCloudPlannerPort) ReadCloudStatus(ctx context.Context) (map[string]any, error) {
 	if p.service == nil || p.service.cloudModule == nil {
 		return nil, fmt.Errorf("cloud status is not configured")

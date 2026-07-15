@@ -516,6 +516,9 @@ func (m RecipeExecutionManifestV1) Validate() error {
 	if err := validateCheckpointSequence(m.CheckpointSequence); err != nil {
 		return err
 	}
+	if err := m.SemanticReadiness.Validate(); err != nil {
+		return errors.New("semantic_readiness must be a safe typed loopback probe")
+	}
 	if err := validateVolumeSlots(m.VolumeSlots); err != nil {
 		return err
 	}
@@ -557,6 +560,60 @@ func (m RecipeExecutionManifestV1) ValidateForPlan(plan PlanV1) error {
 		}
 	}
 	return nil
+}
+
+// ValidateForPlanAndRecipe closes the approval-visible storage binding: the
+// reviewed Plan binds the private Recipe digest, and every Recipe volume/data
+// requirement must appear exactly once under its deterministic logical ref.
+func (m RecipeExecutionManifestV1) ValidateForPlanAndRecipe(plan PlanV1, recipe RecipeV1) error {
+	if err := m.ValidateForPlan(plan); err != nil {
+		return err
+	}
+	recipeDigest, err := recipe.Digest()
+	if err != nil || recipe.RecipeID != plan.Recipe.RecipeID || recipeDigest != plan.Recipe.Digest {
+		return errors.New("recipe execution manifest recipe does not match the reviewed plan")
+	}
+	expectedVolumes, err := VolumeSlotsForRecipe(plan.PlanID, recipe.VolumeSlots)
+	if err != nil || !equalVolumeSlots(m.VolumeSlots, expectedVolumes) {
+		return errors.New("recipe execution manifest volume slots do not exactly match the reviewed recipe")
+	}
+	expectedData, err := DataSlotsForRecipe(plan.PlanID, recipe.DataSlots)
+	if err != nil || !equalDataSlots(m.DataSlots, expectedData) {
+		return errors.New("recipe execution manifest data slots do not exactly match the reviewed recipe")
+	}
+	return nil
+}
+
+func equalVolumeSlots(actual, expected []VolumeSlotV1) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	byID := make(map[string]VolumeSlotV1, len(actual))
+	for _, slot := range actual {
+		byID[slot.SlotID] = slot
+	}
+	for _, slot := range expected {
+		if current, ok := byID[slot.SlotID]; !ok || current != slot {
+			return false
+		}
+	}
+	return true
+}
+
+func equalDataSlots(actual, expected []DataSlotV1) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	byID := make(map[string]DataSlotV1, len(actual))
+	for _, slot := range actual {
+		byID[slot.SlotID] = slot
+	}
+	for _, slot := range expected {
+		if current, ok := byID[slot.SlotID]; !ok || current != slot {
+			return false
+		}
+	}
+	return true
 }
 
 func validateCheckpointSequence(values []string) error {

@@ -19,17 +19,23 @@ const (
 )
 
 var (
-	destroyCommandFields             = []string{"schema", "connection_id", "command_id", "node_key_id", "issued_at", "expires_at", "expected_generation", "node_counter", "action", "payload_b64", "payload_sha256", "approval_proof", "signature_b64"}
-	destroyRequestFields             = []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
-	destroyRequestFieldsWithSecrets  = append(append([]string(nil), destroyRequestFields...), "secret_refs")
-	destroyResultFields              = []string{"schema", "status", "receipt", "deployment"}
-	destroyEvidenceFields            = []string{"deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
-	destroyEvidenceFieldsWithSecrets = append(append([]string(nil), destroyEvidenceFields...), "secret_refs")
+	destroyCommandFields                       = []string{"schema", "connection_id", "command_id", "node_key_id", "issued_at", "expires_at", "expected_generation", "node_counter", "action", "payload_b64", "payload_sha256", "approval_proof", "signature_b64"}
+	destroyRequestFields                       = []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	destroyRequestFieldsWithSecrets            = append(append([]string(nil), destroyRequestFields...), "secret_refs")
+	deploymentDestroyRequestFields             = []string{"schema", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	deploymentDestroyRequestFieldsWithSecrets  = append(append([]string(nil), deploymentDestroyRequestFields...), "secret_refs")
+	destroyResultFields                        = []string{"schema", "status", "receipt", "deployment"}
+	destroyEvidenceFields                      = []string{"deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	destroyEvidenceFieldsWithSecrets           = append(append([]string(nil), destroyEvidenceFields...), "secret_refs")
+	serviceDestroyApprovalFields               = []string{"schema_version", "intent", "approval_id", "challenge_id", "signer_key_id", "service_id", "service_revision", "deployment_id", "deployment_revision", "cloud_connection_id", "recipe_id", "recipe_digest", "instance_id", "volume_ids", "network_interface_ids", "issued_at", "expires_at", "signature"}
+	serviceDestroyApprovalFieldsWithSecrets    = append(append([]string(nil), serviceDestroyApprovalFields...), "secret_refs")
+	deploymentDestroyApprovalFields            = []string{"schema_version", "intent", "approval_id", "challenge_id", "signer_key_id", "deployment_id", "deployment_revision", "plan_id", "cloud_connection_id", "resource_status", "instance_id", "volume_ids", "network_interface_ids", "issued_at", "expires_at", "signature"}
+	deploymentDestroyApprovalFieldsWithSecrets = append(append([]string(nil), deploymentDestroyApprovalFields...), "secret_refs")
 )
 
 type DeploymentDestroyRequest struct {
 	Schema              string   `json:"schema"`
-	ServiceID           string   `json:"service_id"`
+	ServiceID           string   `json:"service_id,omitempty"`
 	DeploymentID        string   `json:"deployment_id"`
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
@@ -38,44 +44,46 @@ type DeploymentDestroyRequest struct {
 }
 
 type DeploymentDestroyCommandInput struct {
-	ConnectionID       string
-	CommandID          string
-	NodeKeyID          string
-	ExpectedGeneration int64
-	NodeCounter        int64
-	IssuedAt           time.Time
-	ExpiresAt          time.Time
-	Request            DeploymentDestroyRequest
-	ApprovalProof      cloudcontracts.ServiceDestroyApprovalV1
-	PrivateKey         ed25519.PrivateKey
+	ConnectionID            string
+	CommandID               string
+	NodeKeyID               string
+	ExpectedGeneration      int64
+	NodeCounter             int64
+	IssuedAt                time.Time
+	ExpiresAt               time.Time
+	Request                 DeploymentDestroyRequest
+	ApprovalProof           cloudcontracts.ServiceDestroyApprovalV1
+	DeploymentApprovalProof cloudcontracts.DeploymentDestroyApprovalV1
+	PrivateKey              ed25519.PrivateKey
 }
 
 type DeploymentDestroyCommand struct {
-	Schema             string                                  `json:"schema"`
-	ConnectionID       string                                  `json:"connection_id"`
-	CommandID          string                                  `json:"command_id"`
-	NodeKeyID          string                                  `json:"node_key_id"`
-	IssuedAt           string                                  `json:"issued_at"`
-	ExpiresAt          string                                  `json:"expires_at"`
-	ExpectedGeneration int64                                   `json:"expected_generation"`
-	NodeCounter        int64                                   `json:"node_counter"`
-	Action             string                                  `json:"action"`
-	PayloadB64         string                                  `json:"payload_b64"`
-	PayloadSHA256      string                                  `json:"payload_sha256"`
-	ApprovalProof      cloudcontracts.ServiceDestroyApprovalV1 `json:"approval_proof"`
-	SignatureB64       string                                  `json:"signature_b64"`
+	Schema             string          `json:"schema"`
+	ConnectionID       string          `json:"connection_id"`
+	CommandID          string          `json:"command_id"`
+	NodeKeyID          string          `json:"node_key_id"`
+	IssuedAt           string          `json:"issued_at"`
+	ExpiresAt          string          `json:"expires_at"`
+	ExpectedGeneration int64           `json:"expected_generation"`
+	NodeCounter        int64           `json:"node_counter"`
+	Action             string          `json:"action"`
+	PayloadB64         string          `json:"payload_b64"`
+	PayloadSHA256      string          `json:"payload_sha256"`
+	ApprovalProof      json.RawMessage `json:"approval_proof"`
+	SignatureB64       string          `json:"signature_b64"`
 }
 
 type DeploymentDestroyCommandBinding struct {
-	ConnectionID       string
-	CommandID          string
-	NodeKeyID          string
-	ExpectedGeneration int64
-	NodeCounter        int64
-	IssuedAt           time.Time
-	ExpiresAt          time.Time
-	Request            DeploymentDestroyRequest
-	ApprovalProof      cloudcontracts.ServiceDestroyApprovalV1
+	ConnectionID            string
+	CommandID               string
+	NodeKeyID               string
+	ExpectedGeneration      int64
+	NodeCounter             int64
+	IssuedAt                time.Time
+	ExpiresAt               time.Time
+	Request                 DeploymentDestroyRequest
+	ApprovalProof           cloudcontracts.ServiceDestroyApprovalV1
+	DeploymentApprovalProof cloudcontracts.DeploymentDestroyApprovalV1
 }
 
 type DeploymentDestroyEvidence struct {
@@ -102,11 +110,12 @@ func NewDeploymentDestroyCommand(input DeploymentDestroyCommandInput) (Deploymen
 	if err := validateDestroyRequest(input.Request); err != nil {
 		return DeploymentDestroyCommand{}, err
 	}
-	if err := validateDestroyApproval(input.ApprovalProof, input.Request, input.ConnectionID, issuedAt, expiresAt); err != nil {
+	approvalProof, err := marshalDestroyApproval(input.ApprovalProof, input.DeploymentApprovalProof, input.Request, input.ConnectionID, issuedAt, expiresAt)
+	if err != nil {
 		return DeploymentDestroyCommand{}, err
 	}
 	payload, _ := json.Marshal(input.Request)
-	command := DeploymentDestroyCommand{Schema: CommandSchema, ConnectionID: input.ConnectionID, CommandID: input.CommandID, NodeKeyID: input.NodeKeyID, IssuedAt: issuedAt, ExpiresAt: expiresAt, ExpectedGeneration: input.ExpectedGeneration, NodeCounter: input.NodeCounter, Action: DeploymentDestroyAction, PayloadB64: base64.StdEncoding.EncodeToString(payload), PayloadSHA256: sha256Hex(payload), ApprovalProof: input.ApprovalProof}
+	command := DeploymentDestroyCommand{Schema: CommandSchema, ConnectionID: input.ConnectionID, CommandID: input.CommandID, NodeKeyID: input.NodeKeyID, IssuedAt: issuedAt, ExpiresAt: expiresAt, ExpectedGeneration: input.ExpectedGeneration, NodeCounter: input.NodeCounter, Action: DeploymentDestroyAction, PayloadB64: base64.StdEncoding.EncodeToString(payload), PayloadSHA256: sha256Hex(payload), ApprovalProof: approvalProof}
 	if err := validateDestroyCommand(command, false); err != nil {
 		return DeploymentDestroyCommand{}, err
 	}
@@ -126,14 +135,15 @@ func (command DeploymentDestroyCommand) ValidateBinding(binding DeploymentDestro
 		return err
 	}
 	request, err := command.Request()
-	if err != nil || binding.IssuedAt.IsZero() || binding.ExpiresAt.IsZero() || command.ConnectionID != binding.ConnectionID || command.CommandID != binding.CommandID || command.NodeKeyID != binding.NodeKeyID || command.ExpectedGeneration != binding.ExpectedGeneration || command.NodeCounter != binding.NodeCounter || command.IssuedAt != canonicalInstant(binding.IssuedAt) || command.ExpiresAt != canonicalInstant(binding.ExpiresAt) || !reflect.DeepEqual(request, normalizeDestroyRequest(binding.Request)) || !reflect.DeepEqual(command.ApprovalProof, binding.ApprovalProof) {
+	approvalProof, approvalErr := marshalDestroyApproval(binding.ApprovalProof, binding.DeploymentApprovalProof, binding.Request, binding.ConnectionID, canonicalInstant(binding.IssuedAt), canonicalInstant(binding.ExpiresAt))
+	if err != nil || approvalErr != nil || binding.IssuedAt.IsZero() || binding.ExpiresAt.IsZero() || command.ConnectionID != binding.ConnectionID || command.CommandID != binding.CommandID || command.NodeKeyID != binding.NodeKeyID || command.ExpectedGeneration != binding.ExpectedGeneration || command.NodeCounter != binding.NodeCounter || command.IssuedAt != canonicalInstant(binding.IssuedAt) || command.ExpiresAt != canonicalInstant(binding.ExpiresAt) || !reflect.DeepEqual(request, normalizeDestroyRequest(binding.Request)) || !bytes.Equal(command.ApprovalProof, approvalProof) {
 		return newError("invalid_deployment_destroy_request", err)
 	}
 	return nil
 }
 
 func (command DeploymentDestroyCommand) SignatureBase() string {
-	payload, err := command.ApprovalProof.SigningPayload()
+	payload, err := destroyApprovalSigningPayload(command.ApprovalProof)
 	if err != nil {
 		return ""
 	}
@@ -218,7 +228,7 @@ func validateDestroyCommand(command DeploymentDestroyCommand, requireSignature b
 	if !bytes.Equal(canonical, payload) {
 		return newError("noncanonical_payload", nil)
 	}
-	if err := validateDestroyApproval(command.ApprovalProof, request, command.ConnectionID, command.IssuedAt, command.ExpiresAt); err != nil {
+	if err := validateDestroyApprovalJSON(command.ApprovalProof, request, command.ConnectionID, command.IssuedAt, command.ExpiresAt); err != nil {
 		return err
 	}
 	if requireSignature {
@@ -231,7 +241,7 @@ func validateDestroyCommand(command DeploymentDestroyCommand, requireSignature b
 }
 
 func validateDestroyRequest(request DeploymentDestroyRequest) error {
-	if request.Schema != DeploymentDestroySchema || !idPattern.MatchString(request.ServiceID) || !idPattern.MatchString(request.DeploymentID) || !instanceIDPattern.MatchString(request.InstanceID) || !canonicalStrings(request.VolumeIDs, volumeIDPattern, true) || !canonicalStrings(request.NetworkInterfaceIDs, interfaceIDPattern, true) || len(request.SecretRefs) > 32 || len(request.SecretRefs) > 0 && !canonicalStrings(request.SecretRefs, serviceSecretRefPattern, true) {
+	if request.Schema != DeploymentDestroySchema || request.ServiceID != "" && !idPattern.MatchString(request.ServiceID) || !idPattern.MatchString(request.DeploymentID) || !instanceIDPattern.MatchString(request.InstanceID) || !canonicalStrings(request.VolumeIDs, volumeIDPattern, true) || !canonicalStrings(request.NetworkInterfaceIDs, interfaceIDPattern, true) || len(request.SecretRefs) > 32 || len(request.SecretRefs) > 0 && !canonicalStrings(request.SecretRefs, serviceSecretRefPattern, true) {
 		return newError("invalid_deployment_destroy_request", nil)
 	}
 	return nil
@@ -252,8 +262,104 @@ func validateDestroyApproval(proof cloudcontracts.ServiceDestroyApprovalV1, requ
 	return nil
 }
 
+func validateDeploymentDestroyApproval(proof cloudcontracts.DeploymentDestroyApprovalV1, request DeploymentDestroyRequest, connectionID, issuedAt, expiresAt string) error {
+	if proof.Validate() != nil || proof.Signature == "" || request.ServiceID != "" {
+		return newError("invalid_approval_proof", nil)
+	}
+	issued, err := parseCanonicalInstant(issuedAt)
+	if err != nil {
+		return newError("invalid_command", err)
+	}
+	expires, err := parseCanonicalInstant(expiresAt)
+	if err != nil || !proof.ExpiresAt.After(issued) || proof.ExpiresAt.Before(expires) || proof.CloudConnectionID != connectionID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !reflect.DeepEqual(sortedCopy(proof.VolumeIDs), request.VolumeIDs) || !reflect.DeepEqual(sortedCopy(proof.NetworkInterfaceIDs), request.NetworkInterfaceIDs) || !reflect.DeepEqual(sortedCopy(proof.SecretRefs), request.SecretRefs) {
+		return newError("approval_proof_mismatch", err)
+	}
+	return nil
+}
+
+func marshalDestroyApproval(serviceProof cloudcontracts.ServiceDestroyApprovalV1, deploymentProof cloudcontracts.DeploymentDestroyApprovalV1, request DeploymentDestroyRequest, connectionID, issuedAt, expiresAt string) (json.RawMessage, error) {
+	serviceSet := serviceProof.SchemaVersion != "" || serviceProof.Intent != "" || serviceProof.Signature != ""
+	deploymentSet := deploymentProof.SchemaVersion != "" || deploymentProof.Intent != "" || deploymentProof.Signature != ""
+	if serviceSet == deploymentSet {
+		return nil, newError("invalid_approval_proof", nil)
+	}
+	var raw []byte
+	var err error
+	if serviceSet {
+		err = validateDestroyApproval(serviceProof, request, connectionID, issuedAt, expiresAt)
+		if err == nil {
+			raw, err = json.Marshal(serviceProof)
+		}
+	} else {
+		err = validateDeploymentDestroyApproval(deploymentProof, request, connectionID, issuedAt, expiresAt)
+		if err == nil {
+			raw, err = json.Marshal(deploymentProof)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
+func validateDestroyApprovalJSON(raw json.RawMessage, request DeploymentDestroyRequest, connectionID, issuedAt, expiresAt string) error {
+	var discriminator struct {
+		Intent string `json:"intent"`
+	}
+	if json.Unmarshal(raw, &discriminator) != nil {
+		return newError("invalid_approval_proof", nil)
+	}
+	switch discriminator.Intent {
+	case cloudcontracts.ServiceDestroyApprovalIntent:
+		if _, err := exactDestroyJSONObject(raw, serviceDestroyApprovalFields, serviceDestroyApprovalFieldsWithSecrets); err != nil {
+			return newError("invalid_approval_proof", err)
+		}
+		var proof cloudcontracts.ServiceDestroyApprovalV1
+		if decodeStrictJSON(raw, &proof) != nil {
+			return newError("invalid_approval_proof", nil)
+		}
+		return validateDestroyApproval(proof, request, connectionID, issuedAt, expiresAt)
+	case cloudcontracts.DeploymentDestroyApprovalIntent:
+		if _, err := exactDestroyJSONObject(raw, deploymentDestroyApprovalFields, deploymentDestroyApprovalFieldsWithSecrets); err != nil {
+			return newError("invalid_approval_proof", err)
+		}
+		var proof cloudcontracts.DeploymentDestroyApprovalV1
+		if decodeStrictJSON(raw, &proof) != nil {
+			return newError("invalid_approval_proof", nil)
+		}
+		return validateDeploymentDestroyApproval(proof, request, connectionID, issuedAt, expiresAt)
+	default:
+		return newError("invalid_approval_proof", nil)
+	}
+}
+
+func destroyApprovalSigningPayload(raw json.RawMessage) ([]byte, error) {
+	var discriminator struct {
+		Intent string `json:"intent"`
+	}
+	if json.Unmarshal(raw, &discriminator) != nil {
+		return nil, newError("invalid_approval_proof", nil)
+	}
+	switch discriminator.Intent {
+	case cloudcontracts.ServiceDestroyApprovalIntent:
+		var proof cloudcontracts.ServiceDestroyApprovalV1
+		if decodeStrictJSON(raw, &proof) != nil {
+			return nil, newError("invalid_approval_proof", nil)
+		}
+		return proof.SigningPayload()
+	case cloudcontracts.DeploymentDestroyApprovalIntent:
+		var proof cloudcontracts.DeploymentDestroyApprovalV1
+		if decodeStrictJSON(raw, &proof) != nil {
+			return nil, newError("invalid_approval_proof", nil)
+		}
+		return proof.SigningPayload()
+	default:
+		return nil, newError("invalid_approval_proof", nil)
+	}
+}
+
 func decodeDestroyRequest(raw []byte) (DeploymentDestroyRequest, error) {
-	object, err := exactDestroyJSONObject(raw, destroyRequestFields, destroyRequestFieldsWithSecrets)
+	object, err := exactDestroyJSONObject(raw, destroyRequestFields, destroyRequestFieldsWithSecrets, deploymentDestroyRequestFields, deploymentDestroyRequestFieldsWithSecrets)
 	if err != nil {
 		return DeploymentDestroyRequest{}, err
 	}
@@ -303,12 +409,16 @@ func normalizeDestroyRequest(request DeploymentDestroyRequest) DeploymentDestroy
 	return request
 }
 
-func exactDestroyJSONObject(raw []byte, legacy, withSecrets []string) (map[string]json.RawMessage, error) {
-	object, err := exactJSONObject(raw, legacy)
-	if err == nil {
-		return object, nil
+func exactDestroyJSONObject(raw []byte, alternatives ...[]string) (map[string]json.RawMessage, error) {
+	var lastErr error
+	for _, fields := range alternatives {
+		object, err := exactJSONObject(raw, fields)
+		if err == nil {
+			return object, nil
+		}
+		lastErr = err
 	}
-	return exactJSONObject(raw, withSecrets)
+	return nil, lastErr
 }
 
 func sortedCopy(values []string) []string {

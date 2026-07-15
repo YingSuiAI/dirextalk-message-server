@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
 
 func TestServiceReadinessRequiresStackWitnessedEvidence(t *testing.T) {
@@ -93,7 +95,8 @@ func serviceReadinessClaim(t *testing.T, now time.Time) ServiceReadinessClaim {
 	issue := ServiceReadinessIssueRequest{
 		Schema: ServiceReadinessIssueSchema, ExecutionID: "execution-ready-0001", DeploymentID: "deployment-ready-0001",
 		ServiceID: "service-ready-0001", TaskID: "readiness-task-0001", ProbeKind: ServiceReadinessProbeKind,
-		RecipeExecutionManifestDigest: digest("a"), InstallEvidenceDigest: digest("b"), SemanticExpectationDigest: digest("c"),
+		RecipeExecutionManifestDigest: digest("a"), InstallEvidenceDigest: digest("b"), ArtifactDigest: digest("f"),
+		SemanticProbe: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 19090, Path: "/knowledge/semantic", ExpectedStatus: 200, BodySHA256: digest("c")}, SemanticExpectationDigest: digest("c"),
 	}
 	requestDigest, err := issue.Digest()
 	if err != nil {
@@ -105,7 +108,8 @@ func serviceReadinessClaim(t *testing.T, now time.Time) ServiceReadinessClaim {
 		ExecutionID: issue.ExecutionID, DeploymentID: issue.DeploymentID, ServiceID: issue.ServiceID, ConnectionID: "connection-ready-0001",
 		Region: "us-east-1", InstanceID: "i-0123456789abcdef0", TaskID: issue.TaskID, Purpose: "install", JobID: "job-ready-0001",
 		BrokerEndpoint: "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com/prod/v2/commands", NodeKeyID: "node-key-1",
-		SemanticExpectationDigest: issue.SemanticExpectationDigest, ExpectedGeneration: 1, TaskAttempt: 1, IssueRequest: issue,
+		RecipeExecutionManifestDigest: issue.RecipeExecutionManifestDigest, InstallEvidenceDigest: issue.InstallEvidenceDigest,
+		ArtifactDigest: issue.ArtifactDigest, SemanticProbe: issue.SemanticProbe, SemanticExpectationDigest: issue.SemanticExpectationDigest, ExpectedGeneration: 1, TaskAttempt: 1, IssueRequest: issue,
 		Command: ServiceReadinessCommand{CommandID: "command-ready-0001", ExecutionID: issue.ExecutionID, DeploymentID: issue.DeploymentID,
 			ServiceID: issue.ServiceID, TaskID: issue.TaskID, ConnectionID: "connection-ready-0001", NodeKeyID: "node-key-1",
 			ExpectedGeneration: 1, NodeCounter: 1, Attempt: 1, Action: ServiceReadinessIssueAction, RequestDigest: requestDigest},

@@ -21,9 +21,9 @@ func TestReadCloudStatusExposesOnlyDialogueProjection(t *testing.T) {
 			Revision: 3, CreatedAt: 100, UpdatedAt: 300,
 		}},
 		jobs: []Job{{
-			JobID: "job-1", PlanID: "plan-1", DeploymentID: "deployment-1", Kind: "verify",
-			Execution: "verifying", Outcome: "pending", Checkpoint: "execution_probe_issued",
-			ErrorCode: "", Revision: 4, CreatedAt: 100, UpdatedAt: 400,
+			JobID: "job-1", PlanID: "plan-1", DeploymentID: "deployment-1", Kind: "destroy",
+			Execution: "finished", Outcome: "failed", Checkpoint: "destroy_blocked",
+			ErrorCode: "access_denied", Revision: 4, CreatedAt: 100, UpdatedAt: 400,
 		}},
 		connections: []Connection{{
 			ConnectionID: "connection-1", Provider: "aws", AccountID: "123456789012",
@@ -32,12 +32,12 @@ func TestReadCloudStatusExposesOnlyDialogueProjection(t *testing.T) {
 		}},
 		deployments: []Deployment{{
 			DeploymentID: "deployment-1", PlanID: "plan-1", ConnectionID: "connection-1",
-			Execution: "verifying", Outcome: "pending", Resource: "retained_tracked",
+			Execution: "finished", Outcome: "failed", Resource: "blocked",
 			Revision: 6, CreatedAt: 100, UpdatedAt: 600,
 		}},
 		services: []Service{{
 			ServiceID: "service-1", DeploymentID: "deployment-1", RecipeID: "recipe-1",
-			Name: "Knowledge node", Status: "experimental", Integration: "pending",
+			Name: "Knowledge node", Status: "degraded", Integration: "disconnected",
 			Revision: 7, CreatedAt: 100, UpdatedAt: 700,
 		}},
 		recipes: []Recipe{{
@@ -49,7 +49,7 @@ func TestReadCloudStatusExposesOnlyDialogueProjection(t *testing.T) {
 			Severity: "warning", Code: "worker_waiting", Message: "MODEL_API_KEY=PRIVATE_ALERT_VALUE",
 			Revision: 9, CreatedAt: 100, UpdatedAt: 900,
 		}},
-	}, Config{})
+	}, Config{DeploymentCreateEnabled: true})
 
 	status, err := module.ReadCloudStatus(context.Background())
 	if err != nil {
@@ -79,17 +79,55 @@ func TestReadCloudStatusExposesOnlyDialogueProjection(t *testing.T) {
 	if !ok || len(plans) != 1 || plans[0].PlanID != "plan-1" || plans[0].Status != PlanStatusReadyForConfirmation {
 		t.Fatalf("dialogue plans = %#v", status["plans"])
 	}
+	if plans[0].ClientDeepLink != "/agent/workloads/plans/plan-1" ||
+		!strings.Contains(plans[0].NextStep, "owner HTTP") || !strings.Contains(plans[0].NextStep, "device signature") {
+		t.Fatalf("dialogue plan guidance = %#v", plans[0])
+	}
 	jobs, ok := status["jobs"].([]cloudDialogueJobStatus)
-	if !ok || len(jobs) != 1 || jobs[0].Checkpoint != "execution_probe_issued" {
+	if !ok || len(jobs) != 1 || jobs[0].Checkpoint != "destroy_blocked" ||
+		jobs[0].ClientDeepLink != "/agent/workloads/services/service-1" || !strings.Contains(jobs[0].NextStep, "may still incur charges") {
 		t.Fatalf("dialogue jobs = %#v", status["jobs"])
 	}
 	connections, ok := status["connections"].([]cloudDialogueConnectionStatus)
 	if !ok || len(connections) != 1 || connections[0].Status != "active" {
 		t.Fatalf("dialogue connections = %#v", status["connections"])
 	}
+	deployments, ok := status["deployments"].([]cloudDialogueDeploymentStatus)
+	if !ok || len(deployments) != 1 || deployments[0].Resource != "blocked" ||
+		deployments[0].ClientDeepLink != "/agent/workloads/services/service-1" || !strings.Contains(deployments[0].NextStep, "may still incur charges") {
+		t.Fatalf("dialogue deployments = %#v", status["deployments"])
+	}
+	services, ok := status["services"].([]cloudDialogueServiceStatus)
+	if !ok || len(services) != 1 || services[0].Status != "degraded" ||
+		services[0].ClientDeepLink != "/agent/workloads/services/service-1" || !strings.Contains(services[0].NextStep, "owner HTTP") {
+		t.Fatalf("dialogue services = %#v", status["services"])
+	}
 	alerts, ok := status["alerts"].([]cloudDialogueAlertStatus)
-	if !ok || len(alerts) != 1 || alerts[0].Code != "worker_waiting" {
+	if !ok || len(alerts) != 1 || alerts[0].Code != "worker_waiting" || alerts[0].ClientDeepLink != "/agent/workloads/services/service-1" {
 		t.Fatalf("dialogue alerts = %#v", status["alerts"])
+	}
+	boundary, ok := status["control_boundary"].(string)
+	if !ok || !strings.Contains(boundary, "Agent and MCP") || !strings.Contains(boundary, "owner HTTP") || !strings.Contains(boundary, "device signature") {
+		t.Fatalf("dialogue control boundary = %#v", status["control_boundary"])
+	}
+}
+
+func TestDialogueStatusLinksResidualDeploymentWithoutManufacturingService(t *testing.T) {
+	status := cloudDialogueStatusPayload(cloudStatusSnapshot{
+		jobs:        []Job{{JobID: "job-residual-1", PlanID: "plan-residual-1", DeploymentID: "deployment-residual-1", Kind: "destroy", Execution: "finished", Outcome: "failed", Checkpoint: "destroy_blocked", Revision: 2}},
+		deployments: []Deployment{{DeploymentID: "deployment-residual-1", PlanID: "plan-residual-1", Execution: "finished", Outcome: "failed", Resource: "blocked", Revision: 3}},
+	})
+	jobs := status["jobs"].([]cloudDialogueJobStatus)
+	deployments := status["deployments"].([]cloudDialogueDeploymentStatus)
+	for label, link := range map[string]string{"job": jobs[0].ClientDeepLink, "deployment": deployments[0].ClientDeepLink} {
+		if link != "/agent/workloads/deployments/deployment-residual-1" {
+			t.Fatalf("%s residual link=%q", label, link)
+		}
+	}
+	if strings.Contains(jobs[0].NextStep, "linked service") || strings.Contains(deployments[0].NextStep, "linked service") ||
+		!strings.Contains(jobs[0].NextStep, "deployment destroy") || !strings.Contains(deployments[0].NextStep, "deployment destroy") ||
+		!strings.Contains(jobs[0].NextStep, "owner HTTP") || !strings.Contains(deployments[0].NextStep, "device signature") {
+		t.Fatalf("residual guidance job=%q deployment=%q", jobs[0].NextStep, deployments[0].NextStep)
 	}
 }
 
@@ -100,7 +138,7 @@ func TestBootstrapRetainsOwnerCloudProjectionAfterDialogueStatusIsolation(t *tes
 			Region: "cn-north-1", Mode: "connection_stack_v2", Status: "active",
 			Revision: 1, CreatedAt: 100, UpdatedAt: 100,
 		}},
-	}, Config{})
+	}, Config{DeploymentCreateEnabled: true})
 
 	result, actionErr := module.bootstrap(context.Background(), map[string]any{})
 	if actionErr != nil {
@@ -113,6 +151,10 @@ func TestBootstrapRetainsOwnerCloudProjectionAfterDialogueStatusIsolation(t *tes
 	connections, ok := bootstrap["connections"].([]Connection)
 	if !ok || len(connections) != 1 || connections[0].AccountID != "123456789012" || connections[0].Region != "cn-north-1" {
 		t.Fatalf("owner cloud.bootstrap connections = %#v", bootstrap["connections"])
+	}
+	capabilities, ok := bootstrap["capabilities"].(map[string]any)
+	if !ok || capabilities["deployment_create_enabled"] != true {
+		t.Fatalf("owner cloud.bootstrap capabilities = %#v", bootstrap["capabilities"])
 	}
 }
 

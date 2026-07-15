@@ -323,20 +323,28 @@ func applyServiceRestoreResult(ctx context.Context, tx *sql.Tx, claim runtime.Se
 }
 
 func ensureRestoreReadinessTask(ctx context.Context, tx *sql.Tx, claim runtime.ServiceRestoreClaim, now int64) error {
-	var executionID, manifestDigest, installEvidenceDigest, semanticDigest string
-	if err := tx.QueryRowContext(ctx, `SELECT execution_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest FROM p2p_cloud_service_readiness_tasks WHERE service_id=$1 AND purpose='install' AND task_status='succeeded'`, claim.ServiceID).Scan(&executionID, &manifestDigest, &installEvidenceDigest, &semanticDigest); err != nil {
+	var executionID, manifestDigest, installEvidenceDigest, artifactDigest, semanticProbeJSON, semanticDigest string
+	if err := tx.QueryRowContext(ctx, `SELECT execution_id,recipe_execution_manifest_digest,install_evidence_digest,artifact_digest,semantic_probe_json,semantic_expectation_digest FROM p2p_cloud_service_readiness_tasks WHERE service_id=$1 AND purpose='install' AND task_status='succeeded'`, claim.ServiceID).Scan(&executionID, &manifestDigest, &installEvidenceDigest, &artifactDigest, &semanticProbeJSON, &semanticDigest); err != nil {
 		return err
 	}
 	taskID := stableID("cloud_service_restore_readiness_task_", claim.RestoreID)
-	result, err := tx.ExecContext(ctx, `INSERT INTO p2p_cloud_service_readiness_tasks(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,purpose,restore_id,job_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'unissued','restore',$10,$11,$12,$12) ON CONFLICT(task_id) DO NOTHING`, taskID, executionID, claim.DeploymentID, claim.ServiceID, claim.ConnectionID, claim.Request.InstanceID, manifestDigest, installEvidenceDigest, semanticDigest, claim.RestoreID, claim.JobID, now)
+	semanticProbe, err := decodeServiceReadinessProbe(semanticProbeJSON)
+	canonicalProbeJSON, marshalErr := json.Marshal(semanticProbe)
+	issue := runtime.ServiceReadinessIssueRequest{Schema: runtime.ServiceReadinessIssueSchema, ExecutionID: executionID, DeploymentID: claim.DeploymentID, ServiceID: claim.ServiceID, TaskID: taskID, ProbeKind: runtime.ServiceReadinessProbeKind, RecipeExecutionManifestDigest: manifestDigest, InstallEvidenceDigest: installEvidenceDigest, ArtifactDigest: artifactDigest, SemanticProbe: semanticProbe, SemanticExpectationDigest: semanticDigest}
+	if err != nil || marshalErr != nil || semanticProbeJSON != string(canonicalProbeJSON) || issue.Validate() != nil {
+		return errors.New("service restore readiness binding is invalid")
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO p2p_cloud_service_readiness_tasks(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,artifact_digest,semantic_probe_json,semantic_expectation_digest,task_status,purpose,restore_id,job_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'unissued','restore',$12,$13,$14,$14) ON CONFLICT(task_id) DO NOTHING`, taskID, executionID, claim.DeploymentID, claim.ServiceID, claim.ConnectionID, claim.Request.InstanceID, manifestDigest, installEvidenceDigest, artifactDigest, semanticProbeJSON, semanticDigest, claim.RestoreID, claim.JobID, now)
 	if err != nil {
 		return err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		var purpose, restoreID, jobID string
-		if err = tx.QueryRowContext(ctx, `SELECT purpose,restore_id,job_id FROM p2p_cloud_service_readiness_tasks WHERE task_id=$1`, taskID).Scan(&purpose, &restoreID, &jobID); err != nil || purpose != "restore" || restoreID != claim.RestoreID || jobID != claim.JobID {
-			return errors.New("service restore readiness task binding conflict")
-		}
+	var existingExecution, existingDeployment, existingService, existingConnection, existingInstance, existingManifest, existingInstall, existingArtifact, existingProbe, existingSemantic, status, purpose, restoreID, jobID string
+	if err = tx.QueryRowContext(ctx, `SELECT execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,artifact_digest,semantic_probe_json,semantic_expectation_digest,task_status,purpose,restore_id,job_id FROM p2p_cloud_service_readiness_tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&existingExecution, &existingDeployment, &existingService, &existingConnection, &existingInstance, &existingManifest, &existingInstall, &existingArtifact, &existingProbe, &existingSemantic, &status, &purpose, &restoreID, &jobID); err != nil {
+		return err
+	}
+	if existingExecution != executionID || existingDeployment != claim.DeploymentID || existingService != claim.ServiceID || existingConnection != claim.ConnectionID || existingInstance != claim.Request.InstanceID || existingManifest != manifestDigest || existingInstall != installEvidenceDigest || existingArtifact != artifactDigest || existingProbe != semanticProbeJSON || existingSemantic != semanticDigest || purpose != "restore" || restoreID != claim.RestoreID || jobID != claim.JobID ||
+		(status != "unissued" && status != "queued" && status != "running" && status != "succeeded" && status != "failed" && status != "interrupted") {
+		return errors.New("service restore readiness task binding conflict")
 	}
 	payload, _ := json.Marshal(map[string]string{"task_id": taskID, "restore_id": claim.RestoreID})
 	_, err = tx.ExecContext(ctx, `INSERT INTO p2p_cloud_outbox(outbox_id,kind,aggregate_type,aggregate_id,payload_json,available_at,created_at) VALUES($1,$2,'service_readiness_task',$3,$4,$5,$5) ON CONFLICT(outbox_id) DO NOTHING`, stableID("cloud_service_restore_readiness_outbox_", claim.RestoreID), cloudmodule.OutboxKindServiceReadinessRequested, taskID, string(payload), now)

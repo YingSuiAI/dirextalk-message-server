@@ -18,12 +18,19 @@ type recipeTaskExecutor interface {
 	ExecuteTask(context.Context, recipeexec.TaskV1, cloudorchestrator.RecipeExecutionManifestV1) (recipeexec.Result, error)
 }
 
+// RecipeArtifactPreparer is the only pre-execution hook. Dynamic Workers use
+// it to validate and register an authenticated archive before resolver lookup.
+type RecipeArtifactPreparer interface {
+	Prepare(context.Context, ClaimedRecipeTask) error
+}
+
 // RecipeTaskLoop is enabled only when both a closed transport and a fully
 // configured trusted executor are explicitly injected. A nil catalog, store,
 // or driver therefore prevents claiming work rather than failing after claim.
 type RecipeTaskLoop struct {
 	transport recipeTaskTransport
 	executor  recipeTaskExecutor
+	preparer  RecipeArtifactPreparer
 }
 
 func NewRecipeTaskLoop(transport *RecipeTaskClient, resolver recipeexec.BundleResolver, store recipeexec.CheckpointStore, driver recipeexec.ActionDriver) (*RecipeTaskLoop, error) {
@@ -35,10 +42,14 @@ func NewRecipeTaskLoop(transport *RecipeTaskClient, resolver recipeexec.BundleRe
 // OCI workers that also require scoped secret materialization. The task loop
 // still refuses to claim work until every executor dependency is configured.
 func NewRecipeTaskLoopWithExecutor(transport *RecipeTaskClient, executor recipeexec.Executor) (*RecipeTaskLoop, error) {
+	return NewRecipeTaskLoopWithArtifactPreparer(transport, executor, nil)
+}
+
+func NewRecipeTaskLoopWithArtifactPreparer(transport *RecipeTaskClient, executor recipeexec.Executor, preparer RecipeArtifactPreparer) (*RecipeTaskLoop, error) {
 	if transport == nil || !executor.Configured() {
 		return nil, recipeexec.ErrExecutorConfiguration
 	}
-	return &RecipeTaskLoop{transport: transport, executor: executor}, nil
+	return &RecipeTaskLoop{transport: transport, executor: executor, preparer: preparer}, nil
 }
 
 // ProcessOne consumes at most one Recipe task. It reports only declared
@@ -55,6 +66,12 @@ func (loop *RecipeTaskLoop) ProcessOne(ctx context.Context) error {
 	if err != nil || !found {
 		return err
 	}
+	if loop.preparer != nil {
+		if err := loop.preparer.Prepare(ctx, claimed); err != nil {
+			return err
+		}
+	}
+	claimed.ArtifactAccess = nil
 	result, executeErr := loop.executor.ExecuteTask(ctx, claimed.Task, claimed.Manifest)
 	if result.ManifestDigest != "" && result.ManifestDigest != claimed.Task.RecipeExecutionManifestDigest {
 		return errors.New("recipe execution did not complete its sealed checkpoints")

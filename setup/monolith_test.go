@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p"
@@ -94,5 +95,23 @@ func TestP2PCloudConnectionStackConfigFromEnv(t *testing.T) {
 	t.Setenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS", "0")
 	if config := p2pCloudConnectionStackConfigFromEnv(); config.RolePlanTTL != 0 {
 		t.Fatalf("invalid role-plan TTL must fail closed: %#v", config)
+	}
+}
+
+func TestP2PCloudConnectionCredentialBootstrapConfigFromEnv(t *testing.T) {
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_ENDPOINT", "https://bootstrap.internal.example/v1/aws-bootstrap/sessions")
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CA_FILE", "/run/dirextalk/bootstrap-ca.pem")
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CERT_FILE", "/run/dirextalk/bootstrap-client.pem")
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_KEY_FILE", "/run/dirextalk/bootstrap-client.key")
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_TIMEOUT_SECONDS", "7")
+
+	config := p2pCloudConnectionCredentialBootstrapConfigFromEnv()
+	if config.Endpoint != "https://bootstrap.internal.example/v1/aws-bootstrap/sessions" || config.CAFile != "/run/dirextalk/bootstrap-ca.pem" ||
+		config.CertificateFile != "/run/dirextalk/bootstrap-client.pem" || config.KeyFile != "/run/dirextalk/bootstrap-client.key" || config.Timeout != 7*time.Second {
+		t.Fatalf("credential bootstrap config = %#v", config)
+	}
+	t.Setenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_TIMEOUT_SECONDS", "31")
+	if config := p2pCloudConnectionCredentialBootstrapConfigFromEnv(); config.Timeout >= 0 {
+		t.Fatalf("invalid timeout must fail closed: %#v", config)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"sync"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
@@ -31,8 +32,9 @@ var (
 )
 
 // WorkerOCICatalogEntryV1 is a closed AMI-owned capability binding. The
-// descriptor is data for the typed OCI driver, not an arbitrary executable
-// path, image tag, URL, or command supplied by a task.
+// descriptor is data for the typed OCI driver. Its only network source is an
+// allowlisted public repository pinned to the artifact digest; no task can
+// supply an executable path, mutable tag, credential, URL, or command.
 type WorkerOCICatalogEntryV1 struct {
 	ArtifactDigest string                               `json:"artifact_digest"`
 	BundleDigest   string                               `json:"bundle_digest"`
@@ -57,10 +59,12 @@ type WorkerResourceManifestV1 struct {
 }
 
 type OCICatalogResolver struct {
+	mu                           sync.RWMutex
 	bundles                      map[string]Bundle
 	descriptors                  map[string]cloudorchestrator.OCIServiceBundleV1
 	catalogDigest                string
 	workerResourceManifestDigest string
+	runningWorkerBinaryDigest    string
 }
 
 var _ BundleResolver = (*OCICatalogResolver)(nil)
@@ -116,46 +120,87 @@ func (manifest WorkerResourceManifestV1) Digest() (string, error) {
 }
 
 func NewOCICatalogResolver(catalog WorkerOCICatalogV1, manifest WorkerResourceManifestV1, approvedManifestDigest, runningWorkerBinaryDigest string) (*OCICatalogResolver, error) {
-	normalized, err := normalizeWorkerOCICatalog(catalog)
+	normalized, catalogDigest, manifestDigest, err := validateResolverCatalog(catalog, manifest, approvedManifestDigest, runningWorkerBinaryDigest)
 	if err != nil {
 		return nil, err
 	}
-	catalogDigest, err := normalized.Digest()
-	if err != nil {
-		return nil, err
-	}
-	if err := manifest.Validate(); err != nil {
-		return nil, err
-	}
-	if manifest.CatalogDigest != catalogDigest {
-		return nil, ErrWorkerResourceManifestMismatch
-	}
-	manifestDigest, err := manifest.Digest()
-	if err != nil {
-		return nil, err
-	}
-	if !validTaskDigest(approvedManifestDigest) || approvedManifestDigest != manifestDigest {
-		return nil, ErrWorkerResourceManifestMismatch
-	}
-	if runningWorkerBinaryDigest != "" && (!validTaskDigest(runningWorkerBinaryDigest) || runningWorkerBinaryDigest != manifest.WorkerBinaryDigest) {
-		return nil, ErrWorkerResourceManifestMismatch
-	}
-
 	resolver := &OCICatalogResolver{
 		bundles:                      make(map[string]Bundle, len(normalized.Entries)),
 		descriptors:                  make(map[string]cloudorchestrator.OCIServiceBundleV1, len(normalized.Entries)),
 		catalogDigest:                catalogDigest,
 		workerResourceManifestDigest: manifestDigest,
+		runningWorkerBinaryDigest:    runningWorkerBinaryDigest,
 	}
-	for _, entry := range normalized.Entries {
-		resolver.bundles[entry.ArtifactDigest] = Bundle{
-			ArtifactDigest: entry.ArtifactDigest,
-			ActionIDs:      append([]string(nil), entry.ActionIDs...),
-			SecretTargets:  append([]SecretTarget(nil), entry.SecretTargets...),
+	resolver.addNormalizedCatalog(normalized)
+	return resolver, nil
+}
+
+// NewDynamicOCICatalogResolver creates an empty resolver pinned to the one
+// deployment-approved resource manifest and the currently running Worker.
+// Only RegisterTrustedCatalog can add a capability to it.
+func NewDynamicOCICatalogResolver(approvedManifestDigest, runningWorkerBinaryDigest string) (*OCICatalogResolver, error) {
+	if !validTaskDigest(approvedManifestDigest) || !validTaskDigest(runningWorkerBinaryDigest) {
+		return nil, ErrWorkerResourceManifestMismatch
+	}
+	return &OCICatalogResolver{
+		bundles:                      make(map[string]Bundle, 1),
+		descriptors:                  make(map[string]cloudorchestrator.OCIServiceBundleV1, 1),
+		workerResourceManifestDigest: approvedManifestDigest,
+		runningWorkerBinaryDigest:    runningWorkerBinaryDigest,
+	}, nil
+}
+
+// RegisterTrustedCatalog atomically adds the single artifact validated from a
+// downloaded archive. Extra catalog entries are rejected so one artifact
+// grant cannot preload capabilities for another Recipe.
+func (resolver *OCICatalogResolver) RegisterTrustedCatalog(catalog WorkerOCICatalogV1, manifest WorkerResourceManifestV1, artifactDigest string) error {
+	if resolver == nil || !validTaskDigest(artifactDigest) || !validTaskDigest(resolver.runningWorkerBinaryDigest) {
+		return ErrWorkerResourceManifestMismatch
+	}
+	normalized, catalogDigest, _, err := validateResolverCatalog(catalog, manifest, resolver.workerResourceManifestDigest, resolver.runningWorkerBinaryDigest)
+	if err != nil || len(normalized.Entries) != 1 || normalized.Entries[0].ArtifactDigest != artifactDigest {
+		return ErrWorkerResourceManifestMismatch
+	}
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+	if resolver.catalogDigest != "" && resolver.catalogDigest != catalogDigest {
+		return ErrWorkerResourceManifestMismatch
+	}
+	if _, exists := resolver.bundles[artifactDigest]; exists {
+		if resolver.catalogDigest != catalogDigest {
+			return ErrWorkerResourceManifestMismatch
 		}
+		return nil
+	}
+	resolver.catalogDigest = catalogDigest
+	resolver.addNormalizedCatalog(normalized)
+	return nil
+}
+
+func validateResolverCatalog(catalog WorkerOCICatalogV1, manifest WorkerResourceManifestV1, approvedManifestDigest, runningWorkerBinaryDigest string) (WorkerOCICatalogV1, string, string, error) {
+	normalized, err := normalizeWorkerOCICatalog(catalog)
+	if err != nil {
+		return WorkerOCICatalogV1{}, "", "", err
+	}
+	catalogDigest, err := normalized.Digest()
+	if err != nil || manifest.Validate() != nil || manifest.CatalogDigest != catalogDigest {
+		return WorkerOCICatalogV1{}, "", "", ErrWorkerResourceManifestMismatch
+	}
+	manifestDigest, err := manifest.Digest()
+	if err != nil || !validTaskDigest(approvedManifestDigest) || approvedManifestDigest != manifestDigest {
+		return WorkerOCICatalogV1{}, "", "", ErrWorkerResourceManifestMismatch
+	}
+	if runningWorkerBinaryDigest != "" && (!validTaskDigest(runningWorkerBinaryDigest) || runningWorkerBinaryDigest != manifest.WorkerBinaryDigest) {
+		return WorkerOCICatalogV1{}, "", "", ErrWorkerResourceManifestMismatch
+	}
+	return normalized, catalogDigest, manifestDigest, nil
+}
+
+func (resolver *OCICatalogResolver) addNormalizedCatalog(catalog WorkerOCICatalogV1) {
+	for _, entry := range catalog.Entries {
+		resolver.bundles[entry.ArtifactDigest] = Bundle{ArtifactDigest: entry.ArtifactDigest, ActionIDs: append([]string(nil), entry.ActionIDs...), SecretTargets: append([]SecretTarget(nil), entry.SecretTargets...), RuntimeProfile: cloudorchestrator.CloneOCIServiceRuntimeProfileV1(entry.Descriptor.RuntimeProfile)}
 		resolver.descriptors[entry.ArtifactDigest] = cloneOCIServiceDescriptor(entry.Descriptor)
 	}
-	return resolver, nil
 }
 
 func (resolver *OCICatalogResolver) Resolve(ctx context.Context, artifactDigest string) (Bundle, error) {
@@ -168,6 +213,8 @@ func (resolver *OCICatalogResolver) Resolve(ctx context.Context, artifactDigest 
 	if !validTaskDigest(artifactDigest) {
 		return Bundle{}, ErrWorkerOCIBundleNotFound
 	}
+	resolver.mu.RLock()
+	defer resolver.mu.RUnlock()
 	bundle, found := resolver.bundles[artifactDigest]
 	if !found {
 		return Bundle{}, ErrWorkerOCIBundleNotFound
@@ -185,6 +232,8 @@ func (resolver *OCICatalogResolver) LookupDescriptor(ctx context.Context, artifa
 	if !validTaskDigest(artifactDigest) {
 		return cloudorchestrator.OCIServiceBundleV1{}, ErrWorkerOCIBundleNotFound
 	}
+	resolver.mu.RLock()
+	defer resolver.mu.RUnlock()
 	descriptor, found := resolver.descriptors[artifactDigest]
 	if !found {
 		return cloudorchestrator.OCIServiceBundleV1{}, ErrWorkerOCIBundleNotFound
@@ -196,6 +245,8 @@ func (resolver *OCICatalogResolver) CatalogDigest() string {
 	if resolver == nil {
 		return ""
 	}
+	resolver.mu.RLock()
+	defer resolver.mu.RUnlock()
 	return resolver.catalogDigest
 }
 
@@ -279,8 +330,8 @@ func normalizeWorkerOCICatalog(catalog WorkerOCICatalogV1) (WorkerOCICatalogV1, 
 			return WorkerOCICatalogV1{}, ErrWorkerOCICatalogInvalid
 		}
 		secretTargets, err := normalizeWorkerSecretTargets(candidate.SecretTargets)
-		if err != nil {
-			return WorkerOCICatalogV1{}, err
+		if err != nil || storageTargetsConflictWithSecrets(candidate.Descriptor, secretTargets) {
+			return WorkerOCICatalogV1{}, ErrWorkerOCICatalogInvalid
 		}
 		normalized.Entries[index] = WorkerOCICatalogEntryV1{
 			ArtifactDigest: candidate.ArtifactDigest,
@@ -349,7 +400,26 @@ func cloneOCIServiceDescriptor(descriptor cloudorchestrator.OCIServiceBundleV1) 
 	for index := range clone.Actions {
 		clone.Actions[index].CheckpointSequence = append([]string(nil), descriptor.Actions[index].CheckpointSequence...)
 	}
+	clone.VolumeTargets = append([]cloudorchestrator.OCIServiceStorageTargetV1(nil), descriptor.VolumeTargets...)
+	clone.DataTargets = append([]cloudorchestrator.OCIServiceStorageTargetV1(nil), descriptor.DataTargets...)
+	clone.RuntimeProfile = cloudorchestrator.CloneOCIServiceRuntimeProfileV1(descriptor.RuntimeProfile)
 	return clone
+}
+
+func storageTargetsConflictWithSecrets(descriptor cloudorchestrator.OCIServiceBundleV1, secrets []SecretTarget) bool {
+	storageSlots := make(map[string]struct{}, len(descriptor.VolumeTargets)+len(descriptor.DataTargets))
+	for _, target := range descriptor.VolumeTargets {
+		storageSlots[target.SlotID] = struct{}{}
+	}
+	for _, target := range descriptor.DataTargets {
+		storageSlots[target.SlotID] = struct{}{}
+	}
+	for _, target := range secrets {
+		if _, conflict := storageSlots[target.SlotID]; conflict {
+			return true
+		}
+	}
+	return false
 }
 
 type workerSecretTargetJSON struct {

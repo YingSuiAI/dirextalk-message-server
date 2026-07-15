@@ -84,7 +84,7 @@ func (b Broker) executeServiceReadinessIssue(response http.ResponseWriter, reque
 		return
 	}
 	instant := issuedAt.UTC().Format("2006-01-02T15:04:05.000Z")
-	task := commandstore.ServiceReadinessRecord{ConnectionID: command.ConnectionID, DeploymentID: issue.DeploymentID, ServiceID: issue.ServiceID, TaskID: issue.TaskID, RequestSHA256: identity.RequestSHA256, BootstrapSessionID: reservation.BootstrapSessionID, ExpectedInstanceID: reservation.WorkerSession.ExpectedInstanceID, ExecutionID: issue.ExecutionID, ProbeKind: issue.ProbeKind, RecipeExecutionManifestDigest: issue.RecipeExecutionManifestDigest, InstallEvidenceDigest: issue.InstallEvidenceDigest, SemanticExpectationDigest: issue.SemanticExpectationDigest, Status: "queued", Attempt: 1, CreatedAt: instant, UpdatedAt: instant}
+	task := commandstore.ServiceReadinessRecord{ConnectionID: command.ConnectionID, DeploymentID: issue.DeploymentID, ServiceID: issue.ServiceID, TaskID: issue.TaskID, RequestSHA256: identity.RequestSHA256, BootstrapSessionID: reservation.BootstrapSessionID, ExpectedInstanceID: reservation.WorkerSession.ExpectedInstanceID, ExecutionID: issue.ExecutionID, ProbeKind: issue.ProbeKind, RecipeExecutionManifestDigest: issue.RecipeExecutionManifestDigest, InstallEvidenceDigest: issue.InstallEvidenceDigest, ArtifactDigest: issue.ArtifactDigest, SemanticProbe: issue.SemanticProbe, SemanticExpectationDigest: issue.SemanticExpectationDigest, Status: "queued", Attempt: 1, CreatedAt: instant, UpdatedAt: instant}
 	result, marshalErr := contract.MarshalServiceReadinessResult(command, readinessSummary(task), false)
 	if marshalErr != nil {
 		writeError(response, http.StatusInternalServerError, "service_readiness_store_invalid")
@@ -235,7 +235,7 @@ func (b Broker) serveServiceReadinessEvent(response http.ResponseWriter, request
 }
 
 func readinessTaskContract(task commandstore.ServiceReadinessRecord) contract.ServiceReadinessTaskV1 {
-	return contract.ServiceReadinessTaskV1{Schema: contract.ServiceReadinessTaskSchema, TaskID: task.TaskID, ExecutionID: task.ExecutionID, DeploymentID: task.DeploymentID, ServiceID: task.ServiceID, ProbeKind: task.ProbeKind, RecipeExecutionManifestDigest: task.RecipeExecutionManifestDigest, InstallEvidenceDigest: task.InstallEvidenceDigest, SemanticExpectationDigest: task.SemanticExpectationDigest, Attempt: uint64(task.Attempt), LastSequence: uint64(task.LastSequence)}
+	return contract.ServiceReadinessTaskV1{Schema: contract.ServiceReadinessTaskSchema, TaskID: task.TaskID, ExecutionID: task.ExecutionID, DeploymentID: task.DeploymentID, ServiceID: task.ServiceID, ProbeKind: task.ProbeKind, RecipeExecutionManifestDigest: task.RecipeExecutionManifestDigest, InstallEvidenceDigest: task.InstallEvidenceDigest, ArtifactDigest: task.ArtifactDigest, SemanticProbe: task.SemanticProbe, SemanticExpectationDigest: task.SemanticExpectationDigest, Attempt: uint64(task.Attempt), LastSequence: uint64(task.LastSequence)}
 }
 func readinessSummary(task commandstore.ServiceReadinessRecord) contract.ServiceReadinessTaskSummary {
 	summary := contract.ServiceReadinessTaskSummary{ExecutionID: task.ExecutionID, DeploymentID: task.DeploymentID, ServiceID: task.ServiceID, TaskID: task.TaskID, Status: task.Status, Checkpoint: task.Checkpoint, Attempt: task.Attempt, LastSequence: task.LastSequence, UpdatedAt: task.UpdatedAt}

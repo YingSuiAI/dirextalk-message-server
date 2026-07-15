@@ -195,6 +195,40 @@ func TestStoreRecipeInstallLeaseRecoveryAndSuccess(t *testing.T) {
 	}
 }
 
+func TestStoreRecipeInstallLateResultCannotResurrectCanceledJob(t *testing.T) {
+	ctx := context.Background()
+	now, database, store, bootstrap := prepareExecutionProbeTask(t)
+	manifest, jobID, _ := seedApprovedRecipeInstall(t, ctx, database, bootstrap, now)
+	clock := now.Add(3 * time.Minute)
+	store.cfg.Now = func() time.Time { return clock }
+	store.cfg.NewLeaseToken = func() string { return "recipe-install-canceled-lease" }
+	claim, found, err := store.ClaimRecipeInstall(ctx, "recipe-install-canceled-worker", time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim=%#v found=%v err=%v", claim, found, err)
+	}
+	signed := signedRecipeInstallCommand(t, claim, clock)
+	if err = store.PersistRecipeInstallCommand(ctx, claim, signed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.DB().ExecContext(ctx, `UPDATE p2p_cloud_jobs SET execution_status='finished',outcome_status='canceled',checkpoint='job_canceled',revision=revision+1 WHERE job_id=$1`, jobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.DB().ExecContext(ctx, `UPDATE p2p_cloud_deployments SET execution_status='finished',outcome_status='canceled',resource_status='retained_tracked',revision=revision+1 WHERE deployment_id=$1`, manifest.DeploymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.DB().ExecContext(ctx, `UPDATE p2p_cloud_recipe_install_tasks SET task_status='interrupted',lease_owner='',lease_token='',lease_until=0,last_error_code='job_canceled' WHERE execution_id=$1`, manifest.ExecutionID); err != nil {
+		t.Fatal(err)
+	}
+	late := runtime.RecipeInstallResult{ExecutionID: claim.ExecutionID, DeploymentID: claim.DeploymentID, TaskID: claim.TaskID, Status: "queued", Attempt: claim.TaskAttempt, UpdatedAt: clock}
+	if err = store.CommitRecipeInstall(ctx, claim, late); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("late canceled result error=%v, want %v", err, ErrLeaseLost)
+	}
+	var services int
+	if err = database.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM p2p_cloud_services WHERE deployment_id=$1`, manifest.DeploymentID).Scan(&services); err != nil || services != 0 {
+		t.Fatalf("services after late result=%d err=%v", services, err)
+	}
+}
+
 func TestStoreServiceReadinessFailureRetainsResources(t *testing.T) {
 	ctx := context.Background()
 	now, database, store, bootstrap := prepareExecutionProbeTask(t)
@@ -306,6 +340,7 @@ func seedApprovedRecipeInstall(t *testing.T, ctx context.Context, database *p2ps
 		ArtifactDigest:               "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 		ActionID:                     "install-service", RootRequired: true, TimeoutSeconds: 1200,
 		CheckpointSequence: []string{"artifact_verified", "health_verified"},
+		SemanticReadiness:  cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/openclaw/semantic", ExpectedStatus: 200, BodySHA256: cloudcontracts.FixedReadinessEvidenceDigestV1},
 	}
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)

@@ -939,7 +939,7 @@ func verifyExecutionProbeClaimFence(ctx context.Context, tx *sql.Tx, claim runti
 	var observationState string
 	var observationLeaseExpiresAt int64
 	var provisionJobID, provisionPlanID, provisionExecution, provisionOutcome, provisionCheckpoint, provisionKind string
-	var verifyJobID, verifyPlanID, verifyDeploymentID, verifyKind string
+	var verifyJobID, verifyPlanID, verifyDeploymentID, verifyKind, verifyExecution, verifyOutcome string
 	err := tx.QueryRowContext(ctx, `
 		SELECT task.task_id, task.plan_id, task.cloud_connection_id, task.instance_id, task.execution_manifest_digest, task.input_digest,
 			task.task_status, task.task_attempt, task.lease_token, task.lease_until,
@@ -948,7 +948,7 @@ func verifyExecutionProbeClaimFence(ctx context.Context, tx *sql.Tx, claim runti
 			resource.cloud_connection_id, resource.resource_status, resource.instance_id,
 			observation.worker_session_state, observation.worker_lease_expires_at,
 			provision_job.job_id, provision_job.plan_id, provision_job.execution_status, provision_job.outcome_status, provision_job.checkpoint, provision_job.kind,
-			verify_job.job_id, verify_job.plan_id, verify_job.deployment_id, verify_job.kind
+			verify_job.job_id, verify_job.plan_id, verify_job.deployment_id, verify_job.kind, verify_job.execution_status, verify_job.outcome_status
 		FROM p2p_cloud_execution_probe_tasks AS task
 		JOIN p2p_cloud_deployments AS deployment ON deployment.deployment_id = task.deployment_id
 		JOIN p2p_cloud_plans AS plan ON plan.plan_id = deployment.plan_id
@@ -966,7 +966,7 @@ func verifyExecutionProbeClaimFence(ctx context.Context, tx *sql.Tx, claim runti
 		&planStatus, &connectionStatus, &connectionRegion, &endpoint, &brokerRegion, &nodeKeyID, &generation,
 		&resourceConnectionID, &resourceStatus, &resourceInstanceID, &observationState, &observationLeaseExpiresAt,
 		&provisionJobID, &provisionPlanID, &provisionExecution, &provisionOutcome, &provisionCheckpoint, &provisionKind,
-		&verifyJobID, &verifyPlanID, &verifyDeploymentID, &verifyKind,
+		&verifyJobID, &verifyPlanID, &verifyDeploymentID, &verifyKind, &verifyExecution, &verifyOutcome,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrLeaseLost
@@ -981,7 +981,8 @@ func verifyExecutionProbeClaimFence(ctx context.Context, tx *sql.Tx, claim runti
 		nodeKeyID != claim.NodeKeyID || generation != claim.ExpectedGeneration || resourceConnectionID != claim.ConnectionID || resourceStatus != "active" || resourceInstanceID != claim.InstanceID ||
 		observationState != "active" || observationLeaseExpiresAt <= now || provisionJobID == "" || provisionPlanID != claim.PlanID || provisionKind != "provision" ||
 		provisionExecution != "verifying" || provisionOutcome != "pending" || provisionCheckpoint != "worker_bootstrap_verified" ||
-		verifyJobID != claim.JobID || verifyPlanID != claim.PlanID || verifyDeploymentID != claim.DeploymentID || verifyKind != "verify" {
+		verifyJobID != claim.JobID || verifyPlanID != claim.PlanID || verifyDeploymentID != claim.DeploymentID || verifyKind != "verify" || verifyOutcome != "pending" ||
+		(verifyExecution != "queued" && verifyExecution != "verifying") {
 		return ErrLeaseLost
 	}
 	switch claim.Phase {

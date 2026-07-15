@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -18,19 +19,39 @@ const (
 	ServiceReadinessIssueAction   = "worker.service_readiness.issue"
 	ServiceReadinessObserveAction = "worker.service_readiness.observe"
 	ServiceReadinessIssueSchema   = "dirextalk.service-readiness-task-issue/v1"
-	ServiceReadinessProbeKind     = "stack_witnessed_fixed_worker_probe_v1"
+	ServiceReadinessProbeKind     = "stack_witnessed_oci_semantic_probe_v1"
 )
 
+type ServiceReadinessProbeV1 struct {
+	Scheme         string `json:"scheme"`
+	Port           uint16 `json:"port"`
+	Path           string `json:"path"`
+	ExpectedStatus uint16 `json:"expected_status"`
+	BodySHA256     string `json:"body_sha256"`
+}
+
+func (probe ServiceReadinessProbeV1) valid() bool {
+	if (probe.Scheme != "http" && probe.Scheme != "https") || probe.Port == 0 || probe.ExpectedStatus < 100 || probe.ExpectedStatus > 599 ||
+		!namedSHA256Pattern.MatchString(probe.BodySHA256) || len(probe.Path) == 0 || len(probe.Path) > 256 || !strings.HasPrefix(probe.Path, "/") ||
+		strings.HasPrefix(probe.Path, "//") || strings.ContainsAny(probe.Path, "?#\\") || strings.Contains(probe.Path, "..") {
+		return false
+	}
+	parsed, err := url.ParseRequestURI(probe.Path)
+	return err == nil && !parsed.IsAbs() && parsed.Host == "" && parsed.RawQuery == "" && parsed.Fragment == ""
+}
+
 type ServiceReadinessIssueRequest struct {
-	Schema                        string `json:"schema"`
-	ExecutionID                   string `json:"execution_id"`
-	DeploymentID                  string `json:"deployment_id"`
-	ServiceID                     string `json:"service_id"`
-	TaskID                        string `json:"task_id"`
-	ProbeKind                     string `json:"probe_kind"`
-	RecipeExecutionManifestDigest string `json:"recipe_execution_manifest_digest"`
-	InstallEvidenceDigest         string `json:"install_evidence_digest"`
-	SemanticExpectationDigest     string `json:"semantic_expectation_digest"`
+	Schema                        string                  `json:"schema"`
+	ExecutionID                   string                  `json:"execution_id"`
+	DeploymentID                  string                  `json:"deployment_id"`
+	ServiceID                     string                  `json:"service_id"`
+	TaskID                        string                  `json:"task_id"`
+	ProbeKind                     string                  `json:"probe_kind"`
+	RecipeExecutionManifestDigest string                  `json:"recipe_execution_manifest_digest"`
+	InstallEvidenceDigest         string                  `json:"install_evidence_digest"`
+	ArtifactDigest                string                  `json:"artifact_digest"`
+	SemanticProbe                 ServiceReadinessProbeV1 `json:"semantic_probe"`
+	SemanticExpectationDigest     string                  `json:"semantic_expectation_digest"`
 }
 
 type ServiceReadinessObserveRequest struct {
@@ -136,7 +157,7 @@ func (c ServiceReadinessCommand) validate(signature bool) error {
 	var canonical []byte
 	if c.Action == ServiceReadinessIssueAction {
 		var r ServiceReadinessIssueRequest
-		if e = decodeStrictJSON(payload, &r); e != nil || r.Schema != ServiceReadinessIssueSchema || !idPattern.MatchString(r.ExecutionID) || !idPattern.MatchString(r.DeploymentID) || !idPattern.MatchString(r.ServiceID) || !idPattern.MatchString(r.TaskID) || r.ProbeKind != ServiceReadinessProbeKind || !namedSHA256Pattern.MatchString(r.RecipeExecutionManifestDigest) || !namedSHA256Pattern.MatchString(r.InstallEvidenceDigest) || !namedSHA256Pattern.MatchString(r.SemanticExpectationDigest) {
+		if e = decodeStrictJSON(payload, &r); e != nil || r.Schema != ServiceReadinessIssueSchema || !idPattern.MatchString(r.ExecutionID) || !idPattern.MatchString(r.DeploymentID) || !idPattern.MatchString(r.ServiceID) || !idPattern.MatchString(r.TaskID) || r.ProbeKind != ServiceReadinessProbeKind || !namedSHA256Pattern.MatchString(r.RecipeExecutionManifestDigest) || !namedSHA256Pattern.MatchString(r.InstallEvidenceDigest) || !namedSHA256Pattern.MatchString(r.ArtifactDigest) || !r.SemanticProbe.valid() || !namedSHA256Pattern.MatchString(r.SemanticExpectationDigest) || r.SemanticExpectationDigest != r.SemanticProbe.BodySHA256 {
 			return newError("invalid_service_readiness_request", e)
 		}
 		canonical, _ = json.Marshal(r)

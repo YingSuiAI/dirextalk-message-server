@@ -16,17 +16,22 @@ AWS SDK integration in the message-server process.
   workspace Skill and it is not exposed through external MCP.
 - A request-scoped `cloud_dialogue_mode=true` is a strict capability reduction
   for Cloud planning acceptance tests and future Cloud dialogue UI. It exposes
-  only `native_agent_cloud_deployment_plan` and the read-only
-  `native_agent_cloud_status`, forces no-memory operation, and excludes runtime
-  shell/CLI tools, external MCP, dynamic Skill/MCP management, ordinary
+  only `native_agent_cloud_deployment_plan`, the read-only
+  `native_agent_cloud_status`, and, when configured, the read-only owner-private
+  `native_agent_cloud_recipes`; it forces no-memory operation and excludes
+  runtime shell/CLI tools, external MCP, dynamic Skill/MCP management, ordinary
   Dirextalk tools, installed Skill prompts, and request/config prompt injection.
   The server rejects credential-shaped request text before calling the model and
   binds the client-selected `cloud_connection_id` outside the tool schema; a
-  model cannot choose a Connection or submit an unbound research goal.
+  client-selected private Recipe id/revision is bound in the same request scope,
+  so the model may recommend but cannot select either binding or submit an
+  unbound research goal.
   Its status result is a separate model-minimized DTO, not the owner bootstrap:
   it excludes account/region metadata, Connection IDs, private Goal text,
-  artifact digests, and alert messages while retaining progress state.
-  It never grants mutation, approval, secret, or AWS access.
+  artifact digests, and alert messages while retaining progress state. Each
+  status item carries a de-secreted client deep link and deterministic next step;
+  lifecycle, pairing and destroy guidance always points back to owner HTTP plus
+  device signing. It never grants mutation, approval, secret, or AWS access.
 - The separately deployed Cloud Orchestrator binary now lives at
   `p2p/cmd/cloud-orchestrator`. It consumes `p2p_cloud_outbox` with a dedicated
   database role, uses a private mTLS research endpoint, and makes the fixed
@@ -325,7 +330,7 @@ Cloud mutation.
 | `cloud.secrets.bootstrap.plan` | derives one active Recipe task's exact secret slot and returns a ten-minute device-signed upload proof plus a transient strict Stack base URL; it accepts no secret value, endpoint, provider version or reference from the caller | HTTP-only |
 | `cloud.services.operation.plan/approve` | device-approves one exact compiled `start`/`stop`/`restart` Worker action or one exact retained encrypted `backup`; each queues only its private typed intent | HTTP-only |
 | `cloud.services.destroy.plan/approve` | device-approves the exact tracked EC2/EBS/ENI and Recipe-derived secret-reference set and queues only a private verified-destroy intent | HTTP-only |
-| `cloud.deployments.pairing.resume` | declared high-risk contract; returns `503 cloud_orchestrator_unavailable` until its independent transition is installed | HTTP-only |
+| `cloud.deployments.pairing.resume` | prepares or consumes a device-signed approval for the exact `waiting_user_pairing` Deployment revision, then atomically requeues only that existing Deployment/install Job and its private resume intent; it accepts no pairing material | HTTP-only |
 
 `cloud.connections.role_plan` accepts exactly:
 
@@ -772,15 +777,38 @@ in-memory flow, suppresses logs and local persistence, and exposes only
 device-signed owner HTTP controls.
 
 Production execution remains disabled by default. The repository now has a
-two-phase trusted OCI compiler, a binary/catalog-bound Worker resource
-manifest, and an install-only typed Podman root Driver with restart recovery,
-file-secret staging and bounded health retries. The first-validation Worker
-still requires all three health probes to match the fixed externally witnessed
-readiness contract. The repository does not yet assemble or publish the
-versioned Worker AMI, register compiler output from the production
-Orchestrator, deploy the Stack, enable a real-account mutation gate, or run the
-OpenClaw/knowledge-node AWS acceptance. Generic catalog-backed readiness,
-public ingress and GPU/Spot/model-training remain later independently approved
-stages. Those transitions must continue through the typed Connection
-Stack/Broker path; neither the Eino Agent tool, external MCP, nor the Message
-Server gains arbitrary AWS access.
+two-phase trusted OCI compiler, compiler-owned runtime profiles, a measured
+Worker/archive builder, a Go-only private AMI builder, and a binary/catalog-bound
+typed Podman runtime. The signed dynamic-artifact channel verifies and persists
+the exact S3 `versionId` before issuing a version-pinned read URL; the Worker
+cannot substitute a different object version. OpenClaw and Hermes are currently
+digest-pinned contract fixtures for the runtime profile, not live deployed
+services.
+
+A persistent, lease-fenced Service monitor now reschedules Stack-witnessed
+semantic checks across Orchestrator restarts and raises/reconciles only its own
+degradation. Flutter preserves newer revisions across reconnect/bootstrap and
+recovers cursor gaps without regressing Cloud state. A stateful fake provider
+exercises the durable lifecycle from approved provision through install,
+readiness and verified destruction. None of these tests enables real AWS
+mutation or changes the external Agent/MCP boundary.
+
+The unique local prerelease artifact `v1.1.0-cloud-mvp.20260715.1` has been
+built and its pinned OpenClaw `/health` contract exercised. It has not been
+registered in S3, assembled into a dynamic AMI or deployed to the test
+environment. Real AWS validation is blocked on non-root least-privilege AWS
+credentials and working SSH access to `a8.dirextalk.ai`; immediately before any
+billable create, the owner must still confirm the latest Region, specification
+and live quote. Owner HTTP clients now have separate device-signed Job
+cancellation and residual Deployment destruction flows. Cancellation applies
+only to eligible provision/install/verify execution, fences late results and
+retains billable resources; it never implies stop or destroy. A failed,
+interrupted or canceled Deployment with no Service can be destroyed through
+its exact tracked EC2/EBS/ENI/secret-ref ledger without manufacturing a
+Service. The original Deployment execution/outcome remains unchanged, and the
+resource axis becomes `verified_destroyed` only after Connection Stack read-
+back; failures remain `blocked`. Release/deployer scripts remain outside this
+work. Generic public ingress and GPU/Spot/model-training remain later
+independently approved stages. Those transitions must continue through the
+typed Connection Stack/Broker path; neither the Eino Agent tool, external MCP,
+nor the Message Server gains arbitrary AWS access.

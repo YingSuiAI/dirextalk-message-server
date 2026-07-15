@@ -45,22 +45,33 @@ func TestOCIConfigFilesAndExecutableDigestFailClosed(t *testing.T) {
 
 func TestOCIRequiresOneExactApprovedWorkerResourceManifestDigest(t *testing.T) {
 	manifest := cloudworker.BootstrapManifest{WorkerImageDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ArtifactManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	if got, err := approvedWorkerResourceManifestDigest(manifest); err != nil || got != manifest.WorkerImageDigest {
+	if got, err := approvedWorkerResourceManifestDigest(manifest, false); err != nil || got != manifest.WorkerImageDigest {
 		t.Fatalf("approved manifest digest=%q err=%v", got, err)
 	}
 	manifest.ArtifactManifestDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	if _, err := approvedWorkerResourceManifestDigest(manifest); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
+	if _, err := approvedWorkerResourceManifestDigest(manifest, false); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
 		t.Fatalf("mismatched bootstrap digest error=%v", err)
+	}
+	if got, err := approvedWorkerResourceManifestDigest(manifest, true); err != nil || got != manifest.ArtifactManifestDigest {
+		t.Fatalf("dynamic artifact manifest digest=%q err=%v", got, err)
+	}
+	manifest.WorkerImageDigest = ""
+	if _, err := approvedWorkerResourceManifestDigest(manifest, true); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
+		t.Fatalf("missing worker image digest error=%v", err)
 	}
 }
 
-func TestOCIReadinessFirstValidationGateRequiresExactFixedProbe(t *testing.T) {
+func TestOCIReadinessValidationAcceptsArbitraryTypedSemanticProbe(t *testing.T) {
 	probe := cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18080, Path: "/ready", ExpectedStatus: 200, BodySHA256: cloudworker.FixedReadinessEvidenceDigest()}
 	catalog := recipeexec.WorkerOCICatalogV1{Entries: []recipeexec.WorkerOCICatalogEntryV1{{Descriptor: cloudorchestrator.OCIServiceBundleV1{Health: cloudorchestrator.OCIServiceHealthV1{Liveness: probe, Readiness: probe, Semantic: probe}}}}}
 	if err := validateInitialOCIReadiness(catalog); err != nil {
 		t.Fatal(err)
 	}
-	catalog.Entries[0].Descriptor.Health.Semantic.Path = "/semantic"
+	catalog.Entries[0].Descriptor.Health.Semantic.Path = "/openclaw/semantic"
+	if err := validateInitialOCIReadiness(catalog); err != nil {
+		t.Fatalf("typed semantic probe was rejected: %v", err)
+	}
+	catalog.Entries[0].Descriptor.Health.Semantic.Path = "https://attacker.invalid/semantic"
 	if err := validateInitialOCIReadiness(catalog); !errors.Is(err, recipeexec.ErrExecutorConfiguration) {
 		t.Fatalf("readiness drift error=%v", err)
 	}

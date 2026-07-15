@@ -246,7 +246,7 @@ func validateExecutionManifestAgainstArtifact(manifest cloudcontracts.RecipeExec
 			matched = true
 		}
 	}
-	if !matched || len(manifest.VolumeSlots) != len(artifact.VolumeSlots) || len(manifest.DataSlots) != len(artifact.DataSlots) || len(manifest.SecretSlots) != len(artifact.SecretSlots) {
+	if !matched || manifest.SemanticReadiness != artifact.SemanticReadiness || len(manifest.VolumeSlots) != len(artifact.VolumeSlots) || len(manifest.DataSlots) != len(artifact.DataSlots) || len(manifest.SecretSlots) != len(artifact.SecretSlots) {
 		return cloudmodule.ErrRecipeExecutionManifestInvalid
 	}
 	volumes := make(map[string]cloudcontracts.CompiledVolumeSlotSchemaV1, len(artifact.VolumeSlots))

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/containerinit"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/fixedprobe"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/recipeexec"
 )
@@ -28,6 +29,7 @@ const (
 	expectedEndpointEnv      = "CLOUD_WORKER_EXPECTED_BOOTSTRAP_ENDPOINT"
 	fixedProbeRecipeEnv      = "CLOUD_WORKER_FIXED_PROBE_RECIPE_ENABLED"
 	ociRecipeEnv             = "CLOUD_WORKER_OCI_RECIPE_ENABLED"
+	dynamicRecipeArtifactEnv = "CLOUD_WORKER_DYNAMIC_RECIPE_ARTIFACTS_ENABLED"
 	ociCatalogFileEnv        = "CLOUD_WORKER_OCI_CATALOG_FILE"
 	workerResourceFileEnv    = "CLOUD_WORKER_RESOURCE_MANIFEST_FILE"
 	recipeCheckpointDirEnv   = "CLOUD_WORKER_RECIPE_CHECKPOINT_DIR"
@@ -39,16 +41,17 @@ var (
 )
 
 type commandConfig struct {
-	manifestFile        string
-	expectedConnection  string
-	expectedEndpoint    string
-	recipeCheckpointDir string
-	fixedProbeRecipe    bool
-	ociRecipe           bool
-	ociCatalogFile      string
-	workerResourceFile  string
-	once                bool
-	heartbeatInterval   time.Duration
+	manifestFile          string
+	expectedConnection    string
+	expectedEndpoint      string
+	recipeCheckpointDir   string
+	fixedProbeRecipe      bool
+	ociRecipe             bool
+	dynamicRecipeArtifact bool
+	ociCatalogFile        string
+	workerResourceFile    string
+	once                  bool
+	heartbeatInterval     time.Duration
 }
 
 type identityProofProvider interface {
@@ -89,6 +92,12 @@ type serviceReadinessTaskClientProvider interface {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "container-init" {
+		if err := containerinit.Run(os.Args[1:]); err != nil {
+			os.Exit(126)
+		}
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	config, err := parseConfig(os.Args[1:], os.Getenv)
@@ -122,6 +131,9 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 	if config.ociRecipe, err = parseStrictGate(getenv(ociRecipeEnv)); err != nil {
 		return commandConfig{}, errConfigInvalid
 	}
+	if config.dynamicRecipeArtifact, err = parseStrictGate(getenv(dynamicRecipeArtifactEnv)); err != nil {
+		return commandConfig{}, errConfigInvalid
+	}
 	flags := flag.NewFlagSet("cloud-worker", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&config.once, "once", false, "claim one session and process at most one pass of each explicitly enabled fixed Worker capability")
@@ -130,12 +142,16 @@ func parseConfig(args []string, getenv func(string) string) (commandConfig, erro
 		return commandConfig{}, errConfigInvalid
 	}
 	recipeEnabled := config.fixedProbeRecipe || config.ociRecipe
+	staticCatalogConfigured := validConfigPath(config.ociCatalogFile) && filepath.IsAbs(config.ociCatalogFile) && validConfigPath(config.workerResourceFile) && filepath.IsAbs(config.workerResourceFile)
+	staticCatalogPartial := (config.ociCatalogFile == "") != (config.workerResourceFile == "")
 	if !validConfigPath(config.manifestFile) || config.expectedConnection == "" || config.expectedEndpoint == "" ||
 		config.heartbeatInterval <= 0 ||
 		config.fixedProbeRecipe && config.ociRecipe ||
+		config.dynamicRecipeArtifact && !config.ociRecipe ||
 		(recipeEnabled && (!validConfigPath(config.recipeCheckpointDir) || !filepath.IsAbs(config.recipeCheckpointDir))) ||
 		(!recipeEnabled && config.recipeCheckpointDir != "") ||
-		(config.ociRecipe && (!validConfigPath(config.ociCatalogFile) || !filepath.IsAbs(config.ociCatalogFile) || !validConfigPath(config.workerResourceFile) || !filepath.IsAbs(config.workerResourceFile))) ||
+		(config.ociRecipe && !config.dynamicRecipeArtifact && !staticCatalogConfigured) ||
+		(config.ociRecipe && config.dynamicRecipeArtifact && (staticCatalogPartial || config.ociCatalogFile != "" && !staticCatalogConfigured)) ||
 		(!config.ociRecipe && (config.ociCatalogFile != "" || config.workerResourceFile != "")) {
 		return commandConfig{}, errConfigInvalid
 	}
@@ -298,7 +314,7 @@ func newFixedProbeReadinessProcessor(client workerSessionClient) (serviceReadine
 	if err != nil {
 		return nil, err
 	}
-	return cloudworker.NewServiceReadinessTaskLoop(transport, fixedprobe.NewLocalHost())
+	return cloudworker.NewServiceReadinessTaskLoop(transport, cloudworker.NewLocalServiceReadinessProbe())
 }
 
 // runWorkerCycle keeps regular session telemetry independent from the fixed

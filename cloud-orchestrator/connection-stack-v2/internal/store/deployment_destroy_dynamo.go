@@ -100,7 +100,7 @@ func (s *DynamoRepository) FinalizeDeploymentDestroy(ctx context.Context, reserv
 }
 
 func validateDeploymentDestroyReservation(reservation DeploymentDestroyReservation) error {
-	if !contract.ValidConnectionID(reservation.ConnectionID) || !contract.ValidID(reservation.DeploymentID) || !contract.ValidID(reservation.ServiceID) || !contract.ValidID(reservation.CommandID) || !validSHA256(reservation.RequestSHA256) || reservation.ExpectedGeneration < 1 || reservation.NodeCounter < 0 || !contract.ValidID(reservation.ApprovalID) || !contract.ValidID(reservation.ChallengeID) || !contract.ValidNodeKeyID(reservation.SignerKeyID) || len(reservation.RequestJSON) == 0 || len(reservation.RequestJSON) > contract.MaxCommandBytes || (reservation.State != "reserved" && reservation.State != "finalized") {
+	if !contract.ValidConnectionID(reservation.ConnectionID) || !contract.ValidID(reservation.DeploymentID) || (reservation.ServiceID != "" && !contract.ValidID(reservation.ServiceID)) || !contract.ValidID(reservation.CommandID) || !validSHA256(reservation.RequestSHA256) || reservation.ExpectedGeneration < 1 || reservation.NodeCounter < 0 || !contract.ValidID(reservation.ApprovalID) || !contract.ValidID(reservation.ChallengeID) || !contract.ValidNodeKeyID(reservation.SignerKeyID) || len(reservation.RequestJSON) == 0 || len(reservation.RequestJSON) > contract.MaxCommandBytes || (reservation.State != "reserved" && reservation.State != "finalized") {
 		return NewError("deployment_destroy_store_invalid")
 	}
 	var request contract.DeploymentDestroyRequest
@@ -118,7 +118,11 @@ func validateDeploymentDestroyReservation(reservation DeploymentDestroyReservati
 }
 
 func deploymentDestroyItem(reservation DeploymentDestroyReservation) map[string]dynamodbtypes.AttributeValue {
-	return map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.DeploymentID}, "service_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ServiceID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: reservation.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(reservation.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(reservation.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.SignerKeyID}, "request_json": &dynamodbtypes.AttributeValueMemberS{Value: string(reservation.RequestJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: reservation.State}}
+	item := map[string]dynamodbtypes.AttributeValue{"connection_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ConnectionID}, "deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.DeploymentID}, "command_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.CommandID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: reservation.RequestSHA256}, "expected_generation": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(reservation.ExpectedGeneration, 10)}, "node_counter": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(reservation.NodeCounter, 10)}, "approval_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ApprovalID}, "challenge_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.ChallengeID}, "signer_key_id": &dynamodbtypes.AttributeValueMemberS{Value: reservation.SignerKeyID}, "request_json": &dynamodbtypes.AttributeValueMemberS{Value: string(reservation.RequestJSON)}, "state": &dynamodbtypes.AttributeValueMemberS{Value: reservation.State}}
+	if reservation.ServiceID != "" {
+		item["service_id"] = &dynamodbtypes.AttributeValueMemberS{Value: reservation.ServiceID}
+	}
+	return item
 }
 
 func deploymentDestroyFromItem(item map[string]dynamodbtypes.AttributeValue) (DeploymentDestroyReservation, error) {
@@ -130,8 +134,10 @@ func deploymentDestroyFromItem(item map[string]dynamodbtypes.AttributeValue) (De
 	if reservation.DeploymentID, err = stringAttribute(item, "deployment_id"); err != nil {
 		return reservation, err
 	}
-	if reservation.ServiceID, err = stringAttribute(item, "service_id"); err != nil {
-		return reservation, err
+	if _, present := item["service_id"]; present {
+		if reservation.ServiceID, err = stringAttribute(item, "service_id"); err != nil {
+			return reservation, err
+		}
 	}
 	if reservation.CommandID, err = stringAttribute(item, "command_id"); err != nil {
 		return reservation, err

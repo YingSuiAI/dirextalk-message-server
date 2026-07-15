@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,6 +35,7 @@ const (
 	actionEventsList                                    = "cloud.events.list"
 	actionGoalsCreate                                   = "cloud.goals.create"
 	actionConnectionsRolePlan                           = "cloud.connections.role_plan"
+	actionConnectionsCredentialBootstrapCreate          = "cloud.connections.credential_bootstrap.create"
 	actionConnectionsRegistrationComplete               = "cloud.connections.registration.complete"
 	actionPlansConfirmationPrepare                      = "cloud.plans.confirmation.prepare"
 	actionPlansApprove                                  = "cloud.plans.approve"
@@ -61,6 +63,9 @@ const (
 	cloudConnectionBootstrapInvalidCode                 = "cloud_connection_bootstrap_invalid"
 	cloudConnectionBootstrapExpiredCode                 = "cloud_connection_bootstrap_expired"
 	cloudConnectionBootstrapConflictCode                = "cloud_connection_bootstrap_conflict"
+	cloudConnectionCredentialBootstrapUnavailableCode   = "cloud_connection_credential_bootstrap_unavailable"
+	cloudConnectionCredentialBootstrapInvalidCode       = "cloud_connection_credential_bootstrap_invalid"
+	cloudConnectionCredentialBootstrapUpstreamCode      = "cloud_connection_credential_bootstrap_upstream_error"
 	cloudPlanConfirmationInvalidCode                    = "cloud_plan_confirmation_invalid"
 	cloudPlanConfirmationConflictCode                   = "cloud_plan_confirmation_conflict"
 	cloudQuoteExpiredCode                               = "cloud_quote_expired"
@@ -72,6 +77,10 @@ const (
 	cloudRecipeExecutionConfirmationConflictCode        = "cloud_recipe_execution_confirmation_conflict"
 	cloudRecipeExecutionApprovalExpiredCode             = "cloud_recipe_execution_approval_expired"
 	cloudRecipeExecutionApprovalSignatureCode           = "cloud_recipe_execution_approval_signature_invalid"
+	cloudPairingResumeInvalidCode                       = "cloud_pairing_resume_invalid"
+	cloudPairingResumeConflictCode                      = "cloud_pairing_resume_conflict"
+	cloudPairingResumeExpiredCode                       = "cloud_pairing_resume_approval_expired"
+	cloudPairingResumeSignatureCode                     = "cloud_pairing_resume_approval_signature_invalid"
 	cloudServiceSecretBootstrapInvalidCode              = "cloud_service_secret_bootstrap_invalid"
 	cloudServiceSecretBootstrapConflictCode             = "cloud_service_secret_bootstrap_conflict"
 	cloudServiceDestroyConfirmationInvalidCode          = "cloud_service_destroy_confirmation_invalid"
@@ -95,11 +104,13 @@ const (
 )
 
 type Config struct {
-	OwnerMXID       func() string
-	Now             func() time.Time
-	NewID           func(kind string) string
-	Publish         func(context.Context, string, string, map[string]any) error
-	ConnectionStack ConnectionStackConfig
+	OwnerMXID                 func() string
+	Now                       func() time.Time
+	NewID                     func(kind string) string
+	Publish                   func(context.Context, string, string, map[string]any) error
+	DeploymentCreateEnabled   bool
+	ConnectionStack           ConnectionStackConfig
+	CredentialBootstrapClient ConnectionCredentialBootstrapClient
 }
 
 type Module struct {
@@ -113,27 +124,32 @@ func New(store Store, cfg Config) *Module {
 
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionBootstrap:                       m.bootstrap,
-		actionConnectionsList:                 m.connectionsList,
-		actionConnectionsGet:                  m.connectionsGet,
-		actionPlansList:                       m.plansList,
-		actionPlansGet:                        m.plansGet,
-		actionDeploymentsList:                 m.deploymentsList,
-		actionDeploymentsGet:                  m.deploymentsGet,
-		actionServicesList:                    m.servicesList,
-		actionServicesGet:                     m.servicesGet,
-		actionRecipesList:                     m.recipesList,
-		actionRecipesGet:                      m.recipesGet,
-		actionEventsList:                      m.eventsList,
-		actionGoalsCreate:                     m.createGoal,
-		actionConnectionsRolePlan:             m.createConnectionRolePlan,
-		actionConnectionsRegistrationComplete: m.completeConnectionRegistration,
-		actionPlansConfirmationPrepare:        m.preparePlanConfirmation,
-		actionPlansApprove:                    m.approvePlan,
+		actionBootstrap:                            m.bootstrap,
+		actionConnectionsList:                      m.connectionsList,
+		actionConnectionsGet:                       m.connectionsGet,
+		actionPlansList:                            m.plansList,
+		actionPlansGet:                             m.plansGet,
+		actionDeploymentsList:                      m.deploymentsList,
+		actionDeploymentsGet:                       m.deploymentsGet,
+		actionServicesList:                         m.servicesList,
+		actionServicesGet:                          m.servicesGet,
+		actionRecipesList:                          m.recipesList,
+		actionRecipesGet:                           m.recipesGet,
+		actionEventsList:                           m.eventsList,
+		actionGoalsCreate:                          m.createGoal,
+		actionConnectionsRolePlan:                  m.createConnectionRolePlan,
+		actionConnectionsCredentialBootstrapCreate: m.createConnectionCredentialBootstrap,
+		actionConnectionsRegistrationComplete:      m.completeConnectionRegistration,
+		actionPlansConfirmationPrepare:             m.preparePlanConfirmation,
+		actionPlansApprove:                         m.approvePlan,
 		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
 		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
 		actionSecretsBootstrapPlan:                          m.prepareServiceSecretBootstrap,
-		actionDeploymentsPairingResume:                      m.unavailableWrite,
+		actionDeploymentsPairingResume:                      m.resumeDeploymentPairing,
+		actionDeploymentsDestroyPlan:                        m.prepareDeploymentDestroy,
+		actionDeploymentsDestroyApprove:                     m.approveDeploymentDestroy,
+		actionJobsCancelPlan:                                m.prepareJobCancel,
+		actionJobsCancelApprove:                             m.approveJobCancel,
 		actionServicesOperationPlan:                         m.prepareServiceOperation,
 		actionServicesOperationApprove:                      m.approveServiceOperation,
 		actionServicesDestroyPlan:                           m.prepareServiceDestroy,
@@ -143,6 +159,76 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionServicesRestoreApprove:                        m.approveServiceRestore,
 		actionServicesManagementPlan:                        m.prepareServiceManagementAcceptance,
 		actionServicesManagementApprove:                     m.approveServiceManagementAcceptance,
+	}
+}
+
+// resumeDeploymentPairing is a two-phase HTTP-only action. Without approval it
+// returns a short-lived device challenge; with the exact signed approval it
+// atomically requeues the existing Deployment and install Job plus a private
+// digest-only Orchestrator intent. Pairing material is never accepted here.
+func (m *Module) resumeDeploymentPairing(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if err := only(params, "deployment_id", "expected_revision", "approval", "idempotency_key"); err != nil {
+		return nil, err
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(PairingResumeStore)
+	if !ok {
+		return nil, unavailableError()
+	}
+	v := actionbase.Params(params)
+	deploymentID, key := v.String("deployment_id"), v.String("idempotency_key")
+	revision := v.Int64("expected_revision")
+	if !cloudIdentifierPattern.MatchString(deploymentID) || revision <= 0 || ContainsSensitiveGoalMaterial(key) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPairingResumeInvalidCode, "cloud pairing resume is invalid")
+	}
+	if _, err := uuid.Parse(key); err != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
+	}
+	owner := m.ownerMXID()
+	if owner == "" {
+		return nil, actionbase.InternalError(context.Canceled)
+	}
+	now := m.now().UTC().Truncate(time.Second)
+	if _, approving := params["approval"]; !approving {
+		prepared, err := store.PrepareCloudPairingResume(ctx, PreparePairingResumeRequest{OwnerMXID: owner, DeploymentID: deploymentID, ExpectedRevision: revision, IdempotencyHash: digest(key), RequestDigest: digestFields(deploymentID, fmt.Sprint(revision)), ApprovalID: m.newID("pairing_resume_approval"), ChallengeID: m.newID("pairing_resume_challenge"), CreatedAt: now.UnixMilli(), ExpiresAt: now.Add(5 * time.Minute).UnixMilli()})
+		if err != nil {
+			return nil, pairingResumeError(err)
+		}
+		return map[string]any{"confirmation": prepared.Confirmation}, nil
+	}
+	approval, err := decodePairingResumeApprovalV1(params["approval"])
+	if err != nil || approval.Signature == "" {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPairingResumeInvalidCode, "cloud pairing resume approval is invalid")
+	}
+	payload, _ := approval.SigningPayload()
+	deploymentEventID, jobEventID := m.newID("event"), m.newID("event")
+	approved, err := store.ApproveCloudPairingResume(ctx, ApprovePairingResumeRequest{OwnerMXID: owner, DeploymentID: deploymentID, ExpectedRevision: revision, IdempotencyHash: digest(key), RequestDigest: digestFields(deploymentID, fmt.Sprint(revision), digest(string(payload)), approval.Signature), Approval: approval, OutboxID: m.newID("outbox"), DeploymentEventID: deploymentEventID, JobEventID: jobEventID, CreatedAt: now.UnixMilli()})
+	if err != nil {
+		return nil, pairingResumeError(err)
+	}
+	if approved.Created {
+		m.publish(ctx, "cloud.deployment.changed", deploymentEventID, deploymentPayload(approved.Deployment))
+		m.publish(ctx, "cloud.job.changed", jobEventID, jobPayload(approved.Job))
+	}
+	return map[string]any{"deployment": approved.Deployment, "job": approved.Job}, nil
+}
+
+func pairingResumeError(err error) *actionbase.Error {
+	switch {
+	case errors.Is(err, ErrIdempotencyConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudIdempotencyConflictCode, "idempotency_key was already used for a different pairing resume request")
+	case errors.Is(err, ErrPairingResumeConflict):
+		return actionbase.CodedError(http.StatusConflict, cloudPairingResumeConflictCode, "cloud pairing resume conflicts with current deployment state")
+	case errors.Is(err, ErrPairingResumeExpired):
+		return actionbase.CodedError(http.StatusConflict, cloudPairingResumeExpiredCode, "cloud pairing resume approval has expired")
+	case errors.Is(err, ErrPairingResumeSignature):
+		return actionbase.CodedError(http.StatusUnauthorized, cloudPairingResumeSignatureCode, "cloud pairing resume approval signature is invalid")
+	case errors.Is(err, ErrPairingResumeInvalid):
+		return actionbase.CodedError(http.StatusBadRequest, cloudPairingResumeInvalidCode, "cloud pairing resume is invalid")
+	default:
+		return actionbase.InternalError(err)
 	}
 }
 
@@ -940,6 +1026,27 @@ func decodeRecipeExecutionApprovalV1(value any) (cloudcontracts.RecipeExecutionA
 	return approval, nil
 }
 
+func decodePairingResumeApprovalV1(value any) (cloudcontracts.PairingResumeApprovalV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloudcontracts.PairingResumeApprovalV1{}, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.DisallowUnknownFields()
+	var approval cloudcontracts.PairingResumeApprovalV1
+	if err := decoder.Decode(&approval); err != nil {
+		return cloudcontracts.PairingResumeApprovalV1{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return cloudcontracts.PairingResumeApprovalV1{}, errors.New("pairing resume approval contains trailing JSON")
+	}
+	if err := approval.Validate(); err != nil {
+		return cloudcontracts.PairingResumeApprovalV1{}, err
+	}
+	return approval, nil
+}
+
 func decodeServiceDestroyApprovalV1(value any) (cloudcontracts.ServiceDestroyApprovalV1, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -1225,11 +1332,26 @@ func serviceDestroyApprovalError(err error) *actionbase.Error {
 // Eino runtime on the same validated, idempotent ProductCore path as an owner
 // request, while deliberately exposing no approval or cloud mutation method.
 func (m *Module) CreateResearchGoal(ctx context.Context, goal, connectionID, idempotencyKey string) (map[string]any, error) {
-	result, actionErr := m.createGoal(ctx, map[string]any{
+	return m.createResearchGoal(ctx, goal, connectionID, "", 0, idempotencyKey)
+}
+
+// CreateResearchGoalWithRecipe preserves the same research-only boundary while
+// binding a private Recipe selected by the owner client before Agent inference.
+func (m *Module) CreateResearchGoalWithRecipe(ctx context.Context, goal, connectionID, recipeID string, recipeRevision int64, idempotencyKey string) (map[string]any, error) {
+	return m.createResearchGoal(ctx, goal, connectionID, recipeID, recipeRevision, idempotencyKey)
+}
+
+func (m *Module) createResearchGoal(ctx context.Context, goal, connectionID, recipeID string, recipeRevision int64, idempotencyKey string) (map[string]any, error) {
+	params := map[string]any{
 		"goal":                goal,
 		"cloud_connection_id": connectionID,
 		"idempotency_key":     idempotencyKey,
-	})
+	}
+	if recipeID != "" || recipeRevision != 0 {
+		params["recipe_id"] = recipeID
+		params["expected_recipe_revision"] = recipeRevision
+	}
+	result, actionErr := m.createGoal(ctx, params)
 	if actionErr != nil {
 		return nil, fmt.Errorf("%s", actionErr.Error)
 	}
@@ -1320,85 +1442,231 @@ func cloudBootstrapStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 }
 
 type cloudDialogueGoalStatus struct {
-	GoalID    string `json:"goal_id"`
-	PlanID    string `json:"plan_id"`
-	Status    string `json:"status"`
-	Revision  int64  `json:"revision"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	GoalID         string `json:"goal_id"`
+	PlanID         string `json:"plan_id"`
+	Status         string `json:"status"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialoguePlanStatus struct {
-	PlanID    string `json:"plan_id"`
-	GoalID    string `json:"goal_id"`
-	Status    string `json:"status"`
-	Title     string `json:"title,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Revision  int64  `json:"revision"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	PlanID         string `json:"plan_id"`
+	GoalID         string `json:"goal_id"`
+	Status         string `json:"status"`
+	Title          string `json:"title,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialogueJobStatus struct {
-	JobID        string `json:"job_id"`
-	PlanID       string `json:"plan_id"`
-	DeploymentID string `json:"deployment_id,omitempty"`
-	Kind         string `json:"kind"`
-	Execution    string `json:"execution_status"`
-	Outcome      string `json:"outcome_status"`
-	Checkpoint   string `json:"checkpoint"`
-	ErrorCode    string `json:"error_code,omitempty"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	JobID          string `json:"job_id"`
+	PlanID         string `json:"plan_id"`
+	DeploymentID   string `json:"deployment_id,omitempty"`
+	Kind           string `json:"kind"`
+	Execution      string `json:"execution_status"`
+	Outcome        string `json:"outcome_status"`
+	Checkpoint     string `json:"checkpoint"`
+	ErrorCode      string `json:"error_code,omitempty"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialogueConnectionStatus struct {
-	Status    string `json:"status"`
-	Revision  int64  `json:"revision"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	Status         string `json:"status"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialogueDeploymentStatus struct {
-	DeploymentID string `json:"deployment_id"`
-	PlanID       string `json:"plan_id"`
-	Execution    string `json:"execution_status"`
-	Outcome      string `json:"outcome_status"`
-	Resource     string `json:"resource_status"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	DeploymentID   string `json:"deployment_id"`
+	PlanID         string `json:"plan_id"`
+	Execution      string `json:"execution_status"`
+	Outcome        string `json:"outcome_status"`
+	Resource       string `json:"resource_status"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialogueServiceStatus struct {
-	ServiceID    string `json:"service_id"`
-	DeploymentID string `json:"deployment_id"`
-	Name         string `json:"name"`
-	Status       string `json:"service_status"`
-	Integration  string `json:"integration_status"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	ServiceID      string `json:"service_id"`
+	DeploymentID   string `json:"deployment_id"`
+	Name           string `json:"name"`
+	Status         string `json:"service_status"`
+	Integration    string `json:"integration_status"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
 }
 
 type cloudDialogueAlertStatus struct {
-	AlertID      string `json:"alert_id"`
-	DeploymentID string `json:"deployment_id,omitempty"`
-	ServiceID    string `json:"service_id,omitempty"`
-	Severity     string `json:"severity"`
-	Code         string `json:"code"`
-	Acknowledged bool   `json:"acknowledged"`
-	Revision     int64  `json:"revision"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	AlertID        string `json:"alert_id"`
+	DeploymentID   string `json:"deployment_id,omitempty"`
+	ServiceID      string `json:"service_id,omitempty"`
+	Severity       string `json:"severity"`
+	Code           string `json:"code"`
+	Acknowledged   bool   `json:"acknowledged"`
+	ClientDeepLink string `json:"client_deep_link"`
+	NextStep       string `json:"next_step"`
+	Revision       int64  `json:"revision"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
+}
+
+const (
+	cloudDialogueWorkloadsDeepLink = "/agent/workloads"
+	cloudDialogueControlBoundary   = "Agent and MCP are read-only for cloud lifecycle control. Purchasing, starting, pairing resume, service operations, public exposure, secret upload, and destruction require the owner HTTP client flow and a current device signature."
+)
+
+func cloudDialoguePlanDeepLink(planID string) string {
+	if planID = strings.TrimSpace(planID); planID != "" {
+		return cloudDialogueWorkloadsDeepLink + "/plans/" + url.PathEscape(planID)
+	}
+	return cloudDialogueWorkloadsDeepLink
+}
+
+func cloudDialogueServiceDeepLink(serviceID string) string {
+	if serviceID = strings.TrimSpace(serviceID); serviceID != "" {
+		return cloudDialogueWorkloadsDeepLink + "/services/" + url.PathEscape(serviceID)
+	}
+	return cloudDialogueWorkloadsDeepLink
+}
+
+func cloudDialogueDeploymentDeepLink(deploymentID string) string {
+	if deploymentID = strings.TrimSpace(deploymentID); deploymentID != "" {
+		return cloudDialogueWorkloadsDeepLink + "/deployments/" + url.PathEscape(deploymentID)
+	}
+	return cloudDialogueWorkloadsDeepLink
+}
+
+func cloudDialogueEntityDeepLink(planID, deploymentID string, serviceByDeployment map[string]string) string {
+	if serviceID := serviceByDeployment[deploymentID]; serviceID != "" {
+		return cloudDialogueServiceDeepLink(serviceID)
+	}
+	if strings.TrimSpace(deploymentID) != "" {
+		return cloudDialogueDeploymentDeepLink(deploymentID)
+	}
+	return cloudDialoguePlanDeepLink(planID)
+}
+
+func cloudDialogueAlertDeepLink(alert Alert, serviceByDeployment map[string]string) string {
+	if alert.ServiceID != "" {
+		return cloudDialogueServiceDeepLink(alert.ServiceID)
+	}
+	return cloudDialogueEntityDeepLink("", alert.DeploymentID, serviceByDeployment)
+}
+
+func cloudDialoguePlanNextStep(status string) string {
+	switch status {
+	case PlanStatusResearching, PlanStatusQuoting:
+		return "Wait for research and pricing to finish, then refresh this plan in the Dirextalk client. No cloud resource has been created."
+	case PlanStatusReadyForConfirmation:
+		return "Open this plan in the Dirextalk client to review sources, region, price estimate, resource, network, and secret scopes. Creating resources requires owner HTTP confirmation and a device signature."
+	case PlanStatusApproved:
+		return "Open Workloads to monitor provisioning. Plan approval does not prove that a resource exists or that a service is ready."
+	case PlanStatusExpired, PlanStatusSuperseded:
+		return "Open Workloads and review a fresh plan and quote; this plan cannot be used to create resources."
+	default:
+		return "Open this plan in the Dirextalk client and refresh its authoritative status before taking any action."
+	}
+}
+
+func cloudDialogueJobNextStep(job Job, deployment Deployment, hasService bool) string {
+	if job.Kind == "destroy" && (job.Checkpoint == "destroy_blocked" || job.Outcome == "failed") {
+		if !hasService {
+			return "Destruction was not verified and tracked resources may still incur charges. Inspect the deployment in the client; any deployment destroy retry requires owner HTTP confirmation and a device signature."
+		}
+		return "Destruction was not verified and tracked resources may still incur charges. Inspect the service in the client; any retry requires owner HTTP confirmation and a device signature."
+	}
+	if job.Execution == "waiting_user" || job.Execution == "waiting_user_pairing" {
+		return "Open the linked client page to complete the pending user or pairing step. Resume requires owner HTTP confirmation and a device signature."
+	}
+	if job.Execution != "finished" {
+		return "Monitor this job in Workloads; do not infer service readiness from a running Worker or an Agent message."
+	}
+	if deployment.Resource == "active" || deployment.Resource == "retained_tracked" || deployment.Resource == "blocked" || deployment.Resource == "orphaned" {
+		if !hasService {
+			return "The job finished but tracked resources may still incur charges. Inspect the deployment; deployment destroy requires owner HTTP confirmation and a device signature."
+		}
+		return "The job finished but tracked resources may still incur charges. Inspect the linked service; lifecycle or destroy actions require owner HTTP confirmation and a device signature."
+	}
+	return "Open the linked client page to review the final outcome and independently verified resource state."
+}
+
+func cloudDialogueDeploymentNextStep(deployment Deployment, hasService bool) string {
+	switch deployment.Resource {
+	case "verified_destroyed":
+		return "Destruction has been verified by cloud read-back; no further lifecycle action is available for this deployment."
+	case "destroying":
+		return "Monitor destruction until cloud read-back reports verified_destroyed; do not treat an in-progress or timed-out request as destroyed."
+	case "blocked", "orphaned":
+		if !hasService {
+			return "Tracked resources may still incur charges. Inspect this deployment and resolve the cloud error; deployment destroy requires owner HTTP confirmation and a device signature."
+		}
+		return "Tracked resources may still incur charges. Inspect the linked service and resolve the cloud error; any destroy retry requires owner HTTP confirmation and a device signature."
+	}
+	if deployment.Execution == "waiting_user" || deployment.Execution == "waiting_user_pairing" {
+		return "Open the linked client page to complete pairing. Resume requires owner HTTP confirmation and a device signature while the resource continues to incur charges."
+	}
+	if deployment.Resource == "active" || deployment.Resource == "retained_tracked" {
+		if !hasService {
+			return "The resource remains tracked and may still incur charges. Open this deployment; deployment destroy requires owner HTTP confirmation and a device signature."
+		}
+		return "The resource remains tracked and may still incur charges. Open the linked service for health and lifecycle status; destruction requires owner HTTP confirmation and a device signature."
+	}
+	return "Monitor this deployment in Workloads and wait for independent cloud observation before treating it as created or ready."
+}
+
+func cloudDialogueServiceNextStep(service Service) string {
+	switch service.Status {
+	case "destroyed":
+		return "The service is destroyed; use the deployment resource status to confirm cloud read-back completed."
+	case "destroying":
+		return "Monitor destruction until the deployment resource status is verified_destroyed."
+	case "awaiting_management_acceptance":
+		return "Open this service in the client to review management acceptance. Acceptance requires owner HTTP confirmation and a device signature."
+	case "degraded":
+		return "Open this service in the client to inspect health and alerts. Start, stop, restart, or destroy actions require owner HTTP confirmation and a device signature."
+	case "active", "stopped", "experimental":
+		return "Open this service in the client for health, pairing, and lifecycle controls. Any lifecycle or destroy action requires owner HTTP confirmation and a device signature."
+	default:
+		return "Open this service in the client and refresh its authoritative status before taking any action."
+	}
 }
 
 func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
+	serviceByDeployment := make(map[string]string, len(snapshot.services))
+	for _, service := range snapshot.services {
+		if service.DeploymentID != "" && service.ServiceID != "" {
+			serviceByDeployment[service.DeploymentID] = service.ServiceID
+		}
+	}
+	deploymentByID := make(map[string]Deployment, len(snapshot.deployments))
+	for _, deployment := range snapshot.deployments {
+		deploymentByID[deployment.DeploymentID] = deployment
+	}
 	goals := make([]cloudDialogueGoalStatus, 0, len(snapshot.goals))
 	for _, goal := range snapshot.goals {
 		goals = append(goals, cloudDialogueGoalStatus{
 			GoalID: goal.GoalID, PlanID: goal.PlanID, Status: goal.Status,
+			ClientDeepLink: cloudDialoguePlanDeepLink(goal.PlanID), NextStep: cloudDialoguePlanNextStep(PlanStatusResearching),
 			Revision: goal.Revision, CreatedAt: goal.CreatedAt, UpdatedAt: goal.UpdatedAt,
 		})
 	}
@@ -1406,28 +1674,36 @@ func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 	for _, plan := range snapshot.plans {
 		plans = append(plans, cloudDialoguePlanStatus{
 			PlanID: plan.PlanID, GoalID: plan.GoalID, Status: plan.Status, Title: plan.Title, Summary: plan.Summary,
+			ClientDeepLink: cloudDialoguePlanDeepLink(plan.PlanID), NextStep: cloudDialoguePlanNextStep(plan.Status),
 			Revision: plan.Revision, CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
 		})
 	}
 	jobs := make([]cloudDialogueJobStatus, 0, len(snapshot.jobs))
 	for _, job := range snapshot.jobs {
+		_, hasService := serviceByDeployment[job.DeploymentID]
 		jobs = append(jobs, cloudDialogueJobStatus{
 			JobID: job.JobID, PlanID: job.PlanID, DeploymentID: job.DeploymentID, Kind: job.Kind,
 			Execution: job.Execution, Outcome: job.Outcome, Checkpoint: job.Checkpoint, ErrorCode: job.ErrorCode,
+			ClientDeepLink: cloudDialogueEntityDeepLink(job.PlanID, job.DeploymentID, serviceByDeployment), NextStep: cloudDialogueJobNextStep(job, deploymentByID[job.DeploymentID], hasService),
 			Revision: job.Revision, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
 		})
 	}
 	connections := make([]cloudDialogueConnectionStatus, 0, len(snapshot.connections))
 	for _, connection := range snapshot.connections {
 		connections = append(connections, cloudDialogueConnectionStatus{
-			Status: connection.Status, Revision: connection.Revision, CreatedAt: connection.CreatedAt, UpdatedAt: connection.UpdatedAt,
+			Status: connection.Status, ClientDeepLink: cloudDialogueWorkloadsDeepLink,
+			NextStep: "Open Workloads to review the Cloud Connection. Connection setup and credential bootstrap are dedicated owner client flows, never Agent or MCP actions.",
+			Revision: connection.Revision, CreatedAt: connection.CreatedAt, UpdatedAt: connection.UpdatedAt,
 		})
 	}
 	deployments := make([]cloudDialogueDeploymentStatus, 0, len(snapshot.deployments))
 	for _, deployment := range snapshot.deployments {
+		_, hasService := serviceByDeployment[deployment.DeploymentID]
 		deployments = append(deployments, cloudDialogueDeploymentStatus{
 			DeploymentID: deployment.DeploymentID, PlanID: deployment.PlanID, Execution: deployment.Execution,
-			Outcome: deployment.Outcome, Resource: deployment.Resource, Revision: deployment.Revision,
+			Outcome: deployment.Outcome, Resource: deployment.Resource,
+			ClientDeepLink: cloudDialogueEntityDeepLink(deployment.PlanID, deployment.DeploymentID, serviceByDeployment), NextStep: cloudDialogueDeploymentNextStep(deployment, hasService),
+			Revision:  deployment.Revision,
 			CreatedAt: deployment.CreatedAt, UpdatedAt: deployment.UpdatedAt,
 		})
 	}
@@ -1435,7 +1711,9 @@ func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 	for _, service := range snapshot.services {
 		services = append(services, cloudDialogueServiceStatus{
 			ServiceID: service.ServiceID, DeploymentID: service.DeploymentID, Name: service.Name,
-			Status: service.Status, Integration: service.Integration, Revision: service.Revision,
+			Status: service.Status, Integration: service.Integration,
+			ClientDeepLink: cloudDialogueServiceDeepLink(service.ServiceID), NextStep: cloudDialogueServiceNextStep(service),
+			Revision:  service.Revision,
 			CreatedAt: service.CreatedAt, UpdatedAt: service.UpdatedAt,
 		})
 	}
@@ -1444,12 +1722,15 @@ func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 		alerts = append(alerts, cloudDialogueAlertStatus{
 			AlertID: alert.AlertID, DeploymentID: alert.DeploymentID, ServiceID: alert.ServiceID,
 			Severity: alert.Severity, Code: alert.Code, Acknowledged: alert.Acknowledged,
-			Revision: alert.Revision, CreatedAt: alert.CreatedAt, UpdatedAt: alert.UpdatedAt,
+			ClientDeepLink: cloudDialogueAlertDeepLink(alert, serviceByDeployment),
+			NextStep:       "Open the linked client page to inspect the authoritative status and redacted error. Any lifecycle response requires the owner HTTP client flow and, when applicable, a device signature.",
+			Revision:       alert.Revision, CreatedAt: alert.CreatedAt, UpdatedAt: alert.UpdatedAt,
 		})
 	}
 	return map[string]any{
 		"synced_at": time.Now().UTC().Format(time.RFC3339Nano), "goals": goals, "plans": plans, "jobs": jobs,
 		"connections": connections, "deployments": deployments, "services": services, "alerts": alerts,
+		"workloads_deep_link": cloudDialogueWorkloadsDeepLink, "control_boundary": cloudDialogueControlBoundary,
 	}
 }
 
@@ -1601,7 +1882,11 @@ func (m *Module) bootstrap(ctx context.Context, params map[string]any) (any, *ac
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
-	return cloudBootstrapStatusPayload(snapshot), nil
+	payload := cloudBootstrapStatusPayload(snapshot)
+	payload["capabilities"] = map[string]any{
+		"deployment_create_enabled": m.cfg.DeploymentCreateEnabled,
+	}
+	return payload, nil
 }
 
 func (m *Module) connectionsList(ctx context.Context, params map[string]any) (any, *actionbase.Error) {

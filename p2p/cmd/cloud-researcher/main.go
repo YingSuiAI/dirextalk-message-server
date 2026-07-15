@@ -98,7 +98,15 @@ func run(ctx context.Context, config commandConfig) error {
 	if err != nil {
 		return errConfigInvalid
 	}
-	planner, err := researcher.NewOpenAICompatiblePlanner(researcher.OpenAICompatibleConfig{Endpoint: config.modelEndpoint, Model: config.modelID, APIKey: apiKey})
+	modelPlanner, err := researcher.NewOpenAICompatiblePlanner(researcher.OpenAICompatibleConfig{Endpoint: config.modelEndpoint, Model: config.modelID, APIKey: apiKey})
+	if err != nil {
+		return errConfigInvalid
+	}
+	sourceVerifier, err := researcher.NewGitHubSourceVerifier(nil, time.Now)
+	if err != nil {
+		return errConfigInvalid
+	}
+	planner, err := researcher.NewVerifiedSourcePlanner(modelPlanner, sourceVerifier)
 	if err != nil {
 		return errConfigInvalid
 	}

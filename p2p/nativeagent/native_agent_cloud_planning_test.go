@@ -12,6 +12,8 @@ import (
 type recordingCloudPlanner struct {
 	goal            string
 	connectionID    string
+	recipeID        string
+	recipeRevision  int64
 	idempotencyKeys []string
 	calls           int
 }
@@ -30,7 +32,22 @@ func (r *recordingCloudRecipeReader) ReadCloudRecipes(context.Context) ([]CloudR
 func (r *recordingCloudStatusReader) ReadCloudStatus(context.Context) (map[string]any, error) {
 	r.calls++
 	return map[string]any{
-		"plans": []map[string]any{{"plan_id": "cloud_plan_1", "status": "researching"}},
+		"plans": []map[string]any{{
+			"plan_id": "cloud_plan_1", "status": "approved", "client_deep_link": "/agent/workloads/plans/cloud_plan_1",
+			"next_step": "Monitor provisioning; approval does not prove readiness.",
+		}},
+		"jobs": []map[string]any{{
+			"job_id": "job-destroy-1", "deployment_id": "deployment-1", "kind": "destroy", "execution_status": "finished",
+			"outcome_status": "failed", "checkpoint": "destroy_blocked", "client_deep_link": "/agent/workloads/services/service-1",
+			"next_step": "Tracked resources may still incur charges. Retry requires owner HTTP confirmation and a device signature.",
+		}},
+		"deployments": []map[string]any{{
+			"deployment_id": "deployment-1", "resource_status": "blocked", "client_deep_link": "/agent/workloads/services/service-1",
+		}},
+		"services": []map[string]any{{
+			"service_id": "service-1", "service_status": "degraded", "client_deep_link": "/agent/workloads/services/service-1",
+		}},
+		"control_boundary": "Agent and MCP cannot mutate lifecycle state; owner HTTP confirmation and a device signature are required.",
 	}, nil
 }
 
@@ -53,6 +70,12 @@ func (p *recordingCloudPlanner) CreateResearchGoal(_ context.Context, goal, conn
 			"revision": int64(1),
 		},
 	}, nil
+}
+
+func (p *recordingCloudPlanner) CreateResearchGoalWithRecipe(_ context.Context, goal, connectionID, recipeID string, recipeRevision int64, idempotencyKey string) (map[string]any, error) {
+	p.recipeID = recipeID
+	p.recipeRevision = recipeRevision
+	return p.CreateResearchGoal(context.Background(), goal, connectionID, idempotencyKey)
 }
 
 func TestCloudDeploymentPlanningIdempotencyIsScopedToOneAgentRequest(t *testing.T) {
@@ -146,7 +169,9 @@ func TestCloudDeploymentSkillIsEmbeddedInTheServerSideEinoAgent(t *testing.T) {
 	runtime := New(Config{CloudPlanner: &recordingCloudPlanner{}})
 	prompt := runtime.agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")
 	if strings.TrimSpace(cloudDeploymentPlannerSkillPrompt) == "" || !strings.Contains(prompt, "## Built-in Skill: Cloud Deployment Planner") ||
-		!strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) || !strings.Contains(prompt, nativeAgentCloudStatusTool) || !strings.Contains(prompt, nativeAgentCloudRecipesTool) || !strings.Contains(prompt, "secret slots") {
+		!strings.Contains(prompt, nativeAgentCloudDeploymentPlanTool) || !strings.Contains(prompt, nativeAgentCloudStatusTool) || !strings.Contains(prompt, nativeAgentCloudRecipesTool) ||
+		!strings.Contains(prompt, "secret slots") || !strings.Contains(prompt, "client_deep_link") || !strings.Contains(prompt, "owner HTTP") ||
+		!strings.Contains(prompt, "device signature") || !strings.Contains(prompt, "milestone card") {
 		t.Fatalf("server-side Eino cloud skill prompt = %q", prompt)
 	}
 	withoutPlanner := New(Config{}).agentSystemPrompt(context.Background(), map[string]any{}, map[string]any{}, "")
@@ -269,6 +294,39 @@ func TestCloudDialoguePlanningBindsTheClientSelectedConnection(t *testing.T) {
 	}
 	if planner.calls != 1 {
 		t.Fatalf("unselected cloud dialogue reached planner, calls=%d", planner.calls)
+	}
+}
+
+func TestCloudDialoguePlanningBindsTheClientSelectedRecipe(t *testing.T) {
+	planner := &recordingCloudPlanner{}
+	runtime := New(Config{CloudPlanner: planner})
+	planningTool, ok := nativeToolByName(runtime.enabledTools(context.Background(), nil, map[string]any{"cloud_dialogue_mode": true}), nativeAgentCloudDeploymentPlanTool)
+	if !ok {
+		t.Fatal("cloud dialogue planning tool must be available")
+	}
+
+	ctx, err := prepareCloudDialogueRequest(context.Background(), map[string]any{
+		nativeAgentCloudDialogueModeParam:   true,
+		nativeAgentCloudConnectionIDParam:   "connection-selected-by-client",
+		nativeAgentCloudRecipeIDParam:       "recipe-private-1",
+		nativeAgentCloudRecipeRevisionParam: int64(7),
+	})
+	if err != nil {
+		t.Fatalf("prepare selected Cloud Recipe: %v", err)
+	}
+	if _, err := planningTool.Handler(ctx, map[string]any{"goal": "Deploy the selected private Recipe."}); err != nil {
+		t.Fatalf("create with selected Cloud Recipe: %v", err)
+	}
+	if planner.calls != 1 || planner.connectionID != "connection-selected-by-client" || planner.recipeID != "recipe-private-1" || planner.recipeRevision != 7 {
+		t.Fatalf("planner must receive the immutable client-selected Recipe, got %#v", planner)
+	}
+
+	if _, err := prepareCloudDialogueRequest(context.Background(), map[string]any{
+		nativeAgentCloudDialogueModeParam: true,
+		nativeAgentCloudConnectionIDParam: "connection-selected-by-client",
+		nativeAgentCloudRecipeIDParam:     "recipe-private-1",
+	}); err == nil {
+		t.Fatal("cloud dialogue accepted a Recipe without its current revision")
 	}
 }
 

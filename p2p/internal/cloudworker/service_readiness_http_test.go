@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -30,8 +32,8 @@ func TestServiceReadinessLoopReplaysTheExactChallengeBoundEventAfterResponseLoss
 	task := ServiceReadinessTaskV1{
 		Schema: ServiceReadinessTaskV1Schema, TaskID: "readiness-task-0001", ExecutionID: "execution-ready-0001",
 		DeploymentID: "deployment-v2-0001", ServiceID: "service-ready-0001", ProbeKind: ServiceReadinessProbeKind,
-		RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'),
-		SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1, LastSequence: 0,
+		RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), ArtifactDigest: recipeDigest('c'),
+		SemanticProbe: testSemanticReadinessProbe(), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1, LastSequence: 0,
 	}
 	var (
 		mu         sync.Mutex
@@ -105,8 +107,8 @@ func TestServiceReadinessLoopReplaysTheExactChallengeBoundEventAfterResponseLoss
 	if claimCalls != 2 || len(eventRaw) != 2 || !bytes.Equal(eventRaw[0], eventRaw[1]) {
 		t.Fatalf("flow = claims:%d event bodies equal:%t (%d)", claimCalls, len(eventRaw) == 2 && bytes.Equal(eventRaw[0], eventRaw[1]), len(eventRaw))
 	}
-	if !reflect.DeepEqual(probe.urls, []string{fixedprobe.ReadinessURL}) {
-		t.Fatalf("probe URLs = %#v", probe.urls)
+	if !reflect.DeepEqual(probe.probes, []ServiceReadinessProbeV1{task.SemanticProbe}) {
+		t.Fatalf("semantic probes = %#v", probe.probes)
 	}
 	event, err := ParseServiceReadinessTaskEventV1(eventRaw[0], task, challenge, 7)
 	if err != nil || event.Status != ServiceReadinessTaskSucceeded || event.ChallengeDigest == nil || *event.ChallengeDigest != challenge.ChallengeDigest ||
@@ -122,7 +124,7 @@ func TestServiceReadinessProtocolRejectsUnboundOrSelectableClaims(t *testing.T) 
 	challengeBytes := bytes.Repeat([]byte{0x21}, 32)
 	challenge := ServiceReadinessChallengeV1{Schema: ServiceReadinessChallengeV1Schema, ChallengeBase64: base64.StdEncoding.EncodeToString(challengeBytes), ChallengeDigest: namedSHA256(challengeBytes), ExpiresAt: canonicalInstant(now.Add(time.Minute))}
 	task := ServiceReadinessTaskV1{Schema: ServiceReadinessTaskV1Schema, TaskID: "readiness-task-0001", ExecutionID: "execution-ready-0001", DeploymentID: manifest.DeploymentID,
-		ServiceID: "service-ready-0001", ProbeKind: ServiceReadinessProbeKind, RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1}
+		ServiceID: "service-ready-0001", ProbeKind: ServiceReadinessProbeKind, RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), ArtifactDigest: recipeDigest('c'), SemanticProbe: testSemanticReadinessProbe(), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1}
 
 	tests := []struct {
 		name   string
@@ -165,7 +167,7 @@ func TestServiceReadinessLoopReportsOnlyAFixedFailureCode(t *testing.T) {
 	if err := loop.ProcessOne(context.Background()); err != nil {
 		t.Fatalf("ProcessOne() error = %v", err)
 	}
-	if transport.status != ServiceReadinessTaskFailed || transport.errorCode != "fixed_probe_not_ready" {
+	if transport.status != ServiceReadinessTaskFailed || transport.errorCode != "semantic_probe_not_ready" {
 		t.Fatalf("report = (%q, %q)", transport.status, transport.errorCode)
 	}
 	if bytes.Contains([]byte(transport.errorCode), []byte("sensitive")) {
@@ -181,6 +183,31 @@ func TestFixedReadinessEvidenceDigestIsTheExactBodySHA256(t *testing.T) {
 	}
 }
 
+func TestLocalServiceReadinessProbeExecutesCatalogBoundSemanticContract(t *testing.T) {
+	body := []byte(`{"service":"openclaw","ready":true}`)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/openclaw/semantic" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = writer.Write(body)
+	}))
+	defer server.Close()
+	endpoint, _ := url.Parse(server.URL)
+	_, portText, _ := net.SplitHostPort(endpoint.Host)
+	port, _ := strconv.Atoi(portText)
+	sum := sha256.Sum256(body)
+	contract := ServiceReadinessProbeV1{Scheme: "http", Port: uint16(port), Path: "/openclaw/semantic", ExpectedStatus: http.StatusAccepted, BodySHA256: "sha256:" + hex.EncodeToString(sum[:])}
+	if err := NewLocalServiceReadinessProbe().CheckLoopback(context.Background(), contract); err != nil {
+		t.Fatalf("typed semantic readiness failed: %v", err)
+	}
+	contract.BodySHA256 = recipeDigest('f')
+	if err := NewLocalServiceReadinessProbe().CheckLoopback(context.Background(), contract); err == nil {
+		t.Fatal("typed semantic readiness accepted a drifting response body")
+	}
+}
+
 func TestServiceReadinessClaimAndReceiptBindTheExactLease(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	endpoint, _ := url.Parse("https://worker.example/v2/worker-sessions")
@@ -188,7 +215,7 @@ func TestServiceReadinessClaimAndReceiptBindTheExactLease(t *testing.T) {
 	challengeBytes := bytes.Repeat([]byte{0x31}, 32)
 	challenge := ServiceReadinessChallengeV1{Schema: ServiceReadinessChallengeV1Schema, ChallengeBase64: base64.StdEncoding.EncodeToString(challengeBytes), ChallengeDigest: namedSHA256(challengeBytes), ExpiresAt: canonicalInstant(now.Add(time.Minute))}
 	task := ServiceReadinessTaskV1{Schema: ServiceReadinessTaskV1Schema, TaskID: "readiness-task-0001", ExecutionID: "execution-ready-0001", DeploymentID: manifest.DeploymentID, ServiceID: "service-ready-0001", ProbeKind: ServiceReadinessProbeKind,
-		RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1}
+		RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), ArtifactDigest: recipeDigest('c'), SemanticProbe: testSemanticReadinessProbe(), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1}
 	claimRaw, _ := json.Marshal(ServiceReadinessTaskClaimResponseV1{Schema: ServiceReadinessTaskClaimResponseV1Schema, Status: "claimed", LeaseEpoch: 8, Task: &task, Challenge: &challenge})
 	if _, err := ParseServiceReadinessTaskClaimResponseV1(claimRaw, manifest, 7, now); err == nil {
 		t.Fatal("claim response from another lease was accepted")
@@ -219,12 +246,12 @@ func TestServiceReadinessPendingEventYieldsToANewerSessionLease(t *testing.T) {
 }
 
 type readinessProbeRecorder struct {
-	urls []string
-	err  error
+	probes []ServiceReadinessProbeV1
+	err    error
 }
 
-func (probe *readinessProbeRecorder) CheckLoopback(_ context.Context, target string) error {
-	probe.urls = append(probe.urls, target)
+func (probe *readinessProbeRecorder) CheckLoopback(_ context.Context, target ServiceReadinessProbeV1) error {
+	probe.probes = append(probe.probes, target)
 	return probe.err
 }
 
@@ -249,6 +276,10 @@ func testClaimedReadinessTask() ClaimedServiceReadinessTask {
 	challengeBytes := bytes.Repeat([]byte{0x61}, 32)
 	return ClaimedServiceReadinessTask{Epoch: 1,
 		Task: ServiceReadinessTaskV1{Schema: ServiceReadinessTaskV1Schema, TaskID: "readiness-task-0001", ExecutionID: "execution-ready-0001", DeploymentID: "deployment-v2-0001", ServiceID: "service-ready-0001", ProbeKind: ServiceReadinessProbeKind,
-			RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1},
+			RecipeExecutionManifestDigest: recipeDigest('a'), InstallEvidenceDigest: recipeDigest('b'), ArtifactDigest: recipeDigest('c'), SemanticProbe: testSemanticReadinessProbe(), SemanticExpectationDigest: FixedReadinessEvidenceDigest(), Attempt: 1},
 		Challenge: ServiceReadinessChallengeV1{Schema: ServiceReadinessChallengeV1Schema, ChallengeBase64: base64.StdEncoding.EncodeToString(challengeBytes), ChallengeDigest: namedSHA256(challengeBytes), ExpiresAt: canonicalInstant(time.Now().UTC().Add(time.Minute))}}
+}
+
+func testSemanticReadinessProbe() ServiceReadinessProbeV1 {
+	return ServiceReadinessProbeV1{Scheme: "http", Port: 18080, Path: "/ready", ExpectedStatus: 200, BodySHA256: FixedReadinessEvidenceDigest()}
 }

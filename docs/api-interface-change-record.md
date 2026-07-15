@@ -2,6 +2,79 @@
 
 Last updated: 2026-07-15
 
+## 2026-07-15 First-validation Cloud artifact and recovery closure
+
+The internal Connection Stack contract now has a signed `artifact.put`
+prepare/complete flow for dynamic Recipe artifacts. Completion binds and
+read-backs the exact versioned S3 `versionId`, archive checksum, size, media
+type and KMS encryption before the Stack records `verified`; later reads remain
+version-pinned. This is an internal Orchestrator/Stack/Worker contract and adds
+no ProductCore, Agent or public MCP artifact-write action.
+
+Go-only Worker archive and AMI builders now validate a uniquely versioned
+prerelease artifact, measured Worker/catalog digests, a digest-pinned OCI
+source, private networking, IMDSv2 and encrypted image/snapshot read-back. The
+compiler-owned OCI runtime profile carries typed entrypoint/argv, run-as,
+bounded tmpfs, storage and secret-environment bindings; OpenClaw and Hermes are
+contract fixtures only. The unique local validation artifact
+`v1.1.0-cloud-mvp.20260715.1` has been built and its pinned OpenClaw health
+contract exercised; it has not been registered in S3, assembled into a dynamic
+AMI or deployed in the real test account. Release/deployer scripts are not part
+of this path.
+
+`cloud.deployments.pairing.resume` is now an owner-authenticated HTTP-only
+two-phase transition. Without `approval` it prepares a five-minute challenge
+for the exact `waiting_user_pairing` Deployment revision; with the registered
+device signature it atomically requeues only that Deployment, its existing
+install Job and a private resume intent. It accepts no pairing URL, code or
+secret. Flutter signs the same deterministic payload, validates returned
+revisions and applies the authoritative mutation result before normal realtime
+reconciliation.
+
+Cloud projection recovery now preserves newer Flutter state when a reconnect
+bootstrap races realtime events and refreshes the Cloud projection on cursor or
+entity-revision gaps. The Orchestrator also has a persistent lease/generation-
+fenced Service monitor that survives restart and raises or recovers only its
+own semantic-health degradation. A stateful fake provider exercises approval,
+provision, install, readiness and verified destruction as one durable
+lifecycle; this does not enable real AWS mutation.
+
+Restricted Eino Cloud status results add de-secreted `client_deep_link` and
+deterministic `next_step` guidance for Plan, Job, Deployment, Service and Alert
+state. `destroy_blocked`, `blocked` and `orphaned` guidance says resources may
+still incur charges and directs every retry to the owner HTTP/device-signature
+flow. The optional private Recipe id/revision remains client-bound outside tool
+arguments. Agent and MCP still have no purchase, pairing, lifecycle, secret or
+destroy mutation capability.
+
+Two owner-authenticated HTTP-only actions now prepare and consume a device-
+signed Job cancellation: `cloud.jobs.cancel.plan` and
+`cloud.jobs.cancel.approve`. Only deployment-bound provision/install/verify
+Jobs with pending outcomes are eligible. Cancellation fences private tasks,
+outbox work and late results, publishes `job_canceled`, and moves any
+discovered active resource to `retained_tracked`; it never calls AWS stop or
+destroy.
+
+Two further owner HTTP-only actions cover residual infrastructure when no
+Service exists: `cloud.deployments.destroy.plan` and
+`cloud.deployments.destroy.approve`. The five-minute approval is derived from
+the current private ledger and binds Deployment revision, Plan, Connection,
+resource status, exact EC2/EBS/ENI identifiers and secret refs. It accepts
+`active`, `retained_tracked`, `blocked` and `orphaned`, creates a separate
+destroy Job, and uses the typed `deployment.destroy` Connection Stack
+provider. The Stack accepts the new `deployment_destroy` proof without a
+synthetic `service_id` while preserving the legacy Service-destroy proof. Only
+provider `NotFound` read-back yields `verified_destroyed`; errors remain
+`blocked`, and the original Deployment execution/outcome is preserved.
+
+Flutter signs both contracts with the system approval key, keeps them HTTP-
+only, displays continued-billing/read-back warnings, and exposes residual
+Deployment controls at `/agent/workloads/deployments/:id`. Agent and public
+MCP remain read-only and cannot call either mutation. Real AWS validation is
+blocked on non-root least-privilege credentials and working SSH access to
+`a8.dirextalk.ai`; immediately before any billable create, the owner must
+confirm the latest Region, instance/disk specification and live quote.
+
 ## 2026-07-15 Flutter Device-Signed Deployment Intent
 
 Flutter now consumes the existing owner HTTP-only

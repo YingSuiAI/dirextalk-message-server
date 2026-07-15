@@ -212,6 +212,8 @@ func prepareServiceRestoreClaim(t *testing.T, readiness bool) (time.Time, *p2pst
 		{`INSERT INTO p2p_cloud_outbox(outbox_id,kind,aggregate_type,aggregate_id,payload_json,created_at) VALUES('outbox-restore-runtime-0001','cloud.service.restore.requested','service_restore',$1,'{}',$2)`, []any{target.RestoreID, ts}},
 	}
 	if readiness {
+		semanticProbe := cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 19090, Path: "/knowledge/semantic", ExpectedStatus: 204, BodySHA256: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+		semanticProbeJSON, _ := json.Marshal(semanticProbe)
 		statements = append(statements, []struct {
 			query string
 			args  []any
@@ -219,7 +221,7 @@ func prepareServiceRestoreClaim(t *testing.T, readiness bool) (time.Time, *p2pst
 			{`INSERT INTO p2p_cloud_recipe_execution_manifests(execution_id,deployment_id,plan_id,plan_revision,plan_hash,cloud_connection_id,manifest_digest,manifest_cbor,manifest_json,status,revision,created_at,updated_at) VALUES('execution-restore-runtime-0001',$1,'plan-backup-runtime-0001',4,'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',$2,$3,$4,'{}','approved',1,$5,$5)`, []any{target.DeploymentID, target.CloudConnectionID, target.RecipeDigest, []byte{0xa0}, ts}},
 			{`INSERT INTO p2p_cloud_recipe_install_tasks(execution_id,task_id,deployment_id,plan_id,cloud_connection_id,instance_id,manifest_digest,input_digest,checkpoint_sequence_json,task_status,last_sequence,last_checkpoint,created_at,updated_at) VALUES('execution-restore-runtime-0001','install-task-restore-runtime-0001',$1,'plan-backup-runtime-0001',$2,$3,$4,'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc','[]','succeeded',1,'service_ready',$5,$5)`, []any{target.DeploymentID, target.CloudConnectionID, target.InstanceID, target.RecipeDigest, ts}},
 			{`INSERT INTO p2p_cloud_worker_bootstrap_observations(deployment_id,cloud_connection_id,instance_id,worker_session_state,worker_lease_epoch,worker_lease_expires_at,created_at,updated_at) VALUES($1,$2,$3,'active',1,$4,$5,$5)`, []any{target.DeploymentID, target.CloudConnectionID, target.InstanceID, now.Add(time.Hour).UnixMilli(), ts}},
-			{`INSERT INTO p2p_cloud_service_readiness_tasks(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,semantic_expectation_digest,task_status,purpose,job_id,created_at,updated_at) VALUES('readiness-install-restore-runtime-0001','execution-restore-runtime-0001',$1,$2,$3,$4,$5,$5,$6,'succeeded','install','',$7,$7)`, []any{target.DeploymentID, target.ServiceID, target.CloudConnectionID, target.InstanceID, target.RecipeDigest, cloudcontracts.FixedReadinessEvidenceDigestV1, ts}},
+			{`INSERT INTO p2p_cloud_service_readiness_tasks(task_id,execution_id,deployment_id,service_id,cloud_connection_id,instance_id,recipe_execution_manifest_digest,install_evidence_digest,artifact_digest,semantic_probe_json,semantic_expectation_digest,task_status,purpose,job_id,created_at,updated_at) VALUES('readiness-install-restore-runtime-0001','execution-restore-runtime-0001',$1,$2,$3,$4,$5,$5,$6,$7,$8,'succeeded','install','',$9,$9)`, []any{target.DeploymentID, target.ServiceID, target.CloudConnectionID, target.InstanceID, target.RecipeDigest, "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string(semanticProbeJSON), semanticProbe.BodySHA256, ts}},
 		}...)
 	}
 	for _, statement := range statements {

@@ -58,6 +58,13 @@ type Config struct {
 	// Node public key only; the Ed25519 private key remains mounted solely in
 	// the independent cloud-orchestrator process.
 	CloudConnectionStack CloudConnectionStackConfig
+	// CloudDeploymentCreateEnabled controls only the owner UI capability
+	// projection. The independent Cloud Orchestrator enforces its own
+	// fail-closed execution gate before any AWS mutation.
+	CloudDeploymentCreateEnabled bool
+	// CloudConnectionCredentialBootstrap configures the independent mTLS-only
+	// controller that creates one-time encrypted AWS credential upload sessions.
+	CloudConnectionCredentialBootstrap CloudConnectionCredentialBootstrapConfig
 }
 
 // CloudConnectionStackConfig is the public p2p configuration shape for the
@@ -70,6 +77,14 @@ type CloudConnectionStackConfig struct {
 	NodeKeyID               string
 	NodePublicKeySPKIBase64 string
 	RolePlanTTL             time.Duration
+}
+
+type CloudConnectionCredentialBootstrapConfig struct {
+	Endpoint        string
+	CAFile          string
+	CertificateFile string
+	KeyFile         string
+	Timeout         time.Duration
 }
 
 const (
@@ -779,6 +794,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		PublishEvent: service.appendP2PEvent,
 	})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
+	var credentialBootstrapClient cloudmodule.ConnectionCredentialBootstrapClient
+	credentialConfig := cfg.CloudConnectionCredentialBootstrap
+	if strings.TrimSpace(credentialConfig.Endpoint) != "" || strings.TrimSpace(credentialConfig.CAFile) != "" || strings.TrimSpace(credentialConfig.CertificateFile) != "" || strings.TrimSpace(credentialConfig.KeyFile) != "" {
+		credentialBootstrapClient, _ = cloudmodule.NewConnectionCredentialBootstrapHTTPClient(cloudmodule.ConnectionCredentialBootstrapHTTPConfig{
+			Endpoint: credentialConfig.Endpoint, CAFile: credentialConfig.CAFile, CertificateFile: credentialConfig.CertificateFile,
+			KeyFile: credentialConfig.KeyFile, Timeout: credentialConfig.Timeout,
+		})
+	}
 	service.cloudModule = cloudmodule.New(service.store, cloudmodule.Config{
 		OwnerMXID: func() string {
 			service.mu.Lock()
@@ -792,11 +815,13 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Publish: func(ctx context.Context, eventType, cloudEventID string, payload map[string]any) error {
 			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, DedupeKey: "cloud-event:" + cloudEventID, Payload: payload})
 		},
+		DeploymentCreateEnabled: cfg.CloudDeploymentCreateEnabled,
 		ConnectionStack: cloudmodule.ConnectionStackConfig{
 			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,
 			NodeKeyID: cfg.CloudConnectionStack.NodeKeyID, NodePublicKeySPKIBase64: cfg.CloudConnectionStack.NodePublicKeySPKIBase64,
 			RolePlanTTL: cfg.CloudConnectionStack.RolePlanTTL,
 		},
+		CredentialBootstrapClient: credentialBootstrapClient,
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,

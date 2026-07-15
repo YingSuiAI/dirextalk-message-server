@@ -18,12 +18,13 @@ func TestRecipeTaskManifestDigestGolden(t *testing.T) {
 		ExecutionID:   "execution-recipe-0001", DeploymentID: "deployment-recipe-0001", PlanID: "plan-recipe-0001",
 		PlanHash: namedDigest('1'), PlanRevision: 2, RecipeDigest: namedDigest('2'), WorkerResourceManifestDigest: namedDigest('3'), ArtifactDigest: namedDigest('4'),
 		ActionID: "install_service", RootRequired: true, TimeoutSeconds: 900, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+		SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: namedDigest('6')},
 	}
 	digest, err := manifest.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	const expected = "sha256:bcf144312bae6b7722b27e6b8cc397a720ae2f5b47b275f5b9b2012deeef0514"
+	const expected = "sha256:c09697dc5ab63148622c4e0a4b0a6dc641ef421ee13d8528dbf30e11138d13f5"
 	if digest != expected {
 		t.Fatalf("recipe manifest digest=%q", digest)
 	}
@@ -133,6 +134,7 @@ func testRecipeTaskCommand(t *testing.T, action string) RecipeTaskCommand {
 			ExecutionID:   "execution-recipe-0001", DeploymentID: "deployment-recipe-0001", PlanID: "plan-recipe-0001",
 			PlanHash: namedDigest('1'), PlanRevision: 2, RecipeDigest: namedDigest('2'), WorkerResourceManifestDigest: namedDigest('3'), ArtifactDigest: namedDigest('4'),
 			ActionID: "install_service", RootRequired: true, TimeoutSeconds: 900, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+			SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: namedDigest('6')},
 		}
 		digest, err := manifest.Digest()
 		if err != nil {

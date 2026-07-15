@@ -4,6 +4,17 @@ import "testing"
 
 func TestRuntimeConfigKeepsDeploymentCreateBehindExactExplicitGate(t *testing.T) {
 	setValidRuntimeEnvironment(t)
+	t.Setenv("DIREXTALK_DYNAMIC_ARTIFACTS_ENABLED", "true")
+	if _, err := runtimeConfigFromEnvironment(); err == nil {
+		t.Fatal("dynamic artifacts enabled without isolated resources")
+	}
+	t.Setenv("DIREXTALK_ARTIFACTS_TABLE", "dynamic-artifacts")
+	t.Setenv("DIREXTALK_ARTIFACT_BUCKET", "dynamic-artifacts-bucket")
+	t.Setenv("DIREXTALK_ARTIFACT_KMS_KEY_ID", "arn:aws:kms:us-east-1:123456789012:key/key-0001")
+	if config, err := runtimeConfigFromEnvironment(); err != nil || !config.artifactEnabled {
+		t.Fatalf("dynamic artifact gate=%#v err=%v", config, err)
+	}
+	setValidRuntimeEnvironment(t)
 	t.Setenv("DIREXTALK_SERVICE_SECRETS_ENABLED", "true")
 	if _, err := runtimeConfigFromEnvironment(); err == nil {
 		t.Fatal("service secrets enabled without isolated AWS resources")
@@ -164,6 +175,10 @@ func setValidRuntimeEnvironment(t *testing.T) {
 		"DIREXTALK_SERVICE_SECRETS_ENABLED":             "false",
 		"DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE":       "",
 		"DIREXTALK_SERVICE_SECRET_KMS_KEY_ID":           "",
+		"DIREXTALK_DYNAMIC_ARTIFACTS_ENABLED":           "false",
+		"DIREXTALK_ARTIFACTS_TABLE":                     "",
+		"DIREXTALK_ARTIFACT_BUCKET":                     "",
+		"DIREXTALK_ARTIFACT_KMS_KEY_ID":                 "",
 	}
 	for name, value := range values {
 		t.Setenv(name, value)

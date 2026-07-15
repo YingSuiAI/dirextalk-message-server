@@ -63,10 +63,14 @@ func (s *Store) claimServiceOperationIssue(ctx context.Context, workerID string,
 	if err = decodeRecipeInstallManifest(manifestJSON, &claim.Manifest); err != nil || claim.Manifest.VerifyDigest(claim.ManifestDigest) != nil {
 		return claim, false, errors.New("service operation manifest is invalid")
 	}
+	artifact, artifactErr := lockServiceOperationCompiledArtifact(ctx, tx, claim.Manifest.ArtifactDigest)
+	if artifactErr != nil {
+		return claim, false, artifactErr
+	}
 	claim.Phase = runtime.RecipeInstallPhaseIssue
 	claim.LeaseToken = token
 	claim.IssueRequest = runtime.RecipeInstallIssueRequest{Schema: runtime.RecipeInstallIssueSchema, ExecutionID: claim.ExecutionID, DeploymentID: claim.DeploymentID, TaskID: claim.TaskID, TaskKind: "recipe_execution", RecipeExecutionManifestDigest: claim.ManifestDigest, InputDigest: claim.InputDigest, CheckpointSequence: append([]string(nil), claim.Manifest.CheckpointSequence...), Manifest: claim.Manifest}
-	if err = validateServiceOperationManifest(claim.Manifest, operation); err != nil {
+	if err = validateServiceOperationManifest(claim.Manifest, operation, artifact); err != nil {
 		return claim, false, err
 	}
 	r, err := tx.ExecContext(ctx, `UPDATE p2p_cloud_outbox SET lease_owner=$1,lease_token=$2,lease_until=$3,attempts=attempts+1,last_error_code='' WHERE outbox_id=$4 AND completed_at=0 AND lease_until<=$5`, workerID, token, now+lease.Milliseconds(), claim.OutboxID, now)
@@ -122,7 +126,11 @@ func (s *Store) claimServiceOperationObserve(ctx context.Context, workerID strin
 	if err != nil {
 		return claim, false, err
 	}
-	if err = decodeRecipeInstallManifest(manifestJSON, &claim.Manifest); err != nil || claim.Manifest.VerifyDigest(claim.ManifestDigest) != nil || validateServiceOperationManifest(claim.Manifest, operation) != nil {
+	if err = decodeRecipeInstallManifest(manifestJSON, &claim.Manifest); err != nil || claim.Manifest.VerifyDigest(claim.ManifestDigest) != nil {
+		return claim, false, errors.New("service operation manifest is invalid")
+	}
+	artifact, artifactErr := lockServiceOperationCompiledArtifact(ctx, tx, claim.Manifest.ArtifactDigest)
+	if artifactErr != nil || validateServiceOperationManifest(claim.Manifest, operation, artifact) != nil {
 		return claim, false, errors.New("service operation manifest is invalid")
 	}
 	claim.Phase = runtime.RecipeInstallPhaseObserve
@@ -144,15 +152,44 @@ func (s *Store) claimServiceOperationObserve(ctx context.Context, workerID strin
 	return claim, true, nil
 }
 
-func validateServiceOperationManifest(manifest cloudcontracts.RecipeExecutionManifestV1, operation string) error {
-	if manifest.ArtifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || !manifest.RootRequired {
+func lockServiceOperationCompiledArtifact(ctx context.Context, tx *sql.Tx, artifactDigest string) (cloudcontracts.CompiledRecipeArtifactV1, error) {
+	var descriptorJSON string
+	if err := tx.QueryRowContext(ctx, `SELECT descriptor_json FROM p2p_cloud_recipe_artifacts WHERE artifact_digest=$1 AND status='verified' FOR UPDATE`, artifactDigest).Scan(&descriptorJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cloudcontracts.CompiledRecipeArtifactV1{}, errors.New("service operation artifact is not registered")
+		}
+		return cloudcontracts.CompiledRecipeArtifactV1{}, err
+	}
+	artifact, err := cloudcontracts.ParseCompiledRecipeArtifactV1([]byte(descriptorJSON))
+	if err != nil {
+		return cloudcontracts.CompiledRecipeArtifactV1{}, errors.New("service operation artifact is invalid")
+	}
+	return artifact, nil
+}
+
+func validateServiceOperationManifest(manifest cloudcontracts.RecipeExecutionManifestV1, operation string, artifact cloudcontracts.CompiledRecipeArtifactV1) error {
+	kind := map[string]cloudcontracts.CompiledRecipeActionKind{"start": cloudcontracts.CompiledRecipeActionStart, "stop": cloudcontracts.CompiledRecipeActionStop, "restart": cloudcontracts.CompiledRecipeActionRestart}[operation]
+	if kind == "" || artifact.Validate() != nil || manifest.ArtifactDigest != artifact.ArtifactDigest || manifest.RecipeDigest != artifact.RecipeDigest || manifest.WorkerResourceManifestDigest != artifact.WorkerResourceManifestDigest || !manifest.RootRequired {
 		return errors.New("service operation artifact is not managed")
 	}
-	want := map[string]string{"start": cloudcontracts.FixedProbeStartActionID, "stop": cloudcontracts.FixedProbeStopActionID, "restart": cloudcontracts.FixedProbeRestartActionID}[operation]
-	if want != "" && manifest.ActionID == want {
-		return nil
+	for _, action := range artifact.Actions {
+		if action.Kind == kind && action.RootRequired && manifest.ActionID == action.ActionID && manifest.TimeoutSeconds == action.TimeoutSeconds && sameServiceOperationCheckpoints(manifest.CheckpointSequence, action.CheckpointSequence) {
+			return nil
+		}
 	}
 	return errors.New("service operation action is not managed")
+}
+
+func sameServiceOperationCheckpoints(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) PersistServiceOperationCommand(ctx context.Context, claim runtime.RecipeInstallClaim, signed runtime.SignedRecipeInstallCommand) error {

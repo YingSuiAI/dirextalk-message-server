@@ -54,14 +54,17 @@ type CompiledRecipeArtifactV1 struct {
 	Requirements                  ResourceRequirementsV1          `json:"requirements"`
 	WorkerResourceManifestDigest  string                          `json:"worker_resource_manifest_digest"`
 	ArtifactDigest                string                          `json:"artifact_digest"`
+	ImageSource                   OCIImageSourceReferenceV1       `json:"image_source"`
 	MediaType                     string                          `json:"media_type"`
 	SizeBytes                     uint64                          `json:"size_bytes"`
 	Actions                       []CompiledRecipeActionV1        `json:"actions"`
+	SemanticReadiness             OCIServiceLoopbackProbeV1       `json:"semantic_readiness"`
 	HealthContractDigest          string                          `json:"health_contract_digest"`
 	LifecycleContractDigest       string                          `json:"lifecycle_contract_digest"`
 	VolumeSlots                   []RecipeVolumeSlotRequirementV1 `json:"volume_slots"`
 	DataSlots                     []RecipeDataSlotRequirementV1   `json:"data_slots"`
 	SecretSlots                   []RecipeSecretSlotRequirementV1 `json:"secret_slots"`
+	RuntimeProfile                *OCIServiceRuntimeProfileV1     `json:"runtime_profile,omitempty"`
 }
 
 var (
@@ -89,6 +92,10 @@ func (artifact CompiledRecipeArtifactV1) Validate() error {
 	}
 	if artifact.RecipeRevision == 0 || artifact.SizeBytes == 0 || artifact.SizeBytes > 1<<40 {
 		return errors.New("compiled recipe artifact revision or size is invalid")
+	}
+	pinnedDigest, sourceErr := artifact.ImageSource.PinnedDigest()
+	if sourceErr != nil || pinnedDigest != artifact.ArtifactDigest {
+		return errors.New("compiled recipe artifact image source is invalid")
 	}
 	if artifact.Architecture != ArchitectureAMD64 && artifact.Architecture != ArchitectureARM64 {
 		return errors.New("compiled recipe artifact architecture is invalid")
@@ -128,8 +135,14 @@ func (artifact CompiledRecipeArtifactV1) Validate() error {
 		}
 		seenKinds[action.Kind], seenActions[action.ActionID] = struct{}{}, struct{}{}
 	}
+	if artifact.SemanticReadiness.Validate() != nil {
+		return errors.New("compiled recipe artifact semantic readiness is invalid")
+	}
 	if err := validateCompiledRecipeSlots(artifact); err != nil {
 		return err
+	}
+	if artifact.RuntimeProfile != nil && artifact.RuntimeProfile.Validate() != nil {
+		return errors.New("compiled recipe artifact runtime profile is invalid")
 	}
 	return nil
 }
@@ -172,11 +185,21 @@ func LifecycleContractDigestV1(contract LifecycleContractV1) (string, error) {
 }
 
 func ParseCompiledRecipeArtifactV1(raw []byte) (CompiledRecipeArtifactV1, error) {
-	top, err := compiledRecipeExactObject(raw, []string{"schema_version", "recipe_id", "recipe_digest", "recipe_revision", "official_source_artifact_digests", "architecture", "requirements", "worker_resource_manifest_digest", "artifact_digest", "media_type", "size_bytes", "actions", "health_contract_digest", "lifecycle_contract_digest", "volume_slots", "data_slots", "secret_slots"})
+	fields := []string{"schema_version", "recipe_id", "recipe_digest", "recipe_revision", "official_source_artifact_digests", "architecture", "requirements", "worker_resource_manifest_digest", "artifact_digest", "image_source", "media_type", "size_bytes", "actions", "semantic_readiness", "health_contract_digest", "lifecycle_contract_digest", "volume_slots", "data_slots", "secret_slots"}
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &present); err == nil {
+		if _, ok := present["runtime_profile"]; ok {
+			fields = append(fields, "runtime_profile")
+		}
+	}
+	top, err := compiledRecipeExactObject(raw, fields)
 	if err != nil {
 		return CompiledRecipeArtifactV1{}, err
 	}
 	if err := compiledRecipeExactArray(top["actions"], []string{"kind", "action_id", "root_required", "timeout_seconds", "checkpoint_sequence"}); err != nil {
+		return CompiledRecipeArtifactV1{}, err
+	}
+	if _, err := compiledRecipeExactObject(top["semantic_readiness"], []string{"scheme", "port", "path", "expected_status", "body_sha256"}); err != nil {
 		return CompiledRecipeArtifactV1{}, err
 	}
 	var requirementValues map[string]json.RawMessage
@@ -199,6 +222,9 @@ func ParseCompiledRecipeArtifactV1(raw []byte) (CompiledRecipeArtifactV1, error)
 		if err := compiledRecipeExactArray(top[field], fields); err != nil {
 			return CompiledRecipeArtifactV1{}, err
 		}
+	}
+	if value, ok := top["runtime_profile"]; ok && validateOCIServiceRuntimeProfileJSON(value) != nil {
+		return CompiledRecipeArtifactV1{}, errors.New("compiled recipe artifact runtime profile is invalid")
 	}
 	var artifact CompiledRecipeArtifactV1
 	if err := json.Unmarshal(raw, &artifact); err != nil || artifact.Validate() != nil {
@@ -227,6 +253,7 @@ func normalizeCompiledRecipeArtifact(artifact CompiledRecipeArtifactV1) Compiled
 	sort.Slice(normalized.DataSlots, func(i, j int) bool { return normalized.DataSlots[i].SlotID < normalized.DataSlots[j].SlotID })
 	normalized.SecretSlots = append([]RecipeSecretSlotRequirementV1{}, artifact.SecretSlots...)
 	sort.Slice(normalized.SecretSlots, func(i, j int) bool { return normalized.SecretSlots[i].SlotID < normalized.SecretSlots[j].SlotID })
+	normalized.RuntimeProfile, _ = NormalizeOCIServiceRuntimeProfileV1(artifact.RuntimeProfile)
 	return normalized
 }
 

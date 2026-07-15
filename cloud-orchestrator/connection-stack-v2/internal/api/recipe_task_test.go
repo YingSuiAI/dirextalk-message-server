@@ -26,7 +26,7 @@ func TestRecipeTaskSignedIssueClaimProgressReplayAndObserve(t *testing.T) {
 	token := "worker-token-0000000000000000000000000001"
 	tokenDigest := sha256.Sum256([]byte(token))
 	workerManifestDigest := "sha256:" + strings.Repeat("3", 64)
-	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: hex.EncodeToString(tokenDigest[:])}
+	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ArtifactManifestDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: hex.EncodeToString(tokenDigest[:])}
 	store.workerSessions[session.BootstrapSessionID] = session
 	store.deployments["connection-0001\x00deployment-0001"] = commandstore.DeploymentReservation{ConnectionID: "connection-0001", DeploymentID: "deployment-0001", BootstrapSessionID: session.BootstrapSessionID, State: "finalized", WorkerSession: session, PlanHash: "sha256:" + strings.Repeat("1", 64), RecipeDigest: "sha256:" + strings.Repeat("2", 64), SecretScope: []commandstore.ApprovedSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}}
 	now := time.Date(2026, 7, 15, 1, 3, 0, 0, time.UTC)
@@ -150,7 +150,7 @@ func scopedRecipeTaskBroker(t *testing.T) (Broker, *memoryCommandStore, *memoryR
 	store := newMemoryCommandStore()
 	recipes := &memoryRecipeTaskStore{tasks: map[string]commandstore.RecipeTaskRecord{}, receipts: store}
 	workerManifestDigest := "sha256:" + strings.Repeat("3", 64)
-	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: strings.Repeat("a", 64)}
+	session := commandstore.WorkerSession{BootstrapSessionID: "bootstrap-session-0001", ConnectionID: "connection-0001", DeploymentID: "deployment-0001", WorkerImageDigest: workerManifestDigest, ArtifactManifestDigest: workerManifestDigest, ExpectedInstanceID: "i-0123456789abcdef0", State: "active", LeaseEpoch: 1, LeaseExpiresAt: "2026-07-15T01:07:03.000Z", TokenSHA256: strings.Repeat("a", 64)}
 	store.workerSessions[session.BootstrapSessionID] = session
 	store.deployments["connection-0001\x00deployment-0001"] = commandstore.DeploymentReservation{ConnectionID: session.ConnectionID, DeploymentID: session.DeploymentID, BootstrapSessionID: session.BootstrapSessionID, State: "finalized", WorkerSession: session, PlanHash: "sha256:" + strings.Repeat("1", 64), RecipeDigest: "sha256:" + strings.Repeat("2", 64), SecretScope: []commandstore.ApprovedSecretReference{{SecretRef: "secret_ref:model-token-001", Purpose: "model inference", Delivery: "environment"}}}
 	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: session.ConnectionID, NodeKeyID: "node-key-01", Generation: 1, PublicKey: publicKey}, Store: store, DeploymentStore: store, DeploymentEnabled: true, RecipeTasks: recipes, Now: func() time.Time { return time.Date(2026, 7, 15, 1, 3, 0, 0, time.UTC) }}

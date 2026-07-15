@@ -300,7 +300,7 @@ func (c Command) SignatureBase() (string, error) {
 			return "", err
 		}
 		var err error
-		proofDigest, err = c.ServiceDestroyApprovalPayloadSHA256()
+		proofDigest, err = c.DestroyApprovalPayloadSHA256()
 		if err != nil {
 			return "", err
 		}

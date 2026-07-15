@@ -10,6 +10,7 @@ import (
 	"time"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
+	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 	ServiceReadinessIssueAction   = "worker.service_readiness.issue"
 	ServiceReadinessObserveAction = "worker.service_readiness.observe"
 	ServiceReadinessIssueSchema   = "dirextalk.service-readiness-task-issue/v1"
-	ServiceReadinessProbeKind     = "stack_witnessed_fixed_worker_probe_v1"
+	ServiceReadinessProbeKind     = "stack_witnessed_oci_semantic_probe_v1"
 
 	ServiceReadinessChallengeIssued = "challenge_issued"
 	ServiceReadinessVerified        = "readiness_verified"
@@ -31,15 +32,17 @@ const (
 // identifies a compiled probe known to the Worker image; it is not Worker
 // supplied output.
 type ServiceReadinessIssueRequest struct {
-	Schema                        string `json:"schema"`
-	ExecutionID                   string `json:"execution_id"`
-	DeploymentID                  string `json:"deployment_id"`
-	ServiceID                     string `json:"service_id"`
-	TaskID                        string `json:"task_id"`
-	ProbeKind                     string `json:"probe_kind"`
-	RecipeExecutionManifestDigest string `json:"recipe_execution_manifest_digest"`
-	InstallEvidenceDigest         string `json:"install_evidence_digest"`
-	SemanticExpectationDigest     string `json:"semantic_expectation_digest"`
+	Schema                        string                                   `json:"schema"`
+	ExecutionID                   string                                   `json:"execution_id"`
+	DeploymentID                  string                                   `json:"deployment_id"`
+	ServiceID                     string                                   `json:"service_id"`
+	TaskID                        string                                   `json:"task_id"`
+	ProbeKind                     string                                   `json:"probe_kind"`
+	RecipeExecutionManifestDigest string                                   `json:"recipe_execution_manifest_digest"`
+	InstallEvidenceDigest         string                                   `json:"install_evidence_digest"`
+	ArtifactDigest                string                                   `json:"artifact_digest"`
+	SemanticProbe                 cloudcontracts.OCIServiceLoopbackProbeV1 `json:"semantic_probe"`
+	SemanticExpectationDigest     string                                   `json:"semantic_expectation_digest"`
 }
 
 func (r ServiceReadinessIssueRequest) Validate() error {
@@ -48,7 +51,8 @@ func (r ServiceReadinessIssueRequest) Validate() error {
 		!validResearchIdentifier("task_id", r.TaskID) || r.ProbeKind != ServiceReadinessProbeKind ||
 		!deploymentDigestPattern.MatchString(r.RecipeExecutionManifestDigest) ||
 		!deploymentDigestPattern.MatchString(r.InstallEvidenceDigest) ||
-		!deploymentDigestPattern.MatchString(r.SemanticExpectationDigest) {
+		!deploymentDigestPattern.MatchString(r.ArtifactDigest) || r.SemanticProbe.Validate() != nil ||
+		!deploymentDigestPattern.MatchString(r.SemanticExpectationDigest) || r.SemanticExpectationDigest != r.SemanticProbe.BodySHA256 {
 		return errors.New("service readiness issue request is invalid")
 	}
 	return nil
@@ -115,8 +119,13 @@ type ServiceReadinessClaim struct {
 	Phase, OutboxID, Kind, AggregateType, AggregateID, LeaseToken                  string
 	ExecutionID, DeploymentID, ServiceID, ConnectionID, Region, InstanceID, TaskID string
 	Purpose, RestoreID, JobID                                                      string
-	BrokerEndpoint, NodeKeyID, SemanticExpectationDigest                           string
+	BrokerEndpoint, NodeKeyID, ArtifactDigest, SemanticExpectationDigest           string
+	RecipeExecutionManifestDigest, InstallEvidenceDigest                           string
+	SemanticProbe                                                                  cloudcontracts.OCIServiceLoopbackProbeV1
 	ExpectedGeneration, TaskAttempt                                                int64
+	MonitorGeneration, MonitorServiceRevision, MonitorDeploymentRevision           int64
+	MonitorResourceStatus                                                          string
+	WorkerLeaseEpoch                                                               int64
 	Command                                                                        ServiceReadinessCommand
 	IssueRequest                                                                   ServiceReadinessIssueRequest
 	ObserveRequest                                                                 ServiceReadinessObserveRequest
@@ -160,11 +169,16 @@ func ValidateServiceReadinessClaim(c ServiceReadinessClaim) error {
 		!validResearchIdentifier("service_id", c.ServiceID) || !validResearchIdentifier("task_id", c.TaskID) ||
 		!validResearchIdentifier("cloud_connection_id", c.ConnectionID) || !cloudRegion(c.Region) ||
 		!ec2InstanceIDPattern.MatchString(c.InstanceID) || !cloudKeyIdentifier(c.NodeKeyID) ||
-		!deploymentDigestPattern.MatchString(c.SemanticExpectationDigest) ||
+		!deploymentDigestPattern.MatchString(c.RecipeExecutionManifestDigest) || !deploymentDigestPattern.MatchString(c.InstallEvidenceDigest) ||
+		!deploymentDigestPattern.MatchString(c.ArtifactDigest) || c.SemanticProbe.Validate() != nil ||
+		!deploymentDigestPattern.MatchString(c.SemanticExpectationDigest) || c.SemanticExpectationDigest != c.SemanticProbe.BodySHA256 ||
 		cloudmodule.ValidateConnectionRegistrationEndpoint(c.BrokerEndpoint, c.Region) != nil {
 		return errors.New("service readiness claim is invalid")
 	}
-	if c.JobID == "" || (c.Purpose != "install" && c.Purpose != "restore") || (c.Purpose == "install" && c.RestoreID != "") || (c.Purpose == "restore" && !validResearchIdentifier("restore_id", c.RestoreID)) {
+	installPurpose := c.Purpose == "install" && c.RestoreID == "" && c.JobID != "" && c.MonitorGeneration == 0 && c.MonitorServiceRevision == 0 && c.MonitorDeploymentRevision == 0 && c.MonitorResourceStatus == "" && c.WorkerLeaseEpoch == 0
+	restorePurpose := c.Purpose == "restore" && validResearchIdentifier("restore_id", c.RestoreID) && c.JobID != "" && c.MonitorGeneration == 0 && c.MonitorServiceRevision == 0 && c.MonitorDeploymentRevision == 0 && c.MonitorResourceStatus == "" && c.WorkerLeaseEpoch == 0
+	monitorPurpose := c.Purpose == "monitor" && c.RestoreID == "" && c.JobID == "" && c.MonitorGeneration > 0 && c.MonitorServiceRevision > 0 && c.MonitorDeploymentRevision > 0 && (c.MonitorResourceStatus == "active" || c.MonitorResourceStatus == "retained_tracked") && c.WorkerLeaseEpoch > 0
+	if !installPurpose && !restorePurpose && !monitorPurpose {
 		return errors.New("service readiness purpose is invalid")
 	}
 	if c.Command.CommandID == "" || c.Command.ExecutionID != c.ExecutionID || c.Command.DeploymentID != c.DeploymentID ||
@@ -179,6 +193,8 @@ func ValidateServiceReadinessClaim(c ServiceReadinessClaim) error {
 			c.AggregateID != c.TaskID || c.Command.Action != ServiceReadinessIssueAction || c.IssueRequest.Validate() != nil ||
 			c.IssueRequest.ExecutionID != c.ExecutionID || c.IssueRequest.DeploymentID != c.DeploymentID ||
 			c.IssueRequest.ServiceID != c.ServiceID || c.IssueRequest.TaskID != c.TaskID ||
+			c.IssueRequest.RecipeExecutionManifestDigest != c.RecipeExecutionManifestDigest || c.IssueRequest.InstallEvidenceDigest != c.InstallEvidenceDigest ||
+			c.IssueRequest.ArtifactDigest != c.ArtifactDigest || c.IssueRequest.SemanticProbe != c.SemanticProbe ||
 			c.IssueRequest.SemanticExpectationDigest != c.SemanticExpectationDigest || c.ObserveRequest != (ServiceReadinessObserveRequest{}) {
 			return errors.New("service readiness issue claim is invalid")
 		}

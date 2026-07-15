@@ -8,6 +8,8 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/contract"
 )
 
 var (
@@ -231,6 +233,23 @@ type DeploymentRepository interface {
 	LookupDeployment(ctx context.Context, connectionID, deploymentID string) (DeploymentReservation, bool, error)
 	ReserveDeployment(ctx context.Context, reservation DeploymentReservation) (stored DeploymentReservation, created bool, err error)
 	FinalizeDeployment(ctx context.Context, reservation DeploymentReservation, receipt Record) (stored Record, created bool, err error)
+}
+
+type ArtifactRecord struct {
+	ConnectionID, CommandID, RequestSHA256             string
+	ExpectedGeneration, NodeCounter                    int64
+	Binding                                            contract.ArtifactBinding
+	ObjectKey, VersionID, State, ExpiresAt, VerifiedAt string
+}
+
+func (record ArtifactRecord) SameBinding(other ArtifactRecord) bool {
+	return record.ConnectionID == other.ConnectionID && record.Binding.Same(other.Binding) && record.ObjectKey == other.ObjectKey
+}
+
+type ArtifactRepository interface {
+	LookupArtifact(ctx context.Context, connectionID, deploymentID, taskID string) (ArtifactRecord, bool, error)
+	PrepareArtifact(ctx context.Context, receipt Record, artifact ArtifactRecord) (stored Record, storedArtifact ArtifactRecord, created bool, err error)
+	CompleteArtifact(ctx context.Context, receipt Record, artifact ArtifactRecord) (stored Record, storedArtifact ArtifactRecord, created bool, err error)
 }
 
 const (

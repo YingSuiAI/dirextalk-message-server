@@ -147,6 +147,65 @@ func TestModelLoopCanCallServerSideCloudDeploymentPlannerSkill(t *testing.T) {
 	assertCloudWorkloadSummary(t, result["cloud_workload"], "cloud_plan_1", "cloud_goal_1", "researching", 1)
 }
 
+func TestModelLoopReportsDestroyBlockedWithClientOnlyNextStep(t *testing.T) {
+	var requestCount int
+	var sawStatusGuidance bool
+	var exposedTools []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if requestCount == 1 {
+			for _, raw := range payload["tools"].([]any) {
+				tool, _ := raw.(map[string]any)
+				function, _ := tool["function"].(map[string]any)
+				exposedTools = append(exposedTools, trimString(function["name"]))
+			}
+		}
+		for _, raw := range payload["messages"].([]any) {
+			message, _ := raw.(map[string]any)
+			content := trimString(message["content"])
+			if message["role"] == "tool" && strings.Contains(content, "destroy_blocked") &&
+				strings.Contains(content, "/agent/workloads/services/service-1") &&
+				strings.Contains(content, "owner HTTP") && strings.Contains(content, "device signature") {
+				sawStatusGuidance = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_cloud_status","type":"function","function":{"name":"native_agent_cloud_status","arguments":"{}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"销毁尚未通过云端回读验证，资源可能继续计费。请打开客户端服务页；任何重试都必须走 owner HTTP 和设备签名。"}}]}`))
+	}))
+	defer server.Close()
+
+	planner := &recordingCloudPlanner{}
+	reader := &recordingCloudStatusReader{}
+	runtime := New(Config{
+		DataDir: filepath.Join(t.TempDir(), "agent"), Store: &testConfigStore{config: map[string]any{}},
+		CloudPlanner: planner, CloudStatusReader: reader,
+	})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "刚才销毁成功了吗？下一步怎么办？", "cloud_dialogue_mode": true, "cloud_connection_id": "connection-1",
+		"model_profile": map[string]any{"provider": "openai_compatible", "model": "mock-model", "base_url": server.URL, "api_key": "test-key"},
+	})
+	if err != nil {
+		t.Fatalf("agent chat failed: %v", err)
+	}
+	if requestCount != 2 || !sawStatusGuidance || reader.calls != 1 || planner.calls != 0 {
+		t.Fatalf("status loop requests=%d guidance=%v reader=%d planner=%d", requestCount, sawStatusGuidance, reader.calls, planner.calls)
+	}
+	if strings.Join(exposedTools, ",") != strings.Join([]string{nativeAgentCloudDeploymentPlanTool, nativeAgentCloudStatusTool}, ",") {
+		t.Fatalf("status dialogue exposed lifecycle mutation tools: %#v", exposedTools)
+	}
+	if result["cloud_workload"] != nil || !traceHasStep(result["steps"].([]map[string]any), "tool_call", nativeAgentCloudStatusTool) {
+		t.Fatalf("status dialogue result = %#v", result)
+	}
+}
+
 func TestStreamRetryOfCloudPlanningToolCreatesOneDurableGoal(t *testing.T) {
 	const cloudToolCall = `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_cloud_plan_retry","type":"function","function":{"name":"native_agent_cloud_deployment_plan","arguments":"{\"goal\":\"Deploy a private knowledge node after a reviewed plan.\"}"}}]}}]}`
 

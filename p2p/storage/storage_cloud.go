@@ -230,6 +230,37 @@ func (s *DatabaseStore) CreateCloudConnectionBootstrap(ctx context.Context, requ
 	return result, err
 }
 
+// LoadCloudConnectionCredentialBootstrap locks and revalidates the private
+// role-plan fact in one transaction. The credential bootstrap service call is
+// intentionally made after this transaction: no database lock is held across
+// the network and no returned bearer is ever written to PostgreSQL.
+func (s *DatabaseStore) LoadCloudConnectionCredentialBootstrap(ctx context.Context, request cloudmodule.LoadConnectionCredentialBootstrapRequest) (cloudmodule.ConnectionRolePlan, error) {
+	var result cloudmodule.ConnectionRolePlan
+	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		row := txn.QueryRowContext(ctx, `SELECT `+cloudConnectionBootstrapColumns+`
+			FROM p2p_cloud_connection_bootstraps WHERE bootstrap_id = $1 AND owner_mxid = $2 FOR UPDATE`, request.BootstrapID, request.OwnerMXID)
+		var bootstrap cloudmodule.ConnectionBootstrap
+		if err := scanCloudConnectionBootstrap(row, &bootstrap); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return cloudmodule.ErrConnectionBootstrapInvalid
+			}
+			return err
+		}
+		if bootstrap.Revision != request.ExpectedRevision {
+			return cloudmodule.ErrConnectionBootstrapConflict
+		}
+		if request.Now <= 0 || request.Now >= bootstrap.ExpiresAt {
+			return cloudmodule.ErrConnectionBootstrapExpired
+		}
+		if bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+			return cloudmodule.ErrConnectionBootstrapInvalid
+		}
+		result = bootstrap.RolePlan()
+		return nil
+	})
+	return result, err
+}
+
 func (s *DatabaseStore) CompleteCloudConnectionBootstrap(ctx context.Context, request cloudmodule.CompleteConnectionBootstrapRequest) (cloudmodule.CompleteConnectionBootstrapResult, error) {
 	result := cloudmodule.CompleteConnectionBootstrapResult{}
 	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {

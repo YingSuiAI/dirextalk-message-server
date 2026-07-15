@@ -228,6 +228,10 @@ func testRecipeExecutionApprovalForModule(t *testing.T, now time.Time, deploymen
 		WorkerResourceManifestDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		ArtifactDigest:               "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", ActionID: "install-service",
 		RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"},
+		SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{
+			Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic",
+			ExpectedStatus: http.StatusOK, BodySHA256: cloudcontracts.FixedReadinessEvidenceDigestV1,
+		},
 	}
 	approval, err := cloudcontracts.NewRecipeExecutionApprovalV1(plan, manifest,
 		cloudcontracts.RecipeExecutionTargetV1{DeploymentID: deploymentID, DeploymentRevision: deploymentRevision},

@@ -37,6 +37,7 @@ func TestDatabaseStoreTrustedRecipeArtifactBindsCurrentCanonicalRecipe(t *testin
 	}
 	second := artifact
 	second.ArtifactDigest = namedArtifactDigest("f")
+	second.ImageSource = cloudcontracts.OCIImageSourceReferenceV1("docker.io/dirextalk/test-service@" + second.ArtifactDigest)
 	if _, err := store.RegisterTrustedCloudRecipeArtifact(ctx, cloudmodule.RegisterTrustedRecipeArtifactRequest{Artifact: second, RegisteredAt: now.UnixMilli()}); err != cloudmodule.ErrRecipeArtifactConflict {
 		t.Fatalf("second artifact for recipe revision err=%v", err)
 	}
@@ -91,7 +92,7 @@ func TestDatabaseStoreRecipeExecutionManifestRequiresVerifiedArtifact(t *testing
 		t.Fatalf("unverified artifact registration err=%v", err)
 	}
 	registerTrustedArtifactForExecutionManifest(t, store, manifest, now.Add(time.Minute).UnixMilli())
-	secretTampering := []struct {
+	manifestTampering := []struct {
 		name   string
 		mutate func(*cloudcontracts.RecipeExecutionManifestV1)
 	}{
@@ -103,8 +104,9 @@ func TestDatabaseStoreRecipeExecutionManifestRequiresVerifiedArtifact(t *testing
 		{"extra", func(v *cloudcontracts.RecipeExecutionManifestV1) {
 			v.SecretSlots = append(v.SecretSlots, cloudcontracts.SecretSlotV1{SlotID: "extra_slot", SecretRef: "secret_ref:extra/ref"})
 		}},
+		{"semantic readiness", func(v *cloudcontracts.RecipeExecutionManifestV1) { v.SemanticReadiness.Path = "/forged-semantic" }},
 	}
-	for _, test := range secretTampering {
+	for _, test := range manifestTampering {
 		t.Run(test.name, func(t *testing.T) {
 			tampered := manifest
 			tampered.SecretSlots = append([]cloudcontracts.SecretSlotV1(nil), manifest.SecretSlots...)
@@ -223,8 +225,9 @@ func trustedArtifactFixture(t *testing.T, recipe cloudcontracts.RecipeV1, revisi
 	return cloudcontracts.CompiledRecipeArtifactV1{
 		SchemaVersion: cloudcontracts.CompiledRecipeArtifactV1Schema, RecipeID: recipe.RecipeID, RecipeDigest: recipeDigest, RecipeRevision: revision,
 		OfficialSourceArtifactDigests: official, Architecture: recipe.Requirements.Architecture, Requirements: recipe.Requirements,
-		WorkerResourceManifestDigest: namedArtifactDigest("c"), ArtifactDigest: namedArtifactDigest(artifactCharacter), MediaType: "application/vnd.dirextalk.recipe", SizeBytes: 1024,
+		WorkerResourceManifestDigest: namedArtifactDigest("c"), ArtifactDigest: namedArtifactDigest(artifactCharacter), ImageSource: cloudcontracts.OCIImageSourceReferenceV1("docker.io/dirextalk/test-service@" + namedArtifactDigest(artifactCharacter)), MediaType: "application/vnd.dirextalk.recipe", SizeBytes: 1024,
 		Actions:              []cloudcontracts.CompiledRecipeActionV1{{Kind: cloudcontracts.CompiledRecipeActionInstall, ActionID: "install-service", RootRequired: true, TimeoutSeconds: 1200, CheckpointSequence: []string{"artifact_verified", "health_verified"}}},
+		SemanticReadiness:    cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: namedArtifactDigest("d")},
 		HealthContractDigest: healthDigest, LifecycleContractDigest: lifecycleDigest,
 		VolumeSlots: append([]cloudcontracts.RecipeVolumeSlotRequirementV1{}, recipe.VolumeSlots...), DataSlots: append([]cloudcontracts.RecipeDataSlotRequirementV1{}, recipe.DataSlots...), SecretSlots: append([]cloudcontracts.RecipeSecretSlotRequirementV1{}, recipe.SecretSlots...),
 	}
@@ -249,6 +252,7 @@ func registerTrustedArtifactForExecutionManifest(t *testing.T, store *DatabaseSt
 	artifact.ArtifactDigest = manifest.ArtifactDigest
 	artifact.WorkerResourceManifestDigest = manifest.WorkerResourceManifestDigest
 	artifact.Actions[0] = cloudcontracts.CompiledRecipeActionV1{Kind: cloudcontracts.CompiledRecipeActionInstall, ActionID: manifest.ActionID, RootRequired: manifest.RootRequired, TimeoutSeconds: manifest.TimeoutSeconds, CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...)}
+	artifact.SemanticReadiness = manifest.SemanticReadiness
 	if _, err := store.RegisterTrustedCloudRecipeArtifact(context.Background(), cloudmodule.RegisterTrustedRecipeArtifactRequest{Artifact: artifact, RegisteredAt: registeredAt}); err != nil {
 		t.Fatal(err)
 	}

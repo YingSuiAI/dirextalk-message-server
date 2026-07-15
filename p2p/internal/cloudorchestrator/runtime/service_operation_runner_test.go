@@ -30,6 +30,7 @@ func serviceOperationTestClaim(t *testing.T) RecipeInstallClaim {
 		RecipeDigest: d("b"), WorkerResourceManifestDigest: d("c"), ArtifactDigest: cloudcontracts.FixedProbeManagedArtifactDigest,
 		ActionID: cloudcontracts.FixedProbeRestartActionID, RootRequired: true, TimeoutSeconds: 120,
 		CheckpointSequence: []string{"probe_service_restarted", "probe_health_verified"},
+		SemanticReadiness:  cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/ready", ExpectedStatus: 200, BodySHA256: cloudcontracts.FixedReadinessEvidenceDigestV1},
 	}
 	manifestDigest, err := manifest.Digest()
 	if err != nil {

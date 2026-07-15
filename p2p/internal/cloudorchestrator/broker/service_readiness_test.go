@@ -74,7 +74,7 @@ func readinessCommand(t *testing.T, action string) ServiceReadinessCommand {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	input := ServiceReadinessCommandInput{ConnectionID: "connection-ready-0001", CommandID: "command-ready-0001", NodeKeyID: "node-key-1", ExpectedGeneration: 2, NodeCounter: 17, IssuedAt: now, ExpiresAt: now.Add(4 * time.Minute), Action: action, PrivateKey: ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))}
 	if action == ServiceReadinessIssueAction {
-		input.Issue = ServiceReadinessIssueRequest{Schema: ServiceReadinessIssueSchema, ExecutionID: "execution-ready-0001", DeploymentID: "deployment-ready-0001", ServiceID: "service-ready-0001", TaskID: "readiness-task-0001", ProbeKind: ServiceReadinessProbeKind, RecipeExecutionManifestDigest: namedDigest('a'), InstallEvidenceDigest: namedDigest('b'), SemanticExpectationDigest: namedDigest('c')}
+		input.Issue = ServiceReadinessIssueRequest{Schema: ServiceReadinessIssueSchema, ExecutionID: "execution-ready-0001", DeploymentID: "deployment-ready-0001", ServiceID: "service-ready-0001", TaskID: "readiness-task-0001", ProbeKind: ServiceReadinessProbeKind, RecipeExecutionManifestDigest: namedDigest('a'), InstallEvidenceDigest: namedDigest('b'), ArtifactDigest: namedDigest('f'), SemanticProbe: ServiceReadinessProbeV1{Scheme: "http", Port: 19090, Path: "/openclaw/semantic", ExpectedStatus: 200, BodySHA256: namedDigest('c')}, SemanticExpectationDigest: namedDigest('c')}
 	} else {
 		input.CommandID = "command-ready-observe-0001"
 		input.NodeCounter = 18

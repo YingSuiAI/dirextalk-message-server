@@ -47,7 +47,7 @@ func (broker Broker) executeDeploymentDestroy(response http.ResponseWriter, requ
 		writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
 		return
 	}
-	proof, err := command.ServiceDestroyApproval()
+	proof, err := command.DestroyApprovalMetadata()
 	if err != nil {
 		writeError(response, http.StatusBadRequest, contract.Code(err))
 		return
@@ -74,7 +74,7 @@ func (broker Broker) executeDeploymentDestroy(response http.ResponseWriter, requ
 		writeError(response, http.StatusForbidden, "unknown_approval_key")
 		return
 	}
-	if err := proof.Verify(approvalKey, now); err != nil {
+	if err := command.VerifyDestroyApproval(approvalKey, now); err != nil {
 		writeError(response, http.StatusForbidden, contract.Code(err))
 		return
 	}

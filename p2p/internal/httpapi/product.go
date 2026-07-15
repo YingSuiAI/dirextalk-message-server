@@ -50,6 +50,10 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return
 		}
+		if action == serviceapi.CloudConnectionCredentialBootstrapCreateAction {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		if (port == nil || !port.HasAction(action)) && action != serviceapi.RealtimeWSTicketAction {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return

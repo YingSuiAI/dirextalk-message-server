@@ -54,6 +54,10 @@ const (
 	// signature binds the exact tracked EC2/EBS/ENI set. The Orchestrator, not
 	// ProductCore, later issues the typed Stack command and verifies read-back.
 	OutboxKindServiceDestroyRequested = "cloud.service.destroy.requested"
+	// OutboxKindDeploymentDestroyRequested is the service-independent fallback
+	// for retained, blocked, or orphaned Deployment resources. It carries only
+	// the exact device-approved private resource scope.
+	OutboxKindDeploymentDestroyRequested = "cloud.deployment.destroy.requested"
 	// OutboxKindServiceBackupRequested is emitted only after a device-approved
 	// exact snapshot scope has been durably committed.
 	OutboxKindServiceBackupRequested = "cloud.service.backup.requested"
@@ -282,6 +286,72 @@ type ConnectionRolePlan struct {
 	SourceTreeDigest     string            `json:"source_tree_digest"`
 	StackName            string            `json:"stack_name"`
 	CloudFormationParams map[string]string `json:"cloudformation_parameters"`
+}
+
+// ConnectionCredentialBootstrapRequest is derived entirely from the durable
+// role plan. ProductCore never accepts CloudFormation parameters or public-key
+// material from the credential-session caller.
+type ConnectionCredentialBootstrapRequest struct {
+	Schema    string                                    `json:"schema"`
+	RequestID string                                    `json:"request_id"`
+	RolePlan  ConnectionCredentialBootstrapRolePlanWire `json:"role_plan"`
+}
+
+type ConnectionCredentialBootstrapRolePlanWire struct {
+	BootstrapID            string            `json:"bootstrap_id"`
+	ConnectionID           string            `json:"connection_id"`
+	Region                 string            `json:"region"`
+	StackName              string            `json:"stack_name"`
+	TemplateURL            string            `json:"template_url"`
+	TemplateDigest         string            `json:"template_digest"`
+	SourceTreeDigest       string            `json:"source_tree_digest"`
+	FixedParameters        map[string]string `json:"fixed_parameters"`
+	NodeKeyID              string            `json:"node_key_id"`
+	NodeEd25519PublicKey   string            `json:"node_ed25519_public_key"`
+	DeviceKeyID            string            `json:"device_key_id"`
+	DeviceEd25519PublicKey string            `json:"device_ed25519_public_key"`
+	ExpiresAt              string            `json:"expires_at"`
+}
+
+type ConnectionCredentialBootstrapReceipt struct {
+	Schema       string `json:"schema"`
+	Status       string `json:"status"`
+	StackID      string `json:"stack_id"`
+	ConnectionID string `json:"connection_id"`
+	AcceptedAt   string `json:"accepted_at"`
+}
+
+// ConnectionCredentialBootstrapSession is returned only by the independent
+// bootstrap service. UploadBearer is deliberately transient and must never be
+// persisted by ProductCore.
+type ConnectionCredentialBootstrapSession struct {
+	Schema                string                                `json:"schema"`
+	Status                string                                `json:"status"`
+	RequestID             string                                `json:"request_id"`
+	SessionID             string                                `json:"session_id"`
+	ConnectionID          string                                `json:"connection_id"`
+	ServerX25519PublicKey string                                `json:"server_x25519_public_key"`
+	UploadBearer          string                                `json:"upload_bearer"`
+	UploadURL             string                                `json:"upload_url"`
+	ExpiresAt             string                                `json:"expires_at"`
+	HKDF                  string                                `json:"hkdf"`
+	AAD                   string                                `json:"aad"`
+	Receipt               *ConnectionCredentialBootstrapReceipt `json:"receipt,omitempty"`
+}
+
+type LoadConnectionCredentialBootstrapRequest struct {
+	OwnerMXID        string
+	BootstrapID      string
+	ExpectedRevision int64
+	Now              int64
+}
+
+type ConnectionCredentialBootstrapStore interface {
+	LoadCloudConnectionCredentialBootstrap(context.Context, LoadConnectionCredentialBootstrapRequest) (ConnectionRolePlan, error)
+}
+
+type ConnectionCredentialBootstrapClient interface {
+	CreateSession(context.Context, ConnectionCredentialBootstrapRequest) (ConnectionCredentialBootstrapSession, error)
 }
 
 // ConnectionRegistration is the safe response after a user submits only Stack

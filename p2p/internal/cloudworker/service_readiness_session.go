@@ -5,8 +5,6 @@ import (
 	"errors"
 	"math"
 	"sync"
-
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/fixedprobe"
 )
 
 var (
@@ -107,7 +105,7 @@ func (client *ServiceReadinessTaskClient) Report(ctx context.Context, claimed Cl
 	}
 	if status == ServiceReadinessTaskSucceeded {
 		event.ChallengeDigest = optionalReadinessString(claimed.Challenge.ChallengeDigest)
-		event.SemanticEvidenceDigest = optionalReadinessString(FixedReadinessEvidenceDigest())
+		event.SemanticEvidenceDigest = optionalReadinessString(claimed.Task.SemanticProbe.BodySHA256)
 	}
 	if err := event.validate(claimed.Task, claimed.Challenge, claimed.Epoch); err != nil {
 		return err
@@ -183,7 +181,7 @@ type serviceReadinessTransport interface {
 }
 
 type ServiceReadinessProbe interface {
-	CheckLoopback(context.Context, string) error
+	CheckLoopback(context.Context, ServiceReadinessProbeV1) error
 }
 
 type ServiceReadinessTaskLoop struct {
@@ -209,11 +207,11 @@ func (loop *ServiceReadinessTaskLoop) ProcessOne(ctx context.Context) error {
 	if err != nil || !found {
 		return err
 	}
-	if err := loop.probe.CheckLoopback(ctx, fixedprobe.ReadinessURL); err != nil {
+	if err := loop.probe.CheckLoopback(ctx, claimed.Task.SemanticProbe); err != nil {
 		if ctx != nil && ctx.Err() != nil {
 			return loop.transport.Report(ctx, claimed, ServiceReadinessTaskInterrupted, "fixed_probe_interrupted")
 		}
-		return loop.transport.Report(ctx, claimed, ServiceReadinessTaskFailed, "fixed_probe_not_ready")
+		return loop.transport.Report(ctx, claimed, ServiceReadinessTaskFailed, "semantic_probe_not_ready")
 	}
 	return loop.transport.Report(ctx, claimed, ServiceReadinessTaskSucceeded, "")
 }

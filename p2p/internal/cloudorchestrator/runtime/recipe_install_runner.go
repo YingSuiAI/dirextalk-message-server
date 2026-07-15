@@ -10,7 +10,12 @@ import (
 type RecipeInstallRunner struct {
 	store     RecipeInstallStore
 	transport RecipeInstallTransport
+	artifact  RecipeArtifactEnsurer
 	cfg       Config
+}
+
+func NewRecipeInstallRunnerWithArtifactTransfer(store RecipeInstallStore, transport RecipeInstallTransport, artifact RecipeArtifactEnsurer, cfg Config) *RecipeInstallRunner {
+	return &RecipeInstallRunner{store: store, transport: transport, artifact: artifact, cfg: cfg}
 }
 
 func NewRecipeInstallRunner(store RecipeInstallStore, transport RecipeInstallTransport, cfg Config) *RecipeInstallRunner {
@@ -52,6 +57,7 @@ func (r *RecipeInstallRunner) RunOnce(ctx context.Context) (bool, error) {
 		return true, r.store.FailRecipeInstall(ctx, claim, "invalid_recipe_install_command")
 	}
 	attemptCtx, cancel := context.WithTimeout(ctx, r.cfg.AttemptTimeout)
+	defer cancel()
 	var result RecipeInstallResult
 	if claim.Phase == RecipeInstallPhaseIssue {
 		result, err = r.transport.RequestRecipeInstallIssue(attemptCtx, claim.BrokerEndpoint, claim.Command, signed, claim.IssueRequest)
@@ -59,7 +65,6 @@ func (r *RecipeInstallRunner) RunOnce(ctx context.Context) (bool, error) {
 		result, err = r.transport.RequestRecipeInstallObserve(attemptCtx, claim.BrokerEndpoint, claim.Command, signed, claim.ObserveRequest)
 	}
 	attemptErr := attemptCtx.Err()
-	cancel()
 	if ctx.Err() != nil {
 		return true, ctx.Err()
 	}
@@ -74,6 +79,21 @@ func (r *RecipeInstallRunner) RunOnce(ctx context.Context) (bool, error) {
 	}
 	if ValidateRecipeInstallResult(claim, result, r.now()) != nil {
 		return true, r.store.DeferRecipeInstall(ctx, claim, "invalid_recipe_install_result", r.now().Add(r.cfg.RetryDelay))
+	}
+	if claim.Phase == RecipeInstallPhaseIssue && r.artifact != nil && result.Status != "failed" && result.Status != "interrupted" {
+		// The accepted issue request and artifact handoff share one deadline so
+		// the durable Recipe lease cannot expire between PUT and local commit.
+		artifactErr := r.artifact.Ensure(attemptCtx, claim)
+		artifactAttemptErr := attemptCtx.Err()
+		if ctx.Err() != nil {
+			return true, ctx.Err()
+		}
+		if recipeArtifactCommandExpired(artifactErr) {
+			return true, r.store.FailRecipeInstall(ctx, claim, "recipe_artifact_command_expired")
+		}
+		if artifactErr != nil || errors.Is(artifactAttemptErr, context.DeadlineExceeded) {
+			return true, r.store.DeferRecipeInstall(ctx, claim, "recipe_artifact_transfer_failed", r.now().Add(r.cfg.RetryDelay))
+		}
 	}
 	return true, r.store.CommitRecipeInstall(ctx, claim, result)
 }

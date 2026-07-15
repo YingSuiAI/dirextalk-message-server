@@ -29,7 +29,7 @@ func TestServiceReadinessSignedIssueExactReplayClaimAndStackObservation(t *testi
 	broker := Broker{Resolver: StaticKeyResolver{ConnectionID: "connection-0001", NodeKeyID: "node-key-01", Generation: 1, PublicKey: publicKey}, Store: store, DeploymentStore: store, DeploymentEnabled: true, ServiceReadiness: readiness, ReadinessChallenges: fixedReadinessChallenge{challenge}, Now: func() time.Time { return now }}
 
 	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
-	issueRequest := contract.ServiceReadinessIssueRequest{Schema: contract.ServiceReadinessIssueSchema, ExecutionID: "execution-ready-0001", DeploymentID: "deployment-0001", ServiceID: "service-ready-0001", TaskID: "readiness-task-0001", ProbeKind: contract.ServiceReadinessProbeKind, RecipeExecutionManifestDigest: digest("a"), InstallEvidenceDigest: digest("b"), SemanticExpectationDigest: digest("c")}
+	issueRequest := contract.ServiceReadinessIssueRequest{Schema: contract.ServiceReadinessIssueSchema, ExecutionID: "execution-ready-0001", DeploymentID: "deployment-0001", ServiceID: "service-ready-0001", TaskID: "readiness-task-0001", ProbeKind: contract.ServiceReadinessProbeKind, RecipeExecutionManifestDigest: digest("a"), InstallEvidenceDigest: digest("b"), ArtifactDigest: digest("d"), SemanticProbe: contract.ServiceReadinessProbeV1{Scheme: "http", Port: 19191, Path: "/openclaw/semantic", ExpectedStatus: 200, BodySHA256: digest("c")}, SemanticExpectationDigest: digest("c")}
 	payload, _ := json.Marshal(issueRequest)
 	issue := signedReadOnlyCommand(t, privateKey, "command-ready-issue-0001", 1, contract.ActionServiceReadinessIssue, payload)
 	first := serve(t, broker, http.MethodPost, commandPath, issue)

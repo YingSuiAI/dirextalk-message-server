@@ -665,18 +665,22 @@ func transitionDeployment(ctx context.Context, tx *sql.Tx, deploymentID, planID,
 	if resource == "" {
 		resource = deployment.Resource
 	}
+	if deployment.Outcome != "pending" && outcome != deployment.Outcome {
+		return cloudmodule.Deployment{}, ErrLeaseLost
+	}
 	if deployment.Execution == execution && deployment.Outcome == outcome && deployment.Resource == resource {
 		return deployment, nil
 	}
 	previousRevision := deployment.Revision
+	previousOutcome := deployment.Outcome
 	deployment.Execution, deployment.Outcome, deployment.Resource = execution, outcome, resource
 	deployment.Revision++
 	deployment.UpdatedAt = now
 	result, err := tx.ExecContext(ctx, `
 		UPDATE p2p_cloud_deployments
 		SET execution_status = $1, outcome_status = $2, resource_status = $3, revision = $4, updated_at = $5
-		WHERE deployment_id = $6 AND revision = $7
-	`, deployment.Execution, deployment.Outcome, deployment.Resource, deployment.Revision, now, deployment.DeploymentID, previousRevision)
+		WHERE deployment_id = $6 AND revision = $7 AND outcome_status = $8
+	`, deployment.Execution, deployment.Outcome, deployment.Resource, deployment.Revision, now, deployment.DeploymentID, previousRevision, previousOutcome)
 	if err != nil {
 		return cloudmodule.Deployment{}, err
 	}

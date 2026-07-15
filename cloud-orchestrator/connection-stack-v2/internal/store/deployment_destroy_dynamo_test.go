@@ -36,3 +36,23 @@ func TestDynamoDeploymentDestroyConsumesApprovalBeforeMutationAndFinalizesReceip
 		t.Fatalf("finalize transaction = %#v", client.transactInput)
 	}
 }
+
+func TestDynamoDeploymentDestroyPersistsServiceFreeReservation(t *testing.T) {
+	client := &fakeDynamo{}
+	repository := mustDynamoRepository(t, client)
+	request := contract.DeploymentDestroyRequest{Schema: contract.DeploymentDestroySchema, DeploymentID: "deployment-destroy-retained-0001", InstanceID: "i-0123456789abcdef0", VolumeIDs: []string{"vol-0aaaaaaaaaaaaaaaa"}, NetworkInterfaceIDs: []string{"eni-0aaaaaaaaaaaaaaaa"}}
+	requestJSON, _ := json.Marshal(request)
+	reservation := DeploymentDestroyReservation{ConnectionID: "connection-destroy-retained-0001", DeploymentID: request.DeploymentID, CommandID: "command-destroy-retained-0001", RequestSHA256: strings.Repeat("b", 64), ExpectedGeneration: 2, NodeCounter: 12, ApprovalID: "approval-destroy-retained-0001", ChallengeID: "challenge-destroy-retained-0001", SignerKeyID: "device-destroy-retained-0001", RequestJSON: requestJSON, State: "reserved"}
+	stored, created, err := repository.ReserveDeploymentDestroy(t.Context(), reservation)
+	if err != nil || !created || !stored.SameIdentity(reservation) {
+		t.Fatalf("ReserveDeploymentDestroy()=(%#v,%t,%v)", stored, created, err)
+	}
+	item := client.transactInput.TransactItems[1].Put.Item
+	if _, present := item["service_id"]; present {
+		t.Fatal("service-free deployment reservation persisted a synthetic service_id")
+	}
+	decoded, err := deploymentDestroyFromItem(item)
+	if err != nil || !decoded.SameIdentity(reservation) {
+		t.Fatalf("deploymentDestroyFromItem()=(%#v,%v)", decoded, err)
+	}
+}

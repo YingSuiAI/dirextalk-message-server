@@ -75,9 +75,9 @@ func TestOCIRecipeFlowResumesAndRejectsDigestDriftBeforeHostMutation(t *testing.
 	if err != nil || !result.Completed || !result.Resumed {
 		t.Fatalf("resume result=%#v err=%v", result, err)
 	}
-	if len(host.specs) != 0 || !reflect.DeepEqual(host.calls, []string{"start", "probe:/live", "probe:/ready", "probe:/semantic"}) ||
+	if len(host.specs) != 1 || !reflect.DeepEqual(host.calls, []string{"ensure", "start", "probe:/live", "probe:/ready", "probe:/semantic"}) ||
 		!reflect.DeepEqual(store.checkpoints(), []string{ociservice.CheckpointContainerStarted, ociservice.CheckpointHealthVerified}) {
-		t.Fatalf("resume repeated durable side effects: calls=%v specs=%#v checkpoints=%v", host.calls, host.specs, store.checkpoints())
+		t.Fatalf("resume did not revalidate durable container binding: calls=%v specs=%#v checkpoints=%v", host.calls, host.specs, store.checkpoints())
 	}
 
 	driftHost := &ociRecipeFlowHost{}
@@ -181,6 +181,7 @@ func newOCIRecipeFlow(t *testing.T) ociRecipeFlow {
 		RootRequired:                 install.RootRequired,
 		TimeoutSeconds:               install.TimeoutSeconds,
 		CheckpointSequence:           append([]string(nil), install.CheckpointSequence...),
+		SemanticReadiness:            artifact.SemanticReadiness,
 	}
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("execution manifest: %v", err)
@@ -224,7 +225,7 @@ func ociRecipeFlowCompilerInput() (cloudorchestrator.RecipeV1, recipecompiler.Co
 		return cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: port, Path: path, ExpectedStatus: 200, BodySHA256: ociRecipeFlowDigest(body)}
 	}
 	return recipe, recipecompiler.Config{
-		RecipeRevision: 1, ImageDigest: ociRecipeFlowDigest("2"), ImageSizeBytes: 1048576, Architecture: cloudorchestrator.ArchitectureAMD64,
+		RecipeRevision: 1, ImageSource: cloudorchestrator.OCIImageSourceReferenceV1("public.ecr.aws/dirextalk/flow-service@" + ociRecipeFlowDigest("2")), ImageDigest: ociRecipeFlowDigest("2"), ImageSizeBytes: 1048576, Architecture: cloudorchestrator.ArchitectureAMD64,
 		WorkerResourceManifestDigest: ociRecipeFlowDigest("3"), HealthContract: health, LifecycleContract: lifecycle,
 		Actions: []cloudorchestrator.CompiledRecipeActionV1{{
 			Kind: cloudorchestrator.CompiledRecipeActionInstall, ActionID: "service_install_v1", RootRequired: true, TimeoutSeconds: 1800,
@@ -285,8 +286,8 @@ type ociRecipeFlowHost struct {
 
 func (*ociRecipeFlowHost) EffectiveUID() int { return 0 }
 
-func (host *ociRecipeFlowHost) VerifyPinnedImage(_ context.Context, _ string) error {
-	host.record("verify")
+func (host *ociRecipeFlowHost) EnsurePinnedImage(_ context.Context, _ cloudorchestrator.OCIImageSourceReferenceV1, _ string) error {
+	host.record("ensure-image")
 	return nil
 }
 
@@ -294,6 +295,12 @@ func (host *ociRecipeFlowHost) EnsureContainer(_ context.Context, spec ociservic
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	host.calls = append(host.calls, "ensure")
+	host.specs = append(host.specs, spec)
+	return nil
+}
+
+func (host *ociRecipeFlowHost) RefreshServiceSecrets(_ context.Context, spec ociservice.ContainerSpec) error {
+	host.calls = append(host.calls, "refresh")
 	host.specs = append(host.specs, spec)
 	return nil
 }

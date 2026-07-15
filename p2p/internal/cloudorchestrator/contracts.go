@@ -349,22 +349,23 @@ type NoInputV1 struct {
 // artifact resolver and a separately isolated executor remain responsible for
 // authenticating the artifact and performing any privileged action.
 type RecipeExecutionManifestV1 struct {
-	SchemaVersion                string         `json:"schema_version"`
-	ExecutionID                  string         `json:"execution_id"`
-	DeploymentID                 string         `json:"deployment_id"`
-	PlanID                       string         `json:"plan_id"`
-	PlanHash                     string         `json:"plan_hash"`
-	PlanRevision                 uint64         `json:"plan_revision"`
-	RecipeDigest                 string         `json:"recipe_digest"`
-	WorkerResourceManifestDigest string         `json:"worker_resource_manifest_digest"`
-	ArtifactDigest               string         `json:"artifact_digest"`
-	ActionID                     string         `json:"action_id"`
-	RootRequired                 bool           `json:"root_required"`
-	TimeoutSeconds               uint32         `json:"timeout_seconds"`
-	CheckpointSequence           []string       `json:"checkpoint_sequence"`
-	VolumeSlots                  []VolumeSlotV1 `json:"volume_slots,omitempty"`
-	DataSlots                    []DataSlotV1   `json:"data_slots,omitempty"`
-	SecretSlots                  []SecretSlotV1 `json:"secret_slots,omitempty"`
+	SchemaVersion                string                    `json:"schema_version"`
+	ExecutionID                  string                    `json:"execution_id"`
+	DeploymentID                 string                    `json:"deployment_id"`
+	PlanID                       string                    `json:"plan_id"`
+	PlanHash                     string                    `json:"plan_hash"`
+	PlanRevision                 uint64                    `json:"plan_revision"`
+	RecipeDigest                 string                    `json:"recipe_digest"`
+	WorkerResourceManifestDigest string                    `json:"worker_resource_manifest_digest"`
+	ArtifactDigest               string                    `json:"artifact_digest"`
+	ActionID                     string                    `json:"action_id"`
+	RootRequired                 bool                      `json:"root_required"`
+	TimeoutSeconds               uint32                    `json:"timeout_seconds"`
+	CheckpointSequence           []string                  `json:"checkpoint_sequence"`
+	SemanticReadiness            OCIServiceLoopbackProbeV1 `json:"semantic_readiness"`
+	VolumeSlots                  []VolumeSlotV1            `json:"volume_slots,omitempty"`
+	DataSlots                    []DataSlotV1              `json:"data_slots,omitempty"`
+	SecretSlots                  []SecretSlotV1            `json:"secret_slots,omitempty"`
 }
 
 // VolumeSlotV1 binds an opaque pre-provisioned volume reference to a compiled

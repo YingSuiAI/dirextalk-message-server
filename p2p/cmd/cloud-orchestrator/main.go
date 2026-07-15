@@ -37,8 +37,15 @@ const (
 	researcherServerNameEnv      = "CLOUD_ORCHESTRATOR_RESEARCHER_SERVER_NAME"
 	nodeSigningKeyFileEnv        = "CLOUD_ORCHESTRATOR_NODE_SIGNING_KEY_FILE"
 	workerIDEnv                  = "CLOUD_ORCHESTRATOR_WORKER_ID"
+	trustedOCICatalogFileEnv     = "CLOUD_ORCHESTRATOR_TRUSTED_OCI_CATALOG_FILE"
+	trustedOCIArchiveFileEnv     = "CLOUD_ORCHESTRATOR_TRUSTED_OCI_ARCHIVE_FILE"
+	trustedOCICatalogFilesEnv    = "CLOUD_ORCHESTRATOR_TRUSTED_OCI_CATALOG_FILES"
+	trustedOCIArchiveFilesEnv    = "CLOUD_ORCHESTRATOR_TRUSTED_OCI_ARCHIVE_FILES"
+	deploymentCreateEnabledEnv   = "CLOUD_ORCHESTRATOR_DEPLOYMENT_CREATE_ENABLED"
+	recipeManifestEnabledEnv     = "CLOUD_ORCHESTRATOR_RECIPE_MANIFEST_REGISTRATION_ENABLED"
 	recipeInstallEnabledEnv      = "CLOUD_ORCHESTRATOR_RECIPE_INSTALL_ENABLED"
 	serviceReadinessEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_READINESS_ENABLED"
+	serviceMonitorEnabledEnv     = "CLOUD_ORCHESTRATOR_SERVICE_MONITOR_ENABLED"
 	serviceDestroyEnabledEnv     = "CLOUD_ORCHESTRATOR_SERVICE_DESTROY_ENABLED"
 	serviceOperationEnabledEnv   = "CLOUD_ORCHESTRATOR_SERVICE_OPERATION_ENABLED"
 	serviceBackupEnabledEnv      = "CLOUD_ORCHESTRATOR_SERVICE_BACKUP_ENABLED"
@@ -61,8 +68,15 @@ type commandConfig struct {
 	researcherServerName      string
 	nodeSigningKeyFile        string
 	workerID                  string
+	trustedOCICatalogFile     string
+	trustedOCIArchiveFile     string
+	trustedOCICatalogFiles    []string
+	trustedOCIArchiveFiles    []string
+	deploymentCreateEnabled   bool
+	recipeManifestEnabled     bool
 	recipeInstallEnabled      bool
 	serviceReadinessEnabled   bool
+	serviceMonitorEnabled     bool
 	serviceDestroyEnabled     bool
 	serviceOperationEnabled   bool
 	serviceBackupEnabled      bool
@@ -102,18 +116,50 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 		defaultWorkerID = configuredWorkerID
 	}
 	config := commandConfig{
-		databaseURLFile:      strings.TrimSpace(getenv(databaseURLFileEnv)),
-		researcherURL:        strings.TrimSpace(getenv(researcherURLEnv)),
-		researcherCAFile:     strings.TrimSpace(getenv(researcherCAFileEnv)),
-		researcherCertFile:   strings.TrimSpace(getenv(researcherCertFileEnv)),
-		researcherKeyFile:    strings.TrimSpace(getenv(researcherKeyFileEnv)),
-		researcherServerName: strings.TrimSpace(getenv(researcherServerNameEnv)),
-		nodeSigningKeyFile:   strings.TrimSpace(getenv(nodeSigningKeyFileEnv)),
-		workerID:             defaultWorkerID,
-		pollInterval:         2 * time.Second,
-		lease:                2 * time.Minute,
-		attemptTimeout:       90 * time.Second,
-		retryDelay:           time.Minute,
+		databaseURLFile:       strings.TrimSpace(getenv(databaseURLFileEnv)),
+		researcherURL:         strings.TrimSpace(getenv(researcherURLEnv)),
+		researcherCAFile:      strings.TrimSpace(getenv(researcherCAFileEnv)),
+		researcherCertFile:    strings.TrimSpace(getenv(researcherCertFileEnv)),
+		researcherKeyFile:     strings.TrimSpace(getenv(researcherKeyFileEnv)),
+		researcherServerName:  strings.TrimSpace(getenv(researcherServerNameEnv)),
+		nodeSigningKeyFile:    strings.TrimSpace(getenv(nodeSigningKeyFileEnv)),
+		workerID:              defaultWorkerID,
+		trustedOCICatalogFile: strings.TrimSpace(getenv(trustedOCICatalogFileEnv)),
+		trustedOCIArchiveFile: strings.TrimSpace(getenv(trustedOCIArchiveFileEnv)),
+		pollInterval:          2 * time.Second,
+		lease:                 2 * time.Minute,
+		attemptTimeout:        90 * time.Second,
+		retryDelay:            time.Minute,
+	}
+	pluralCatalogs, err := parseArtifactPathList(getenv(trustedOCICatalogFilesEnv))
+	if err != nil {
+		return commandConfig{}, errConfigInvalid
+	}
+	pluralArchives, err := parseArtifactPathList(getenv(trustedOCIArchiveFilesEnv))
+	if err != nil || (config.trustedOCICatalogFile != "" && len(pluralCatalogs) != 0) || (config.trustedOCIArchiveFile != "" && len(pluralArchives) != 0) {
+		return commandConfig{}, errConfigInvalid
+	}
+	config.trustedOCICatalogFiles = pluralCatalogs
+	config.trustedOCIArchiveFiles = pluralArchives
+	if config.trustedOCICatalogFile != "" {
+		config.trustedOCICatalogFiles = []string{config.trustedOCICatalogFile}
+	}
+	if config.trustedOCIArchiveFile != "" {
+		config.trustedOCIArchiveFiles = []string{config.trustedOCIArchiveFile}
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(deploymentCreateEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.deploymentCreateEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(recipeManifestEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.recipeManifestEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
 	}
 	switch strings.ToLower(strings.TrimSpace(getenv(recipeInstallEnabledEnv))) {
 	case "", "false", "0":
@@ -126,6 +172,13 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	case "", "false", "0":
 	case "true", "1":
 		config.serviceReadinessEnabled = true
+	default:
+		return commandConfig{}, errConfigInvalid
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv(serviceMonitorEnabledEnv))) {
+	case "", "false", "0":
+	case "true", "1":
+		config.serviceMonitorEnabled = true
 	default:
 		return commandConfig{}, errConfigInvalid
 	}
@@ -184,10 +237,17 @@ func parseConfig(args []string, getenv func(string) string, hostname func() (str
 	config.researcherServerName = strings.TrimSpace(config.researcherServerName)
 	config.nodeSigningKeyFile = strings.TrimSpace(config.nodeSigningKeyFile)
 	config.workerID = strings.TrimSpace(config.workerID)
+	config.trustedOCICatalogFile = strings.TrimSpace(config.trustedOCICatalogFile)
+	config.trustedOCIArchiveFile = strings.TrimSpace(config.trustedOCIArchiveFile)
 	if !validConfigPath(config.databaseURLFile) || config.researcherURL == "" || !validConfigPath(config.researcherCAFile) || !validConfigPath(config.researcherCertFile) || !validConfigPath(config.researcherKeyFile) || !validConfigPath(config.nodeSigningKeyFile) || !validResearcherServerName(config.researcherServerName) || !validWorkerID(config.workerID) ||
 		config.pollInterval <= 0 || config.lease <= 0 || config.lease > 5*time.Minute ||
 		config.attemptTimeout <= 0 || config.attemptTimeout >= config.lease || config.retryDelay <= 0 ||
-		(config.serviceReadinessEnabled && !config.recipeInstallEnabled) {
+		(config.trustedOCICatalogFile != "" && !validConfigPath(config.trustedOCICatalogFile)) ||
+		(config.trustedOCIArchiveFile != "" && (!validConfigPath(config.trustedOCIArchiveFile) || config.trustedOCICatalogFile == "")) ||
+		(len(config.trustedOCIArchiveFiles) != 0 && len(config.trustedOCIArchiveFiles) != len(config.trustedOCICatalogFiles)) ||
+		(config.serviceReadinessEnabled && !config.recipeInstallEnabled) ||
+		(config.serviceMonitorEnabled && !config.serviceReadinessEnabled) ||
+		(config.deploymentCreateEnabled && (len(config.trustedOCICatalogFiles) == 0 || len(config.trustedOCIArchiveFiles) != len(config.trustedOCICatalogFiles) || !config.recipeManifestEnabled || !config.recipeInstallEnabled || !config.serviceReadinessEnabled || !config.serviceDestroyEnabled)) {
 		return commandConfig{}, errConfigInvalid
 	}
 	if _, err := researcher.NewHTTP(researcher.HTTPConfig{Endpoint: config.researcherURL}); err != nil {
@@ -210,6 +270,31 @@ func validWorkerID(value string) bool {
 
 func validConfigPath(value string) bool {
 	return value != "" && len(value) <= 4096 && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func parseArtifactPathList(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ";")
+	if len(parts) == 0 || len(parts) > 64 {
+		return nil, errConfigInvalid
+	}
+	paths := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		path := strings.TrimSpace(part)
+		if !validConfigPath(path) {
+			return nil, errConfigInvalid
+		}
+		if _, exists := seen[path]; exists {
+			return nil, errConfigInvalid
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 func validResearcherServerName(value string) bool {
@@ -296,6 +381,20 @@ func run(ctx context.Context, config commandConfig) error {
 		return errDatabaseUnavailable
 	}
 	defer store.Close()
+	trustedArchives := make([]runtime.TrustedRecipeArtifactArchive, 0, len(config.trustedOCIArchiveFiles))
+	for index, catalogFile := range config.trustedOCICatalogFiles {
+		registrar := runtime.NewTrustedArtifactRegistrar(store, catalogFile, time.Now)
+		if len(config.trustedOCIArchiveFiles) != 0 {
+			var trustedArchive runtime.TrustedRecipeArtifactArchive
+			trustedArchive, err = registrar.RegisterArchive(ctx, config.trustedOCIArchiveFiles[index])
+			trustedArchives = append(trustedArchives, trustedArchive)
+		} else {
+			err = registrar.Register(ctx)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	researchRunner := runtime.New(store, planner, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
@@ -305,12 +404,10 @@ func run(ctx context.Context, config commandConfig) error {
 	registrationRunner := runtime.NewConnectionRegistrationRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
-	// deployment.create remains deliberately disabled in this process. The
-	// Connection Stack can now independently verify Worker bootstrap evidence,
-	// so its read-only observer is safe to run continuously; a future executor
-	// stage must still prove an install/readiness contract before any billable
-	// provision outbox is allowed to leave this process.
 	var deploymentRunner iterationRunner
+	if config.deploymentCreateEnabled {
+		deploymentRunner = runtime.NewDeploymentProvisionRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+	}
 	workerBootstrapObservationRunner := runtime.NewWorkerBootstrapObservationRunner(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
@@ -326,21 +423,53 @@ func run(ctx context.Context, config commandConfig) error {
 	serviceSecretObserver := runtime.NewServiceSecretObserver(store, brokerTransport, runtime.Config{
 		WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay,
 	})
+	var recipeManifestRunner iterationRunner
+	if config.recipeManifestEnabled {
+		recipeManifestRunner = runtime.NewRecipeManifestRegistrationRunner(store)
+	}
 	var recipeInstallRunner iterationRunner
 	var serviceReadinessRunner iterationRunner
+	var serviceMonitorRunner iterationRunner
 	var serviceDestroyRunner iterationRunner
 	var serviceOperationRunner iterationRunner
 	var serviceBackupRunner iterationRunner
 	var serviceRestorePlanRunner iterationRunner
 	var serviceRestoreRunner iterationRunner
 	if config.recipeInstallEnabled {
-		recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+		runnerConfig := runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay}
+		if len(trustedArchives) == 0 {
+			recipeInstallRunner = runtime.NewRecipeInstallRunner(store, brokerTransport, runnerConfig)
+		} else {
+			uploader, uploaderErr := runtime.NewStrictRecipeArtifactUploader(config.attemptTimeout)
+			if uploaderErr != nil {
+				return uploaderErr
+			}
+			artifactTransfers := make([]*runtime.RecipeArtifactTransferManager, 0, len(trustedArchives))
+			for _, trustedArchive := range trustedArchives {
+				artifactTransfer, transferErr := runtime.NewRecipeArtifactTransferManager(store, brokerTransport, uploader, trustedArchive, time.Now)
+				if transferErr != nil {
+					return transferErr
+				}
+				artifactTransfers = append(artifactTransfers, artifactTransfer)
+			}
+			artifactRegistry, registryErr := runtime.NewRecipeArtifactTransferRegistry(artifactTransfers...)
+			if registryErr != nil {
+				return registryErr
+			}
+			recipeInstallRunner = runtime.NewRecipeInstallRunnerWithArtifactTransfer(store, brokerTransport, artifactRegistry, runnerConfig)
+		}
 	}
 	if config.serviceReadinessEnabled {
 		serviceReadinessRunner = runtime.NewServiceReadinessRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
+	if config.serviceMonitorEnabled {
+		serviceMonitorRunner = runtime.NewServiceMonitorRunner(store, runtime.Config{WorkerID: config.workerID, Lease: config.lease, RetryDelay: config.retryDelay})
+	}
 	if config.serviceDestroyEnabled {
-		serviceDestroyRunner = runtime.NewServiceDestroyRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
+		serviceDestroyRunner = iterationRunnerGroup{
+			runtime.NewServiceDestroyRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay}),
+			runtime.NewDeploymentDestroyRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay}),
+		}
 	}
 	if config.serviceOperationEnabled {
 		serviceOperationRunner = runtime.NewServiceOperationRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
@@ -355,13 +484,13 @@ func run(ctx context.Context, config commandConfig) error {
 		serviceRestoreRunner = runtime.NewServiceRestoreRunner(store, brokerTransport, runtime.Config{WorkerID: config.workerID, Lease: config.lease, AttemptTimeout: config.attemptTimeout, RetryDelay: config.retryDelay})
 	}
 	if config.once {
-		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver); err != nil {
+		if _, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, recipeManifestRunner, executionProbeRunner, recipeInstallRunner, serviceMonitorRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver); err != nil {
 			return errIterationFailed
 		}
 		return nil
 	}
 	for {
-		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver)
+		processed, err := runIteration(ctx, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, recipeManifestRunner, executionProbeRunner, recipeInstallRunner, serviceMonitorRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -384,10 +513,26 @@ type iterationRunner interface {
 	RunOnce(context.Context) (bool, error)
 }
 
+type iterationRunnerGroup []iterationRunner
+
+func (group iterationRunnerGroup) RunOnce(ctx context.Context) (bool, error) {
+	var processed bool
+	var joined error
+	for _, runner := range group {
+		if runner == nil {
+			continue
+		}
+		didProcess, err := runner.RunOnce(ctx)
+		processed = processed || didProcess
+		joined = errors.Join(joined, err)
+	}
+	return processed, joined
+}
+
 // runIteration gives each independent control-plane loop one chance per poll.
 // A failure in one durable control-plane runner must not starve the others;
 // all errors are returned together for the next retry backoff.
-func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, executionProbeRunner, recipeInstallRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver iterationRunner) (bool, error) {
+func runIteration(ctx context.Context, researchRunner, registrationRunner, quoteRunner, deploymentRunner, workerBootstrapObservationRunner, recipeManifestRunner, executionProbeRunner, recipeInstallRunner, serviceMonitorRunner, serviceReadinessRunner, serviceOperationRunner, serviceBackupRunner, serviceRestorePlanRunner, serviceRestoreRunner, serviceDestroyRunner, serviceSecretObserver iterationRunner) (bool, error) {
 	researched, researchErr := researchRunner.RunOnce(ctx)
 	registered, registrationErr := registrationRunner.RunOnce(ctx)
 	quoted, quoteErr := quoteRunner.RunOnce(ctx)
@@ -401,6 +546,11 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if workerBootstrapObservationRunner != nil {
 		observed, observationErr = workerBootstrapObservationRunner.RunOnce(ctx)
 	}
+	var manifestRegistered bool
+	var manifestRegistrationErr error
+	if recipeManifestRunner != nil {
+		manifestRegistered, manifestRegistrationErr = recipeManifestRunner.RunOnce(ctx)
+	}
 	var executionProbed bool
 	var executionProbeErr error
 	if executionProbeRunner != nil {
@@ -410,6 +560,11 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	var recipeInstallErr error
 	if recipeInstallRunner != nil {
 		recipeInstalled, recipeInstallErr = recipeInstallRunner.RunOnce(ctx)
+	}
+	var serviceMonitorScheduled bool
+	var serviceMonitorErr error
+	if serviceMonitorRunner != nil {
+		serviceMonitorScheduled, serviceMonitorErr = serviceMonitorRunner.RunOnce(ctx)
 	}
 	var readinessObserved bool
 	var serviceReadinessErr error
@@ -446,7 +601,7 @@ func runIteration(ctx context.Context, researchRunner, registrationRunner, quote
 	if serviceSecretObserver != nil {
 		secretObserved, secretObserveErr = serviceSecretObserver.RunOnce(ctx)
 	}
-	return researched || registered || quoted || deployed || observed || executionProbed || recipeInstalled || readinessObserved || serviceOperated || serviceBackedUp || serviceRestorePlanned || serviceRestored || serviceDestroyed || secretObserved, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, executionProbeErr, recipeInstallErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceRestorePlanErr, serviceRestoreErr, serviceDestroyErr, secretObserveErr)
+	return researched || registered || quoted || deployed || observed || manifestRegistered || executionProbed || recipeInstalled || serviceMonitorScheduled || readinessObserved || serviceOperated || serviceBackedUp || serviceRestorePlanned || serviceRestored || serviceDestroyed || secretObserved, errors.Join(researchErr, registrationErr, quoteErr, deploymentErr, observationErr, manifestRegistrationErr, executionProbeErr, recipeInstallErr, serviceMonitorErr, serviceReadinessErr, serviceOperationErr, serviceBackupErr, serviceRestorePlanErr, serviceRestoreErr, serviceDestroyErr, secretObserveErr)
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

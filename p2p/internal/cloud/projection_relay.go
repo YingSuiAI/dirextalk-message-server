@@ -295,6 +295,19 @@ type connectionProjectionPayload struct {
 	UpdatedAt    int64  `json:"updated_at"`
 }
 
+type alertProjectionPayload struct {
+	AlertID      string `json:"alert_id"`
+	DeploymentID string `json:"deployment_id"`
+	ServiceID    string `json:"service_id"`
+	Severity     string `json:"severity"`
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	Acknowledged bool   `json:"acknowledged"`
+	Revision     int64  `json:"revision"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
 func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 	switch eventType {
 	case "cloud.goal.changed":
@@ -365,6 +378,16 @@ func decodeProjectionPayload(eventType, raw string) (map[string]any, error) {
 			"region": value.Region, "mode": value.Mode, "status": value.Status, "revision": value.Revision,
 			"created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
 		}, nil
+	case "cloud.alert.raised":
+		var value alertProjectionPayload
+		if err := decodeStrictProjectionJSON(raw, &value); err != nil || !validAlertProjection(value) {
+			return nil, errors.New("invalid cloud alert projection")
+		}
+		return map[string]any{
+			"alert_id": value.AlertID, "deployment_id": value.DeploymentID, "service_id": value.ServiceID,
+			"severity": value.Severity, "code": value.Code, "message": value.Message, "acknowledged": value.Acknowledged,
+			"revision": value.Revision, "created_at": value.CreatedAt, "updated_at": value.UpdatedAt,
+		}, nil
 	default:
 		return nil, errors.New("cloud event type is not projectable")
 	}
@@ -414,7 +437,7 @@ func validJobProjection(value jobProjectionPayload) bool {
 
 func validDeploymentProjection(value deploymentProjectionPayload) bool {
 	return validProjectionIdentifier(value.DeploymentID) && validProjectionIdentifier(value.PlanID) && validProjectionIdentifier(value.ConnectionID) &&
-		allowedProjectionValue(value.Execution, "queued", "provisioning", "installing", "waiting_user", "verifying", "finished") &&
+		allowedProjectionValue(value.Execution, "queued", "provisioning", "installing", "waiting_user", "waiting_user_pairing", "verifying", "finished") &&
 		allowedProjectionValue(value.Outcome, "pending", "succeeded", "failed", "canceled", "interrupted") &&
 		allowedProjectionValue(value.Resource, "none", "active", "retained_tracked", "destroying", "verified_destroyed", "blocked", "orphaned") &&
 		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
@@ -552,6 +575,13 @@ func validConnectionProjection(value connectionProjectionPayload) bool {
 		validVisibleProjectionText(value.AccountID, 12, false) && validVisibleProjectionText(value.Region, 32, false) &&
 		value.Mode == "connection_stack_v2" && value.Status == "active" && value.Revision > 0 &&
 		value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
+}
+
+func validAlertProjection(value alertProjectionPayload) bool {
+	return validProjectionIdentifier(value.AlertID) && validOptionalProjectionIdentifier(value.DeploymentID) && validOptionalProjectionIdentifier(value.ServiceID) &&
+		(value.DeploymentID != "" || value.ServiceID != "") && allowedProjectionValue(value.Severity, "warning", "critical") &&
+		validProjectionErrorCode(value.Code) && value.Code != "" && validVisibleProjectionText(value.Message, 500, false) &&
+		value.Revision > 0 && value.CreatedAt > 0 && value.UpdatedAt >= value.CreatedAt
 }
 
 func validOptionalProjectionIdentifier(value string) bool {

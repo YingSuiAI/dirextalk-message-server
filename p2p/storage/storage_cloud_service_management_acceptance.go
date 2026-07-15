@@ -267,8 +267,12 @@ func lockManagementAcceptanceState(ctx context.Context, tx *sql.Tx, serviceID st
 	if err = tx.QueryRowContext(ctx, `SELECT task.operation_id,job.revision FROM p2p_cloud_service_operation_tasks task JOIN p2p_cloud_jobs job ON job.job_id=task.job_id WHERE task.service_id=$1 AND task.deployment_id=$2 AND task.operation='restart' AND task.task_status='succeeded' AND task.updated_at>=$3 ORDER BY task.updated_at DESC,task.operation_id LIMIT 1`, serviceID, operation.Deployment.DeploymentID, restoreUpdated).Scan(&state.RestartID, &state.RestartRevision); err != nil {
 		return managementAcceptanceState{}, cloudmodule.ErrServiceManagementAcceptanceInvalid
 	}
-	var expectation string
-	if err = tx.QueryRowContext(ctx, `SELECT semantic_expectation_digest,semantic_evidence_digest,stack_observation_digest FROM p2p_cloud_service_readiness_tasks WHERE service_id=$1 AND deployment_id=$2 AND purpose='install' AND task_status='succeeded'`, serviceID, operation.Deployment.DeploymentID).Scan(&expectation, &state.ReadinessSemanticEvidenceDigest, &state.ReadinessStackObservationDigest); err != nil || expectation != cloudcontracts.FixedReadinessEvidenceDigestV1 || state.ReadinessSemanticEvidenceDigest != expectation || !validSHA256Digest(state.ReadinessStackObservationDigest) {
+	var readinessArtifactDigest, semanticProbeJSON, expectation string
+	if err = tx.QueryRowContext(ctx, `SELECT artifact_digest,semantic_probe_json,semantic_expectation_digest,semantic_evidence_digest,stack_observation_digest FROM p2p_cloud_service_readiness_tasks WHERE service_id=$1 AND deployment_id=$2 AND purpose='install' AND task_status='succeeded'`, serviceID, operation.Deployment.DeploymentID).Scan(&readinessArtifactDigest, &semanticProbeJSON, &expectation, &state.ReadinessSemanticEvidenceDigest, &state.ReadinessStackObservationDigest); err != nil {
+		return managementAcceptanceState{}, cloudmodule.ErrServiceManagementAcceptanceInvalid
+	}
+	var semanticProbe cloudcontracts.OCIServiceLoopbackProbeV1
+	if decodeCloudContractJSON(semanticProbeJSON, &semanticProbe) != nil || semanticProbe.Validate() != nil || readinessArtifactDigest != operation.InstallManifest.ArtifactDigest || semanticProbe != operation.InstallManifest.SemanticReadiness || expectation != semanticProbe.BodySHA256 || state.ReadinessSemanticEvidenceDigest != expectation || !validSHA256Digest(state.ReadinessStackObservationDigest) {
 		return managementAcceptanceState{}, cloudmodule.ErrServiceManagementAcceptanceInvalid
 	}
 	return state, nil
@@ -281,7 +285,9 @@ func managementAcceptanceEvidenceReady(ctx context.Context, tx *sql.Tx, s manage
 	if s.Recipe.Maturity != "experimental" && s.Recipe.Maturity != "awaiting_management_acceptance" && s.Recipe.Maturity != "managed" {
 		return false
 	}
-	if s.Operation.Deployment.Execution != "finished" || s.Operation.Deployment.Outcome != "succeeded" || s.Operation.Deployment.Resource != "active" || s.Operation.PrivateResourceStatus != "active" || s.Operation.InstallManifest.ArtifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || s.Operation.InstallManifest.ActionID != cloudcontracts.FixedProbeInstallActionID || s.Operation.InstallManifest.RecipeDigest != s.Recipe.Digest || s.Operation.InstallManifest.VerifyDigest(s.Operation.ManifestDigest) != nil {
+	install, installFound := compiledRecipeAction(s.Operation.CompiledArtifact, cloudcontracts.CompiledRecipeActionInstall)
+	capability, capabilityErr := cloudcontracts.ManagedCapabilityFromCompiledArtifact(s.Operation.CompiledArtifact, s.Operation.ManifestDigest)
+	if s.Operation.Deployment.Execution != "finished" || s.Operation.Deployment.Outcome != "succeeded" || !serviceResourcesTracked(s.Operation.Deployment.Resource, s.Operation.PrivateResourceStatus) || s.Operation.InstallManifest.RecipeDigest != s.Recipe.Digest || s.Operation.InstallManifest.VerifyDigest(s.Operation.ManifestDigest) != nil || !installFound || !compiledArtifactBindsInstalledManifest(s.Operation.CompiledArtifact, s.Operation.InstallManifest, install, s.Operation.Service.RecipeID) || capabilityErr != nil || capability.Validate() != nil {
 		return false
 	}
 	for _, source := range s.RecipeContract.Sources {
@@ -289,7 +295,7 @@ func managementAcceptanceEvidenceReady(ctx context.Context, tx *sql.Tx, s manage
 			return false
 		}
 	}
-	if s.ReadinessSemanticEvidenceDigest != cloudcontracts.FixedReadinessEvidenceDigestV1 || !validSHA256Digest(s.ReadinessStackObservationDigest) {
+	if !validSHA256Digest(s.ReadinessSemanticEvidenceDigest) || !validSHA256Digest(s.ReadinessStackObservationDigest) {
 		return false
 	}
 	destroy := serviceDestroyTarget(serviceDestroyState{Service: s.Operation.Service, Deployment: s.Operation.Deployment, RecipeDigest: s.Recipe.Digest, InstanceID: s.Operation.InstanceID, VolumeIDs: s.VolumeIDs, NetworkInterfaceIDs: s.NetworkIDs, PrivateResourceStatus: s.Operation.PrivateResourceStatus})

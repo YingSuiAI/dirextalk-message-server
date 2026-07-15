@@ -29,6 +29,7 @@ type serviceOperationState struct {
 	PrivateResourceStatus string
 	ManifestDigest        string
 	InstallManifest       cloudcontracts.RecipeExecutionManifestV1
+	CompiledArtifact      cloudcontracts.CompiledRecipeArtifactV1
 }
 
 type storedServiceOperationApproval struct {
@@ -243,14 +244,38 @@ func lockServiceOperationState(ctx context.Context, tx *sql.Tx, serviceID string
 	if decodeServiceOperationManifest(manifestJSON, &state.InstallManifest) != nil {
 		return state, cloudmodule.ErrServiceOperationConfirmationInvalid
 	}
+	artifact, artifactErr := lockServiceOperationArtifact(ctx, tx, state.InstallManifest.ArtifactDigest)
+	if artifactErr != nil {
+		return state, artifactErr
+	}
+	state.CompiledArtifact = artifact
 	return state, nil
 }
 
+func lockServiceOperationArtifact(ctx context.Context, tx *sql.Tx, artifactDigest string) (cloudcontracts.CompiledRecipeArtifactV1, error) {
+	var descriptorJSON string
+	if err := tx.QueryRowContext(ctx, `SELECT descriptor_json FROM p2p_cloud_recipe_artifacts WHERE artifact_digest=$1 AND status='verified' FOR UPDATE`, artifactDigest).Scan(&descriptorJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return cloudcontracts.CompiledRecipeArtifactV1{}, cloudmodule.ErrServiceOperationConfirmationInvalid
+		}
+		return cloudcontracts.CompiledRecipeArtifactV1{}, err
+	}
+	artifact, err := cloudcontracts.ParseCompiledRecipeArtifactV1([]byte(descriptorJSON))
+	if err != nil {
+		return cloudcontracts.CompiledRecipeArtifactV1{}, cloudmodule.ErrServiceOperationConfirmationInvalid
+	}
+	return artifact, nil
+}
+
 func serviceOperationTarget(state serviceOperationState, operation cloudcontracts.ServiceOperation) (cloudcontracts.ServiceOperationTargetV1, error) {
-	if state.Service.DeploymentID != state.Deployment.DeploymentID || state.Deployment.Execution != "finished" || state.Deployment.Outcome != "succeeded" || state.Deployment.Resource != "active" || state.PrivateResourceStatus != "active" || state.InstallManifest.ArtifactDigest != cloudcontracts.FixedProbeManagedArtifactDigest || state.InstallManifest.ActionID != cloudcontracts.FixedProbeInstallActionID || state.InstallManifest.RecipeDigest != state.RecipeDigest || state.InstallManifest.VerifyDigest(state.ManifestDigest) != nil {
+	install, installFound := compiledRecipeAction(state.CompiledArtifact, cloudcontracts.CompiledRecipeActionInstall)
+	if state.Service.DeploymentID != state.Deployment.DeploymentID || state.Deployment.Execution != "finished" || state.Deployment.Outcome != "succeeded" || !serviceResourcesTracked(state.Deployment.Resource, state.PrivateResourceStatus) || state.InstallManifest.RecipeDigest != state.RecipeDigest || state.InstallManifest.VerifyDigest(state.ManifestDigest) != nil || !installFound || !compiledArtifactBindsInstalledManifest(state.CompiledArtifact, state.InstallManifest, install, state.Service.RecipeID) {
 		return cloudcontracts.ServiceOperationTargetV1{}, cloudmodule.ErrServiceOperationConfirmationInvalid
 	}
-	capability := cloudcontracts.FixedProbeManagedCapability(state.ManifestDigest)
+	capability, err := cloudcontracts.ManagedCapabilityFromCompiledArtifact(state.CompiledArtifact, state.ManifestDigest)
+	if err != nil {
+		return cloudcontracts.ServiceOperationTargetV1{}, cloudmodule.ErrServiceOperationConfirmationInvalid
+	}
 	action, ok := capability.Action(operation)
 	if !ok || capability.Validate() != nil {
 		return cloudcontracts.ServiceOperationTargetV1{}, cloudmodule.ErrServiceOperationConfirmationInvalid
@@ -259,8 +284,77 @@ func serviceOperationTarget(state serviceOperationState, operation cloudcontract
 	return target, target.Validate()
 }
 
+func serviceResourcesTracked(publicStatus, privateStatus string) bool {
+	return privateStatus == publicStatus && (publicStatus == "active" || publicStatus == "retained_tracked")
+}
+
+func compiledRecipeAction(artifact cloudcontracts.CompiledRecipeArtifactV1, kind cloudcontracts.CompiledRecipeActionKind) (cloudcontracts.CompiledRecipeActionV1, bool) {
+	for _, action := range artifact.Actions {
+		if action.Kind == kind {
+			return action, true
+		}
+	}
+	return cloudcontracts.CompiledRecipeActionV1{}, false
+}
+
+func compiledArtifactBindsInstalledManifest(artifact cloudcontracts.CompiledRecipeArtifactV1, manifest cloudcontracts.RecipeExecutionManifestV1, install cloudcontracts.CompiledRecipeActionV1, recipeID string) bool {
+	return artifact.Validate() == nil && artifact.RecipeID == recipeID && artifact.RecipeDigest == manifest.RecipeDigest && artifact.ArtifactDigest == manifest.ArtifactDigest &&
+		artifact.WorkerResourceManifestDigest == manifest.WorkerResourceManifestDigest && install.ActionID == manifest.ActionID && install.RootRequired == manifest.RootRequired &&
+		install.TimeoutSeconds == manifest.TimeoutSeconds && equalServiceOperationStrings(install.CheckpointSequence, manifest.CheckpointSequence) &&
+		compiledStorageSlotsBindManifest(artifact, manifest)
+}
+
+func compiledStorageSlotsBindManifest(artifact cloudcontracts.CompiledRecipeArtifactV1, manifest cloudcontracts.RecipeExecutionManifestV1) bool {
+	if len(artifact.VolumeSlots) != len(manifest.VolumeSlots) || len(artifact.DataSlots) != len(manifest.DataSlots) || len(artifact.SecretSlots) != len(manifest.SecretSlots) {
+		return false
+	}
+	volumes := make(map[string]bool, len(artifact.VolumeSlots))
+	for _, slot := range artifact.VolumeSlots {
+		volumes[slot.SlotID] = slot.ReadOnly
+	}
+	for _, slot := range manifest.VolumeSlots {
+		if readOnly, ok := volumes[slot.SlotID]; !ok || readOnly != slot.ReadOnly {
+			return false
+		}
+		delete(volumes, slot.SlotID)
+	}
+	data := make(map[string]bool, len(artifact.DataSlots))
+	for _, slot := range artifact.DataSlots {
+		data[slot.SlotID] = slot.ReadOnly
+	}
+	for _, slot := range manifest.DataSlots {
+		if readOnly, ok := data[slot.SlotID]; !ok || readOnly != slot.ReadOnly {
+			return false
+		}
+		delete(data, slot.SlotID)
+	}
+	secrets := make(map[string]struct{}, len(artifact.SecretSlots))
+	for _, slot := range artifact.SecretSlots {
+		secrets[slot.SlotID] = struct{}{}
+	}
+	for _, slot := range manifest.SecretSlots {
+		if _, ok := secrets[slot.SlotID]; !ok {
+			return false
+		}
+		delete(secrets, slot.SlotID)
+	}
+	return len(volumes) == 0 && len(data) == 0 && len(secrets) == 0
+}
+
+func equalServiceOperationStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func serviceOperationManifest(installed cloudcontracts.RecipeExecutionManifestV1, operationID string, target cloudcontracts.ServiceOperationTargetV1) cloudcontracts.RecipeExecutionManifestV1 {
-	return cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: operationID, DeploymentID: installed.DeploymentID, PlanID: installed.PlanID, PlanHash: installed.PlanHash, PlanRevision: installed.PlanRevision, RecipeDigest: target.RecipeDigest, WorkerResourceManifestDigest: installed.WorkerResourceManifestDigest, ArtifactDigest: target.ArtifactDigest, ActionID: target.ActionID, RootRequired: target.RootRequired, TimeoutSeconds: target.TimeoutSeconds, CheckpointSequence: append([]string(nil), target.CheckpointSequence...), VolumeSlots: append([]cloudcontracts.VolumeSlotV1(nil), target.VolumeSlots...), DataSlots: append([]cloudcontracts.DataSlotV1(nil), target.DataSlots...), SecretSlots: append([]cloudcontracts.SecretSlotV1(nil), target.SecretSlots...)}
+	return cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: operationID, DeploymentID: installed.DeploymentID, PlanID: installed.PlanID, PlanHash: installed.PlanHash, PlanRevision: installed.PlanRevision, RecipeDigest: target.RecipeDigest, WorkerResourceManifestDigest: installed.WorkerResourceManifestDigest, ArtifactDigest: target.ArtifactDigest, ActionID: target.ActionID, RootRequired: target.RootRequired, TimeoutSeconds: target.TimeoutSeconds, CheckpointSequence: append([]string(nil), target.CheckpointSequence...), SemanticReadiness: installed.SemanticReadiness, VolumeSlots: append([]cloudcontracts.VolumeSlotV1(nil), target.VolumeSlots...), DataSlots: append([]cloudcontracts.DataSlotV1(nil), target.DataSlots...), SecretSlots: append([]cloudcontracts.SecretSlotV1(nil), target.SecretSlots...)}
 }
 
 func validatePrepareServiceOperationRequest(request cloudmodule.PrepareServiceOperationRequest) error {

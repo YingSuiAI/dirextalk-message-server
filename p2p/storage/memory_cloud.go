@@ -51,6 +51,22 @@ func (s *MemoryStore) CreateCloudConnectionBootstrap(_ context.Context, request 
 	return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
 }
 
+func (s *MemoryStore) LoadCloudConnectionCredentialBootstrap(_ context.Context, request cloudmodule.LoadConnectionCredentialBootstrapRequest) (cloudmodule.ConnectionRolePlan, error) {
+	s.mu.RLock()
+	bootstrap, found := s.cloudConnectionBootstraps[request.BootstrapID]
+	s.mu.RUnlock()
+	if !found || bootstrap.OwnerMXID != request.OwnerMXID || bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if bootstrap.Revision != request.ExpectedRevision {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	if request.Now <= 0 || request.Now >= bootstrap.ExpiresAt {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapExpired
+	}
+	return bootstrap.RolePlan(), nil
+}
+
 func (s *MemoryStore) CompleteCloudConnectionBootstrap(_ context.Context, request cloudmodule.CompleteConnectionBootstrapRequest) (cloudmodule.CompleteConnectionBootstrapResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-const RealtimeWSTicketAction = "realtime.ws_ticket.create"
+const (
+	RealtimeWSTicketAction                         = "realtime.ws_ticket.create"
+	CloudConnectionCredentialBootstrapCreateAction = "cloud.connections.credential_bootstrap.create"
+)
 
 type ActionAuth string
 
@@ -62,6 +65,7 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.events.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "cloud.goals.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.role_plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionCredentialBootstrapCreateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.registration.complete", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.plans.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.plans.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
@@ -69,6 +73,10 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.deployments.recipe_execution.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.secrets.bootstrap.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.pairing.resume", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.jobs.cancel.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.jobs.cancel.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.deployments.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.deployments.destroy.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

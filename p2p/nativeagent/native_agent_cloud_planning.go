@@ -11,18 +11,22 @@ import (
 )
 
 const (
-	nativeAgentCloudDeploymentPlanTool = "native_agent_cloud_deployment_plan"
-	nativeAgentCloudStatusTool         = "native_agent_cloud_status"
-	nativeAgentCloudRecipesTool        = "native_agent_cloud_recipes"
-	nativeAgentCloudDialogueModeParam  = "cloud_dialogue_mode"
-	nativeAgentCloudConnectionIDParam  = "cloud_connection_id"
+	nativeAgentCloudDeploymentPlanTool  = "native_agent_cloud_deployment_plan"
+	nativeAgentCloudStatusTool          = "native_agent_cloud_status"
+	nativeAgentCloudRecipesTool         = "native_agent_cloud_recipes"
+	nativeAgentCloudDialogueModeParam   = "cloud_dialogue_mode"
+	nativeAgentCloudConnectionIDParam   = "cloud_connection_id"
+	nativeAgentCloudRecipeIDParam       = "cloud_recipe_id"
+	nativeAgentCloudRecipeRevisionParam = "cloud_recipe_revision"
 )
 
 type cloudPlanningRequestScopeContextKey struct{}
 type cloudPlanningConnectionScopeContextKey struct{}
 
 type cloudPlanningConnectionScope struct {
-	connectionID string
+	connectionID   string
+	recipeID       string
+	recipeRevision int64
 }
 
 // cloudDialogueMode is an opt-in, request-scoped capability reduction for a
@@ -61,8 +65,31 @@ func prepareCloudDialogueRequest(ctx context.Context, params map[string]any) (co
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, cloudPlanningConnectionScopeContextKey{}, cloudPlanningConnectionScope{connectionID: connectionID})
+	recipeID, recipeRevision, err := selectedCloudDialogueRecipe(params)
+	if err != nil {
+		return nil, err
+	}
+	ctx = context.WithValue(ctx, cloudPlanningConnectionScopeContextKey{}, cloudPlanningConnectionScope{
+		connectionID: connectionID, recipeID: recipeID, recipeRevision: recipeRevision,
+	})
 	return withCloudWorkloadCollector(ctx), nil
+}
+
+func selectedCloudDialogueRecipe(params map[string]any) (string, int64, error) {
+	_, hasID := params[nativeAgentCloudRecipeIDParam]
+	_, hasRevision := params[nativeAgentCloudRecipeRevisionParam]
+	if !hasID && !hasRevision {
+		return "", 0, nil
+	}
+	if !hasID || !hasRevision {
+		return "", 0, fmt.Errorf("cloud recipe id and revision must be selected together by the client")
+	}
+	recipeID := trimString(params[nativeAgentCloudRecipeIDParam])
+	revision := int64Param(params[nativeAgentCloudRecipeRevisionParam])
+	if !validCloudPlanningRecipeID(recipeID) || revision <= 0 {
+		return "", 0, fmt.Errorf("cloud recipe selection must be a valid current client-selected Recipe")
+	}
+	return recipeID, revision, nil
 }
 
 func selectedCloudDialogueConnectionID(params map[string]any) (string, error) {
@@ -119,7 +146,7 @@ func cloudPlanningConnectionScopeFromContext(ctx context.Context) (cloudPlanning
 	return scope, ok
 }
 
-func cloudPlanningIdempotencyKey(ctx context.Context, goal, connectionID string) string {
+func cloudPlanningIdempotencyKey(ctx context.Context, goal, connectionID string, selectedRecipe ...string) string {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -130,7 +157,8 @@ func cloudPlanningIdempotencyKey(ctx context.Context, goal, connectionID string)
 		// merely because their text is identical.
 		scope = uuid.NewString()
 	}
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("dirextalk.native-agent.cloud-research.v1\x00"+scope+"\x00"+connectionID+"\x00"+goal)).String()
+	binding := strings.Join(selectedRecipe, "\x00")
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("dirextalk.native-agent.cloud-research.v1\x00"+scope+"\x00"+connectionID+"\x00"+goal+"\x00"+binding)).String()
 }
 
 func (r *Runtime) cloudPlanningTools() []Tool {
@@ -169,7 +197,7 @@ func (r *Runtime) cloudPlanningToolsForRequest(connectionSelectedByClient bool) 
 			Name: nativeAgentCloudDeploymentPlanTool,
 			Description: "Create a research-only Cloud deployment goal from an explicit user request. " +
 				"It never accepts credentials, approves spend, creates infrastructure, opens a network endpoint, or destroys resources. " +
-				"Use it to hand an intent to the independent Cloud Orchestrator so it can return a reviewed plan and quote.",
+				"Use it to hand an intent to the independent Cloud Orchestrator so it can return a reviewed plan and quote; the client renders the returned plan as a milestone card.",
 			Write:      true,
 			Parameters: parameters,
 			Handler:    r.createCloudResearchGoal,
@@ -179,7 +207,7 @@ func (r *Runtime) cloudPlanningToolsForRequest(connectionSelectedByClient bool) 
 		tools = append(tools, Tool{
 			Name: nativeAgentCloudStatusTool,
 			Description: "Read the de-secretsed Cloud goals, plans, jobs, deployments, services, and alerts. " +
-				"It cannot create, approve, expose, stop, resume, destroy, or upload a secret.",
+				"It returns authoritative client_deep_link and next_step guidance, but cannot create, approve, expose, stop, resume, destroy, or upload a secret.",
 			Write:      false,
 			Parameters: objectSchema(map[string]any{}),
 			Handler:    r.readCloudStatus,
@@ -231,11 +259,24 @@ func (r *Runtime) createCloudResearchGoal(ctx context.Context, args map[string]a
 		return nil, fmt.Errorf("cloud_connection_id is required and must be valid")
 	}
 	idempotencyKey := cloudPlanningIdempotencyKey(ctx, goal, connectionID)
+	if scope.recipeID != "" {
+		idempotencyKey = cloudPlanningIdempotencyKey(ctx, goal, connectionID, scope.recipeID, fmt.Sprint(scope.recipeRevision))
+	}
 	collector, collectingWorkload := cloudWorkloadCollectorFromContext(ctx)
 	if cloudDialogue && (!collectingWorkload || !collector.reserve(idempotencyKey)) {
 		return nil, fmt.Errorf("cloud dialogue creates at most one research plan per request")
 	}
-	result, err := r.cloudPlanner.CreateResearchGoal(ctx, goal, connectionID, idempotencyKey)
+	var result map[string]any
+	var err error
+	if cloudDialogue && scope.recipeID != "" {
+		planner, ok := r.cloudPlanner.(CloudRecipePlanner)
+		if !ok {
+			return nil, fmt.Errorf("client-selected Cloud Recipe planning is not configured")
+		}
+		result, err = planner.CreateResearchGoalWithRecipe(ctx, goal, connectionID, scope.recipeID, scope.recipeRevision, idempotencyKey)
+	} else {
+		result, err = r.cloudPlanner.CreateResearchGoal(ctx, goal, connectionID, idempotencyKey)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +288,20 @@ func (r *Runtime) createCloudResearchGoal(ctx context.Context, args map[string]a
 
 func validCloudPlanningConnectionID(connectionID string) bool {
 	return connectionID != "" && len(connectionID) <= 128 && !strings.ContainsAny(connectionID, "\r\n\t")
+}
+
+func validCloudPlanningRecipeID(recipeID string) bool {
+	if recipeID == "" || len(recipeID) > 128 {
+		return false
+	}
+	for index, value := range recipeID {
+		if (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
+			(index > 0 && (value == '.' || value == '_' || value == ':' || value == '-')) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (r *Runtime) readCloudStatus(ctx context.Context, args map[string]any) (any, error) {

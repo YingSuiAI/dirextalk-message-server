@@ -130,11 +130,12 @@ type RecipeTaskClaimRequest struct {
 }
 
 type RecipeTaskClaimResponse struct {
-	Schema     string                     `json:"schema"`
-	Status     string                     `json:"status"`
-	LeaseEpoch uint64                     `json:"lease_epoch"`
-	Task       *RecipeTaskV1              `json:"task,omitempty"`
-	Manifest   *RecipeExecutionManifestV1 `json:"manifest,omitempty"`
+	Schema         string                     `json:"schema"`
+	Status         string                     `json:"status"`
+	LeaseEpoch     uint64                     `json:"lease_epoch"`
+	Task           *RecipeTaskV1              `json:"task,omitempty"`
+	Manifest       *RecipeExecutionManifestV1 `json:"manifest,omitempty"`
+	ArtifactAccess *ArtifactAccess            `json:"artifact_access,omitempty"`
 }
 
 type RecipeTaskEventReceipt struct {
@@ -283,6 +284,17 @@ func ParseRecipeTaskClaimRequest(raw []byte) (RecipeTaskClaimRequest, error) {
 }
 
 func MarshalRecipeTaskClaimResponse(leaseEpoch uint64, task *RecipeTaskV1, manifest *RecipeExecutionManifestV1) ([]byte, error) {
+	return MarshalRecipeTaskClaimResponseWithArtifact(leaseEpoch, task, manifest, nil, false)
+}
+
+func MarshalRecipeTaskArtifactPending(leaseEpoch uint64) ([]byte, error) {
+	if !workerTaskPositive(leaseEpoch) {
+		return nil, errCode("invalid_recipe_task_claim_response")
+	}
+	return json.Marshal(RecipeTaskClaimResponse{Schema: RecipeTaskClaimResponseSchema, Status: "artifact_pending", LeaseEpoch: leaseEpoch})
+}
+
+func MarshalRecipeTaskClaimResponseWithArtifact(leaseEpoch uint64, task *RecipeTaskV1, manifest *RecipeExecutionManifestV1, access *ArtifactAccess, required bool) ([]byte, error) {
 	response := RecipeTaskClaimResponse{Schema: RecipeTaskClaimResponseSchema, Status: "none", LeaseEpoch: leaseEpoch}
 	if task != nil {
 		copy := *task
@@ -296,10 +308,14 @@ func MarshalRecipeTaskClaimResponse(leaseEpoch uint64, task *RecipeTaskV1, manif
 			return nil, errCode("invalid_recipe_task_claim_response")
 		}
 		response.Status, response.Task, response.Manifest = "claimed", &copy, &manifestCopy
+		if access != nil {
+			value := *access
+			response.ArtifactAccess = &value
+		}
 	}
 	if !workerTaskPositive(response.LeaseEpoch) || (response.Status == "none" && response.Task != nil) ||
 		(response.Status == "none" && response.Manifest != nil) || (response.Status == "claimed" && (response.Task == nil || response.Manifest == nil || response.Task.Validate() != nil)) ||
-		(response.Status != "none" && response.Status != "claimed") {
+		(response.Status != "none" && response.Status != "claimed") || (required && response.Status == "claimed" && response.ArtifactAccess == nil) || (!required && response.ArtifactAccess != nil) {
 		return nil, errCode("invalid_recipe_task_claim_response")
 	}
 	return json.Marshal(response)

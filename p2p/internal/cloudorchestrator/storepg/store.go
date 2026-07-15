@@ -423,7 +423,14 @@ func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, deployme
 		if job.PlanID != planID || job.DeploymentID != deploymentID || job.Kind != kind || job.Revision <= 0 {
 			return cloudmodule.Job{}, errors.New("cloud job does not match the claimed outbox")
 		}
+		// A late provider/Worker result must never resurrect a terminal Job. In
+		// particular, device-approved cancellation is authoritative even when an
+		// older claim still holds a locally valid lease token.
+		if job.Outcome != "pending" && transition.outcome != job.Outcome {
+			return cloudmodule.Job{}, ErrLeaseLost
+		}
 		previousRevision := job.Revision
+		previousOutcome := job.Outcome
 		job.Execution = transition.execution
 		job.Outcome = transition.outcome
 		job.Checkpoint = transition.checkpoint
@@ -434,8 +441,8 @@ func transitionCloudJob(ctx context.Context, tx *sql.Tx, jobID, planID, deployme
 			UPDATE p2p_cloud_jobs
 			SET execution_status = $1, outcome_status = $2, checkpoint = $3, error_code = $4,
 				revision = $5, updated_at = $6
-			WHERE job_id = $7 AND revision = $8
-		`, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, job.Revision, now, job.JobID, previousRevision)
+			WHERE job_id = $7 AND revision = $8 AND outcome_status = $9
+		`, job.Execution, job.Outcome, job.Checkpoint, job.ErrorCode, job.Revision, now, job.JobID, previousRevision, previousOutcome)
 		if err != nil {
 			return cloudmodule.Job{}, err
 		}

@@ -105,8 +105,20 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 	var serviceSecretProvider api.ServiceSecretProvider
 	var serviceSecretSealer api.ServiceSecretKeySealer
 	var serviceSecretsClient *secretsmanager.Client
+	var artifactStore commandstore.ArtifactRepository
+	var artifactProvider api.ArtifactProvider
 	if config.serviceSecretsEnabled {
 		serviceSecretsClient = secretsmanager.NewFromConfig(awsConfig)
+	}
+	if config.artifactEnabled {
+		artifactStore, err = commandstore.NewDynamoArtifactStore(dynamoClient, config.receiptsTable, config.countersTable, config.artifactsTable)
+		if err != nil {
+			return api.Broker{}, err
+		}
+		artifactProvider, err = provider.NewAWSArtifactProvider(awsConfig, config.artifactBucket, config.artifactKMSKeyID)
+		if err != nil {
+			return api.Broker{}, err
+		}
 	}
 	if config.deploymentEnabled {
 		deploymentProvider, err = provider.NewEC2DeploymentProvider(ec2Client)
@@ -165,6 +177,7 @@ func productionBroker(ctx context.Context) (api.Broker, error) {
 		ServiceBackupStore: repository, ServiceBackupProvider: serviceBackupProvider,
 		ServiceRestoreStore: repository, ServiceRestoreProvider: serviceRestoreProvider,
 		ServiceSecretsEnabled: config.serviceSecretsEnabled, ServiceSecretStore: serviceSecretStore, ServiceSecretDestroyStore: serviceSecretDestroyStore, ServiceSecretProvider: serviceSecretProvider, ServiceSecretKeySealer: serviceSecretSealer,
+		ArtifactEnabled: config.artifactEnabled, ArtifactStore: artifactStore, ArtifactProvider: artifactProvider,
 		DeploymentBoundary: api.DeploymentBoundary{
 			WorkerArtifact: contract.WorkerArtifactReference{Kind: "fixed_ami", AMIID: config.workerAMIID},
 			WorkerNetwork: contract.WorkerNetworkReference{
@@ -194,7 +207,9 @@ type runtimeConfig struct {
 	serviceRestorePlanEnabled                                                                                                                                                            bool
 	serviceRestoreEnabled                                                                                                                                                                bool
 	serviceSecretsEnabled                                                                                                                                                                bool
+	artifactEnabled                                                                                                                                                                      bool
 	serviceSecretSessionsTable, serviceSecretKMSKeyID                                                                                                                                    string
+	artifactsTable, artifactBucket, artifactKMSKeyID                                                                                                                                     string
 }
 
 func runtimeConfigFromEnvironment() (runtimeConfig, error) {
@@ -222,6 +237,7 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 		serviceReadinessTasksTable: requiredEnvironment("DIREXTALK_SERVICE_READINESS_TASKS_TABLE"),
 		serviceSecretSessionsTable: requiredEnvironment("DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE"),
 		serviceSecretKMSKeyID:      requiredEnvironment("DIREXTALK_SERVICE_SECRET_KMS_KEY_ID"),
+		artifactsTable:             requiredEnvironment("DIREXTALK_ARTIFACTS_TABLE"), artifactBucket: requiredEnvironment("DIREXTALK_ARTIFACT_BUCKET"), artifactKMSKeyID: requiredEnvironment("DIREXTALK_ARTIFACT_KMS_KEY_ID"),
 	}
 	generation, err := strconv.ParseInt(requiredEnvironment("DIREXTALK_CONNECTION_GENERATION"), 10, 64)
 	if err != nil || generation < 1 || generation > 9007199254740991 {
@@ -282,6 +298,17 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 	default:
 		return runtimeConfig{}, errors.New("invalid service secrets gate")
 	}
+	switch requiredEnvironment("DIREXTALK_DYNAMIC_ARTIFACTS_ENABLED") {
+	case "true":
+		config.artifactEnabled = true
+		if config.artifactsTable == "" || config.artifactBucket == "" || config.artifactKMSKeyID == "" {
+			return runtimeConfig{}, errors.New("artifact resources are required when enabled")
+		}
+	case "false":
+		config.artifactEnabled = false
+	default:
+		return runtimeConfig{}, errors.New("invalid artifact gate")
+	}
 	if config.connectionID == "" || config.nodeKeyID == "" || config.nodePublicKeySPKIBase64 == "" || config.deviceApprovalKeyID == "" || config.deviceApprovalPublicKeySPKIBase64 == "" || config.accountID == "" || config.region == "" || config.stackARN == "" || config.urlSuffix == "" || config.stageName == "" || config.workerAMIID == "" || config.workerVPCID == "" || config.workerSubnetID == "" || config.workerAvailabilityZone == "" || config.workerSecurityGroupID == "" || config.workerResourceManifestDigest == "" || config.workerBootstrapEndpoint == "" || config.receiptsTable == "" || config.countersTable == "" || config.issuedQuotesTable == "" || config.deploymentReservationsTable == "" || config.deploymentDestroyTable == "" || config.serviceBackupsTable == "" || config.approvalUsesTable == "" || config.workerSessionsTable == "" || config.workerTasksTable == "" || config.serviceReadinessTasksTable == "" {
 		return runtimeConfig{}, errors.New("incomplete broker configuration")
 	}
@@ -315,6 +342,13 @@ func runtimeConfigFromEnvironment() (runtimeConfig, error) {
 		for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.serviceBackupsTable, config.serviceRestoresTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable} {
 			if config.serviceSecretSessionsTable == existing {
 				return runtimeConfig{}, errors.New("service secret session table must be isolated")
+			}
+		}
+	}
+	if config.artifactEnabled {
+		for _, existing := range []string{config.receiptsTable, config.countersTable, config.issuedQuotesTable, config.deploymentReservationsTable, config.deploymentDestroyTable, config.serviceBackupsTable, config.serviceRestoresTable, config.approvalUsesTable, config.workerSessionsTable, config.workerTasksTable, config.serviceReadinessTasksTable, config.serviceSecretSessionsTable} {
+			if config.artifactsTable == existing {
+				return runtimeConfig{}, errors.New("artifact table must be isolated")
 			}
 		}
 	}

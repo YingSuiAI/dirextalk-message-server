@@ -110,6 +110,9 @@ type Broker struct {
 	RecipeTasks               commandstore.RecipeTaskRepository
 	ServiceReadiness          commandstore.ServiceReadinessRepository
 	ServiceSecretsEnabled     bool
+	ArtifactEnabled           bool
+	ArtifactStore             commandstore.ArtifactRepository
+	ArtifactProvider          ArtifactProvider
 	ServiceSecretStore        commandstore.ServiceSecretRepository
 	ServiceSecretDestroyStore commandstore.ServiceSecretDestroyRepository
 	ServiceSecretProvider     ServiceSecretProvider
@@ -197,6 +200,10 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
 		return
 	}
+	if command.Action == contract.ActionArtifactPut && !b.ArtifactEnabled {
+		writeError(response, http.StatusNotImplemented, "operation_not_enabled")
+		return
+	}
 
 	now := time.Now().UTC()
 	if b.Now != nil {
@@ -221,6 +228,14 @@ func (b Broker) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		b.executeDeployment(response, request, command, now)
+		return
+	}
+	if command.Action == contract.ActionArtifactPut {
+		if b.DeploymentStore == nil || b.RecipeTasks == nil || b.ArtifactStore == nil || b.ArtifactProvider == nil {
+			writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+			return
+		}
+		b.executeArtifactPut(response, request, command, now)
 		return
 	}
 	if command.Action == contract.ActionDeploymentDestroy {

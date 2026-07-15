@@ -60,6 +60,11 @@ func TestProjectionRelayPublishesOnlyWhitelistedCloudSummaries(t *testing.T) {
 			claim:       ProjectionClaim{ProjectionID: "projection-service", CloudEventID: "event-service", LeaseToken: "lease-service", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"experimental","integration_status":"not_requested","revision":4,"created_at":100,"updated_at":104,"backups":[{"backup_id":"backup-1","service_id":"service-1","deployment_id":"deployment-1","status":"available","retention_policy":"manual","image_id":"ami-0123456789abcdef0","snapshot_ids":["snap-0123456789abcdef0"],"revision":2,"created_at":101,"updated_at":104}]}`},
 			wantPayload: map[string]any{"service_id": "service-1", "deployment_id": "deployment-1", "recipe_id": "recipe-1", "name": "Private service", "service_status": "experimental", "integration_status": "not_requested", "revision": int64(4), "created_at": int64(100), "updated_at": int64(104), "backups": []any{map[string]any{"backup_id": "backup-1", "service_id": "service-1", "deployment_id": "deployment-1", "status": "available", "retention_policy": "manual", "image_id": "ami-0123456789abcdef0", "snapshot_ids": []string{"snap-0123456789abcdef0"}, "revision": int64(2), "created_at": int64(101), "updated_at": int64(104)}}},
 		},
+		{
+			name:        "monitor alert",
+			claim:       ProjectionClaim{ProjectionID: "projection-alert", CloudEventID: "event-alert", LeaseToken: "lease-alert", Type: "cloud.alert.raised", PayloadJSON: `{"alert_id":"alert-monitor-1","deployment_id":"deployment-1","service_id":"service-1","severity":"warning","code":"service_monitor_unhealthy","message":"Continuous semantic readiness monitoring failed.","acknowledged":false,"revision":2,"created_at":100,"updated_at":104}`},
+			wantPayload: map[string]any{"alert_id": "alert-monitor-1", "deployment_id": "deployment-1", "service_id": "service-1", "severity": "warning", "code": "service_monitor_unhealthy", "message": "Continuous semantic readiness monitoring failed.", "acknowledged": false, "revision": int64(2), "created_at": int64(100), "updated_at": int64(104)},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -115,6 +120,10 @@ func TestProjectionRelayRejectsUnsafeOrMalformedPayloadWithoutPublishing(t *test
 		{
 			name:  "malformed backup resource evidence",
 			claim: ProjectionClaim{ProjectionID: "projection-6", CloudEventID: "event-6", LeaseToken: "lease-6", Type: "cloud.service.changed", PayloadJSON: `{"service_id":"service-1","deployment_id":"deployment-1","recipe_id":"recipe-1","name":"Private service","service_status":"experimental","integration_status":"not_requested","revision":5,"created_at":1,"updated_at":2,"backups":[{"backup_id":"backup-1","service_id":"service-1","deployment_id":"deployment-1","status":"available","retention_policy":"manual","image_id":"sk-0123456789abcdefghijklmnop","snapshot_ids":["snap-0123456789abcdef0"],"revision":2,"created_at":1,"updated_at":2}]}`},
+		},
+		{
+			name:  "alert secret material",
+			claim: ProjectionClaim{ProjectionID: "projection-7", CloudEventID: "event-7", LeaseToken: "lease-7", Type: "cloud.alert.raised", PayloadJSON: `{"alert_id":"alert-monitor-1","deployment_id":"deployment-1","service_id":"service-1","severity":"warning","code":"service_monitor_unhealthy","message":"token sk-abcdefghijklmnopqrstuvwx","acknowledged":false,"revision":1,"created_at":1,"updated_at":1}`},
 		},
 	}
 	for _, test := range tests {

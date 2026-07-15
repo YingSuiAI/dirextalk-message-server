@@ -18,7 +18,7 @@ func TestWorkerOCICatalogDigestAndResolverAreStableAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("catalog digest: %v", err)
 	}
-	if want := "sha256:5d60f2bc23a95949c6969268c244556f365af05760c321e7a004a6f137f726dd"; catalogDigest != want {
+	if want := "sha256:2ebde483c155b179cd0bc4266ed100c4dc77fcf3c4d916003590af08338f913b"; catalogDigest != want {
 		t.Errorf("catalog digest = %q, want %q", catalogDigest, want)
 	}
 
@@ -44,7 +44,7 @@ func TestWorkerOCICatalogDigestAndResolverAreStableAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest digest: %v", err)
 	}
-	if want := "sha256:e6b4840fc7dc6db6a671ae97271ce03f35ca511065789f841b2d5d4bac615d36"; manifestDigest != want {
+	if want := "sha256:017a572403039389d441614932e84db2e47a9ea63dbb0e2a463933fc7740caeb"; manifestDigest != want {
 		t.Errorf("manifest digest = %q, want %q", manifestDigest, want)
 	}
 
@@ -138,6 +138,26 @@ func TestWorkerOCICatalogRejectsUnboundOrMutableCapabilities(t *testing.T) {
 	}
 }
 
+func TestWorkerOCICatalogBindsStorageTargetsThroughDescriptorDigest(t *testing.T) {
+	catalog := workerOCICatalog(t)
+	entry := &catalog.Entries[0]
+	entry.Descriptor.VolumeTargets = []cloudorchestrator.OCIServiceStorageTargetV1{{SlotID: "state", ContainerTarget: "/var/lib/service", ReadOnly: false}}
+	entry.Descriptor.DataTargets = []cloudorchestrator.OCIServiceStorageTargetV1{{SlotID: "knowledge", ContainerTarget: "/opt/service/knowledge", ReadOnly: true}}
+	entry.BundleDigest, _ = entry.Descriptor.Digest()
+	raw, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := recipeexec.ParseWorkerOCICatalogV1(raw)
+	if err != nil || len(parsed.Entries[0].Descriptor.VolumeTargets) != 1 || len(parsed.Entries[0].Descriptor.DataTargets) != 1 {
+		t.Fatalf("parsed=%#v err=%v", parsed, err)
+	}
+	parsed.Entries[0].Descriptor.VolumeTargets[0].ContainerTarget = "/var/lib/drifted"
+	if err := parsed.Validate(); !errors.Is(err, recipeexec.ErrWorkerOCICatalogInvalid) {
+		t.Fatalf("descriptor target drift error=%v", err)
+	}
+}
+
 func TestWorkerOCICatalogResolverRejectsManifestDriftAndUnknownArtifacts(t *testing.T) {
 	catalog := workerOCICatalog(t)
 	catalogDigest, err := catalog.Digest()
@@ -198,6 +218,47 @@ func TestWorkerOCICatalogResolverRejectsManifestDriftAndUnknownArtifacts(t *test
 	}
 	if _, err := resolver.LookupDescriptor(nil, catalog.Entries[0].ArtifactDigest); err == nil {
 		t.Fatal("nil-context descriptor lookup was accepted")
+	}
+}
+
+func TestDynamicOCICatalogResolverRegistersOneManifestBoundArtifactIdempotently(t *testing.T) {
+	catalog := workerOCICatalog(t)
+	catalog.Entries = catalog.Entries[:1]
+	catalogDigest, err := catalog.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := recipeexec.WorkerResourceManifestV1{SchemaVersion: recipeexec.WorkerResourceManifestV1Schema, WorkerBinaryDigest: workerCatalogDigest("f"), CatalogDigest: catalogDigest, RuntimeIdentity: recipeexec.WorkerRuntimeIdentityPodmanV1}
+	approvedDigest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := recipeexec.NewDynamicOCICatalogResolver(approvedDigest, manifest.WorkerBinaryDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactDigest := catalog.Entries[0].ArtifactDigest
+	if _, err := resolver.Resolve(context.Background(), artifactDigest); !errors.Is(err, recipeexec.ErrWorkerOCIBundleNotFound) {
+		t.Fatalf("unregistered artifact error = %v", err)
+	}
+	if err := resolver.RegisterTrustedCatalog(catalog, manifest, artifactDigest); err != nil {
+		t.Fatalf("RegisterTrustedCatalog() error = %v", err)
+	}
+	if err := resolver.RegisterTrustedCatalog(catalog, manifest, artifactDigest); err != nil {
+		t.Fatalf("idempotent RegisterTrustedCatalog() error = %v", err)
+	}
+	if _, err := resolver.Resolve(context.Background(), artifactDigest); err != nil {
+		t.Fatalf("registered resolve error = %v", err)
+	}
+
+	multiple := workerOCICatalog(t)
+	if err := resolver.RegisterTrustedCatalog(multiple, manifest, artifactDigest); err == nil {
+		t.Fatal("registered a catalog with uncompiled extra entries")
+	}
+	wrongArtifact := catalog
+	wrongArtifact.Entries[0].Descriptor.ImageSource = cloudorchestrator.OCIImageSourceReferenceV1("ghcr.io/dirextalk/service@" + workerCatalogDigest("9"))
+	if err := resolver.RegisterTrustedCatalog(wrongArtifact, manifest, artifactDigest); err == nil {
+		t.Fatal("registered a descriptor that drifted from the approved artifact")
 	}
 }
 
@@ -296,10 +357,10 @@ func workerOCIServiceBundle(digestCharacter, actionPrefix string) cloudorchestra
 		Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 8080, Path: "/health", ExpectedStatus: 200, BodySHA256: workerCatalogDigest("e"),
 	}
 	return cloudorchestrator.OCIServiceBundleV1{
-		SchemaVersion: cloudorchestrator.OCIServiceBundleV1Schema, ArtifactDigest: workerCatalogDigest(digestCharacter), ImageDigest: workerCatalogDigest(digestCharacter), ImageSizeBytes: 1048576,
+		SchemaVersion: cloudorchestrator.OCIServiceBundleV1Schema, ArtifactDigest: workerCatalogDigest(digestCharacter), ImageSource: cloudorchestrator.OCIImageSourceReferenceV1("quay.io/dirextalk/" + actionPrefix + "@" + workerCatalogDigest(digestCharacter)), ImageDigest: workerCatalogDigest(digestCharacter), ImageSizeBytes: 1048576,
 		Architecture: cloudorchestrator.ArchitectureAMD64,
 		Actions: []cloudorchestrator.CompiledRecipeActionV1{
-			{Kind: cloudorchestrator.CompiledRecipeActionRestart, ActionID: actionPrefix + "_restart_v1", RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"service_restarted", "health_verified"}},
+			{Kind: cloudorchestrator.CompiledRecipeActionRestart, ActionID: actionPrefix + "_restart_v1", RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: cloudorchestrator.OCIServiceRestartCheckpointSequenceV1()},
 			{Kind: cloudorchestrator.CompiledRecipeActionInstall, ActionID: actionPrefix + "_install_v1", RootRequired: true, TimeoutSeconds: 1800, CheckpointSequence: cloudorchestrator.OCIServiceInstallCheckpointSequenceV1()},
 		},
 		Health: cloudorchestrator.OCIServiceHealthV1{

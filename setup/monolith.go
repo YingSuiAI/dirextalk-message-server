@@ -86,15 +86,17 @@ func (m *Monolith) AddAllPublicRoutes(
 	syncapi.AddPublicRoutes(processCtx, routers, cfg, cm, natsInstance, m.UserAPI, m.RoomserverAPI, caches, enableMetrics)
 	remoteNodeInsecureSkipTLSVerify := p2pRemoteNodeInsecureSkipTLSVerifyFromEnv()
 	p2pConfig := p2p.Config{
-		ServerName:                      string(cfg.Global.ServerName),
-		Homeserver:                      cfg.Global.WellKnownClientName,
-		RemoteNodeInsecureSkipTLSVerify: remoteNodeInsecureSkipTLSVerify,
-		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
-		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
-		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
-		PushRules:                       m.UserAPI,
-		ReleaseController:               releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
-		CloudConnectionStack:            p2pCloudConnectionStackConfigFromEnv(),
+		ServerName:                         string(cfg.Global.ServerName),
+		Homeserver:                         cfg.Global.WellKnownClientName,
+		RemoteNodeInsecureSkipTLSVerify:    remoteNodeInsecureSkipTLSVerify,
+		RemoteNodeAllowPrivateBaseURLs:     remoteNodeInsecureSkipTLSVerify,
+		P2PEventRetentionMaxRows:           p2pEventRetentionMaxRowsFromEnv(),
+		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
+		PushRules:                          m.UserAPI,
+		ReleaseController:                  releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
+		CloudConnectionStack:               p2pCloudConnectionStackConfigFromEnv(),
+		CloudDeploymentCreateEnabled:       p2pCloudDeploymentCreateEnabledFromEnv(),
+		CloudConnectionCredentialBootstrap: p2pCloudConnectionCredentialBootstrapConfigFromEnv(),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
@@ -211,6 +213,19 @@ func p2pEventRetentionPruneOnWriteFromEnv() bool {
 	return parsed
 }
 
+func p2pCloudDeploymentCreateEnabledFromEnv() bool {
+	value := strings.TrimSpace(os.Getenv("P2P_CLOUD_DEPLOYMENT_CREATE_ENABLED"))
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		logrus.WithField("value", value).Warn("Ignoring invalid P2P_CLOUD_DEPLOYMENT_CREATE_ENABLED value")
+		return false
+	}
+	return parsed
+}
+
 // p2pCloudConnectionStackConfigFromEnv reads only public Connection Stack
 // identity. The corresponding Ed25519 private key is intentionally not an
 // environment value and is loaded solely by the independent Orchestrator from
@@ -233,5 +248,24 @@ func p2pCloudConnectionStackConfigFromEnv() p2p.CloudConnectionStackConfig {
 		NodeKeyID:               strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID")),
 		NodePublicKeySPKIBase64: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64")),
 		RolePlanTTL:             ttl,
+	}
+}
+
+func p2pCloudConnectionCredentialBootstrapConfigFromEnv() p2p.CloudConnectionCredentialBootstrapConfig {
+	timeout := 10 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_TIMEOUT_SECONDS")); raw != "" {
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || seconds <= 0 || seconds > 30 {
+			timeout = -1
+		} else {
+			timeout = time.Duration(seconds) * time.Second
+		}
+	}
+	return p2p.CloudConnectionCredentialBootstrapConfig{
+		Endpoint:        strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_ENDPOINT")),
+		CAFile:          strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CA_FILE")),
+		CertificateFile: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CERT_FILE")),
+		KeyFile:         strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_KEY_FILE")),
+		Timeout:         timeout,
 	}
 }

@@ -36,6 +36,9 @@ func TestRecipeExecutionManifestBindsSealedExecutionScope(t *testing.T) {
 		{name: "checkpoint sequence", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
 			value.CheckpointSequence = []string{"artifact_verified", "install_complete", "service_ready"}
 		}},
+		{name: "semantic readiness", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
+			value.SemanticReadiness.Path = "/knowledge/semantic"
+		}},
 		{name: "volume slots", mutate: func(value *cloudorchestrator.RecipeExecutionManifestV1) {
 			value.VolumeSlots[0].VolumeRef = "volume_ref:data-b"
 		}},
@@ -149,7 +152,7 @@ func TestRecipeExecutionManifestRejectsUnsafeMaterialAndUnboundPlan(t *testing.T
 	assertJSONFields(t, validRecipeExecutionManifest(t), []string{
 		"schema_version", "execution_id", "deployment_id", "plan_id", "plan_hash", "plan_revision", "recipe_digest",
 		"worker_resource_manifest_digest", "artifact_digest", "action_id", "root_required", "timeout_seconds", "checkpoint_sequence",
-		"volume_slots", "data_slots", "secret_slots",
+		"semantic_readiness", "volume_slots", "data_slots", "secret_slots",
 	})
 }
 
@@ -220,6 +223,7 @@ func validRecipeExecutionManifest(t *testing.T) cloudorchestrator.RecipeExecutio
 		RootRequired:                 true,
 		TimeoutSeconds:               1800,
 		CheckpointSequence:           []string{"artifact_verified", "install_complete", "health_verified"},
+		SemanticReadiness:            cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18443, Path: "/openclaw/semantic", ExpectedStatus: 200, BodySHA256: artifactDigest('f')},
 		VolumeSlots: []cloudorchestrator.VolumeSlotV1{
 			{SlotID: "data", VolumeRef: "volume_ref:data-a", ReadOnly: false},
 			{SlotID: "models", VolumeRef: "volume_ref:models-a", ReadOnly: true},

@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
-	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/ociservice"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/recipeexec"
@@ -20,30 +20,15 @@ type secretMaterializerProvider interface {
 	NewSecretMaterializer() (recipeexec.SecretMaterializer, error)
 }
 
+type recipeArtifactCacheProvider interface {
+	NewRecipeArtifactCache(string, string, *recipeexec.OCICatalogResolver, string) (*cloudworker.RecipeArtifactCache, error)
+}
+
 func newOCIRecipeProcessor(client workerSessionClient, config commandConfig, bootstrap cloudworker.BootstrapManifest) (recipeTaskProcessor, error) {
 	if runtime.GOOS != "linux" || client == nil {
 		return nil, recipeexec.ErrExecutorConfiguration
 	}
-	approvedManifestDigest, err := approvedWorkerResourceManifestDigest(bootstrap)
-	if err != nil {
-		return nil, err
-	}
-	catalogRaw, err := readStrictRegularFile(config.ociCatalogFile, maxOCIConfigFileBytes)
-	if err != nil {
-		return nil, recipeexec.ErrExecutorConfiguration
-	}
-	catalog, err := recipeexec.ParseWorkerOCICatalogV1(catalogRaw)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateInitialOCIReadiness(catalog); err != nil {
-		return nil, err
-	}
-	resourceRaw, err := readStrictRegularFile(config.workerResourceFile, maxOCIConfigFileBytes)
-	if err != nil {
-		return nil, recipeexec.ErrExecutorConfiguration
-	}
-	resourceManifest, err := recipeexec.ParseWorkerResourceManifestV1(resourceRaw)
+	approvedManifestDigest, err := approvedWorkerResourceManifestDigest(bootstrap, config.dynamicRecipeArtifact)
 	if err != nil {
 		return nil, err
 	}
@@ -55,9 +40,33 @@ func newOCIRecipeProcessor(client workerSessionClient, config commandConfig, boo
 	if err != nil {
 		return nil, recipeexec.ErrExecutorConfiguration
 	}
-	resolver, err := recipeexec.NewOCICatalogResolver(catalog, resourceManifest, approvedManifestDigest, executableDigest)
-	if err != nil {
-		return nil, err
+	var resolver *recipeexec.OCICatalogResolver
+	if config.dynamicRecipeArtifact {
+		resolver, err = recipeexec.NewDynamicOCICatalogResolver(approvedManifestDigest, executableDigest)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		catalogRaw, readErr := readStrictRegularFile(config.ociCatalogFile, maxOCIConfigFileBytes)
+		if readErr != nil {
+			return nil, recipeexec.ErrExecutorConfiguration
+		}
+		catalog, parseErr := recipeexec.ParseWorkerOCICatalogV1(catalogRaw)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		resourceRaw, readErr := readStrictRegularFile(config.workerResourceFile, maxOCIConfigFileBytes)
+		if readErr != nil {
+			return nil, recipeexec.ErrExecutorConfiguration
+		}
+		resourceManifest, parseErr := recipeexec.ParseWorkerResourceManifestV1(resourceRaw)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		resolver, err = recipeexec.NewOCICatalogResolver(catalog, resourceManifest, approvedManifestDigest, executableDigest)
+		if err != nil {
+			return nil, err
+		}
 	}
 	checkpointStore, err := recipeexec.NewFileCheckpointStore(config.recipeCheckpointDir)
 	if err != nil {
@@ -91,31 +100,43 @@ func newOCIRecipeProcessor(client workerSessionClient, config commandConfig, boo
 		Resolver: resolver, Store: checkpointStore, Driver: driver,
 		RequireSecretMaterialization: true, Materializer: materializer, SecretStager: secretStager, SecretRetryDelay: time.Second,
 	}
+	if config.dynamicRecipeArtifact {
+		provider, ok := client.(recipeArtifactCacheProvider)
+		if !ok {
+			return nil, recipeexec.ErrExecutorConfiguration
+		}
+		cache, cacheErr := provider.NewRecipeArtifactCache(filepath.Join(config.recipeCheckpointDir, "artifact-cache"), bootstrap.DeploymentID, resolver, executableDigest)
+		if cacheErr != nil {
+			return nil, cacheErr
+		}
+		return cloudworker.NewRecipeTaskLoopWithArtifactPreparer(transport, executor, cache)
+	}
 	return cloudworker.NewRecipeTaskLoopWithExecutor(transport, executor)
 }
 
-// validateInitialOCIReadiness is the deliberately narrow first-validation
-// gate. Generic catalog-backed readiness is deferred until a separately
-// versioned readiness protocol can bind arbitrary typed probes end to end.
+// validateInitialOCIReadiness retains a focused test seam for catalog safety.
+// Mutable hosts, URLs, commands, and unpinned bodies are rejected by the
+// descriptor validator; individual typed probes are now bound end to end.
 func validateInitialOCIReadiness(catalog recipeexec.WorkerOCICatalogV1) error {
-	want := cloudorchestrator.OCIServiceLoopbackProbeV1{
-		Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18080, Path: "/ready",
-		ExpectedStatus: 200, BodySHA256: cloudworker.FixedReadinessEvidenceDigest(),
-	}
 	if len(catalog.Entries) == 0 {
 		return recipeexec.ErrExecutorConfiguration
 	}
 	for _, entry := range catalog.Entries {
-		health := entry.Descriptor.Health
-		if health.Liveness != want || health.Readiness != want || health.Semantic != want {
+		if entry.Descriptor.Health.Semantic.Validate() != nil {
 			return recipeexec.ErrExecutorConfiguration
 		}
 	}
 	return nil
 }
 
-func approvedWorkerResourceManifestDigest(bootstrap cloudworker.BootstrapManifest) (string, error) {
-	if bootstrap.WorkerImageDigest == "" || bootstrap.WorkerImageDigest != bootstrap.ArtifactManifestDigest {
+func approvedWorkerResourceManifestDigest(bootstrap cloudworker.BootstrapManifest, dynamicArtifact bool) (string, error) {
+	if bootstrap.WorkerImageDigest == "" || bootstrap.ArtifactManifestDigest == "" {
+		return "", recipeexec.ErrExecutorConfiguration
+	}
+	if dynamicArtifact {
+		return bootstrap.ArtifactManifestDigest, nil
+	}
+	if bootstrap.WorkerImageDigest != bootstrap.ArtifactManifestDigest {
 		return "", recipeexec.ErrExecutorConfiguration
 	}
 	return bootstrap.WorkerImageDigest, nil

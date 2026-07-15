@@ -15,6 +15,7 @@ import (
 
 const (
 	RecipeInstallRequested     = cloudmodule.OutboxKindRecipeExecutionInstallRequested
+	PairingResumeRequested     = cloudmodule.OutboxKindDeploymentPairingResumeRequested
 	ServiceOperationRequested  = cloudmodule.OutboxKindServiceOperationRequested
 	RecipeInstallPhaseIssue    = "issue"
 	RecipeInstallPhaseObserve  = "observe"

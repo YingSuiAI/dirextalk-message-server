@@ -19,13 +19,32 @@ func TestStoreServiceOperationReplaysAndCommitsStoppedWithoutDestroyingResource(
 	lease := 0
 	store.cfg.NewLeaseToken = func() string { lease++; return "service-operation-lease-" + string(rune('0'+lease)) }
 
-	manifest := cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: "service-operation-runtime-0001", DeploymentID: bootstrap.DeploymentID, PlanID: bootstrap.PlanID, PlanHash: namedDigest("a"), PlanRevision: 1, RecipeDigest: namedDigest("b"), WorkerResourceManifestDigest: namedDigest("c"), ArtifactDigest: cloudcontracts.FixedProbeManagedArtifactDigest, ActionID: cloudcontracts.FixedProbeStopActionID, RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_service_stopped"}}
+	manifest := cloudcontracts.RecipeExecutionManifestV1{SchemaVersion: cloudcontracts.RecipeExecutionManifestV1Schema, ExecutionID: "service-operation-runtime-0001", DeploymentID: bootstrap.DeploymentID, PlanID: bootstrap.PlanID, PlanHash: namedDigest("a"), PlanRevision: 1, RecipeDigest: namedDigest("b"), WorkerResourceManifestDigest: namedDigest("c"), ArtifactDigest: cloudcontracts.FixedProbeManagedArtifactDigest, ActionID: cloudcontracts.FixedProbeStopActionID, RootRequired: true, TimeoutSeconds: 120, CheckpointSequence: []string{"probe_service_stopped"}, SemanticReadiness: cloudcontracts.OCIServiceLoopbackProbeV1{Scheme: cloudcontracts.OCIServiceProbeHTTP, Port: 18080, Path: "/ready", ExpectedStatus: 200, BodySHA256: cloudcontracts.FixedReadinessEvidenceDigestV1}}
 	manifestDigest, err := manifest.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifestJSON, _ := json.Marshal(manifest)
 	checkpointsJSON, _ := json.Marshal(manifest.CheckpointSequence)
+	artifact := cloudcontracts.CompiledRecipeArtifactV1{
+		SchemaVersion: cloudcontracts.CompiledRecipeArtifactV1Schema, RecipeID: "service-operation-runtime-recipe-0001", RecipeDigest: manifest.RecipeDigest, RecipeRevision: 1,
+		OfficialSourceArtifactDigests: []string{namedDigest("d")}, Architecture: cloudcontracts.ArchitectureAMD64,
+		Requirements:                 cloudcontracts.ResourceRequirementsV1{MinVCPU: 2, MinMemoryMiB: 2048, MinDiskGiB: 20, Architecture: cloudcontracts.ArchitectureAMD64},
+		WorkerResourceManifestDigest: manifest.WorkerResourceManifestDigest, ArtifactDigest: manifest.ArtifactDigest,
+		ImageSource: cloudcontracts.OCIImageSourceReferenceV1("ghcr.io/dirextalk/fixed-probe@" + manifest.ArtifactDigest), MediaType: "application/vnd.dirextalk.recipe", SizeBytes: 1 << 20,
+		Actions:           []cloudcontracts.CompiledRecipeActionV1{{Kind: cloudcontracts.CompiledRecipeActionStop, ActionID: manifest.ActionID, RootRequired: true, TimeoutSeconds: manifest.TimeoutSeconds, CheckpointSequence: append([]string(nil), manifest.CheckpointSequence...)}},
+		SemanticReadiness: manifest.SemanticReadiness, HealthContractDigest: namedDigest("e"), LifecycleContractDigest: namedDigest("f"),
+		VolumeSlots: []cloudcontracts.RecipeVolumeSlotRequirementV1{}, DataSlots: []cloudcontracts.RecipeDataSlotRequirementV1{}, SecretSlots: []cloudcontracts.RecipeSecretSlotRequirementV1{},
+	}
+	artifactCanonical, err := artifact.CanonicalCompiledRecipeArtifactCBOR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactDescriptorDigest, err := artifact.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactJSON, _ := json.Marshal(artifact)
 	inputDigest := recipeInstallInputDigest(manifestDigest)
 	taskID, serviceID, jobID, outboxID := "service-operation-task-runtime-0001", "service-operation-runtime-service-0001", "service-operation-runtime-job-0001", "service-operation-runtime-outbox-0001"
 	statements := []struct {
@@ -33,6 +52,7 @@ func TestStoreServiceOperationReplaysAndCommitsStoppedWithoutDestroyingResource(
 		args  []any
 	}{
 		{`INSERT INTO p2p_cloud_recipes(recipe_id,name,version,digest,maturity,revision,created_at,updated_at) VALUES('service-operation-runtime-recipe-0001','Managed probe','v1',$1,'experimental',1,$2,$2)`, []any{manifest.RecipeDigest, clock.UnixMilli()}},
+		{`INSERT INTO p2p_cloud_recipe_artifacts(artifact_digest,descriptor_digest,recipe_id,recipe_revision,recipe_digest,worker_resource_manifest_digest,canonical_cbor,descriptor_json,status,revision,created_at,updated_at) VALUES($1,$2,'service-operation-runtime-recipe-0001',1,$3,$4,$5,$6,'verified',1,$7,$7)`, []any{artifact.ArtifactDigest, artifactDescriptorDigest, artifact.RecipeDigest, artifact.WorkerResourceManifestDigest, artifactCanonical, string(artifactJSON), clock.UnixMilli()}},
 		{`INSERT INTO p2p_cloud_services(service_id,deployment_id,recipe_id,name,service_status,integration_status,revision,created_at,updated_at) VALUES($1,$2,'service-operation-runtime-recipe-0001','Managed probe','active','not_requested',2,$3,$3)`, []any{serviceID, bootstrap.DeploymentID, clock.UnixMilli()}},
 		{`INSERT INTO p2p_cloud_jobs(job_id,plan_id,deployment_id,kind,execution_status,outcome_status,checkpoint,error_code,revision,created_at,updated_at) VALUES($1,$2,$3,'stop','queued','pending','service_operation_queued','',1,$4,$4)`, []any{jobID, bootstrap.PlanID, bootstrap.DeploymentID, clock.UnixMilli()}},
 		{`INSERT INTO p2p_cloud_job_steps(job_id,step_id,status,summary,checkpoint,error_code,revision,created_at,updated_at) VALUES($1,'service_operation','queued','queued','service_operation_queued','',1,$2,$2)`, []any{jobID, clock.UnixMilli()}},

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,17 +22,22 @@ import (
 )
 
 const (
-	podmanPath      = "/usr/bin/podman"
-	containerLabel  = "io.dirextalk.binding"
-	containerSecret = "/run/secrets"
-	maxProbeBody    = 1 << 20
+	podmanPath          = "/usr/bin/podman"
+	containerLabel      = "io.dirextalk.binding"
+	containerSecret     = "/run/secrets"
+	containerInitTarget = "/run/dirextalk/container-init"
+	maxProbeBody        = 1 << 20
 )
 
 var (
-	containerNamePattern = regexp.MustCompile(`^dtx-[0-9a-f]{24}$`)
-	secretNamePattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	ErrProductionHost    = errors.New("OCI service production host is unavailable")
-	ErrContainerBinding  = errors.New("existing OCI container has a different binding")
+	containerNamePattern          = regexp.MustCompile(`^dtx-[0-9a-f]{24}$`)
+	secretNamePattern             = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	storageSourcePattern          = regexp.MustCompile(`^` + regexp.QuoteMeta(StorageRoot) + `/[0-9a-f]{64}/(?:volumes|data)/[0-9a-f]{64}$`)
+	serviceSecretPattern          = regexp.MustCompile(`^` + regexp.QuoteMeta(ServiceSecretRoot) + `/[0-9a-f]{64}/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	runtimeEnvironmentNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+	ociRuntimeSecretPathPattern   = regexp.MustCompile(`^/run/secrets/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	ErrProductionHost             = errors.New("OCI service production host is unavailable")
+	ErrContainerBinding           = errors.New("existing OCI container has a different binding")
 )
 
 type commandRunner interface {
@@ -41,9 +47,12 @@ type commandRunner interface {
 type exitCoder interface{ ExitCode() int }
 
 type podmanHost struct {
-	uid    int
-	runner commandRunner
-	client *http.Client
+	uid                 int
+	runner              commandRunner
+	client              *http.Client
+	ensureStorage       func(ContainerSpec) error
+	refreshSecrets      func(ContainerSpec) error
+	containerInitSource string
 }
 
 var _ Host = (*podmanHost)(nil)
@@ -55,7 +64,7 @@ func newPodmanHost(uid int, runner commandRunner) *podmanHost {
 		TLSClientConfig:    &tls.Config{MinVersion: tls.VersionTLS12},
 		DisableCompression: true,
 	}
-	return &podmanHost{uid: uid, runner: runner, client: &http.Client{
+	return &podmanHost{uid: uid, runner: runner, ensureStorage: ensureProductionStorageDirectories, refreshSecrets: refreshProductionServiceSecrets, client: &http.Client{
 		Transport: transport, Timeout: 5 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
@@ -63,11 +72,49 @@ func newPodmanHost(uid int, runner commandRunner) *podmanHost {
 
 func (host *podmanHost) EffectiveUID() int { return host.uid }
 
-func (host *podmanHost) VerifyPinnedImage(ctx context.Context, digest string) error {
-	if host == nil || host.runner == nil || !namedDigestPattern.MatchString(digest) {
+func (host *podmanHost) EnsurePinnedImage(ctx context.Context, source cloudorchestrator.OCIImageSourceReferenceV1, digest string) error {
+	pinnedDigest, sourceErr := source.PinnedDigest()
+	if host == nil || host.runner == nil || sourceErr != nil || !namedDigestPattern.MatchString(digest) || pinnedDigest != digest {
 		return ErrProductionHost
 	}
-	output, err := host.runner.Run(ctx, podmanPath, []string{"image", "inspect", "--format={{.Digest}}", "--", digest})
+	_, err := host.runner.Run(ctx, podmanPath, []string{"image", "exists", "--", digest})
+	if err == nil {
+		return host.verifyImageDigest(ctx, digest, digest)
+	}
+	var code exitCoder
+	if !errors.As(err, &code) || code.ExitCode() != 1 {
+		return err
+	}
+	if _, err = host.runner.Run(ctx, podmanPath, []string{"image", "pull", "--tls-verify=true", "--", string(source)}); err != nil {
+		host.discardPulledImage(digest)
+		return err
+	}
+	if err = host.verifyImageDigest(ctx, string(source), digest); err != nil {
+		host.discardPulledImage(digest)
+		return err
+	}
+	repoDigests, err := host.runner.Run(ctx, podmanPath, []string{"image", "inspect", "--format={{range .RepoDigests}}{{println .}}{{end}}", "--", string(source)})
+	if err != nil {
+		host.discardPulledImage(digest)
+		return ErrDescriptorMismatch
+	}
+	for _, candidate := range strings.Fields(string(repoDigests)) {
+		if candidate == string(source) {
+			return nil
+		}
+	}
+	host.discardPulledImage(digest)
+	return ErrDescriptorMismatch
+}
+
+func (host *podmanHost) discardPulledImage(digest string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, _ = host.runner.Run(cleanupCtx, podmanPath, []string{"image", "rm", "--force", "--", digest})
+}
+
+func (host *podmanHost) verifyImageDigest(ctx context.Context, image, digest string) error {
+	output, err := host.runner.Run(ctx, podmanPath, []string{"image", "inspect", "--format={{.Digest}}", "--", image})
 	if err != nil || strings.TrimSpace(string(output)) != digest {
 		return ErrDescriptorMismatch
 	}
@@ -75,10 +122,13 @@ func (host *podmanHost) VerifyPinnedImage(ctx context.Context, digest string) er
 }
 
 func (host *podmanHost) EnsureContainer(ctx context.Context, spec ContainerSpec) error {
-	if host == nil || host.runner == nil || validateContainerSpec(spec) != nil {
+	if host == nil || host.uid != 0 || host.runner == nil || host.ensureStorage == nil || host.refreshSecrets == nil || validateContainerSpec(spec) != nil {
 		return ErrProductionHost
 	}
-	if err := validateProductionSecretFiles(spec); err != nil {
+	if err := host.ensureStorage(spec); err != nil {
+		return err
+	}
+	if err := host.RefreshServiceSecrets(ctx, spec); err != nil {
 		return err
 	}
 	_, err := host.runner.Run(ctx, podmanPath, []string{"container", "exists", spec.Name})
@@ -93,8 +143,24 @@ func (host *podmanHost) EnsureContainer(ctx context.Context, spec ContainerSpec)
 	if !errors.As(err, &code) || code.ExitCode() != 1 {
 		return err
 	}
-	_, err = host.runner.Run(ctx, podmanPath, createArguments(spec))
+	if len(spec.SecretEnvironment) != 0 && !validContainerInitSourcePath(host.containerInitSource) {
+		return ErrProductionHost
+	}
+	_, err = host.runner.Run(ctx, podmanPath, createArgumentsWithInit(spec, host.containerInitSource))
 	return err
+}
+
+func (host *podmanHost) RefreshServiceSecrets(ctx context.Context, spec ContainerSpec) error {
+	if host == nil || host.uid != 0 || host.runner == nil || host.refreshSecrets == nil || validateContainerSpec(spec) != nil {
+		return ErrProductionHost
+	}
+	if ctx == nil {
+		return ErrProductionHost
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return host.refreshSecrets(spec)
 }
 
 func (host *podmanHost) StartContainer(ctx context.Context, name string) error {
@@ -151,16 +217,56 @@ func (host *podmanHost) ProbeLoopback(ctx context.Context, probe cloudorchestrat
 }
 
 func createArguments(spec ContainerSpec) []string {
+	return createArgumentsWithInit(spec, "")
+}
+
+func createArgumentsWithInit(spec ContainerSpec, containerInitSource string) []string {
 	arguments := []string{"container", "create", "--name=" + spec.Name, "--label=" + containerLabel + "=" + spec.BindingDigest,
 		"--network=bridge", "--read-only", "--cap-drop=all", "--security-opt=no-new-privileges", "--restart=on-failure:5"}
+	profile := spec.RuntimeProfile
+	if profile != nil {
+		for _, capability := range profile.Capabilities {
+			arguments = append(arguments, "--cap-add="+string(capability))
+		}
+		for _, variable := range profile.Environment {
+			arguments = append(arguments, "--env="+variable.Name+"="+variable.Value)
+		}
+		for _, mount := range profile.Tmpfs {
+			arguments = append(arguments, "--tmpfs="+mount.ContainerTarget+":rw,noexec,nosuid,nodev,size="+strconv.FormatUint(mount.SizeBytes, 10)+",mode="+strconv.FormatUint(uint64(mount.Mode), 8))
+		}
+		if profile.RunAs != nil && len(spec.SecretEnvironment) == 0 {
+			arguments = append(arguments, "--user="+strconv.FormatUint(uint64(profile.RunAs.UID), 10)+":"+strconv.FormatUint(uint64(profile.RunAs.GID), 10))
+		}
+		if profile.Entrypoint != "" && len(spec.SecretEnvironment) == 0 {
+			arguments = append(arguments, "--entrypoint="+profile.Entrypoint)
+		}
+	}
 	for _, port := range spec.LoopbackPorts {
 		value := strconv.Itoa(int(port))
 		arguments = append(arguments, "--publish=127.0.0.1:"+value+":"+value+"/tcp")
 	}
-	for _, mount := range spec.SecretMounts {
-		arguments = append(arguments, "--mount=type=bind,source="+mount.Source+",target="+mount.Target+",readonly=true,relabel=private")
+	for _, mount := range spec.StorageMounts {
+		arguments = append(arguments, "--mount=type=bind,source="+mount.Source+",target="+mount.Target+",readonly="+strconv.FormatBool(mount.ReadOnly)+",relabel=private")
 	}
-	return append(arguments, "--", spec.ImageDigest)
+	if len(spec.SecretMounts) != 0 {
+		arguments = append(arguments, "--mount=type=bind,source="+path.Dir(spec.SecretMounts[0].StableSource)+",target="+containerSecret+",readonly=true,relabel=private")
+	}
+	if len(spec.SecretEnvironment) != 0 {
+		arguments = append(arguments, "--user=0:0", "--mount=type=bind,source="+containerInitSource+",target="+containerInitTarget+",readonly=true,relabel=shared", "--entrypoint="+containerInitTarget)
+	}
+	arguments = append(arguments, "--", spec.ImageDigest)
+	if len(spec.SecretEnvironment) != 0 {
+		arguments = append(arguments, "container-init")
+		arguments = append(arguments, "--run-as="+strconv.FormatUint(uint64(profile.RunAs.UID), 10)+":"+strconv.FormatUint(uint64(profile.RunAs.GID), 10))
+		for _, binding := range spec.SecretEnvironment {
+			arguments = append(arguments, "--secret-env="+binding.EnvironmentKey+"="+binding.FilePath)
+		}
+		arguments = append(arguments, "--", profile.Entrypoint)
+	}
+	if profile != nil {
+		arguments = append(arguments, profile.Argv...)
+	}
+	return arguments
 }
 
 func validateContainerSpec(spec ContainerSpec) error {
@@ -176,17 +282,106 @@ func validateContainerSpec(spec ContainerSpec) error {
 		}
 	}
 	seenTargets := map[string]struct{}{}
-	for _, mount := range spec.SecretMounts {
-		name := path.Base(mount.Target)
-		if !validStagedPath(mount.Source, path.Base(mount.Source)) || !stringsHasPathPrefix(mount.Source, SecretStagingRoot) || !secretNamePattern.MatchString(name) || mount.Target != containerSecret+"/"+name {
+	seenSources := map[string]struct{}{}
+	profile, err := cloudorchestrator.NormalizeOCIServiceRuntimeProfileV1(spec.RuntimeProfile)
+	if err != nil || !reflect.DeepEqual(profile, spec.RuntimeProfile) {
+		return ErrProductionHost
+	}
+	if profile != nil {
+		for _, mount := range profile.Tmpfs {
+			if _, duplicate := seenTargets[mount.ContainerTarget]; duplicate {
+				return ErrProductionHost
+			}
+			seenTargets[mount.ContainerTarget] = struct{}{}
+		}
+	}
+	if !sort.SliceIsSorted(spec.StorageMounts, func(i, j int) bool { return spec.StorageMounts[i].Target < spec.StorageMounts[j].Target }) {
+		return ErrProductionHost
+	}
+	for _, mount := range spec.StorageMounts {
+		if !storageSourcePattern.MatchString(mount.Source) || cloudorchestrator.ValidateOCIServiceContainerTarget(mount.Target) != nil || mount.OwnerUID > 65535 || mount.OwnerGID > 65535 {
+			return ErrProductionHost
+		}
+		if _, err := cloudorchestrator.NormalizeOCIServiceStorageDirectoryMode(mount.DirectoryMode); err != nil {
+			return ErrProductionHost
+		}
+		if _, duplicate := seenSources[mount.Source]; duplicate {
 			return ErrProductionHost
 		}
 		if _, duplicate := seenTargets[mount.Target]; duplicate {
 			return ErrProductionHost
 		}
-		seenTargets[mount.Target] = struct{}{}
+		seenSources[mount.Source], seenTargets[mount.Target] = struct{}{}, struct{}{}
+	}
+	if !sort.SliceIsSorted(spec.SecretMounts, func(i, j int) bool { return spec.SecretMounts[i].Target < spec.SecretMounts[j].Target }) {
+		return ErrProductionHost
+	}
+	stableDirectory := ""
+	seenStagedSources, seenStableSources := map[string]struct{}{}, map[string]struct{}{}
+	for _, mount := range spec.SecretMounts {
+		name := path.Base(mount.Target)
+		if !validStagedPath(mount.StagedSource, name) || !stringsHasPathPrefix(mount.StagedSource, SecretStagingRoot) || !serviceSecretPattern.MatchString(mount.StableSource) || path.Base(mount.StableSource) != name || !secretNamePattern.MatchString(name) || mount.Target != containerSecret+"/"+name {
+			return ErrProductionHost
+		}
+		if stableDirectory == "" {
+			stableDirectory = path.Dir(mount.StableSource)
+		} else if path.Dir(mount.StableSource) != stableDirectory {
+			return ErrProductionHost
+		}
+		if _, duplicate := seenStagedSources[mount.StagedSource]; duplicate {
+			return ErrProductionHost
+		}
+		if _, duplicate := seenStableSources[mount.StableSource]; duplicate {
+			return ErrProductionHost
+		}
+		if _, duplicate := seenTargets[mount.Target]; duplicate {
+			return ErrProductionHost
+		}
+		seenStagedSources[mount.StagedSource], seenStableSources[mount.StableSource], seenTargets[mount.Target] = struct{}{}, struct{}{}, struct{}{}
+	}
+	if profile == nil && len(spec.SecretEnvironment) != 0 || profile != nil && len(spec.SecretEnvironment) != len(profile.SecretEnvironment) {
+		return ErrProductionHost
+	}
+	profileSecretEnvironment := make(map[string]struct{}, len(spec.SecretEnvironment))
+	if profile != nil {
+		for _, binding := range profile.SecretEnvironment {
+			profileSecretEnvironment[binding.EnvironmentKey] = struct{}{}
+		}
+	}
+	secretFiles := make(map[string]struct{}, len(spec.SecretMounts))
+	for _, mount := range spec.SecretMounts {
+		secretFiles[mount.Target] = struct{}{}
+	}
+	if profile != nil {
+		for _, variable := range profile.Environment {
+			if strings.HasSuffix(variable.Name, "_FILE") {
+				if _, ok := secretFiles[variable.Value]; !ok {
+					return ErrProductionHost
+				}
+			}
+		}
+	}
+	if !sort.SliceIsSorted(spec.SecretEnvironment, func(i, j int) bool {
+		return spec.SecretEnvironment[i].EnvironmentKey < spec.SecretEnvironment[j].EnvironmentKey
+	}) {
+		return ErrProductionHost
+	}
+	for index, binding := range spec.SecretEnvironment {
+		if index > 0 && spec.SecretEnvironment[index-1].EnvironmentKey == binding.EnvironmentKey || !runtimeEnvironmentNamePattern.MatchString(binding.EnvironmentKey) || !ociRuntimeSecretPathPattern.MatchString(binding.FilePath) {
+			return ErrProductionHost
+		}
+		if _, ok := profileSecretEnvironment[binding.EnvironmentKey]; !ok {
+			return ErrProductionHost
+		}
+		if _, ok := secretFiles[binding.FilePath]; !ok {
+			return ErrProductionHost
+		}
 	}
 	return nil
+}
+
+func validContainerInitSourcePath(value string) bool {
+	return path.IsAbs(value) && path.Clean(value) == value && value != "/" && !strings.ContainsAny(value, "\x00\r\n,")
 }
 
 func validStagedPath(value, basename string) bool {

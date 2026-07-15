@@ -148,6 +148,11 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.connections.credential_bootstrap.create",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.connections.registration.complete",
       "auth": "owner",
       "transport": "http_only"
@@ -179,6 +184,26 @@
     },
     {
       "name": "cloud.deployments.pairing.resume",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.jobs.cancel.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.jobs.cancel.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.destroy.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.destroy.approve",
       "auth": "owner",
       "transport": "http_only"
     },

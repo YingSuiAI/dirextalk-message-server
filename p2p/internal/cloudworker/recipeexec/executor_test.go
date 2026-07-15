@@ -310,6 +310,7 @@ func validManifest() cloudorchestrator.RecipeExecutionManifestV1 {
 		RootRequired:                 true,
 		TimeoutSeconds:               60,
 		CheckpointSequence:           []string{"artifact_verified", "install_complete", "health_verified"},
+		SemanticReadiness:            cloudorchestrator.OCIServiceLoopbackProbeV1{Scheme: cloudorchestrator.OCIServiceProbeHTTP, Port: 18080, Path: "/semantic", ExpectedStatus: 200, BodySHA256: sha256('e')},
 		VolumeSlots:                  []cloudorchestrator.VolumeSlotV1{{SlotID: "data", VolumeRef: "volume_ref:data-a"}},
 		DataSlots:                    []cloudorchestrator.DataSlotV1{{SlotID: "dataset", DataRef: "data_ref:dataset-a", ReadOnly: true}},
 	}

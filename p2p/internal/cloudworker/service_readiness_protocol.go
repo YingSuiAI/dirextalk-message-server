@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudworker/fixedprobe"
@@ -18,9 +20,30 @@ const (
 	ServiceReadinessChallengeV1Schema         = "dirextalk.service-readiness-challenge/v1"
 	ServiceReadinessTaskEventV1Schema         = "dirextalk.service-readiness-task-event/v1"
 	ServiceReadinessTaskEventReceiptV1Schema  = "dirextalk.service-readiness-task-event-receipt/v1"
-	ServiceReadinessProbeKind                 = "stack_witnessed_fixed_worker_probe_v1"
+	ServiceReadinessProbeKind                 = "stack_witnessed_oci_semantic_probe_v1"
 	maxServiceReadinessChallengeLifetime      = 5 * time.Minute
 )
+
+type ServiceReadinessProbeV1 struct {
+	Scheme         string `json:"scheme"`
+	Port           uint16 `json:"port"`
+	Path           string `json:"path"`
+	ExpectedStatus uint16 `json:"expected_status"`
+	BodySHA256     string `json:"body_sha256"`
+}
+
+func (probe ServiceReadinessProbeV1) validate() error {
+	if (probe.Scheme != "http" && probe.Scheme != "https") || probe.Port == 0 || probe.ExpectedStatus < 100 || probe.ExpectedStatus > 599 ||
+		!validNamedSHA256(probe.BodySHA256) || len(probe.Path) == 0 || len(probe.Path) > 256 || !strings.HasPrefix(probe.Path, "/") ||
+		strings.HasPrefix(probe.Path, "//") || strings.ContainsAny(probe.Path, "?#\\") || strings.Contains(probe.Path, "..") {
+		return errors.New("service readiness probe is invalid")
+	}
+	parsed, err := url.ParseRequestURI(probe.Path)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("service readiness probe is invalid")
+	}
+	return nil
+}
 
 type ServiceReadinessTaskClaimRequestV1 struct {
 	Schema     string `json:"schema"`
@@ -36,24 +59,26 @@ func NewServiceReadinessTaskClaimRequestV1(epoch uint64) (ServiceReadinessTaskCl
 }
 
 type ServiceReadinessTaskV1 struct {
-	Schema                        string `json:"schema"`
-	TaskID                        string `json:"task_id"`
-	ExecutionID                   string `json:"execution_id"`
-	DeploymentID                  string `json:"deployment_id"`
-	ServiceID                     string `json:"service_id"`
-	ProbeKind                     string `json:"probe_kind"`
-	RecipeExecutionManifestDigest string `json:"recipe_execution_manifest_digest"`
-	InstallEvidenceDigest         string `json:"install_evidence_digest"`
-	SemanticExpectationDigest     string `json:"semantic_expectation_digest"`
-	Attempt                       uint64 `json:"attempt"`
-	LastSequence                  uint64 `json:"last_sequence"`
+	Schema                        string                  `json:"schema"`
+	TaskID                        string                  `json:"task_id"`
+	ExecutionID                   string                  `json:"execution_id"`
+	DeploymentID                  string                  `json:"deployment_id"`
+	ServiceID                     string                  `json:"service_id"`
+	ProbeKind                     string                  `json:"probe_kind"`
+	RecipeExecutionManifestDigest string                  `json:"recipe_execution_manifest_digest"`
+	InstallEvidenceDigest         string                  `json:"install_evidence_digest"`
+	ArtifactDigest                string                  `json:"artifact_digest"`
+	SemanticProbe                 ServiceReadinessProbeV1 `json:"semantic_probe"`
+	SemanticExpectationDigest     string                  `json:"semantic_expectation_digest"`
+	Attempt                       uint64                  `json:"attempt"`
+	LastSequence                  uint64                  `json:"last_sequence"`
 }
 
 func (task ServiceReadinessTaskV1) validate(manifest BootstrapManifest) error {
 	if task.Schema != ServiceReadinessTaskV1Schema || !validIdentifier(task.TaskID) || !validIdentifier(task.ExecutionID) ||
 		task.DeploymentID != manifest.DeploymentID || !validIdentifier(task.ServiceID) || task.ProbeKind != ServiceReadinessProbeKind ||
-		!validNamedSHA256(task.RecipeExecutionManifestDigest) || !validNamedSHA256(task.InstallEvidenceDigest) ||
-		task.SemanticExpectationDigest != FixedReadinessEvidenceDigest() || !validTaskPositive(task.Attempt) ||
+		!validNamedSHA256(task.RecipeExecutionManifestDigest) || !validNamedSHA256(task.InstallEvidenceDigest) || !validNamedSHA256(task.ArtifactDigest) ||
+		task.SemanticProbe.validate() != nil || task.SemanticExpectationDigest != task.SemanticProbe.BodySHA256 || !validTaskPositive(task.Attempt) ||
 		!validTaskNonnegative(task.LastSequence) {
 		return errors.New("service readiness task is invalid")
 	}
@@ -129,7 +154,7 @@ func ParseServiceReadinessTaskClaimResponseV1(raw []byte, manifest BootstrapMani
 func parseServiceReadinessTaskV1(raw []byte, manifest BootstrapManifest) (ServiceReadinessTaskV1, error) {
 	var task ServiceReadinessTaskV1
 	if err := decodeStrictObject(raw, &task); err != nil || requireTaskFields(raw, "schema", "task_id", "execution_id", "deployment_id", "service_id", "probe_kind",
-		"recipe_execution_manifest_digest", "install_evidence_digest", "semantic_expectation_digest", "attempt", "last_sequence") != nil ||
+		"recipe_execution_manifest_digest", "install_evidence_digest", "artifact_digest", "semantic_probe", "semantic_expectation_digest", "attempt", "last_sequence") != nil ||
 		requireNonNullTaskFields(raw, "attempt", "last_sequence") != nil || task.validate(manifest) != nil {
 		return ServiceReadinessTaskV1{}, errors.New("service readiness task is invalid")
 	}
@@ -176,7 +201,7 @@ func (event ServiceReadinessTaskEventV1) validate(task ServiceReadinessTaskV1, c
 	switch event.Status {
 	case ServiceReadinessTaskSucceeded:
 		if event.ChallengeDigest == nil || *event.ChallengeDigest != challenge.ChallengeDigest || event.SemanticEvidenceDigest == nil ||
-			*event.SemanticEvidenceDigest != FixedReadinessEvidenceDigest() || event.ErrorCode != nil {
+			*event.SemanticEvidenceDigest != task.SemanticProbe.BodySHA256 || event.ErrorCode != nil {
 			return errors.New("service readiness task event is invalid")
 		}
 	case ServiceReadinessTaskFailed, ServiceReadinessTaskInterrupted:

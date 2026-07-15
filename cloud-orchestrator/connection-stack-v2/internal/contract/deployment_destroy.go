@@ -12,7 +12,7 @@ const (
 
 type DeploymentDestroyRequest struct {
 	Schema              string   `json:"schema"`
-	ServiceID           string   `json:"service_id"`
+	ServiceID           string   `json:"service_id,omitempty"`
 	DeploymentID        string   `json:"deployment_id"`
 	InstanceID          string   `json:"instance_id"`
 	VolumeIDs           []string `json:"volume_ids"`
@@ -44,8 +44,11 @@ func (command Command) DeploymentDestroyRequest() (DeploymentDestroyRequest, err
 		return DeploymentDestroyRequest{}, errCode("invalid_payload")
 	}
 	fields, err := exactJSONObject(payload)
-	legacyFields := []string{"schema", "service_id", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
-	if err != nil || (!exactFields(fields, legacyFields) && !exactFields(fields, append(legacyFields, "secret_refs"))) {
+	deploymentFields := []string{"schema", "deployment_id", "instance_id", "volume_ids", "network_interface_ids"}
+	serviceFields := append(append([]string(nil), deploymentFields...), "service_id")
+	validFields := exactFields(fields, deploymentFields) || exactFields(fields, append(deploymentFields, "secret_refs")) ||
+		exactFields(fields, serviceFields) || exactFields(fields, append(serviceFields, "secret_refs"))
+	if err != nil || !validFields {
 		return DeploymentDestroyRequest{}, errCode("invalid_payload")
 	}
 	var request DeploymentDestroyRequest
@@ -59,7 +62,7 @@ func (command Command) DeploymentDestroyRequest() (DeploymentDestroyRequest, err
 }
 
 func (request DeploymentDestroyRequest) validate() error {
-	if request.Schema != DeploymentDestroySchema || !approvalIdentifierPattern.MatchString(request.ServiceID) || !approvalIdentifierPattern.MatchString(request.DeploymentID) || !destroyInstanceIDPattern.MatchString(request.InstanceID) || !validDestroyResourceIDs(request.VolumeIDs, destroyVolumeIDPattern) || !validDestroyResourceIDs(request.NetworkInterfaceIDs, destroyNetworkInterfaceIDPattern) || !validOptionalDestroySecretRefs(request.SecretRefs) {
+	if request.Schema != DeploymentDestroySchema || (request.ServiceID != "" && !approvalIdentifierPattern.MatchString(request.ServiceID)) || !approvalIdentifierPattern.MatchString(request.DeploymentID) || !destroyInstanceIDPattern.MatchString(request.InstanceID) || !validDestroyResourceIDs(request.VolumeIDs, destroyVolumeIDPattern) || !validDestroyResourceIDs(request.NetworkInterfaceIDs, destroyNetworkInterfaceIDPattern) || !validOptionalDestroySecretRefs(request.SecretRefs) {
 		return errCode("invalid_payload")
 	}
 	return nil
@@ -72,12 +75,21 @@ func (command Command) ValidateDeploymentDestroyBinding() error {
 	if err != nil {
 		return err
 	}
-	proof, err := command.ServiceDestroyApproval()
+	metadata, err := command.DestroyApprovalMetadata()
 	if err != nil {
 		return err
 	}
-	proof = normalizeServiceDestroyApprovalProof(proof)
-	if proof.CloudConnectionID != command.ConnectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !sameStrings(proof.VolumeIDs, request.VolumeIDs) || !sameStrings(proof.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameStrings(proof.SecretRefs, request.SecretRefs) {
+	if metadata.Intent == serviceDestroyApprovalIntent {
+		proof, _ := command.ServiceDestroyApproval()
+		proof = normalizeServiceDestroyApprovalProof(proof)
+		if request.ServiceID == "" || proof.CloudConnectionID != command.ConnectionID || proof.ServiceID != request.ServiceID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !sameStrings(proof.VolumeIDs, request.VolumeIDs) || !sameStrings(proof.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameStrings(proof.SecretRefs, request.SecretRefs) {
+			return errCode("approval_scope_mismatch")
+		}
+		return nil
+	}
+	proof, _ := command.DeploymentDestroyApproval()
+	proof = normalizeDeploymentDestroyApprovalProof(proof)
+	if request.ServiceID != "" || proof.CloudConnectionID != command.ConnectionID || proof.DeploymentID != request.DeploymentID || proof.InstanceID != request.InstanceID || !sameStrings(proof.VolumeIDs, request.VolumeIDs) || !sameStrings(proof.NetworkInterfaceIDs, request.NetworkInterfaceIDs) || !sameStrings(proof.SecretRefs, request.SecretRefs) {
 		return errCode("approval_scope_mismatch")
 	}
 	return nil

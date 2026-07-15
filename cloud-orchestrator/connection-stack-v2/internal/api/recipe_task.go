@@ -90,7 +90,11 @@ func (b Broker) executeRecipeTaskIssue(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusConflict, "worker_session_not_ready")
 		return
 	}
-	if issue.Manifest.WorkerResourceManifestDigest != reservation.WorkerSession.WorkerImageDigest {
+	expectedWorkerManifest := reservation.WorkerSession.WorkerImageDigest
+	if b.ArtifactEnabled {
+		expectedWorkerManifest = reservation.WorkerSession.ArtifactManifestDigest
+	}
+	if issue.Manifest.WorkerResourceManifestDigest != expectedWorkerManifest {
 		writeError(response, http.StatusConflict, "recipe_task_worker_binding_mismatch")
 		return
 	}
@@ -177,6 +181,10 @@ func (b Broker) executeRecipeTaskObserve(response http.ResponseWriter, request *
 }
 
 func (b Broker) serveRecipeTaskClaim(response http.ResponseWriter, request *http.Request, route workerRoute, raw []byte) {
+	if b.ArtifactEnabled && (b.ArtifactStore == nil || b.ArtifactProvider == nil) {
+		writeError(response, http.StatusServiceUnavailable, "broker_not_configured")
+		return
+	}
 	claim, err := contract.ParseRecipeTaskClaimRequest(raw)
 	if err != nil {
 		writeError(response, http.StatusBadRequest, contract.Code(err))
@@ -203,6 +211,36 @@ func (b Broker) serveRecipeTaskClaim(response http.ResponseWriter, request *http
 			return
 		}
 		manifest = &parsed
+	}
+	if found && b.ArtifactEnabled {
+		artifact, verified, lookupErr := b.ArtifactStore.LookupArtifact(request.Context(), authorization.Session.ConnectionID, task.DeploymentID, task.TaskID)
+		if lookupErr != nil {
+			writeStoreError(response, lookupErr)
+			return
+		}
+		manifestDigest, digestErr := manifest.Digest()
+		if verified && (digestErr != nil || artifact.Binding.DeploymentID != task.DeploymentID || artifact.Binding.TaskID != task.TaskID || artifact.Binding.ExecutionID != task.ExecutionID || artifact.Binding.ManifestDigest != manifestDigest || artifact.Binding.RecipeDigest != manifest.RecipeDigest || artifact.Binding.ArtifactDigest != manifest.ArtifactDigest) {
+			writeError(response, http.StatusInternalServerError, "artifact_store_invalid")
+			return
+		}
+		if !verified || artifact.State != "verified" {
+			result, _ := contract.MarshalRecipeTaskArtifactPending(claim.LeaseEpoch)
+			writeRawJSON(response, http.StatusOK, result)
+			return
+		}
+		url, expiresAt, presignErr := b.ArtifactProvider.PresignGet(request.Context(), artifact.ObjectKey, artifact.VersionID, artifactURLTTL)
+		if presignErr != nil {
+			writeError(response, http.StatusServiceUnavailable, "artifact_provider_unavailable")
+			return
+		}
+		access := contract.ArtifactAccess{Method: "GET", URL: url, ExpiresAt: expiresAt.UTC().Format("2006-01-02T15:04:05.000Z"), VersionID: artifact.VersionID, MediaType: artifact.Binding.MediaType, SizeBytes: artifact.Binding.SizeBytes, ArchiveSHA256: artifact.Binding.ArchiveSHA256}
+		result, marshalErr := contract.MarshalRecipeTaskClaimResponseWithArtifact(claim.LeaseEpoch, claimed, manifest, &access, true)
+		if marshalErr != nil {
+			writeError(response, http.StatusInternalServerError, "recipe_task_store_invalid")
+			return
+		}
+		writeRawJSON(response, http.StatusOK, result)
+		return
 	}
 	result, err := contract.MarshalRecipeTaskClaimResponse(claim.LeaseEpoch, claimed, manifest)
 	if err != nil {

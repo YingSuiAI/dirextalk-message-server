@@ -1786,6 +1786,124 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: typed OCI semantic readiness v64",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS artifact_digest TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS semantic_probe_json TEXT NOT NULL DEFAULT ''`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: durable recipe artifact transfer v65",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_artifact_transfers(
+					execution_id TEXT PRIMARY KEY NOT NULL,deployment_id TEXT NOT NULL,task_id TEXT NOT NULL,cloud_connection_id TEXT NOT NULL,
+					recipe_digest TEXT NOT NULL,artifact_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,archive_sha256 TEXT NOT NULL,
+					size_bytes BIGINT NOT NULL CHECK(size_bytes>0),media_type TEXT NOT NULL CHECK(media_type='application/x-tar'),version_id TEXT NOT NULL DEFAULT '',
+					state TEXT NOT NULL CHECK(state IN('pending','uploaded','verified','failed')),last_error_code TEXT NOT NULL DEFAULT '',created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(deployment_id,task_id),UNIQUE(cloud_connection_id,execution_id)
+				)`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_recipe_artifact_commands(
+					command_id TEXT PRIMARY KEY NOT NULL,execution_id TEXT NOT NULL,deployment_id TEXT NOT NULL,task_id TEXT NOT NULL,cloud_connection_id TEXT NOT NULL,
+					phase TEXT NOT NULL CHECK(phase IN('prepare','complete')),request_digest TEXT NOT NULL,action TEXT NOT NULL CHECK(action='artifact.put'),
+					node_key_id TEXT NOT NULL,expected_generation BIGINT NOT NULL CHECK(expected_generation>0),node_counter BIGINT NOT NULL CHECK(node_counter>0),
+					canonical_payload_json TEXT NOT NULL DEFAULT '',payload_sha256 TEXT NOT NULL DEFAULT '',request_sha256 TEXT NOT NULL DEFAULT '',signed_envelope_json TEXT NOT NULL DEFAULT '',
+					issued_at BIGINT NOT NULL DEFAULT 0,expires_at BIGINT NOT NULL DEFAULT 0,state TEXT NOT NULL CHECK(state IN('allocated','signed','indeterminate','accepted','expired','failed')),
+					last_error_code TEXT NOT NULL DEFAULT '',created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(execution_id,phase),UNIQUE(cloud_connection_id,node_counter)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_recipe_artifact_commands_execution_idx ON p2p_cloud_recipe_artifact_commands(execution_id,phase)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: deployment pairing resume approval v66",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_pairing_resume_approvals(
+					approval_id TEXT PRIMARY KEY NOT NULL,challenge_id TEXT NOT NULL UNIQUE,owner_mxid TEXT NOT NULL,deployment_id TEXT NOT NULL,
+					deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0),plan_id TEXT NOT NULL,cloud_connection_id TEXT NOT NULL,
+					execution_id TEXT NOT NULL,manifest_digest TEXT NOT NULL,job_id TEXT NOT NULL,job_revision BIGINT NOT NULL CHECK(job_revision>0),
+					signer_key_id TEXT NOT NULL,approval_json TEXT NOT NULL,signing_payload_cbor BYTEA NOT NULL,prepare_deployment_json TEXT NOT NULL,prepare_job_json TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN('pending','approved','expired')),
+					prepare_idempotency_hash TEXT NOT NULL,prepare_request_digest TEXT NOT NULL,approve_idempotency_hash TEXT,approve_request_digest TEXT,
+					signature TEXT NOT NULL DEFAULT '',result_deployment_json TEXT NOT NULL DEFAULT '',result_job_json TEXT NOT NULL DEFAULT '',expires_at BIGINT NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_pairing_resume_approve_idempotency_idx ON p2p_cloud_pairing_resume_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_pairing_resume_active_deployment_idx ON p2p_cloud_pairing_resume_approvals(deployment_id) WHERE status='pending'`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: continuous service monitor v67",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_service_monitors(
+					service_id TEXT PRIMARY KEY NOT NULL,deployment_id TEXT NOT NULL,
+					monitor_status TEXT NOT NULL CHECK(monitor_status IN('idle','checking')),
+					generation BIGINT NOT NULL DEFAULT 0 CHECK(generation>=0),current_task_id TEXT NOT NULL DEFAULT '',
+					healthy_service_status TEXT NOT NULL DEFAULT '' CHECK(healthy_service_status IN('','active','experimental')),
+					degraded_by_monitor BOOLEAN NOT NULL DEFAULT FALSE,consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures>=0),
+					next_check_at BIGINT NOT NULL DEFAULT 0,last_success_at BIGINT NOT NULL DEFAULT 0,last_failure_at BIGINT NOT NULL DEFAULT 0,
+					lease_owner TEXT NOT NULL DEFAULT '',lease_token TEXT NOT NULL DEFAULT '',lease_until BIGINT NOT NULL DEFAULT 0,
+					attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),last_error_code TEXT NOT NULL DEFAULT '',created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_cloud_service_monitors_claim_idx ON p2p_cloud_service_monitors(monitor_status,next_check_at,lease_until,updated_at)`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS monitor_generation BIGINT NOT NULL DEFAULT 0 CHECK(monitor_generation>=0)`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS monitor_service_revision BIGINT NOT NULL DEFAULT 0 CHECK(monitor_service_revision>=0)`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS monitor_deployment_revision BIGINT NOT NULL DEFAULT 0 CHECK(monitor_deployment_revision>=0)`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS monitor_resource_status TEXT NOT NULL DEFAULT '' CHECK(monitor_resource_status IN('','active','retained_tracked'))`,
+				`ALTER TABLE p2p_cloud_service_readiness_tasks ADD COLUMN IF NOT EXISTS worker_lease_epoch BIGINT NOT NULL DEFAULT 0 CHECK(worker_lease_epoch>=0)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_service_readiness_tasks_monitor_generation_idx ON p2p_cloud_service_readiness_tasks(service_id,monitor_generation) WHERE purpose='monitor'`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: device approved cloud job cancellation v68",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_cloud_job_steps DROP CONSTRAINT IF EXISTS p2p_cloud_job_steps_status_check`,
+				`ALTER TABLE p2p_cloud_job_steps ADD CONSTRAINT p2p_cloud_job_steps_status_check CHECK(status IN('queued','running','waiting_user','finished','failed','canceled'))`,
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_job_cancel_approvals(
+					approval_id TEXT PRIMARY KEY NOT NULL,challenge_id TEXT NOT NULL UNIQUE,owner_mxid TEXT NOT NULL,
+					job_id TEXT NOT NULL,job_revision BIGINT NOT NULL CHECK(job_revision>0),job_kind TEXT NOT NULL CHECK(job_kind IN('provision','install','verify')),
+					plan_id TEXT NOT NULL,deployment_id TEXT NOT NULL,deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0),
+					cloud_connection_id TEXT NOT NULL,resource_status TEXT NOT NULL CHECK(resource_status IN('none','active','retained_tracked')),
+					signer_key_id TEXT NOT NULL,approval_json TEXT NOT NULL,signing_payload_cbor BYTEA NOT NULL,
+					prepare_job_json TEXT NOT NULL,prepare_deployment_json TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN('pending','approved','expired')),
+					prepare_idempotency_hash TEXT NOT NULL,prepare_request_digest TEXT NOT NULL,approve_idempotency_hash TEXT,approve_request_digest TEXT,
+					signature TEXT NOT NULL DEFAULT '',result_job_json TEXT NOT NULL DEFAULT '',result_deployment_json TEXT NOT NULL DEFAULT '',
+					expires_at BIGINT NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_job_cancel_approve_idempotency_idx ON p2p_cloud_job_cancel_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_job_cancel_active_job_idx ON p2p_cloud_job_cancel_approvals(job_id) WHERE status='pending'`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: service independent deployment destruction v69",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_cloud_deployment_destroy_approvals(
+					approval_id TEXT PRIMARY KEY NOT NULL,challenge_id TEXT NOT NULL UNIQUE,owner_mxid TEXT NOT NULL,
+					deployment_id TEXT NOT NULL,deployment_revision BIGINT NOT NULL CHECK(deployment_revision>0),plan_id TEXT NOT NULL,cloud_connection_id TEXT NOT NULL,
+					resource_status TEXT NOT NULL CHECK(resource_status IN('active','retained_tracked','blocked','orphaned')),instance_id TEXT NOT NULL,
+					volume_ids_json TEXT NOT NULL,network_interface_ids_json TEXT NOT NULL,secret_refs_json TEXT NOT NULL DEFAULT '[]',
+					signer_key_id TEXT NOT NULL,approval_json TEXT NOT NULL,signing_payload_cbor BYTEA NOT NULL,prepare_deployment_json TEXT NOT NULL,
+					status TEXT NOT NULL CHECK(status IN('pending','approved','expired')),prepare_idempotency_hash TEXT NOT NULL,prepare_request_digest TEXT NOT NULL,
+					approve_idempotency_hash TEXT,approve_request_digest TEXT,signature TEXT NOT NULL DEFAULT '',job_id TEXT NOT NULL DEFAULT '',
+					result_deployment_json TEXT NOT NULL DEFAULT '',result_job_json TEXT NOT NULL DEFAULT '',expires_at BIGINT NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL,
+					UNIQUE(owner_mxid,prepare_idempotency_hash)
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_deployment_destroy_approve_idempotency_idx ON p2p_cloud_deployment_destroy_approvals(owner_mxid,approve_idempotency_hash) WHERE approve_idempotency_hash IS NOT NULL`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS p2p_cloud_deployment_destroy_active_idx ON p2p_cloud_deployment_destroy_approvals(deployment_id) WHERE status='pending'`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

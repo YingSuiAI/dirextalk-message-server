@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -11,13 +12,14 @@ import (
 )
 
 type ServiceReadinessRecord struct {
-	ConnectionID, DeploymentID, ServiceID, TaskID, RequestSHA256                    string
-	BootstrapSessionID, ExpectedInstanceID, ExecutionID, ProbeKind                  string
-	RecipeExecutionManifestDigest, InstallEvidenceDigest, SemanticExpectationDigest string
-	Status, Checkpoint, ChallengeDigest, ChallengeExpiresAt                         string
-	SemanticEvidenceDigest, StackObservationDigest, ErrorCode, LastEventSHA256      string
-	Attempt, LeaseEpoch, LastSequence                                               int64
-	CreatedAt, UpdatedAt                                                            string
+	ConnectionID, DeploymentID, ServiceID, TaskID, RequestSHA256                                    string
+	BootstrapSessionID, ExpectedInstanceID, ExecutionID, ProbeKind                                  string
+	RecipeExecutionManifestDigest, InstallEvidenceDigest, ArtifactDigest, SemanticExpectationDigest string
+	SemanticProbe                                                                                   contract.ServiceReadinessProbeV1
+	Status, Checkpoint, ChallengeDigest, ChallengeExpiresAt                                         string
+	SemanticEvidenceDigest, StackObservationDigest, ErrorCode, LastEventSHA256                      string
+	Attempt, LeaseEpoch, LastSequence                                                               int64
+	CreatedAt, UpdatedAt                                                                            string
 }
 
 type ServiceReadinessEvent struct {
@@ -246,23 +248,30 @@ func (s *DynamoServiceReadinessStore) authorize(ctx context.Context, auth Worker
 }
 
 func readinessItem(r ServiceReadinessRecord) map[string]dynamodbtypes.AttributeValue {
+	probeJSON, _ := json.Marshal(r.SemanticProbe)
 	item := map[string]dynamodbtypes.AttributeValue{
-		"deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "task_id": &dynamodbtypes.AttributeValueMemberS{Value: r.TaskID}, "connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "service_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ServiceID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}, "expected_instance_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ExpectedInstanceID}, "execution_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ExecutionID}, "probe_kind": &dynamodbtypes.AttributeValueMemberS{Value: r.ProbeKind}, "recipe_execution_manifest_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.RecipeExecutionManifestDigest}, "install_evidence_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.InstallEvidenceDigest}, "semantic_expectation_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.SemanticExpectationDigest}, "status": &dynamodbtypes.AttributeValueMemberS{Value: r.Status}, "attempt": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.Attempt, 10)}, "lease_epoch": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.LeaseEpoch, 10)}, "last_sequence": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.LastSequence, 10)}, "created_at": &dynamodbtypes.AttributeValueMemberS{Value: r.CreatedAt}, "updated_at": &dynamodbtypes.AttributeValueMemberS{Value: r.UpdatedAt},
+		"deployment_id": &dynamodbtypes.AttributeValueMemberS{Value: r.DeploymentID}, "task_id": &dynamodbtypes.AttributeValueMemberS{Value: r.TaskID}, "connection_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ConnectionID}, "service_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ServiceID}, "request_sha256": &dynamodbtypes.AttributeValueMemberS{Value: r.RequestSHA256}, "bootstrap_session_id": &dynamodbtypes.AttributeValueMemberS{Value: r.BootstrapSessionID}, "expected_instance_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ExpectedInstanceID}, "execution_id": &dynamodbtypes.AttributeValueMemberS{Value: r.ExecutionID}, "probe_kind": &dynamodbtypes.AttributeValueMemberS{Value: r.ProbeKind}, "recipe_execution_manifest_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.RecipeExecutionManifestDigest}, "install_evidence_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.InstallEvidenceDigest}, "artifact_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.ArtifactDigest}, "semantic_probe_json": &dynamodbtypes.AttributeValueMemberS{Value: string(probeJSON)}, "semantic_expectation_digest": &dynamodbtypes.AttributeValueMemberS{Value: r.SemanticExpectationDigest}, "status": &dynamodbtypes.AttributeValueMemberS{Value: r.Status}, "attempt": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.Attempt, 10)}, "lease_epoch": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.LeaseEpoch, 10)}, "last_sequence": &dynamodbtypes.AttributeValueMemberN{Value: strconv.FormatInt(r.LastSequence, 10)}, "created_at": &dynamodbtypes.AttributeValueMemberS{Value: r.CreatedAt}, "updated_at": &dynamodbtypes.AttributeValueMemberS{Value: r.UpdatedAt},
 	}
 	return item
 }
 
 func readinessFromItem(item map[string]dynamodbtypes.AttributeValue) (ServiceReadinessRecord, error) {
 	var r ServiceReadinessRecord
+	var probeJSON string
 	var err error
-	required := []*string{&r.ConnectionID, &r.DeploymentID, &r.ServiceID, &r.TaskID, &r.RequestSHA256, &r.BootstrapSessionID, &r.ExpectedInstanceID, &r.ExecutionID, &r.ProbeKind, &r.RecipeExecutionManifestDigest, &r.InstallEvidenceDigest, &r.SemanticExpectationDigest, &r.Status, &r.CreatedAt, &r.UpdatedAt}
-	names := []string{"connection_id", "deployment_id", "service_id", "task_id", "request_sha256", "bootstrap_session_id", "expected_instance_id", "execution_id", "probe_kind", "recipe_execution_manifest_digest", "install_evidence_digest", "semantic_expectation_digest", "status", "created_at", "updated_at"}
+	required := []*string{&r.ConnectionID, &r.DeploymentID, &r.ServiceID, &r.TaskID, &r.RequestSHA256, &r.BootstrapSessionID, &r.ExpectedInstanceID, &r.ExecutionID, &r.ProbeKind, &r.RecipeExecutionManifestDigest, &r.InstallEvidenceDigest, &r.ArtifactDigest, &probeJSON, &r.SemanticExpectationDigest, &r.Status, &r.CreatedAt, &r.UpdatedAt}
+	names := []string{"connection_id", "deployment_id", "service_id", "task_id", "request_sha256", "bootstrap_session_id", "expected_instance_id", "execution_id", "probe_kind", "recipe_execution_manifest_digest", "install_evidence_digest", "artifact_digest", "semantic_probe_json", "semantic_expectation_digest", "status", "created_at", "updated_at"}
 	for i := range required {
 		*required[i], err = stringAttribute(item, names[i])
 		if err != nil {
 			return r, NewError("service_readiness_store_invalid")
 		}
 	}
+	probe, probeErr := contract.ParseServiceReadinessProbeV1([]byte(probeJSON))
+	if probeErr != nil {
+		return r, NewError("service_readiness_store_invalid")
+	}
+	r.SemanticProbe = probe
 	r.Attempt, err = numberAttribute(item, "attempt", false)
 	if err != nil {
 		return r, NewError("service_readiness_store_invalid")
@@ -290,7 +299,7 @@ func validNewReadiness(r ServiceReadinessRecord) bool {
 	return validReadiness(r) && r.Status == "queued" && r.Attempt == 1 && r.LeaseEpoch == 0 && r.LastSequence == 0 && r.ChallengeDigest == ""
 }
 func validReadiness(r ServiceReadinessRecord) bool {
-	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.ServiceID) || !contract.ValidRecipeTaskID(r.TaskID) || !validSHA256(r.RequestSHA256) || !contract.ValidID(r.BootstrapSessionID) || !workerInstancePattern.MatchString(r.ExpectedInstanceID) || !contract.ValidID(r.ExecutionID) || r.ProbeKind != contract.ServiceReadinessProbeKind || !workerNamedDigestPattern.MatchString(r.RecipeExecutionManifestDigest) || !workerNamedDigestPattern.MatchString(r.InstallEvidenceDigest) || !workerNamedDigestPattern.MatchString(r.SemanticExpectationDigest) || r.Attempt < 1 || r.LeaseEpoch < 0 || r.LastSequence < 0 || !canonicalWorkerEventInstant(r.CreatedAt) || !canonicalWorkerEventInstant(r.UpdatedAt) {
+	if !contract.ValidConnectionID(r.ConnectionID) || !contract.ValidID(r.DeploymentID) || !contract.ValidID(r.ServiceID) || !contract.ValidRecipeTaskID(r.TaskID) || !validSHA256(r.RequestSHA256) || !contract.ValidID(r.BootstrapSessionID) || !workerInstancePattern.MatchString(r.ExpectedInstanceID) || !contract.ValidID(r.ExecutionID) || r.ProbeKind != contract.ServiceReadinessProbeKind || !workerNamedDigestPattern.MatchString(r.RecipeExecutionManifestDigest) || !workerNamedDigestPattern.MatchString(r.InstallEvidenceDigest) || !workerNamedDigestPattern.MatchString(r.ArtifactDigest) || r.SemanticProbe.Validate() != nil || !workerNamedDigestPattern.MatchString(r.SemanticExpectationDigest) || r.SemanticExpectationDigest != r.SemanticProbe.BodySHA256 || r.Attempt < 1 || r.LeaseEpoch < 0 || r.LastSequence < 0 || !canonicalWorkerEventInstant(r.CreatedAt) || !canonicalWorkerEventInstant(r.UpdatedAt) {
 		return false
 	}
 	if r.Status == "queued" && ((r.ChallengeDigest == "") != (r.ChallengeExpiresAt == "")) {
@@ -312,7 +321,7 @@ func validReadiness(r ServiceReadinessRecord) bool {
 	return false
 }
 func sameReadinessBinding(a, b ServiceReadinessRecord) bool {
-	return a.ConnectionID == b.ConnectionID && a.DeploymentID == b.DeploymentID && a.ServiceID == b.ServiceID && a.TaskID == b.TaskID && a.RequestSHA256 == b.RequestSHA256 && a.BootstrapSessionID == b.BootstrapSessionID && a.ExpectedInstanceID == b.ExpectedInstanceID && a.ExecutionID == b.ExecutionID && a.ProbeKind == b.ProbeKind && a.RecipeExecutionManifestDigest == b.RecipeExecutionManifestDigest && a.InstallEvidenceDigest == b.InstallEvidenceDigest && a.SemanticExpectationDigest == b.SemanticExpectationDigest
+	return a.ConnectionID == b.ConnectionID && a.DeploymentID == b.DeploymentID && a.ServiceID == b.ServiceID && a.TaskID == b.TaskID && a.RequestSHA256 == b.RequestSHA256 && a.BootstrapSessionID == b.BootstrapSessionID && a.ExpectedInstanceID == b.ExpectedInstanceID && a.ExecutionID == b.ExecutionID && a.ProbeKind == b.ProbeKind && a.RecipeExecutionManifestDigest == b.RecipeExecutionManifestDigest && a.InstallEvidenceDigest == b.InstallEvidenceDigest && a.ArtifactDigest == b.ArtifactDigest && a.SemanticProbe == b.SemanticProbe && a.SemanticExpectationDigest == b.SemanticExpectationDigest
 }
 func validReadinessEvent(task ServiceReadinessRecord, auth WorkerLeaseAuthorization, event ServiceReadinessEvent) bool {
 	if task.Status != "running" || task.Checkpoint != "challenge_issued" || event.TaskID != task.TaskID || event.Attempt != task.Attempt || event.LeaseEpoch != task.LeaseEpoch || event.Sequence != 1 || task.LastSequence != 0 || task.ChallengeDigest == "" || task.ChallengeExpiresAt <= auth.Now || !validSHA256(event.EventSHA256) {

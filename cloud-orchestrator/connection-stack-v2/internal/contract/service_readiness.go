@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
+	"strings"
 )
 
 const (
@@ -16,19 +18,54 @@ const (
 	ServiceReadinessChallengeSchema     = "dirextalk.service-readiness-challenge/v1"
 	ServiceReadinessEventSchema         = "dirextalk.service-readiness-task-event/v1"
 	ServiceReadinessEventReceiptSchema  = "dirextalk.service-readiness-task-event-receipt/v1"
-	ServiceReadinessProbeKind           = "stack_witnessed_fixed_worker_probe_v1"
+	ServiceReadinessProbeKind           = "stack_witnessed_oci_semantic_probe_v1"
 )
 
+type ServiceReadinessProbeV1 struct {
+	Scheme         string `json:"scheme"`
+	Port           uint16 `json:"port"`
+	Path           string `json:"path"`
+	ExpectedStatus uint16 `json:"expected_status"`
+	BodySHA256     string `json:"body_sha256"`
+}
+
+func (probe ServiceReadinessProbeV1) Validate() error {
+	if (probe.Scheme != "http" && probe.Scheme != "https") || probe.Port == 0 || probe.ExpectedStatus < 100 || probe.ExpectedStatus > 599 ||
+		!namedSHA256Pattern.MatchString(probe.BodySHA256) || len(probe.Path) == 0 || len(probe.Path) > 256 || !strings.HasPrefix(probe.Path, "/") ||
+		strings.HasPrefix(probe.Path, "//") || strings.ContainsAny(probe.Path, "?#\\") || strings.Contains(probe.Path, "..") {
+		return errCode("invalid_service_readiness_probe")
+	}
+	parsed, err := url.ParseRequestURI(probe.Path)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errCode("invalid_service_readiness_probe")
+	}
+	return nil
+}
+
+func ParseServiceReadinessProbeV1(raw []byte) (ServiceReadinessProbeV1, error) {
+	var probe ServiceReadinessProbeV1
+	if !strictRecipeTaskObject(raw, []string{"scheme", "port", "path", "expected_status", "body_sha256"}, &probe) || probe.Validate() != nil {
+		return ServiceReadinessProbeV1{}, errCode("invalid_service_readiness_probe")
+	}
+	canonical, _ := json.Marshal(probe)
+	if !bytes.Equal(raw, canonical) {
+		return ServiceReadinessProbeV1{}, errCode("noncanonical_payload")
+	}
+	return probe, nil
+}
+
 type ServiceReadinessIssueRequest struct {
-	Schema                        string `json:"schema"`
-	ExecutionID                   string `json:"execution_id"`
-	DeploymentID                  string `json:"deployment_id"`
-	ServiceID                     string `json:"service_id"`
-	TaskID                        string `json:"task_id"`
-	ProbeKind                     string `json:"probe_kind"`
-	RecipeExecutionManifestDigest string `json:"recipe_execution_manifest_digest"`
-	InstallEvidenceDigest         string `json:"install_evidence_digest"`
-	SemanticExpectationDigest     string `json:"semantic_expectation_digest"`
+	Schema                        string                  `json:"schema"`
+	ExecutionID                   string                  `json:"execution_id"`
+	DeploymentID                  string                  `json:"deployment_id"`
+	ServiceID                     string                  `json:"service_id"`
+	TaskID                        string                  `json:"task_id"`
+	ProbeKind                     string                  `json:"probe_kind"`
+	RecipeExecutionManifestDigest string                  `json:"recipe_execution_manifest_digest"`
+	InstallEvidenceDigest         string                  `json:"install_evidence_digest"`
+	ArtifactDigest                string                  `json:"artifact_digest"`
+	SemanticProbe                 ServiceReadinessProbeV1 `json:"semantic_probe"`
+	SemanticExpectationDigest     string                  `json:"semantic_expectation_digest"`
 }
 
 type ServiceReadinessObserveRequest struct {
@@ -38,17 +75,19 @@ type ServiceReadinessObserveRequest struct {
 }
 
 type ServiceReadinessTaskV1 struct {
-	Schema                        string `json:"schema"`
-	TaskID                        string `json:"task_id"`
-	ExecutionID                   string `json:"execution_id"`
-	DeploymentID                  string `json:"deployment_id"`
-	ServiceID                     string `json:"service_id"`
-	ProbeKind                     string `json:"probe_kind"`
-	RecipeExecutionManifestDigest string `json:"recipe_execution_manifest_digest"`
-	InstallEvidenceDigest         string `json:"install_evidence_digest"`
-	SemanticExpectationDigest     string `json:"semantic_expectation_digest"`
-	Attempt                       uint64 `json:"attempt"`
-	LastSequence                  uint64 `json:"last_sequence"`
+	Schema                        string                  `json:"schema"`
+	TaskID                        string                  `json:"task_id"`
+	ExecutionID                   string                  `json:"execution_id"`
+	DeploymentID                  string                  `json:"deployment_id"`
+	ServiceID                     string                  `json:"service_id"`
+	ProbeKind                     string                  `json:"probe_kind"`
+	RecipeExecutionManifestDigest string                  `json:"recipe_execution_manifest_digest"`
+	InstallEvidenceDigest         string                  `json:"install_evidence_digest"`
+	ArtifactDigest                string                  `json:"artifact_digest"`
+	SemanticProbe                 ServiceReadinessProbeV1 `json:"semantic_probe"`
+	SemanticExpectationDigest     string                  `json:"semantic_expectation_digest"`
+	Attempt                       uint64                  `json:"attempt"`
+	LastSequence                  uint64                  `json:"last_sequence"`
 }
 
 type ServiceReadinessChallengeV1 struct {
@@ -131,7 +170,8 @@ func (request ServiceReadinessIssueRequest) Validate() error {
 		!recipeBindingIDPattern.MatchString(request.DeploymentID) || !recipeBindingIDPattern.MatchString(request.ServiceID) ||
 		!recipeTaskIDPattern.MatchString(request.TaskID) || request.ProbeKind != ServiceReadinessProbeKind ||
 		!namedSHA256Pattern.MatchString(request.RecipeExecutionManifestDigest) || !namedSHA256Pattern.MatchString(request.InstallEvidenceDigest) ||
-		!namedSHA256Pattern.MatchString(request.SemanticExpectationDigest) {
+		!namedSHA256Pattern.MatchString(request.ArtifactDigest) || request.SemanticProbe.Validate() != nil ||
+		!namedSHA256Pattern.MatchString(request.SemanticExpectationDigest) || request.SemanticExpectationDigest != request.SemanticProbe.BodySHA256 {
 		return errCode("invalid_service_readiness_issue_request")
 	}
 	return nil
@@ -139,7 +179,7 @@ func (request ServiceReadinessIssueRequest) Validate() error {
 
 func ParseServiceReadinessIssueRequest(raw []byte) (ServiceReadinessIssueRequest, error) {
 	var request ServiceReadinessIssueRequest
-	fields := []string{"schema", "execution_id", "deployment_id", "service_id", "task_id", "probe_kind", "recipe_execution_manifest_digest", "install_evidence_digest", "semantic_expectation_digest"}
+	fields := []string{"schema", "execution_id", "deployment_id", "service_id", "task_id", "probe_kind", "recipe_execution_manifest_digest", "install_evidence_digest", "artifact_digest", "semantic_probe", "semantic_expectation_digest"}
 	if !strictRecipeTaskObject(raw, fields, &request) || request.Validate() != nil {
 		return ServiceReadinessIssueRequest{}, errCode("invalid_service_readiness_issue_request")
 	}
@@ -228,7 +268,7 @@ func MarshalServiceReadinessClaimResponse(leaseEpoch uint64, task *ServiceReadin
 }
 
 func (task ServiceReadinessTaskV1) Validate() error {
-	request := ServiceReadinessIssueRequest{Schema: ServiceReadinessIssueSchema, ExecutionID: task.ExecutionID, DeploymentID: task.DeploymentID, ServiceID: task.ServiceID, TaskID: task.TaskID, ProbeKind: task.ProbeKind, RecipeExecutionManifestDigest: task.RecipeExecutionManifestDigest, InstallEvidenceDigest: task.InstallEvidenceDigest, SemanticExpectationDigest: task.SemanticExpectationDigest}
+	request := ServiceReadinessIssueRequest{Schema: ServiceReadinessIssueSchema, ExecutionID: task.ExecutionID, DeploymentID: task.DeploymentID, ServiceID: task.ServiceID, TaskID: task.TaskID, ProbeKind: task.ProbeKind, RecipeExecutionManifestDigest: task.RecipeExecutionManifestDigest, InstallEvidenceDigest: task.InstallEvidenceDigest, ArtifactDigest: task.ArtifactDigest, SemanticProbe: task.SemanticProbe, SemanticExpectationDigest: task.SemanticExpectationDigest}
 	if task.Schema != ServiceReadinessTaskSchema || request.Validate() != nil || !workerTaskPositive(task.Attempt) || task.LastSequence > uint64(maxSafeInteger) {
 		return errCode("invalid_service_readiness_task")
 	}

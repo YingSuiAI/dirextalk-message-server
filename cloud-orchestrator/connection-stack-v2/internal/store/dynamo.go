@@ -224,7 +224,7 @@ func validateRecord(record Record) error {
 
 func validReceiptAction(action string) bool {
 	switch action {
-	case contract.ActionRegistrationVerify, contract.ActionQuoteRequest, contract.ActionDeploymentCreate,
+	case contract.ActionRegistrationVerify, contract.ActionQuoteRequest, contract.ActionArtifactPut, contract.ActionDeploymentCreate,
 		contract.ActionDeploymentObserve, contract.ActionWorkerTaskIssue, contract.ActionWorkerTaskObserve,
 		contract.ActionWorkerRecipeTaskIssue, contract.ActionWorkerRecipeTaskObserve, contract.ActionDeploymentDestroy, contract.ActionServiceBackup, contract.ActionServiceRestore:
 		return true

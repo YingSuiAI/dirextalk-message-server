@@ -23,17 +23,16 @@ The audited baseline shows that both required product halves already exist in
 source:
 
 - The Message Server has a source-controlled Eino Cloud Deployment Planner at
-  `p2p/nativeagent/skills/cloud_deployment_planner/SKILL.md`, with only the
-  credential-free `native_agent_cloud_deployment_plan` and read-only
-  `native_agent_cloud_status` tools (`c5c61cc`).
+  `p2p/nativeagent/skills/cloud_deployment_planner/SKILL.md`, with a fixed
+  allowlist containing the credential-free research tool plus read-only status
+  and private-Recipe recommendation tools.
 - Flutter already has owner-scoped `cloud.*` adapters, realtime projection
   reduction, `/agent/workloads` task/service pages, plan/service details, and
   a client-selected active-Connection entry into the restricted Agent chat
   (`d8e859e`, `22fc0bd`, `1386a71`).
-- The current Agent response is still ordinary model text plus generic tool
-  trace. It does not yet provide a deterministic, client-safe workload card or
-  plan deep link derived from the typed planning result. That is the first
-  product gap after cleanup is complete.
+- Successful restricted planning now adds a deterministic client-safe workload
+  card, while status reads add de-secreted deep links and next-step guidance.
+  Neither surface is lifecycle evidence or a mutation capability.
 
 ## Delivery order
 
@@ -42,12 +41,15 @@ source:
    belong in `dirextalk-deployer`. Commit `016c62b` removes its Node/SAM bundle,
    directly coupled tests, and package/test wiring without changing normal
    deployer lifecycle behavior.
-2. **Standalone Go control-plane port (now).** Rebuild the retained closed
-   Connection Stack contract as a nested, independent Go module. It must not
-   add Node/npm to any Message Server or deployer runtime and must not be
-   imported by the Message Server root module.
-3. **Agent-to-client workload milestone (only after step 2).** Implement the
-   scoped Eino Agent and Flutter contract below.
+2. **Standalone Go control-plane port (complete).** The retained closed
+   Connection Stack contract is a nested independent Go module; it adds no
+   Node/npm runtime and is not imported by the Message Server root module.
+3. **Agent-to-client workload milestone (complete).** The scoped Eino Agent and
+   Flutter workload card, projection and reconnect contract are implemented.
+4. **First-validation artifact/lifecycle closure (source complete).** Dynamic
+   artifact transfer, Go AMI assembly, persistent monitoring, signed pairing
+   resume and the fake lifecycle are implemented; the local prerelease artifact
+   is built, while its S3 registration and dynamic AMI remain the next action.
 
 ## Cleanup decision (audited 2026-07-15)
 
@@ -671,6 +673,62 @@ stage; later checked workboard sections are the authoritative delivery record.
   Worker construction; run one accumulated security/spec review and resolve
   its secret-persistence, checkpoint and startup-probe findings.
 
+### S. First-validation artifact and recoverable lifecycle closure
+
+- [x] Add the signed dynamic Recipe-artifact prepare/complete channel. Bind the
+  upload to deployment/task/execution/Recipe/artifact/manifest digests, verify
+  the exact versioned S3 `versionId`, checksum, size, media type and KMS
+  encryption, and persist Stack plus PostgreSQL receipts before a Worker may
+  consume the artifact.
+- [x] Add Go-only `cloud-worker-artifact` and `worker-image-builder` commands.
+  The first produces the measured Worker/catalog archive; the second accepts
+  only a unique prerelease version, builds a private encrypted IMDSv2 AMI,
+  verifies image/snapshot read-back, and supports the default-off dynamic
+  Recipe-artifact mode. No Node/npm or release/deployer script is involved.
+- [x] Add the compiler-owned `OCIServiceRuntimeProfileV1` and carry its exact
+  entrypoint/argv, run-as, bounded tmpfs, storage and secret-environment
+  bindings through compiler, artifact, Worker catalog and typed Podman host.
+  Digest-pinned OpenClaw and Hermes fixtures prove their required non-shell
+  profiles; these fixtures are not a claim of live AWS deployment.
+- [x] Add a persistent PostgreSQL Service monitor with lease/generation
+  fencing, restart recovery, periodic Stack-witnessed semantic checks, alerts
+  and recovery that cannot clear an unrelated degradation. This remains
+  control-plane-witnessed monitoring, not hostile-root-proof external health.
+- [x] Replace the placeholder pairing resume with an owner HTTP-only,
+  device-signed, idempotent transition for the exact
+  `waiting_user_pairing` Deployment and existing install Job. Flutter signs the
+  challenge and applies only higher revisions; no pairing code enters
+  ProductCore, events or Agent context.
+- [x] Preserve newer Cloud revisions across Flutter bootstrap/reconnect and
+  recover cursor resets or revision gaps without regressing in-flight state.
+  The Eino status projection now returns de-secreted client deep links and
+  deterministic next-step guidance, including `destroy_blocked`/continued
+  billing warnings, while Agent and MCP retain no lifecycle mutation tool.
+- [x] Exercise the durable approval, provision, install, readiness and verified
+  destruction runners as one fake-provider lifecycle, including retained and
+  blocked resource semantics without a real AWS mutation.
+- [x] Build the local Linux/amd64 validation set as the unique prerelease
+  `v1.1.0-cloud-mvp.20260715.1`. The digest-pinned OpenClaw image starts with
+  gateway authentication enabled and returns the stable `/health` evidence
+  digest `sha256:6191c1f860b8a0225c697e46ebce756193dfb18c189218cfe742037501da05eb`;
+  the measured Worker archive is 11,034,112 bytes with archive digest
+  `sha256:cbf8dcc549f13354daa2bfbe91760fd0767b47023a076eee474815cfcca005ca`
+  and catalog digest
+  `sha256:a420cb82e325ec2e3fd47365b1407140c9f592ef61d1b0836d88302be1a3ab22`.
+  This local evidence is not an S3 registration, AMI, or AWS deployment.
+- [x] Add owner HTTP-only, device-signed `cloud.jobs.cancel.plan/approve` for
+  cancellable provision/install/verify Jobs. Cancellation atomically fences
+  late Worker/provider results, finishes execution with outcome `canceled`,
+  retains every discovered resource as tracked and billable, and never stops
+  or destroys infrastructure.
+- [x] Add owner HTTP-only, device-signed
+  `cloud.deployments.destroy.plan/approve` for a failed, interrupted or
+  canceled Deployment that has tracked resources but no Service. The approval
+  binds the exact EC2/EBS/ENI/secret-ref ledger, preserves the original
+  execution/outcome axes, uses the typed Connection Stack destroy/read-back
+  provider, and reports success only as `verified_destroyed`. Fatal or
+  forbidden cleanup remains `blocked`; no synthetic Service is created.
+
 ## Acceptance checks
 
 - A restricted Cloud chat can create/reuse exactly one research-only Plan and
@@ -695,11 +753,14 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Build the first versioned **Worker OCI artifact and AMI assembly** entirely in
-Go, register compiler output through the internal Orchestrator boundary, and
-exercise one preloaded validation container through the existing fake
-provider from plan approval to retained resources and verified destruction.
-Then deploy the independently versioned Stack/Worker artifacts to the approved
-test environment. Keep Agent and public MCP research/read-only, all mutation
-gates default-off and release/deployer scripts untouched. Real AWS creation
-still requires a fresh Region, specification and live-price confirmation.
+Upload the already built uniquely versioned **prerelease** Worker artifact and
+register its exact dynamic-artifact S3 `versionId`, then use the Go builder to
+assemble one matching dynamic-artifact AMI. Do not use `latest`, the formal
+`v1.0.3` tag, or any release/deployer script.
+
+Real AWS validation is currently blocked until a non-root, least-privilege AWS
+credential is available and SSH access to `a8.dirextalk.ai` is working. Even
+after those prerequisites are fixed, immediately before any billable create
+the owner must confirm the latest Region, instance/disk specification and live
+quote. Until then keep every real mutation gate off and use the completed fake
+lifecycle only.

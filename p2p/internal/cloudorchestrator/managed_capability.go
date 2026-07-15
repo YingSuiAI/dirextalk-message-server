@@ -1,5 +1,7 @@
 package cloudorchestrator
 
+import "errors"
+
 const (
 	FixedProbeManagedArtifactDigest = "sha256:ad88e50776ac1b308a0e385dd5f9cbf847ae431d50b20b82b04ec74c75995d93"
 	FixedProbeInstallActionID       = "dirextalk_fixed_probe_service_install_v1"
@@ -48,18 +50,23 @@ func FixedProbeManagedCapability(installedManifestDigest string) ServiceOperatio
 }
 
 func (capability ServiceOperationCapabilityV1) Validate() error {
-	if capability.ArtifactDigest != FixedProbeManagedArtifactDigest || capability.InstalledManifestDigest == "" || !capability.RootRequired {
+	if validateDigest("artifact_digest", capability.ArtifactDigest) != nil || validateDigest("installed_manifest_digest", capability.InstalledManifestDigest) != nil || !capability.RootRequired {
 		return ErrServiceOperationApprovalBinding
 	}
+	seen := map[string]struct{}{}
 	for operation, action := range map[ServiceOperation]ServiceOperationActionV1{
 		ServiceOperationStart: capability.Start, ServiceOperationStop: capability.Stop, ServiceOperationRestart: capability.Restart,
 	} {
+		if _, exists := seen[action.ActionID]; exists {
+			return ErrServiceOperationApprovalBinding
+		}
+		seen[action.ActionID] = struct{}{}
 		target := ServiceOperationTargetV1{
 			Operation: operation, ServiceID: "service-capability", ServiceRevision: 1,
 			ExpectedServiceStatus: map[ServiceOperation]string{ServiceOperationStart: "stopped", ServiceOperationStop: "active", ServiceOperationRestart: "active"}[operation],
 			DeploymentID:          "deployment-capability", DeploymentRevision: 1,
 			CloudConnectionID: "connection-capability", RecipeID: "recipe-capability",
-			RecipeDigest: FixedProbeManagedArtifactDigest, InstalledManifestDigest: capability.InstalledManifestDigest,
+			RecipeDigest: capability.ArtifactDigest, InstalledManifestDigest: capability.InstalledManifestDigest,
 			ArtifactDigest: capability.ArtifactDigest, ActionID: action.ActionID, RootRequired: capability.RootRequired,
 			TimeoutSeconds: action.TimeoutSeconds, CheckpointSequence: action.CheckpointSequence,
 		}
@@ -67,10 +74,42 @@ func (capability ServiceOperationCapabilityV1) Validate() error {
 			return err
 		}
 	}
-	if capability.Start.ActionID != FixedProbeStartActionID || capability.Stop.ActionID != FixedProbeStopActionID || capability.Restart.ActionID != FixedProbeRestartActionID {
-		return ErrServiceOperationApprovalBinding
-	}
 	return nil
+}
+
+// ManagedCapabilityFromCompiledArtifact derives the lifecycle capability only
+// from a trusted, immutable compiled descriptor. No caller-selected action ID,
+// timeout, checkpoint, command, path, or root scope enters the approval.
+func ManagedCapabilityFromCompiledArtifact(artifact CompiledRecipeArtifactV1, installedManifestDigest string) (ServiceOperationCapabilityV1, error) {
+	if artifact.Validate() != nil || validateDigest("installed_manifest_digest", installedManifestDigest) != nil {
+		return ServiceOperationCapabilityV1{}, ErrServiceOperationApprovalBinding
+	}
+	capability := ServiceOperationCapabilityV1{
+		ArtifactDigest: artifact.ArtifactDigest, InstalledManifestDigest: installedManifestDigest, RootRequired: true,
+	}
+	seen := map[CompiledRecipeActionKind]bool{}
+	for _, compiled := range artifact.Actions {
+		var target *ServiceOperationActionV1
+		switch compiled.Kind {
+		case CompiledRecipeActionStart:
+			target = &capability.Start
+		case CompiledRecipeActionStop:
+			target = &capability.Stop
+		case CompiledRecipeActionRestart:
+			target = &capability.Restart
+		default:
+			continue
+		}
+		if seen[compiled.Kind] || !compiled.RootRequired {
+			return ServiceOperationCapabilityV1{}, ErrServiceOperationApprovalBinding
+		}
+		seen[compiled.Kind] = true
+		*target = ServiceOperationActionV1{ActionID: compiled.ActionID, TimeoutSeconds: compiled.TimeoutSeconds, CheckpointSequence: append([]string(nil), compiled.CheckpointSequence...)}
+	}
+	if !seen[CompiledRecipeActionStart] || !seen[CompiledRecipeActionStop] || !seen[CompiledRecipeActionRestart] || capability.Validate() != nil {
+		return ServiceOperationCapabilityV1{}, errors.New("compiled Recipe does not provide a managed lifecycle capability")
+	}
+	return capability, nil
 }
 
 func (capability ServiceOperationCapabilityV1) Action(operation ServiceOperation) (ServiceOperationActionV1, bool) {

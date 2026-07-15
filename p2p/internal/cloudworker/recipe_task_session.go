@@ -17,9 +17,10 @@ var (
 )
 
 type ClaimedRecipeTask struct {
-	Task     recipeexec.TaskV1
-	Manifest cloudorchestrator.RecipeExecutionManifestV1
-	Epoch    uint64
+	Task           recipeexec.TaskV1
+	Manifest       cloudorchestrator.RecipeExecutionManifestV1
+	ArtifactAccess *recipeexec.ArtifactAccessV1
+	Epoch          uint64
 }
 
 type pendingRecipeTaskEvent struct {
@@ -89,8 +90,10 @@ func (client *RecipeTaskClient) Claim(ctx context.Context) (ClaimedRecipeTask, b
 	if err != nil {
 		return ClaimedRecipeTask{}, false, errors.New("recipe task claim response is invalid")
 	}
-	claimed := ClaimedRecipeTask{Task: *response.Task, Manifest: *response.Manifest, Epoch: epoch}
-	client.claimed, client.progress = &claimed, progress
+	claimed := ClaimedRecipeTask{Task: *response.Task, Manifest: *response.Manifest, ArtifactAccess: response.ArtifactAccess, Epoch: epoch}
+	stored := claimed
+	stored.ArtifactAccess = nil
+	client.claimed, client.progress = &stored, progress
 	return claimed, true, nil
 }
 

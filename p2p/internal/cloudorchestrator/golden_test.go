@@ -43,7 +43,7 @@ func TestV1RecipeExecutionApprovalSigningPayloadGoldenDigest(t *testing.T) {
 		t.Fatalf("SigningPayload() error = %v", err)
 	}
 	digest := sha256.Sum256(payload)
-	const wantPayloadSHA256 = "704561f9eda7aa80bcd43c4de05bdc6d4ff056f1978c64adc3948ceb9bb8d27c"
+	const wantPayloadSHA256 = "e481600cd12d8f7fdb3155ed3fa54af96c3903e6e53f79839d33a5a352508ed4"
 	if got := hex.EncodeToString(digest[:]); got != wantPayloadSHA256 {
 		t.Fatalf("update RecipeExecutionApprovalV1 payload golden digest: %s", got)
 	}

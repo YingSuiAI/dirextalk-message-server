@@ -5,6 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 	"regexp"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
 )
 
 var (
@@ -59,7 +61,11 @@ func NewFixedBundleResolver(catalog []Bundle) (*FixedBundleResolver, error) {
 			seenSlots[target.SlotID] = struct{}{}
 			secretTargets[index] = target
 		}
-		bundles[candidate.ArtifactDigest] = Bundle{ArtifactDigest: candidate.ArtifactDigest, ActionIDs: actions, SecretTargets: secretTargets}
+		profile, err := cloudorchestrator.NormalizeOCIServiceRuntimeProfileV1(candidate.RuntimeProfile)
+		if err != nil {
+			return nil, ErrBundleCatalogInvalid
+		}
+		bundles[candidate.ArtifactDigest] = Bundle{ArtifactDigest: candidate.ArtifactDigest, ActionIDs: actions, SecretTargets: secretTargets, RuntimeProfile: profile}
 	}
 	return &FixedBundleResolver{bundles: bundles}, nil
 }
