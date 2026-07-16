@@ -33,6 +33,7 @@ import (
 const testServiceKey = "svc_message.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
 
 const modelProfileCanary = "model-profile-api-key-canary"
+const cloudDialogueConnectionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 func TestRunnerChatUsesTLS13MountedAuthenticationAndBoundOwner(t *testing.T) {
 	t.Parallel()
@@ -163,6 +164,9 @@ func TestRunnerFailsClosedForUnrepresentableLegacyParameters(t *testing.T) {
 		{"messages": []any{map[string]any{"role": "user", "content": "hello"}}},
 		{"prompt": "hello", "system_prompt": "override"},
 		{"prompt": "hello", "enabled_tools": []any{"all"}},
+		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "model_profile": map[string]any{"api_key": modelProfileCanary}},
+		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "conversation_context": map[string]any{"summary": "must not cross"}},
+		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "owner_id": "attacker"},
 	} {
 		_, err := runner.Invoke(context.Background(), "agent.chat", params)
 		if err == nil || err.Error() != "agent chat parameters cannot be represented by the remote runtime contract" {
@@ -174,6 +178,84 @@ func TestRunnerFailsClosedForUnrepresentableLegacyParameters(t *testing.T) {
 	server.service.mu.Unlock()
 	if request != nil {
 		t.Fatal("unrepresentable parameters reached the remote Agent service")
+	}
+}
+
+func TestRunnerCloudDialogueValidatesOwnedConnectionAndForwardsOnlyTypedScope(t *testing.T) {
+	t.Parallel()
+	server := startRuntimeServer(t)
+	var connectionRequests int
+	server.cloud.getConnection = func(request *agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error) {
+		connectionRequests++
+		if request.GetOwnerId() != "owner-from-config" || request.GetConnectionId() != cloudDialogueConnectionID {
+			t.Fatalf("ownership request = %#v", request)
+		}
+		return &agentv1.GetCloudConnectionResponse{Connection: validAgentCloudConnectionProto(cloudDialogueConnectionID, "us-east-1")}, nil
+	}
+	runner := newTestRunner(t, server, Config{UnaryTimeout: time.Second, StreamTimeout: time.Second})
+	idempotencyKey := uuid.NewString()
+	params := map[string]any{
+		"prompt": "research official documentation", "conversation_id": "cloud-conversation",
+		"idempotency_key": idempotencyKey, "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID,
+	}
+	if _, err := runner.Invoke(context.Background(), "agent.chat", params); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Invoke(context.Background(), "agent.chat", params); err != nil {
+		t.Fatal(err)
+	}
+	server.service.mu.Lock()
+	request := server.service.chatRequest
+	chatCalls := server.service.chatCalls
+	server.service.mu.Unlock()
+	if connectionRequests != 2 || chatCalls != 2 || request.GetIdempotencyKey() != idempotencyKey || request.GetCloudDialogueScope().GetCloudConnectionId() != cloudDialogueConnectionID {
+		t.Fatalf("typed cloud request drifted: connection_reads=%d chat_calls=%d request=%#v", connectionRequests, chatCalls, request)
+	}
+	for _, forbidden := range []string{"owner-from-config", "api_key", "recipe", "approval"} {
+		if strings.Contains(request.GetCloudDialogueScope().String(), forbidden) {
+			t.Fatalf("typed Cloud Dialogue scope exposed forbidden field %q: %s", forbidden, request.GetCloudDialogueScope())
+		}
+	}
+
+	var events []nativeagent.Event
+	if err := runner.Stream(context.Background(), "agent.chat.stream", params, func(event nativeagent.Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server.service.mu.Lock()
+	streamRequest := server.service.streamRequest
+	server.service.mu.Unlock()
+	if streamRequest.GetCloudDialogueScope().GetCloudConnectionId() != cloudDialogueConnectionID || len(events) != 3 {
+		t.Fatalf("stream Cloud Dialogue scope/events = %#v / %#v", streamRequest, events)
+	}
+}
+
+func TestRunnerCloudDialogueFailsClosedForInvalidOrForeignConnection(t *testing.T) {
+	t.Parallel()
+	server := startRuntimeServer(t)
+	runner := newTestRunner(t, server, Config{})
+	base := map[string]any{"prompt": "research", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID}
+	for _, value := range []any{"", "connection-1", strings.ToUpper(cloudDialogueConnectionID)} {
+		params := map[string]any{"prompt": base["prompt"], "cloud_dialogue_mode": true, "cloud_connection_id": value}
+		if _, err := runner.Invoke(context.Background(), "agent.chat", params); err == nil {
+			t.Fatalf("invalid Cloud Connection %q was accepted", value)
+		}
+	}
+	server.cloud.getConnection = func(*agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error) {
+		connection := validAgentCloudConnectionProto(cloudDialogueConnectionID, "us-east-1")
+		connection.OwnerId = "foreign-owner"
+		return &agentv1.GetCloudConnectionResponse{Connection: connection}, nil
+	}
+	if _, err := runner.Invoke(context.Background(), "agent.chat", base); err == nil || strings.Contains(err.Error(), "foreign-owner") {
+		t.Fatalf("foreign connection error = %v", err)
+	}
+	server.service.mu.Lock()
+	chatCalls := server.service.chatCalls
+	server.service.mu.Unlock()
+	if chatCalls != 0 {
+		t.Fatalf("invalid or foreign connection reached RuntimeService.Chat %d times", chatCalls)
 	}
 }
 
@@ -246,6 +328,8 @@ type runtimeTestService struct {
 	agentv1.UnimplementedRuntimeServiceServer
 	mu             sync.Mutex
 	chatRequest    *agentv1.ChatRequest
+	streamRequest  *agentv1.StreamChatRequest
+	chatCalls      int
 	authorization  string
 	deadlineSet    bool
 	tlsVersion     uint16
@@ -267,6 +351,9 @@ func (service *runtimeTestService) Chat(ctx context.Context, request *agentv1.Ch
 }
 
 func (service *runtimeTestService) StreamChat(request *agentv1.StreamChatRequest, stream grpc.ServerStreamingServer[agentv1.StreamChatResponse]) error {
+	service.mu.Lock()
+	service.streamRequest = request
+	service.mu.Unlock()
 	if request.GetMessage() == "cancel" {
 		close(service.cancelStarted)
 		<-stream.Context().Done()
@@ -310,6 +397,7 @@ func (service *runtimeTestService) capture(ctx context.Context, request *agentv1
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.chatRequest = request
+	service.chatCalls++
 	service.authorization = authorization
 	service.deadlineSet = deadlineSet
 	service.tlsVersion = tlsVersion

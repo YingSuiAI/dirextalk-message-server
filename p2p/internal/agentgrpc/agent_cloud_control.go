@@ -466,7 +466,25 @@ func mapAgentCloudResource(value *agentv1.CloudResourceScope) (cloudmodule.Agent
 }
 
 func mapAgentCloudNetwork(value *agentv1.CloudNetworkScope) (cloudmodule.AgentCloudNetworkScope, bool) {
-	if value == nil || !agentCloudVPCPattern.MatchString(value.GetVpcId()) || !agentCloudSubnetPattern.MatchString(value.GetSubnetId()) || !agentCloudSGPattern.MatchString(value.GetSecurityGroupId()) {
+	if value == nil || !agentCloudVPCPattern.MatchString(value.GetVpcId()) || !agentCloudSubnetPattern.MatchString(value.GetSubnetId()) {
+		return cloudmodule.AgentCloudNetworkScope{}, false
+	}
+	securityGroupMode := ""
+	switch value.GetSecurityGroupMode() {
+	case agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_UNSPECIFIED:
+		if value.GetSecurityGroupId() == "" {
+			return cloudmodule.AgentCloudNetworkScope{}, false
+		}
+		securityGroupMode = "existing"
+	case agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_EXISTING:
+		securityGroupMode = "existing"
+	case agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_CREATE_DEDICATED:
+		securityGroupMode = "create_dedicated"
+	default:
+		return cloudmodule.AgentCloudNetworkScope{}, false
+	}
+	if (securityGroupMode == "existing" && !agentCloudSGPattern.MatchString(value.GetSecurityGroupId())) ||
+		(securityGroupMode == "create_dedicated" && value.GetSecurityGroupId() != "") {
 		return cloudmodule.AgentCloudNetworkScope{}, false
 	}
 	entry := ""
@@ -499,7 +517,7 @@ func mapAgentCloudNetwork(value *agentv1.CloudNetworkScope) (cloudmodule.AgentCl
 	if entry != "none" && !validAgentCloudText(value.GetHostname(), 253) {
 		return cloudmodule.AgentCloudNetworkScope{}, false
 	}
-	return cloudmodule.AgentCloudNetworkScope{VPCID: value.GetVpcId(), SubnetID: value.GetSubnetId(), SecurityGroupID: value.GetSecurityGroupId(), EntryPoint: entry, PublicExposure: value.GetPublicExposure(), IngressPorts: append([]uint32(nil), value.GetIngressPorts()...), Hostname: value.GetHostname(), TLSRequired: value.GetTlsRequired(), AuthenticationRequired: value.GetAuthenticationRequired()}, true
+	return cloudmodule.AgentCloudNetworkScope{VPCID: value.GetVpcId(), SubnetID: value.GetSubnetId(), SecurityGroupID: value.GetSecurityGroupId(), SecurityGroupMode: securityGroupMode, EntryPoint: entry, PublicIPv4: value.GetPublicIpv4(), PublicExposure: value.GetPublicExposure(), IngressPorts: append([]uint32(nil), value.GetIngressPorts()...), Hostname: value.GetHostname(), TLSRequired: value.GetTlsRequired(), AuthenticationRequired: value.GetAuthenticationRequired()}, true
 }
 
 func mapAgentCloudRetention(value *agentv1.CloudRetentionScope) (cloudmodule.AgentCloudRetentionScope, bool) {

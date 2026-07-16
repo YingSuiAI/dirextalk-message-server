@@ -26,7 +26,9 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 			t.Fatalf("unexpected create quote request: %#v", request)
 		}
 		for _, scope := range request.GetScopes() {
-			if scope.GetOwnerId() != "owner-from-config" || scope.GetResource().GetWorkerImageId() != "" || scope.GetResource().GetWorkerImageDigest() != "" {
+			if scope.GetOwnerId() != "owner-from-config" || scope.GetResource().GetWorkerImageId() != "" || scope.GetResource().GetWorkerImageDigest() != "" ||
+				scope.GetNetwork().GetSecurityGroupMode() != agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_CREATE_DEDICATED ||
+				scope.GetNetwork().GetSecurityGroupId() != "" || !scope.GetNetwork().GetPublicIpv4() {
 				t.Fatalf("owner or server-owned Worker release was changed: %#v", scope)
 			}
 		}
@@ -50,10 +52,11 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 	scopes := planningQuoteScopes(false)
 	created, err := runner.CreateAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteCreateRequest{
 		IdempotencyKey: "019f6a80-1234-7abc-8def-012345678913", Scopes: scopes,
-		Usage:              cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730},
+		Usage:              cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIPv4Hours: 730},
 		BootstrapSessionID: "019f6a80-1234-7abc-8def-012345678914", ExpectedSessionRevision: 1,
 	})
-	if err != nil || created.QuoteID != testQuoteID || len(created.Candidates) != 3 || created.Candidates[1].Scope.Resource.WorkerImageID == "" {
+	if err != nil || created.QuoteID != testQuoteID || len(created.Candidates) != 3 || created.Candidates[1].Scope.Resource.WorkerImageID == "" ||
+		created.Candidates[1].Scope.Network.SecurityGroupMode != "create_dedicated" || !created.Candidates[1].Scope.Network.PublicIPv4 {
 		t.Fatalf("created quote=%#v err=%v", created, err)
 	}
 	read, found, err := runner.GetAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteRequest{QuoteID: testQuoteID})
@@ -71,7 +74,7 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 	quote.Assumptions = []string{"AWS_SECRET_ACCESS_KEY=not-a-real-secret-value"}
 	if _, err := runner.CreateAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteCreateRequest{
 		IdempotencyKey: "019f6a80-1234-7abc-8def-012345678913", Scopes: scopes,
-		Usage:              cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730},
+		Usage:              cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIPv4Hours: 730},
 		BootstrapSessionID: "019f6a80-1234-7abc-8def-012345678914", ExpectedSessionRevision: 1,
 	}); !errors.Is(err, cloudmodule.ErrAgentCloudControlInvalidResponse) {
 		t.Fatalf("credential-shaped quote text was not rejected: %v", err)
@@ -96,7 +99,7 @@ func planningQuoteScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
 			ConnectionID:     "019f6a80-1234-7abc-8def-012345678902",
 			Recipe:           cloudmodule.AgentCloudRecipeBinding{RecipeID: "recipe-openclaw-0001", Digest: "sha256:" + strings.Repeat("1", 64), Maturity: "experimental"},
 			Resource:         resource,
-			Network:          cloudmodule.AgentCloudNetworkScope{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupID: "sg-0123456789abcdef0", EntryPoint: "none"},
+			Network:          cloudmodule.AgentCloudNetworkScope{VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupMode: "create_dedicated", EntryPoint: "none", PublicIPv4: true},
 			SecretScope:      []cloudmodule.AgentCloudSecretScope{{SecretRef: "secret_ref:openclaw/token", Purpose: "service token", Delivery: "file"}},
 			IntegrationScope: []cloudmodule.AgentCloudIntegrationScope{{Kind: "grpc", Name: "worker-control", Scopes: []string{"checkpoint"}}},
 			Retention:        cloudmodule.AgentCloudRetentionScope{Class: "ephemeral", AutoDestroy: true, GracePeriodSeconds: 1800, MaxLifetimeSeconds: 86400},
@@ -114,14 +117,17 @@ func planningQuoteProto(now time.Time) *agentv1.CloudQuote {
 		candidates = append(candidates, &agentv1.CloudQuoteCandidate{
 			CandidateProfile: remote.GetResource().GetCandidateProfile(), Scope: remote,
 			ScopeDigest: "sha256:" + strings.Repeat(string(rune('5'+index)), 64), OfferedAvailabilityZones: []string{"ap-northeast-1a"},
-			Quotas:               []*agentv1.CloudQuotaEvidence{{ServiceCode: "ec2", QuotaCode: "L-1216C47A", LimitUnits: 32, RequiredUnits: 4}},
-			CostItems:            []*agentv1.CloudCostItem{{Category: "compute", Description: "EC2 On-Demand", SourceId: "price-list", HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros}},
+			Quotas: []*agentv1.CloudQuotaEvidence{{ServiceCode: "ec2", QuotaCode: "L-1216C47A", LimitUnits: 32, RequiredUnits: 4}},
+			CostItems: []*agentv1.CloudCostItem{
+				{Category: "compute", Description: "EC2 On-Demand", SourceId: "price-list", HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros},
+				{Category: "public_ipv4", Description: "Public IPv4", SourceId: "price-list", HourlyEstimateMicros: 5_000, MonthlyEstimateMicros: 3_650_000},
+			},
 			HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros,
 		})
 	}
 	return &agentv1.CloudQuote{
 		QuoteId: testQuoteID, QuotedAt: timestamppb.New(now), ValidUntil: timestamppb.New(now.Add(15 * time.Minute)), Currency: "USD",
-		Candidates: candidates, Usage: &agentv1.CloudUsageEstimate{RuntimeHoursPerMonth: 730},
+		Candidates: candidates, Usage: &agentv1.CloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIpv4Hours: 730},
 		Assumptions: []string{"On-Demand pricing"}, Exclusions: []string{"tax"}, Digest: "sha256:" + strings.Repeat("8", 64),
 	}
 }

@@ -125,7 +125,7 @@ func (runner *Runner) CreateAgentCloudPlan(ctx context.Context, request cloudmod
 	value, mapErr := runner.mapAgentCloudPlan(response.GetPlan(), "")
 	if mapErr != nil || value.QuoteID != request.QuoteID || value.CandidateProfile != request.CandidateProfile ||
 		!reflect.DeepEqual(value.Resource, request.CurrentScope.Resource) || value.ConnectionID != request.CurrentScope.ConnectionID ||
-		value.Recipe != request.CurrentScope.Recipe || !reflect.DeepEqual(value.Network, request.CurrentScope.Network) ||
+		value.Recipe != request.CurrentScope.Recipe || !sameAgentCloudNetwork(value.Network, request.CurrentScope.Network) ||
 		!reflect.DeepEqual(value.SecretScope, request.CurrentScope.SecretScope) || !reflect.DeepEqual(value.IntegrationScope, request.CurrentScope.IntegrationScope) ||
 		value.Retention != request.CurrentScope.Retention {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
@@ -291,7 +291,16 @@ func agentCloudResourceToProto(value cloudmodule.AgentCloudResourceScope, allowU
 }
 
 func agentCloudNetworkToProto(value cloudmodule.AgentCloudNetworkScope) (*agentv1.CloudNetworkScope, bool) {
-	network := &agentv1.CloudNetworkScope{VpcId: value.VPCID, SubnetId: value.SubnetID, SecurityGroupId: value.SecurityGroupID, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname, TlsRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired}
+	value = normalizeAgentCloudNetwork(value)
+	network := &agentv1.CloudNetworkScope{VpcId: value.VPCID, SubnetId: value.SubnetID, SecurityGroupId: value.SecurityGroupID, PublicIpv4: value.PublicIPv4, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname, TlsRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired}
+	switch value.SecurityGroupMode {
+	case "existing":
+		network.SecurityGroupMode = agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_EXISTING
+	case "create_dedicated":
+		network.SecurityGroupMode = agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_CREATE_DEDICATED
+	default:
+		return nil, false
+	}
 	switch value.EntryPoint {
 	case "none":
 		network.EntryPoint = agentv1.CloudEntryPointKind_CLOUD_ENTRY_POINT_KIND_NONE
@@ -417,7 +426,7 @@ func sameAgentCloudQuoteRequest(value cloudmodule.AgentCloudQuote, request cloud
 		actualResource.WorkerImageID, actualResource.WorkerImageDigest = "", ""
 		expectedResource.WorkerImageID, expectedResource.WorkerImageDigest = "", ""
 		if candidate.Scope.ConnectionID != scope.ConnectionID || candidate.Scope.Recipe != scope.Recipe ||
-			!reflect.DeepEqual(actualResource, expectedResource) || !reflect.DeepEqual(candidate.Scope.Network, scope.Network) ||
+			!reflect.DeepEqual(actualResource, expectedResource) || !sameAgentCloudNetwork(candidate.Scope.Network, scope.Network) ||
 			!reflect.DeepEqual(candidate.Scope.SecretScope, scope.SecretScope) || !reflect.DeepEqual(candidate.Scope.IntegrationScope, scope.IntegrationScope) ||
 			candidate.Scope.Retention != scope.Retention {
 			return false
@@ -425,6 +434,17 @@ func sameAgentCloudQuoteRequest(value cloudmodule.AgentCloudQuote, request cloud
 		delete(expected, candidate.CandidateProfile)
 	}
 	return len(expected) == 0
+}
+
+func normalizeAgentCloudNetwork(value cloudmodule.AgentCloudNetworkScope) cloudmodule.AgentCloudNetworkScope {
+	if value.SecurityGroupMode == "" && value.SecurityGroupID != "" {
+		value.SecurityGroupMode = "existing"
+	}
+	return value
+}
+
+func sameAgentCloudNetwork(left, right cloudmodule.AgentCloudNetworkScope) bool {
+	return reflect.DeepEqual(normalizeAgentCloudNetwork(left), normalizeAgentCloudNetwork(right))
 }
 
 func sameAgentCloudSpot(left, right *cloudmodule.AgentCloudSpotQualification) bool {

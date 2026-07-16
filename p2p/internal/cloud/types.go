@@ -175,21 +175,34 @@ type QuoteView struct {
 // compare the selectable quote tiers. Candidate IDs remain internal to the
 // immutable quote binding and are not part of the ProductCore projection.
 type QuoteCandidateView struct {
-	Tier              string   `json:"tier"`
-	InstanceType      string   `json:"instance_type"`
-	PurchaseOption    string   `json:"purchase_option"`
-	Architecture      string   `json:"architecture"`
-	VCPU              uint16   `json:"vcpu"`
-	MemoryMiB         uint32   `json:"memory_mib"`
-	GPUCount          uint16   `json:"gpu_count"`
-	GPUMemoryMiB      uint32   `json:"gpu_memory_mib"`
-	HourlyMinor       int64    `json:"hourly_minor"`
-	ThirtyDayMinor    int64    `json:"thirty_day_minor"`
-	StartupUpperMinor int64    `json:"startup_upper_minor"`
-	EstimatedDiskGiB  uint32   `json:"estimated_disk_gib"`
-	AvailabilityZones []string `json:"availability_zones,omitempty"`
-	WorkerImageID     string   `json:"worker_image_id"`
-	WorkerImageDigest string   `json:"worker_image_digest"`
+	Tier              string              `json:"tier"`
+	InstanceType      string              `json:"instance_type"`
+	PurchaseOption    string              `json:"purchase_option"`
+	Architecture      string              `json:"architecture"`
+	VCPU              uint16              `json:"vcpu"`
+	MemoryMiB         uint32              `json:"memory_mib"`
+	GPUCount          uint16              `json:"gpu_count"`
+	GPUMemoryMiB      uint32              `json:"gpu_memory_mib"`
+	HourlyMinor       int64               `json:"hourly_minor"`
+	ThirtyDayMinor    int64               `json:"thirty_day_minor"`
+	StartupUpperMinor int64               `json:"startup_upper_minor"`
+	EstimatedDiskGiB  uint32              `json:"estimated_disk_gib"`
+	AvailabilityZones []string            `json:"availability_zones,omitempty"`
+	WorkerImageID     string              `json:"worker_image_id"`
+	WorkerImageDigest string              `json:"worker_image_digest"`
+	CostItems         []QuoteCostItemView `json:"cost_items,omitempty"`
+}
+
+// QuoteCostItemView preserves provider-owned cost categories without teaching
+// ProductCore about each AWS billable dimension. Provider micros remain exact;
+// clients must not reconstruct or silently round candidate totals from them.
+type QuoteCostItemView struct {
+	Category                  string `json:"category"`
+	Description               string `json:"description"`
+	SourceID                  string `json:"source_id"`
+	HourlyEstimateMicros      uint64 `json:"hourly_estimate_micros"`
+	MonthlyEstimateMicros     uint64 `json:"monthly_estimate_micros"`
+	MaximumLaunchAmountMicros uint64 `json:"maximum_launch_amount_micros"`
 }
 
 // Plan is a de-secretsed planning artifact. PlanHash is intentionally blank

@@ -146,12 +146,12 @@ func (runner *Runner) Invoke(ctx context.Context, action string, params map[stri
 	if strings.TrimSpace(action) != "agent.chat" {
 		return nil, errors.New("agent service action is not supported")
 	}
-	request, err := runner.chatRequest(params)
+	callContext, cancel := context.WithTimeout(ctx, runner.chainTimeout)
+	defer cancel()
+	request, err := runner.chatRequest(callContext, params)
 	if err != nil {
 		return nil, err
 	}
-	callContext, cancel := context.WithTimeout(ctx, runner.chainTimeout)
-	defer cancel()
 	response, err := runner.runtime.Chat(callContext, request)
 	if err != nil {
 		return nil, sanitizeRPCError(callContext, err)
@@ -171,12 +171,12 @@ func (runner *Runner) Stream(ctx context.Context, action string, params map[stri
 	if emit == nil {
 		return errors.New("agent stream emitter is required")
 	}
-	request, err := runner.streamChatRequest(params)
+	callContext, cancel := context.WithTimeout(ctx, runner.streamTimeout)
+	defer cancel()
+	request, err := runner.streamChatRequest(callContext, params)
 	if err != nil {
 		return err
 	}
-	callContext, cancel := context.WithTimeout(ctx, runner.streamTimeout)
-	defer cancel()
 	stream, err := runner.runtime.StreamChat(callContext, request)
 	if err != nil {
 		return sanitizeRPCError(callContext, err)
@@ -210,44 +210,59 @@ func (runner *Runner) Stream(ctx context.Context, action string, params map[stri
 	}
 }
 
-func (runner *Runner) chatRequest(params map[string]any) (*agentv1.ChatRequest, error) {
+func (runner *Runner) chatRequest(ctx context.Context, params map[string]any) (*agentv1.ChatRequest, error) {
 	request, err := runner.requestFields(params)
+	if err != nil {
+		return nil, err
+	}
+	cloudDialogue, err := runner.resolveCloudDialogueScope(ctx, request.cloudConnectionID)
 	if err != nil {
 		return nil, err
 	}
 	return &agentv1.ChatRequest{
 		IdempotencyKey: request.idempotencyKey, OwnerId: runner.ownerID, ConversationId: request.conversationID,
 		Message: request.message, MemoryDisabled: request.memoryDisabled, ExpectedConversationRevision: request.expectedRevision,
+		CloudDialogueScope: cloudDialogue,
 	}, nil
 }
 
-func (runner *Runner) streamChatRequest(params map[string]any) (*agentv1.StreamChatRequest, error) {
+func (runner *Runner) streamChatRequest(ctx context.Context, params map[string]any) (*agentv1.StreamChatRequest, error) {
 	request, err := runner.requestFields(params)
+	if err != nil {
+		return nil, err
+	}
+	cloudDialogue, err := runner.resolveCloudDialogueScope(ctx, request.cloudConnectionID)
 	if err != nil {
 		return nil, err
 	}
 	return &agentv1.StreamChatRequest{
 		IdempotencyKey: request.idempotencyKey, OwnerId: runner.ownerID, ConversationId: request.conversationID,
 		Message: request.message, MemoryDisabled: request.memoryDisabled, ExpectedConversationRevision: request.expectedRevision,
+		CloudDialogueScope: cloudDialogue,
 	}, nil
 }
 
 type chatRequestFields struct {
-	idempotencyKey   string
-	conversationID   string
-	message          string
-	memoryDisabled   bool
-	expectedRevision int64
+	idempotencyKey    string
+	conversationID    string
+	message           string
+	memoryDisabled    bool
+	expectedRevision  int64
+	cloudConnectionID string
 }
 
 func (*Runner) requestFields(params map[string]any) (chatRequestFields, error) {
 	if err := validateLegacyCompatibilityEnvelope(params); err != nil {
 		return chatRequestFields{}, err
 	}
+	cloudDialogue, cloudConnectionID := cloudDialogueParameters(params)
 	idempotencyKey := stringParam(params, "idempotency_key")
 	if idempotencyKey == "" {
+		if cloudDialogue {
+			return chatRequestFields{}, errors.New("invalid agent chat parameters: idempotency_key is required for cloud dialogue")
+		}
 		idempotencyKey = uuid.NewString()
-	} else if _, err := uuid.Parse(idempotencyKey); err != nil {
+	} else if parsed, err := uuid.Parse(idempotencyKey); err != nil || (cloudDialogue && (parsed == uuid.Nil || parsed.String() != idempotencyKey)) {
 		return chatRequestFields{}, errors.New("invalid agent chat parameters: idempotency_key must be a UUID")
 	}
 	message := stringParam(params, "prompt")
@@ -262,13 +277,21 @@ func (*Runner) requestFields(params map[string]any) (chatRequestFields, error) {
 		return chatRequestFields{}, errors.New("invalid agent chat parameters: expected_conversation_revision must be a non-negative integer")
 	}
 	memoryDisabled, _ := params["memory_disabled"].(bool)
+	conversationID := stringParam(params, "conversation_id")
+	if cloudDialogue && conversationID == "" {
+		return chatRequestFields{}, errors.New("invalid agent chat parameters: conversation_id is required for cloud dialogue")
+	}
 	return chatRequestFields{
-		idempotencyKey: idempotencyKey, conversationID: stringParam(params, "conversation_id"), message: message,
-		memoryDisabled: memoryDisabled, expectedRevision: expectedRevision,
+		idempotencyKey: idempotencyKey, conversationID: conversationID, message: message,
+		memoryDisabled: memoryDisabled, expectedRevision: expectedRevision, cloudConnectionID: cloudConnectionID,
 	}, nil
 }
 
 func validateLegacyCompatibilityEnvelope(params map[string]any) error {
+	cloudDialogue, _ := cloudDialogueParameters(params)
+	if cloudDialogue {
+		return validateCloudDialogueEnvelope(params)
+	}
 	for key, value := range params {
 		switch key {
 		case "prompt", "message", "owner_id", "conversation_id", "idempotency_key", "model_profile_id":
@@ -311,6 +334,58 @@ func validateLegacyCompatibilityEnvelope(params map[string]any) error {
 		}
 	}
 	return nil
+}
+
+func validateCloudDialogueEnvelope(params map[string]any) error {
+	for key, value := range params {
+		switch key {
+		case "prompt", "message", "conversation_id", "idempotency_key", "cloud_connection_id":
+			if _, ok := value.(string); !ok {
+				return errUnrepresentableChatParameters
+			}
+		case "memory_disabled", "cloud_dialogue_mode":
+			if _, ok := value.(bool); !ok {
+				return errUnrepresentableChatParameters
+			}
+		case "expected_conversation_revision":
+			// Parsed below without coercion.
+		default:
+			return errUnrepresentableChatParameters
+		}
+	}
+	connectionID, _ := params["cloud_connection_id"].(string)
+	parsed, err := uuid.Parse(connectionID)
+	if err != nil || parsed == uuid.Nil || parsed.String() != connectionID {
+		return errUnrepresentableChatParameters
+	}
+	return nil
+}
+
+func cloudDialogueParameters(params map[string]any) (bool, string) {
+	enabled, _ := params["cloud_dialogue_mode"].(bool)
+	if !enabled {
+		return false, ""
+	}
+	connectionID, _ := params["cloud_connection_id"].(string)
+	return true, connectionID
+}
+
+func (runner *Runner) resolveCloudDialogueScope(ctx context.Context, connectionID string) (*agentv1.CloudDialogueScopeV1, error) {
+	if connectionID == "" {
+		return nil, nil
+	}
+	if runner == nil || runner.cloud == nil {
+		return nil, errors.New("agent cloud connection resolver is unavailable")
+	}
+	response, err := runner.cloud.GetCloudConnection(ctx, &agentv1.GetCloudConnectionRequest{OwnerId: runner.ownerID, ConnectionId: connectionID})
+	if err != nil {
+		return nil, sanitizeRPCError(ctx, err)
+	}
+	connection := response.GetConnection()
+	if connection == nil || connection.GetConnectionId() != connectionID || connection.GetOwnerId() != runner.ownerID {
+		return nil, errors.New("agent cloud connection ownership check failed")
+	}
+	return &agentv1.CloudDialogueScopeV1{CloudConnectionId: connectionID}, nil
 }
 
 func mapChatResponse(response *agentv1.ChatResponse) (map[string]any, error) {

@@ -77,8 +77,10 @@ type agentCloudResourceScopeV1 struct {
 type agentCloudNetworkScopeV1 struct {
 	VPCID                  string   `json:"vpc_id"`
 	SubnetID               string   `json:"subnet_id"`
-	SecurityGroupID        string   `json:"security_group_id"`
+	SecurityGroupID        string   `json:"security_group_id,omitempty"`
+	SecurityGroupMode      string   `json:"security_group_mode"`
 	EntryPoint             string   `json:"entry_point"`
+	PublicIPv4             bool     `json:"public_ipv4"`
 	PublicExposure         bool     `json:"public_exposure"`
 	IngressPorts           []uint32 `json:"ingress_ports,omitempty"`
 	Hostname               string   `json:"hostname,omitempty"`
@@ -311,7 +313,7 @@ func agentCloudPlanViewWithQuote(plan AgentCloudPlan, quote AgentCloudQuote) (ma
 		leftResource.CandidateProfile, rightResource.CandidateProfile = "", ""
 		matched = candidate.ScopeDigest == plan.QuoteScopeDigest && candidate.Scope.ConnectionID == plan.ConnectionID &&
 			candidate.Scope.Recipe == plan.Recipe && reflect.DeepEqual(leftResource, rightResource) &&
-			reflect.DeepEqual(candidate.Scope.Network, plan.Network) && reflect.DeepEqual(candidate.Scope.SecretScope, plan.SecretScope) &&
+			sameAgentCloudNetworkScope(candidate.Scope.Network, plan.Network) && reflect.DeepEqual(candidate.Scope.SecretScope, plan.SecretScope) &&
 			reflect.DeepEqual(candidate.Scope.IntegrationScope, plan.IntegrationScope) && candidate.Scope.Retention == plan.Retention
 		break
 	}
@@ -353,13 +355,24 @@ func agentCloudQuoteView(quote AgentCloudQuote) (QuoteView, bool) {
 		} else if result.ConnectionID != candidate.Scope.ConnectionID || result.Region != resource.Region {
 			return QuoteView{}, false
 		}
+		costItems := make([]QuoteCostItemView, 0, len(candidate.CostItems))
+		for _, item := range candidate.CostItems {
+			if item.Category == "" || item.Description == "" || item.SourceID == "" {
+				return QuoteView{}, false
+			}
+			costItems = append(costItems, QuoteCostItemView{
+				Category: item.Category, Description: item.Description, SourceID: item.SourceID,
+				HourlyEstimateMicros: item.HourlyEstimateMicros, MonthlyEstimateMicros: item.MonthlyEstimateMicros,
+				MaximumLaunchAmountMicros: item.MaximumLaunchAmountMicros,
+			})
+		}
 		result.Candidates = append(result.Candidates, QuoteCandidateView{
 			Tier: tier, InstanceType: resource.InstanceType, PurchaseOption: resource.PurchaseOption, Architecture: resource.Architecture,
 			VCPU: uint16(resource.VCPU), MemoryMiB: uint32(resource.MemoryMiB), GPUCount: uint16(resource.GPUCount),
 			GPUMemoryMiB: uint32(resource.GPUMemoryMiB), HourlyMinor: agentCloudMicrosToMinor(candidate.HourlyEstimateMicros),
 			ThirtyDayMinor: agentCloudMicrosToMinor(candidate.MonthlyEstimateMicros), StartupUpperMinor: agentCloudMicrosToMinor(candidate.MaximumLaunchAmountMicros),
 			EstimatedDiskGiB: uint32(resource.DiskGiB), AvailabilityZones: append([]string(nil), candidate.OfferedAvailabilityZones...),
-			WorkerImageID: resource.WorkerImageID, WorkerImageDigest: resource.WorkerImageDigest,
+			WorkerImageID: resource.WorkerImageID, WorkerImageDigest: resource.WorkerImageDigest, CostItems: costItems,
 		})
 	}
 	return result, result.ConnectionID != "" && result.Region != ""
@@ -417,11 +430,23 @@ func resourceScopeFromAgent(value AgentCloudResourceScope) agentCloudResourceSco
 }
 
 func networkScopeFromAgent(value AgentCloudNetworkScope) agentCloudNetworkScopeV1 {
+	value = normalizeAgentCloudNetworkScope(value)
 	return agentCloudNetworkScopeV1{
-		VPCID: value.VPCID, SubnetID: value.SubnetID, SecurityGroupID: value.SecurityGroupID, EntryPoint: value.EntryPoint,
-		PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname,
+		VPCID: value.VPCID, SubnetID: value.SubnetID, SecurityGroupID: value.SecurityGroupID, SecurityGroupMode: value.SecurityGroupMode, EntryPoint: value.EntryPoint,
+		PublicIPv4: value.PublicIPv4, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname,
 		TLSRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired,
 	}
+}
+
+func normalizeAgentCloudNetworkScope(value AgentCloudNetworkScope) AgentCloudNetworkScope {
+	if value.SecurityGroupMode == "" && value.SecurityGroupID != "" {
+		value.SecurityGroupMode = "existing"
+	}
+	return value
+}
+
+func sameAgentCloudNetworkScope(left, right AgentCloudNetworkScope) bool {
+	return reflect.DeepEqual(normalizeAgentCloudNetworkScope(left), normalizeAgentCloudNetworkScope(right))
 }
 
 func secretScopeFromAgent(values []AgentCloudSecretScope) []agentCloudSecretScopeV1 {

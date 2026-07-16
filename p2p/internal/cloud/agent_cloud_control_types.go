@@ -183,7 +183,9 @@ type AgentCloudResourceScope struct {
 
 type AgentCloudNetworkScope struct {
 	VPCID, SubnetID, SecurityGroupID    string
+	SecurityGroupMode                   string
 	EntryPoint                          string
+	PublicIPv4                          bool
 	PublicExposure                      bool
 	IngressPorts                        []uint32
 	Hostname                            string

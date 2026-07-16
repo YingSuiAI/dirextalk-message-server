@@ -221,7 +221,8 @@ func TestAgentPlanConfirmationReturnsExactUnsignedDescriptorAndRejectsClientScop
 	confirmation := result.(map[string]any)["confirmation"].(map[string]any)
 	approval := confirmation["approval"].(agentCloudApprovalV1)
 	if approval.SchemaVersion != agentCloudApprovalSchema || approval.ConnectionID != plan.ConnectionID || approval.QuoteCandidateID != "economic" ||
-		approval.ResourceScope.Region != plan.Resource.Region || approval.RetentionScope.Class != "ephemeral" || approval.Signature != "" {
+		approval.ResourceScope.Region != plan.Resource.Region || approval.NetworkScope.SecurityGroupMode != "create_dedicated" ||
+		!approval.NetworkScope.PublicIPv4 || approval.RetentionScope.Class != "ephemeral" || approval.Signature != "" {
 		t.Fatalf("unsigned Agent approval descriptor=%#v", approval)
 	}
 	encoded, err := json.Marshal(approval)
@@ -237,7 +238,9 @@ func TestAgentPlanConfirmationReturnsExactUnsignedDescriptorAndRejectsClientScop
 	}
 	resource := wire["resource_scope"].(map[string]any)
 	retention := wire["retention_scope"].(map[string]any)
-	if _, present := resource["candidate_profile"]; present || retention["class"] != "ephemeral" || wire["connection_id"] != plan.ConnectionID {
+	network := wire["network_scope"].(map[string]any)
+	if _, present := resource["candidate_profile"]; present || retention["class"] != "ephemeral" || wire["connection_id"] != plan.ConnectionID ||
+		network["security_group_mode"] != "create_dedicated" || network["public_ipv4"] != true {
 		t.Fatalf("descriptor diverged from Agent ApprovalV1 tags: %s", encoded)
 	}
 	if client.challengeCalls != 1 || !reflect.DeepEqual(client.challengeRequest.ExpectedPlan, plan) || client.challengeRequest.SignerKeyID != client.challenge.SignerKeyID ||
@@ -545,7 +548,8 @@ func TestAgentPlanGetHydratesExistingProductCoreQuoteShape(t *testing.T) {
 	if !ok || projected.QuoteID != plan.QuoteID || projected.ConnectionID != plan.ConnectionID || projected.Region != plan.Resource.Region ||
 		len(projected.Candidates) != 3 || projected.Candidates[0].Tier != "economy" || projected.Candidates[0].HourlyMinor != 100 ||
 		projected.Candidates[0].InstanceType != plan.Resource.InstanceType || projected.Candidates[0].WorkerImageID != plan.Resource.WorkerImageID ||
-		projected.Candidates[0].WorkerImageDigest != plan.Resource.WorkerImageDigest || client.getQuoteCalls != 1 {
+		projected.Candidates[0].WorkerImageDigest != plan.Resource.WorkerImageDigest || len(projected.Candidates[0].CostItems) != 1 ||
+		projected.Candidates[0].CostItems[0].Category != "public_ipv4" || projected.Candidates[0].CostItems[0].MonthlyEstimateMicros != 3_650_000 || client.getQuoteCalls != 1 {
 		t.Fatalf("hydrated plan=%#v quote=%#v client=%#v", view, projected, client)
 	}
 
@@ -568,7 +572,10 @@ func readyAgentPlan(now time.Time) AgentCloudPlan {
 			Architecture: "amd64", VCPU: 2, MemoryMiB: 8192, DiskGiB: 40, VolumeType: "gp3", VolumeEncrypted: true,
 			PurchaseOption: "on_demand", WorkerImageID: "ami-0123456789abcdef0", WorkerImageDigest: "sha256:" + repeatAgentHex("4"),
 		},
-		Network:          AgentCloudNetworkScope{EntryPoint: "none", TLSRequired: true, AuthenticationRequired: true},
+		Network: AgentCloudNetworkScope{
+			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupMode: "create_dedicated",
+			EntryPoint: "none", PublicIPv4: true,
+		},
 		SecretScope:      []AgentCloudSecretScope{{SecretRef: "secret-ref-openclaw", Purpose: "service_token", Delivery: "worker_runtime"}},
 		IntegrationScope: []AgentCloudIntegrationScope{{Kind: "grpc", Name: "worker-control", Scopes: []string{"checkpoint"}}},
 		Retention:        AgentCloudRetentionScope{Class: "ephemeral", AutoDestroy: true, GracePeriodSeconds: 1800, MaxLifetimeSeconds: 86400},
@@ -592,6 +599,7 @@ func quoteForAgentPlan(plan AgentCloudPlan, now time.Time) AgentCloudQuote {
 			CandidateProfile: profile,
 			Scope:            AgentCloudQuoteScope{ConnectionID: plan.ConnectionID, Recipe: plan.Recipe, Resource: resource, Network: plan.Network, SecretScope: plan.SecretScope, IntegrationScope: plan.IntegrationScope, Retention: plan.Retention},
 			ScopeDigest:      "sha256:" + repeatAgentHex(string(rune('3'+index))), OfferedAvailabilityZones: append([]string(nil), resource.AvailabilityZones...),
+			CostItems:            []AgentCloudCostItem{{Category: "public_ipv4", Description: "Public IPv4", SourceID: "aws-price-list", HourlyEstimateMicros: 5_000, MonthlyEstimateMicros: 3_650_000}},
 			HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros,
 		})
 	}
