@@ -55,6 +55,9 @@ type Config struct {
 	// Agent service. All other Agent actions continue to use NativeAgentRunner
 	// or the existing local runtime.
 	NativeAgentChatRunner NativeAgentRunner
+	// CloudDeploymentReader delegates only deployment list/get to the
+	// independent Agent. Mutations and all other Cloud actions remain local.
+	CloudDeploymentReader CloudDeploymentReader
 	NativeAgentDataDir    string
 	ReleaseController     releasecontrol.Controller
 	// CloudConnectionStack is public configuration for the owner-only
@@ -835,6 +838,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Publish: func(ctx context.Context, eventType, cloudEventID string, payload map[string]any) error {
 			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, DedupeKey: "cloud-event:" + cloudEventID, Payload: payload})
 		},
+		DeploymentReader:        cfg.CloudDeploymentReader,
 		DeploymentCreateEnabled: cfg.CloudDeploymentCreateEnabled,
 		ConnectionStack: cloudmodule.ConnectionStackConfig{
 			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, ConnectionTemplate: cfg.CloudConnectionStack.ConnectionTemplate, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,

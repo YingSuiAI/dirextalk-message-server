@@ -330,6 +330,7 @@ type testRuntimeServer struct {
 	caFile  string
 	keyFile string
 	service *runtimeTestService
+	cloud   *cloudTestService
 }
 
 func startRuntimeServer(t *testing.T) testRuntimeServer {
@@ -340,10 +341,12 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 		t.Fatal(err)
 	}
 	service := &runtimeTestService{}
+	cloud := &cloudTestService{}
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13,
 	})))
 	agentv1.RegisterRuntimeServiceServer(server, service)
+	agentv1.RegisterCloudControlServiceServer(server, cloud)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
 	dir := t.TempDir()
@@ -355,7 +358,7 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 	if err := os.WriteFile(keyFile, []byte(testServiceKey+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service}
+	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service, cloud: cloud}
 }
 
 func newTestRunner(t *testing.T, server testRuntimeServer, override Config) *Runner {

@@ -119,6 +119,13 @@ func (m *Monolith) AddAllPublicRoutes(
 	if err != nil {
 		logrus.Fatal("P2P Agent gRPC backend is unavailable")
 	}
+	agentCloudDeploymentReader, err := p2pAgentCloudDeploymentReader(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC cloud query backend is unavailable")
+	}
 	if agentChatRunner != nil {
 		startAgentGRPCRunnerLifecycle(processCtx, agentChatRunner)
 	}
@@ -130,6 +137,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionMaxRows:           p2pEventRetentionMaxRowsFromEnv(),
 		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
 		NativeAgentChatRunner:              agentChatRunner,
+		CloudDeploymentReader:              agentCloudDeploymentReader,
 		PushRules:                          m.UserAPI,
 		ReleaseController:                  releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
 		CloudConnectionStack:               p2pCloudConnectionStackConfigFromEnv(),
@@ -290,6 +298,17 @@ func newP2PAgentChatRunner(ctx context.Context, serverName string, config p2pAge
 		return nil, errors.New("Agent gRPC client construction returned no runner")
 	}
 	return runner, nil
+}
+
+func p2pAgentCloudDeploymentReader(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudDeploymentReader, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	reader, ok := runner.(p2p.CloudDeploymentReader)
+	if !ok || reader == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support cloud deployment queries")
+	}
+	return reader, nil
 }
 
 func startAgentGRPCRunnerLifecycle(processCtx *process.ProcessContext, runner AgentGRPCRunner) {

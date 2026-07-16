@@ -6,6 +6,7 @@ import (
 
 	agentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentgrpc"
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
@@ -20,6 +21,17 @@ type NativeAgentRunner interface {
 type ClosableNativeAgentRunner interface {
 	NativeAgentRunner
 	Close() error
+}
+
+// CloudDeployment is the existing ProductCore projection shape. The alias lets
+// setup wire a generic Agent client without exposing p2p/internal packages.
+type CloudDeployment = cloudmodule.Deployment
+
+// CloudDeploymentReader is intentionally query-only. Service identity alone
+// can never acquire approval or lifecycle mutation capability through it.
+type CloudDeploymentReader interface {
+	ListCloudDeployments(context.Context) ([]CloudDeployment, error)
+	GetCloudDeployment(context.Context, string) (CloudDeployment, bool, error)
 }
 
 type AgentGRPCConfig struct {

@@ -108,6 +108,7 @@ type Config struct {
 	Now                       func() time.Time
 	NewID                     func(kind string) string
 	Publish                   func(context.Context, string, string, map[string]any) error
+	DeploymentReader          DeploymentReader
 	DeploymentCreateEnabled   bool
 	ConnectionStack           ConnectionStackConfig
 	CredentialBootstrapClient ConnectionCredentialBootstrapClient
@@ -1987,7 +1988,11 @@ func (m *Module) deploymentsList(ctx context.Context, params map[string]any) (an
 	if err := only(params); err != nil {
 		return nil, err
 	}
-	items, err := m.store.ListCloudDeployments(ctx)
+	reader := m.deploymentReader()
+	if reader == nil {
+		return nil, unavailableError()
+	}
+	items, err := reader.ListCloudDeployments(ctx)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
@@ -2002,7 +2007,11 @@ func (m *Module) deploymentsGet(ctx context.Context, params map[string]any) (any
 	if id == "" {
 		return nil, actionbase.BadRequest("deployment_id is required")
 	}
-	item, ok, err := m.store.GetCloudDeployment(ctx, id)
+	reader := m.deploymentReader()
+	if reader == nil {
+		return nil, unavailableError()
+	}
+	item, ok, err := reader.GetCloudDeployment(ctx, id)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
@@ -2010,6 +2019,16 @@ func (m *Module) deploymentsGet(ctx context.Context, params map[string]any) (any
 		return nil, actionbase.CodedError(http.StatusNotFound, "cloud_deployment_not_found", "cloud deployment was not found")
 	}
 	return item, nil
+}
+
+func (m *Module) deploymentReader() DeploymentReader {
+	if m == nil {
+		return nil
+	}
+	if m.cfg.DeploymentReader != nil {
+		return m.cfg.DeploymentReader
+	}
+	return m.store
 }
 
 func (m *Module) servicesList(ctx context.Context, params map[string]any) (any, *actionbase.Error) {

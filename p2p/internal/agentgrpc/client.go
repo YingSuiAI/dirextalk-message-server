@@ -62,6 +62,7 @@ type Config struct {
 type Runner struct {
 	connection    *grpc.ClientConn
 	runtime       agentv1.RuntimeServiceClient
+	cloud         agentv1.CloudControlServiceClient
 	ownerID       string
 	chainTimeout  time.Duration
 	streamTimeout time.Duration
@@ -109,7 +110,8 @@ func New(ctx context.Context, config Config) (*Runner, error) {
 		return nil, errors.New("create agent gRPC client: transport configuration rejected")
 	}
 	return &Runner{
-		connection: connection, runtime: agentv1.NewRuntimeServiceClient(connection), ownerID: config.OwnerID,
+		connection: connection, runtime: agentv1.NewRuntimeServiceClient(connection),
+		cloud: agentv1.NewCloudControlServiceClient(connection), ownerID: config.OwnerID,
 		chainTimeout: unaryTimeout, streamTimeout: streamTimeout,
 	}, nil
 }

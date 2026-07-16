@@ -571,3 +571,11 @@ type Store interface {
 	ListCloudAlerts(context.Context) ([]Alert, error)
 	ListCloudEvents(context.Context, int) ([]Event, error)
 }
+
+// DeploymentReader is the narrow read-only boundary that may be delegated to
+// the independent Agent service. It deliberately excludes every mutation so
+// enabling remote status queries cannot route approvals or lifecycle actions.
+type DeploymentReader interface {
+	ListCloudDeployments(context.Context) ([]Deployment, error)
+	GetCloudDeployment(context.Context, string) (Deployment, bool, error)
+}
