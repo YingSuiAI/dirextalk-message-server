@@ -1794,6 +1794,10 @@ func cloudDialogueStatusPayload(snapshot cloudStatusSnapshot) map[string]any {
 	}
 }
 
+// createGoal remains on the legacy/local fact source until the independent
+// Agent exposes an owner- and connection-bound Goal command that returns a
+// durable Plan correlation. Runtime Chat/CreateTask cannot safely substitute
+// for that contract because neither binds cloud_connection_id to a Plan.
 func (m *Module) createGoal(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
 	if err := only(params, "goal", "cloud_connection_id", "idempotency_key", "recipe_id", "expected_recipe_revision"); err != nil {
 		return nil, err
@@ -2092,7 +2096,22 @@ func (m *Module) plansGet(ctx context.Context, params map[string]any) (any, *act
 		if validateReadableAgentCloudPlan(item) != nil {
 			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_plan_agent_invalid", "cloud Agent returned an invalid plan status")
 		}
-		return agentCloudPlanView(item), nil
+		planning, supportsQuoteRead := m.cfg.AgentCloudControlClient.(AgentCloudPlanningClient)
+		if !supportsQuoteRead {
+			return agentCloudPlanView(item), nil
+		}
+		quote, quoteFound, quoteErr := planning.GetAgentCloudQuote(ctx, AgentCloudQuoteRequest{QuoteID: item.QuoteID})
+		if quoteErr != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_quote_agent_unavailable", "cloud quote status is temporarily unavailable")
+		}
+		if !quoteFound {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_quote_agent_invalid", "cloud Agent returned a plan without its bound quote")
+		}
+		view, valid := agentCloudPlanViewWithQuote(item, quote)
+		if !valid {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_quote_agent_invalid", "cloud Agent returned an invalid quote binding")
+		}
+		return view, nil
 	}
 	item, ok, err := m.store.GetCloudPlan(ctx, id)
 	if err != nil {

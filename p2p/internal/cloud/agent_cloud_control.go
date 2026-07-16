@@ -298,6 +298,81 @@ func agentCloudPlanView(plan AgentCloudPlan) map[string]any {
 	}
 }
 
+func agentCloudPlanViewWithQuote(plan AgentCloudPlan, quote AgentCloudQuote) (map[string]any, bool) {
+	if quote.QuoteID != plan.QuoteID || quote.Digest != plan.QuoteDigest || !quote.ValidUntil.Equal(plan.QuoteValidUntil) {
+		return nil, false
+	}
+	matched := false
+	for _, candidate := range quote.Candidates {
+		if candidate.CandidateProfile != plan.CandidateProfile {
+			continue
+		}
+		leftResource, rightResource := candidate.Scope.Resource, plan.Resource
+		leftResource.CandidateProfile, rightResource.CandidateProfile = "", ""
+		matched = candidate.ScopeDigest == plan.QuoteScopeDigest && candidate.Scope.ConnectionID == plan.ConnectionID &&
+			candidate.Scope.Recipe == plan.Recipe && reflect.DeepEqual(leftResource, rightResource) &&
+			reflect.DeepEqual(candidate.Scope.Network, plan.Network) && reflect.DeepEqual(candidate.Scope.SecretScope, plan.SecretScope) &&
+			reflect.DeepEqual(candidate.Scope.IntegrationScope, plan.IntegrationScope) && candidate.Scope.Retention == plan.Retention
+		break
+	}
+	if !matched {
+		return nil, false
+	}
+	projected, ok := agentCloudQuoteView(quote)
+	if !ok || projected.ConnectionID != plan.ConnectionID {
+		return nil, false
+	}
+	view := agentCloudPlanView(plan)
+	view["quote"] = projected
+	return view, true
+}
+
+func agentCloudQuoteView(quote AgentCloudQuote) (QuoteView, bool) {
+	if quote.QuoteID == "" || quote.Currency == "" || len(quote.Candidates) != 3 || quote.QuotedAt.IsZero() || quote.ValidUntil.IsZero() {
+		return QuoteView{}, false
+	}
+	result := QuoteView{
+		QuoteID: quote.QuoteID, Currency: quote.Currency, QuotedAt: quote.QuotedAt.UTC(), ValidUntil: quote.ValidUntil.UTC(),
+		Candidates: make([]QuoteCandidateView, 0, len(quote.Candidates)), IncludedItems: append([]string(nil), quote.Assumptions...),
+		UnincludedItems: append([]string(nil), quote.Exclusions...),
+	}
+	seen := make(map[string]struct{}, len(quote.Candidates))
+	for _, candidate := range quote.Candidates {
+		resource := candidate.Scope.Resource
+		tier := agentCandidateTier(candidate.CandidateProfile)
+		if tier == "" || candidate.Scope.ConnectionID == "" || resource.Region == "" || resource.VCPU > 65535 || resource.MemoryMiB > 1<<32-1 ||
+			resource.GPUCount > 65535 || resource.GPUMemoryMiB > 1<<32-1 || resource.DiskGiB > 1<<32-1 {
+			return QuoteView{}, false
+		}
+		if _, duplicate := seen[tier]; duplicate {
+			return QuoteView{}, false
+		}
+		seen[tier] = struct{}{}
+		if result.ConnectionID == "" {
+			result.ConnectionID, result.Region = candidate.Scope.ConnectionID, resource.Region
+		} else if result.ConnectionID != candidate.Scope.ConnectionID || result.Region != resource.Region {
+			return QuoteView{}, false
+		}
+		result.Candidates = append(result.Candidates, QuoteCandidateView{
+			Tier: tier, InstanceType: resource.InstanceType, PurchaseOption: resource.PurchaseOption, Architecture: resource.Architecture,
+			VCPU: uint16(resource.VCPU), MemoryMiB: uint32(resource.MemoryMiB), GPUCount: uint16(resource.GPUCount),
+			GPUMemoryMiB: uint32(resource.GPUMemoryMiB), HourlyMinor: agentCloudMicrosToMinor(candidate.HourlyEstimateMicros),
+			ThirtyDayMinor: agentCloudMicrosToMinor(candidate.MonthlyEstimateMicros), StartupUpperMinor: agentCloudMicrosToMinor(candidate.MaximumLaunchAmountMicros),
+			EstimatedDiskGiB: uint32(resource.DiskGiB), AvailabilityZones: append([]string(nil), candidate.OfferedAvailabilityZones...),
+			WorkerImageID: resource.WorkerImageID, WorkerImageDigest: resource.WorkerImageDigest,
+		})
+	}
+	return result, result.ConnectionID != "" && result.Region != ""
+}
+
+func agentCloudMicrosToMinor(value uint64) int64 {
+	minor := value / 10_000
+	if value%10_000 != 0 {
+		minor++
+	}
+	return int64(minor)
+}
+
 func agentCloudPlanSummary(plan AgentCloudPlan) Plan {
 	return Plan{
 		PlanID: plan.PlanID, ConnectionID: plan.ConnectionID, Status: plan.Status,

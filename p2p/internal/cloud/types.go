@@ -188,6 +188,8 @@ type QuoteCandidateView struct {
 	StartupUpperMinor int64    `json:"startup_upper_minor"`
 	EstimatedDiskGiB  uint32   `json:"estimated_disk_gib"`
 	AvailabilityZones []string `json:"availability_zones,omitempty"`
+	WorkerImageID     string   `json:"worker_image_id"`
+	WorkerImageDigest string   `json:"worker_image_digest"`
 }
 
 // Plan is a de-secretsed planning artifact. PlanHash is intentionally blank

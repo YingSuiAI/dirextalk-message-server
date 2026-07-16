@@ -32,8 +32,87 @@ type AgentCloudControlClient interface {
 	GetAgentCloudDestroyOperation(context.Context, AgentCloudDestroyOperationRequest) (AgentCloudDestroyOperation, bool, error)
 }
 
+// AgentCloudPlanningClient is an optional, protocol-neutral seam for the
+// independent Agent's quote and plan commands. Keeping it separate from
+// AgentCloudControlClient avoids widening the established approval/deployment
+// surface for callers which only need status reads.
+type AgentCloudPlanningClient interface {
+	CreateAgentCloudQuote(context.Context, AgentCloudQuoteCreateRequest) (AgentCloudQuote, error)
+	GetAgentCloudQuote(context.Context, AgentCloudQuoteRequest) (AgentCloudQuote, bool, error)
+	CreateAgentCloudPlan(context.Context, AgentCloudPlanCreateRequest) (AgentCloudPlan, error)
+	GetAgentCloudPlan(context.Context, AgentCloudPlanRequest) (AgentCloudPlan, bool, error)
+}
+
 type AgentCloudPlanRequest struct{ PlanID string }
 type AgentCloudConnectionRequest struct{ ConnectionID string }
+
+type AgentCloudQuoteRequest struct{ QuoteID string }
+
+type AgentCloudQuoteCreateRequest struct {
+	IdempotencyKey          string
+	Scopes                  []AgentCloudQuoteScope
+	Usage                   AgentCloudUsageEstimate
+	SpotQualification       *AgentCloudSpotQualification
+	BootstrapSessionID      string
+	ExpectedSessionRevision int64
+}
+
+type AgentCloudPlanCreateRequest struct {
+	IdempotencyKey, QuoteID, CandidateProfile string
+	CurrentScope                              AgentCloudQuoteScope
+}
+
+type AgentCloudQuoteScope struct {
+	ConnectionID     string
+	Recipe           AgentCloudRecipeBinding
+	Resource         AgentCloudResourceScope
+	Network          AgentCloudNetworkScope
+	SecretScope      []AgentCloudSecretScope
+	IntegrationScope []AgentCloudIntegrationScope
+	Retention        AgentCloudRetentionScope
+}
+
+type AgentCloudUsageEstimate struct {
+	RuntimeHoursPerMonth, PublicIPv4Hours, EntryHours uint32
+	LogIngestMiB, LogStoredMiBMonths                  uint64
+	SnapshotGiBMonths, InternetEgressMiB              uint64
+}
+
+type AgentCloudSpotQualification struct {
+	EvidenceID, RecipeDigest, CheckpointName, ResumeAction string
+	MaxRetries                                             uint32
+	CheckpointVerifiedAt, InterruptionTestedAt             time.Time
+}
+
+type AgentCloudCostItem struct {
+	Category, Description, SourceID                                        string
+	HourlyEstimateMicros, MonthlyEstimateMicros, MaximumLaunchAmountMicros uint64
+}
+
+type AgentCloudQuotaEvidence struct {
+	ServiceCode, QuotaCode               string
+	LimitUnits, UsedUnits, RequiredUnits uint64
+}
+
+type AgentCloudQuoteCandidate struct {
+	CandidateProfile                            string
+	Scope                                       AgentCloudQuoteScope
+	ScopeDigest                                 string
+	OfferedAvailabilityZones                    []string
+	Quotas                                      []AgentCloudQuotaEvidence
+	CostItems                                   []AgentCloudCostItem
+	HourlyEstimateMicros, MonthlyEstimateMicros uint64
+	MaximumLaunchAmountMicros                   uint64
+}
+
+type AgentCloudQuote struct {
+	QuoteID, Currency, Digest string
+	QuotedAt, ValidUntil      time.Time
+	Candidates                []AgentCloudQuoteCandidate
+	Usage                     AgentCloudUsageEstimate
+	Assumptions, Exclusions   []string
+	SpotQualification         *AgentCloudSpotQualification
+}
 
 type AgentCloudPlan struct {
 	PlanID, OwnerID, ConnectionID          string
@@ -53,6 +132,7 @@ type AgentCloudPlan struct {
 type AgentCloudRecipeBinding struct{ RecipeID, Digest, Maturity string }
 
 type AgentCloudResourceScope struct {
+	CandidateProfile      string
 	Region                string
 	AvailabilityZones     []string
 	InstanceType          string

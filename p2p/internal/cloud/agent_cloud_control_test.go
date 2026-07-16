@@ -51,6 +51,30 @@ type agentControlModuleClient struct {
 	destroyOperationCalls   int
 }
 
+type agentPlanningModuleClient struct {
+	*agentControlModuleClient
+	quote         AgentCloudQuote
+	quoteFound    bool
+	quoteErr      error
+	getQuoteCalls int
+}
+
+func (client *agentPlanningModuleClient) CreateAgentCloudQuote(context.Context, AgentCloudQuoteCreateRequest) (AgentCloudQuote, error) {
+	return AgentCloudQuote{}, ErrAgentCloudControlUnavailable
+}
+
+func (client *agentPlanningModuleClient) GetAgentCloudQuote(_ context.Context, request AgentCloudQuoteRequest) (AgentCloudQuote, bool, error) {
+	client.getQuoteCalls++
+	if request.QuoteID != client.quote.QuoteID {
+		return AgentCloudQuote{}, false, ErrAgentCloudControlInvalid
+	}
+	return client.quote, client.quoteFound, client.quoteErr
+}
+
+func (client *agentPlanningModuleClient) CreateAgentCloudPlan(context.Context, AgentCloudPlanCreateRequest) (AgentCloudPlan, error) {
+	return AgentCloudPlan{}, ErrAgentCloudControlUnavailable
+}
+
 func (client *agentControlModuleClient) ListAgentCloudPlans(context.Context) ([]AgentCloudPlan, error) {
 	return append([]AgentCloudPlan(nil), client.listedPlans...), client.getPlanErr
 }
@@ -492,6 +516,36 @@ func TestAgentCloudControlRoutesByEntityProvenanceAndMergesConnectionList(t *tes
 	}
 }
 
+func TestAgentPlanGetHydratesExistingProductCoreQuoteShape(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 8, 0, 0, 0, time.UTC)
+	plan := readyAgentPlan(now)
+	quote := quoteForAgentPlan(plan, now)
+	client := &agentPlanningModuleClient{
+		agentControlModuleClient: &agentControlModuleClient{plan: plan, planFound: true},
+		quote:                    quote, quoteFound: true,
+	}
+	module := New(nil, Config{AgentCloudControlClient: client})
+
+	result, apiErr := module.Handlers()[actionPlansGet](t.Context(), map[string]any{"plan_id": plan.PlanID})
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	view := result.(map[string]any)
+	projected, ok := view["quote"].(QuoteView)
+	if !ok || projected.QuoteID != plan.QuoteID || projected.ConnectionID != plan.ConnectionID || projected.Region != plan.Resource.Region ||
+		len(projected.Candidates) != 3 || projected.Candidates[0].Tier != "economy" || projected.Candidates[0].HourlyMinor != 100 ||
+		projected.Candidates[0].InstanceType != plan.Resource.InstanceType || projected.Candidates[0].WorkerImageID != plan.Resource.WorkerImageID ||
+		projected.Candidates[0].WorkerImageDigest != plan.Resource.WorkerImageDigest || client.getQuoteCalls != 1 {
+		t.Fatalf("hydrated plan=%#v quote=%#v client=%#v", view, projected, client)
+	}
+
+	client.quote.Digest = "sha256:" + repeatAgentHex("f")
+	if _, bindingErr := module.Handlers()[actionPlansGet](t.Context(), map[string]any{"plan_id": plan.PlanID}); bindingErr == nil ||
+		bindingErr.Status != http.StatusBadGateway || bindingErr.Code != "cloud_quote_agent_invalid" {
+		t.Fatalf("tampered quote binding was exposed: %#v", bindingErr)
+	}
+}
+
 func readyAgentPlan(now time.Time) AgentCloudPlan {
 	return AgentCloudPlan{
 		PlanID: "019f6a80-1234-7abc-8def-012345678901", OwnerID: "dirextalk-project:example.com",
@@ -510,6 +564,29 @@ func readyAgentPlan(now time.Time) AgentCloudPlan {
 		Retention:        AgentCloudRetentionScope{Class: "ephemeral", AutoDestroy: true, GracePeriodSeconds: 1800, MaxLifetimeSeconds: 86400},
 		Status:           agentCloudReadyForConfirmation, PlanHash: "sha256:" + repeatAgentHex("5"), Revision: 7,
 	}
+}
+
+func quoteForAgentPlan(plan AgentCloudPlan, now time.Time) AgentCloudQuote {
+	profiles := []string{"economic", "recommended", "performance"}
+	candidates := make([]AgentCloudQuoteCandidate, 0, len(profiles))
+	for index, profile := range profiles {
+		resource := plan.Resource
+		resource.CandidateProfile = profile
+		if index > 0 {
+			resource.InstanceType = []string{"", "m7i.large", "c7i.xlarge"}[index]
+			resource.VCPU += uint32(index * 2)
+			resource.MemoryMiB += uint64(index * 8192)
+		}
+		micros := uint64((index + 1) * 1_000_000)
+		candidates = append(candidates, AgentCloudQuoteCandidate{
+			CandidateProfile: profile,
+			Scope:            AgentCloudQuoteScope{ConnectionID: plan.ConnectionID, Recipe: plan.Recipe, Resource: resource, Network: plan.Network, SecretScope: plan.SecretScope, IntegrationScope: plan.IntegrationScope, Retention: plan.Retention},
+			ScopeDigest:      "sha256:" + repeatAgentHex(string(rune('3'+index))), OfferedAvailabilityZones: append([]string(nil), resource.AvailabilityZones...),
+			HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros,
+		})
+	}
+	candidates[0].ScopeDigest = plan.QuoteScopeDigest
+	return AgentCloudQuote{QuoteID: plan.QuoteID, Currency: "USD", Digest: plan.QuoteDigest, QuotedAt: now, ValidUntil: plan.QuoteValidUntil, Candidates: candidates, Usage: AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730}, Assumptions: []string{"On-Demand pricing"}, Exclusions: []string{"tax"}}
 }
 
 func challengeForAgentPlan(plan AgentCloudPlan, now time.Time) AgentCloudChallenge {

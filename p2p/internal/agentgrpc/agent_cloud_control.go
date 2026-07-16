@@ -310,6 +310,7 @@ func (runner *Runner) mapAgentCloudPlan(remote *agentv1.CloudPlan, expectedPlanI
 	if !ok || resource.Region == "" {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
+	resource.CandidateProfile = candidate
 	network, ok := mapAgentCloudNetwork(remote.GetNetwork())
 	if !ok {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
@@ -574,34 +575,15 @@ func validAgentCloudPlanDomain(value cloudmodule.AgentCloudPlan) bool {
 	if value.CandidateProfile != "economic" && value.CandidateProfile != "recommended" && value.CandidateProfile != "performance" {
 		return false
 	}
-	resource := &agentv1.CloudResourceScope{Region: value.Resource.Region, AvailabilityZones: value.Resource.AvailabilityZones, InstanceType: value.Resource.InstanceType, InstanceCount: value.Resource.InstanceCount, Architecture: value.Resource.Architecture, Vcpu: value.Resource.VCPU, MemoryMib: value.Resource.MemoryMiB, GpuType: value.Resource.GPUType, GpuCount: value.Resource.GPUCount, GpuMemoryMib: value.Resource.GPUMemoryMiB, DiskGib: value.Resource.DiskGiB, VolumeType: value.Resource.VolumeType, VolumeIops: value.Resource.VolumeIOPS, VolumeThroughputMibps: value.Resource.VolumeThroughputMiBPS, VolumeEncrypted: value.Resource.VolumeEncrypted, WorkerImageId: value.Resource.WorkerImageID, WorkerImageDigest: value.Resource.WorkerImageDigest}
-	if value.Resource.PurchaseOption == "on_demand" {
-		resource.PurchaseOption = agentv1.CloudPurchaseOption_CLOUD_PURCHASE_OPTION_ON_DEMAND
-	} else if value.Resource.PurchaseOption == "spot" {
-		resource.PurchaseOption = agentv1.CloudPurchaseOption_CLOUD_PURCHASE_OPTION_SPOT
-	}
-	if _, ok := mapAgentCloudResource(resource); !ok {
+	resource := value.Resource
+	resource.CandidateProfile = value.CandidateProfile
+	if _, ok := agentCloudResourceToProto(resource, false); !ok {
 		return false
 	}
-	network := &agentv1.CloudNetworkScope{VpcId: value.Network.VPCID, SubnetId: value.Network.SubnetID, SecurityGroupId: value.Network.SecurityGroupID, PublicExposure: value.Network.PublicExposure, IngressPorts: value.Network.IngressPorts, Hostname: value.Network.Hostname, TlsRequired: value.Network.TLSRequired, AuthenticationRequired: value.Network.AuthenticationRequired}
-	switch value.Network.EntryPoint {
-	case "none":
-		network.EntryPoint = agentv1.CloudEntryPointKind_CLOUD_ENTRY_POINT_KIND_NONE
-	case "alb":
-		network.EntryPoint = agentv1.CloudEntryPointKind_CLOUD_ENTRY_POINT_KIND_ALB
-	case "cloudfront":
-		network.EntryPoint = agentv1.CloudEntryPointKind_CLOUD_ENTRY_POINT_KIND_CLOUDFRONT
-	}
-	if _, ok := mapAgentCloudNetwork(network); !ok {
+	if _, ok := agentCloudNetworkToProto(value.Network); !ok {
 		return false
 	}
-	retention := &agentv1.CloudRetentionScope{AutoDestroy: value.Retention.AutoDestroy, GracePeriodSeconds: value.Retention.GracePeriodSeconds, MaxLifetimeSeconds: value.Retention.MaxLifetimeSeconds}
-	if value.Retention.Class == "ephemeral" {
-		retention.RetentionClass = agentv1.CloudRetentionClass_CLOUD_RETENTION_CLASS_EPHEMERAL
-	} else if value.Retention.Class == "managed" {
-		retention.RetentionClass = agentv1.CloudRetentionClass_CLOUD_RETENTION_CLASS_MANAGED
-	}
-	if _, ok := mapAgentCloudRetention(retention); !ok {
+	if _, ok := agentCloudRetentionToProto(value.Retention); !ok {
 		return false
 	}
 	for _, secret := range value.SecretScope {
@@ -618,7 +600,8 @@ func validAgentCloudPlanDomain(value cloudmodule.AgentCloudPlan) bool {
 }
 
 func validAgentCloudText(value string, maximum int) bool {
-	return value == strings.TrimSpace(value) && value != "" && len(value) <= maximum
+	return value == strings.TrimSpace(value) && value != "" && len(value) <= maximum &&
+		!cloudmodule.ContainsSensitiveGoalMaterial(value)
 }
 func validAgentCloudStringSet(values []string, maximum int) bool {
 	if len(values) > maximum {

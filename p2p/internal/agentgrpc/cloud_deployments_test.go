@@ -39,6 +39,9 @@ type cloudTestService struct {
 	get                   func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
 	preview               func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
 	getPlan               func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
+	createQuote           func(*agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error)
+	getQuote              func(*agentv1.GetCloudQuoteRequest) (*agentv1.GetCloudQuoteResponse, error)
+	createPlan            func(*agentv1.CreateCloudPlanRequest) (*agentv1.CreateCloudPlanResponse, error)
 	createChallenge       func(*agentv1.CreateApprovalChallengeRequest) (*agentv1.CreateApprovalChallengeResponse, error)
 	approvePlan           func(*agentv1.ApproveCloudPlanRequest) (*agentv1.ApproveCloudPlanResponse, error)
 	establish             func(*agentv1.EstablishAwsConnectionRequest) (*agentv1.EstablishAwsConnectionResponse, error)
@@ -51,6 +54,36 @@ type cloudTestService struct {
 	createDestroy         func(*agentv1.CreateCloudDeploymentDestroyChallengeRequest) (*agentv1.CreateCloudDeploymentDestroyChallengeResponse, error)
 	approveDestroy        func(*agentv1.ApproveCloudDeploymentDestroyRequest) (*agentv1.ApproveCloudDeploymentDestroyResponse, error)
 	getDestroy            func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error)
+}
+
+func (service *cloudTestService) CreateCloudQuote(_ context.Context, request *agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error) {
+	service.mu.Lock()
+	callback := service.createQuote
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) GetCloudQuote(_ context.Context, request *agentv1.GetCloudQuoteRequest) (*agentv1.GetCloudQuoteResponse, error) {
+	service.mu.Lock()
+	callback := service.getQuote
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
+}
+
+func (service *cloudTestService) CreateCloudPlan(_ context.Context, request *agentv1.CreateCloudPlanRequest) (*agentv1.CreateCloudPlanResponse, error) {
+	service.mu.Lock()
+	callback := service.createPlan
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
 }
 
 func (service *cloudTestService) ListCloudPlans(_ context.Context, request *agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error) {
