@@ -5,6 +5,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/MFAshby/stdemuxerhook v1.0.0
 	github.com/Masterminds/semver/v3 v3.3.1
+	github.com/YingSuiAI/dirextalk-agent v0.0.0
 	github.com/blevesearch/bleve/v2 v2.5.2
 	github.com/cloudwego/eino v0.9.12
 	github.com/cloudwego/eino-ext/components/tool/mcp/officialmcp v0.1.0
@@ -176,3 +177,5 @@ require (
 )
 
 go 1.26.5
+
+replace github.com/YingSuiAI/dirextalk-agent => ../dirextalk-agent

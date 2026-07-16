@@ -21,7 +21,11 @@ type Runner interface {
 
 // Config contains the runtime dependencies owned outside the Agent module.
 type Config struct {
-	Runner            Runner
+	Runner Runner
+	// ChatRunner optionally moves only Chat/StreamChat to an isolated Agent
+	// service while the remaining runtime/config/Skill/Knowledge actions stay
+	// on Runner until their public contracts are migrated.
+	ChatRunner        Runner
 	DataDir           string
 	Store             nativeagent.ConfigStore
 	MCP               *dirextalkmcp.Service
@@ -33,8 +37,9 @@ type Config struct {
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
 type Module struct {
-	runner  Runner
-	account AccountPort
+	runner     Runner
+	chatRunner Runner
+	account    AccountPort
 }
 
 func New(cfg Config) *Module {
@@ -49,7 +54,11 @@ func New(cfg Config) *Module {
 			CloudRecipeReader: cfg.CloudRecipeReader,
 		})}
 	}
-	return &Module{runner: runner, account: cfg.Account}
+	chatRunner := cfg.ChatRunner
+	if chatRunner == nil {
+		chatRunner = runner
+	}
+	return &Module{runner: runner, chatRunner: chatRunner, account: cfg.Account}
 }
 
 // Handlers returns the complete Agent ProductCore action surface.
@@ -69,23 +78,34 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 // Stream invokes a runtime streaming action after the websocket adapter has
 // established its connection-scoped cancellation and frame writer.
 func (m *Module) Stream(ctx context.Context, action string, params map[string]any, emit func(nativeagent.Event) error) error {
-	if m == nil || m.runner == nil {
+	if m == nil || m.chatRunner == nil {
 		return fmt.Errorf("native agent runtime is not configured")
 	}
-	return m.runner.Stream(ctx, strings.TrimSpace(action), cloneMap(params), emit)
+	return m.chatRunner.Stream(ctx, strings.TrimSpace(action), cloneMap(params), emit)
 }
 
 func (m *Module) invoke(action string) actionbase.Handler {
 	return func(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
-		if m == nil || m.runner == nil {
+		runner := m.runnerForAction(action)
+		if runner == nil {
 			return nil, actionbase.StatusError(http.StatusBadGateway, "native agent runtime is not configured")
 		}
-		result, err := m.runner.Invoke(ctx, strings.TrimSpace(action), cloneMap(params))
+		result, err := runner.Invoke(ctx, strings.TrimSpace(action), cloneMap(params))
 		if err != nil {
 			return nil, actionbase.StatusError(http.StatusBadGateway, err.Error())
 		}
 		return result, nil
 	}
+}
+
+func (m *Module) runnerForAction(action string) Runner {
+	if m == nil {
+		return nil
+	}
+	if strings.TrimSpace(action) == "agent.chat" {
+		return m.chatRunner
+	}
+	return m.runner
 }
 
 func streamOnly(context.Context, map[string]any) (any, *actionbase.Error) {

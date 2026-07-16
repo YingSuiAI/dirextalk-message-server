@@ -51,8 +51,12 @@ type Config struct {
 	RealtimeSessions                *realtime.SessionStore
 	PluginRunner                    PluginRunner
 	NativeAgentRunner               NativeAgentRunner
-	NativeAgentDataDir              string
-	ReleaseController               releasecontrol.Controller
+	// NativeAgentChatRunner delegates only Chat/StreamChat to the independent
+	// Agent service. All other Agent actions continue to use NativeAgentRunner
+	// or the existing local runtime.
+	NativeAgentChatRunner NativeAgentRunner
+	NativeAgentDataDir    string
+	ReleaseController     releasecontrol.Controller
 	// CloudConnectionStack is public configuration for the owner-only
 	// CloudFormation role-plan handoff. It contains a template identity and
 	// Node public key only; the Ed25519 private key remains mounted solely in
@@ -880,6 +884,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	service.mcpCapabilities = service.mcpModule.Service()
 	service.agentModule = agentmodule.New(agentmodule.Config{
 		Runner:            cfg.NativeAgentRunner,
+		ChatRunner:        cfg.NativeAgentChatRunner,
 		DataDir:           cfg.NativeAgentDataDir,
 		Store:             nativeAgentConfigStore{service: service},
 		MCP:               service.mcpCapabilities,
