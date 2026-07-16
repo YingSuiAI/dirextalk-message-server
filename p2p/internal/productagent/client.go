@@ -26,9 +26,13 @@ type MessageRequest struct {
 	MessageID        string         `json:"message_id,omitempty"`
 	Content          string         `json:"content"`
 	AgentConfig      map[string]any `json:"agent_config,omitempty"`
+	AgentAction      map[string]any `json:"agent_action,omitempty"`
 }
 
 type MessageResponse struct {
+	Accepted        bool             `json:"accepted,omitempty"`
+	TaskID          string           `json:"task_id,omitempty"`
+	Status          string           `json:"status,omitempty"`
 	Ignored         bool             `json:"ignored,omitempty"`
 	Reason          string           `json:"reason,omitempty"`
 	Reply           string           `json:"reply,omitempty"`

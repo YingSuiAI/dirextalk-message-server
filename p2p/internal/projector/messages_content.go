@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
@@ -61,12 +62,65 @@ func (m *Module) projectAgentRoomMessage(ctx context.Context, event *types.Heade
 	if body == "" {
 		return
 	}
+	agentAction, actionPresent, actionValid := normalizedAgentImageAction(content, body)
+	if actionPresent && !actionValid {
+		return
+	}
 	m.dependencies.AgentMessages.Handle(ctx, productagentmodule.Message{
-		RoomID:     event.RoomID().String(),
-		EventID:    event.EventID(),
-		SenderMXID: senderMXID,
-		Body:       body,
+		RoomID:      event.RoomID().String(),
+		EventID:     event.EventID(),
+		SenderMXID:  senderMXID,
+		Body:        body,
+		AgentAction: agentAction,
 	})
+}
+
+// normalizedAgentImageAction copies only the allowlisted v1 image request fields.
+func normalizedAgentImageAction(content map[string]any, body string) (map[string]any, bool, bool) {
+	raw, present := content["io.dirextalk.agent_action"]
+	if !present {
+		return nil, false, true
+	}
+	action, ok := raw.(map[string]any)
+	if !ok || textValue(action["schema"]) != "direxio.agent_action_request.v2" ||
+		textValue(action["action"]) != "generate_image" {
+		return nil, true, false
+	}
+	input, ok := action["input"].(map[string]any)
+	if !ok {
+		return nil, true, false
+	}
+	prompt := strings.TrimSpace(textValue(input["prompt"]))
+	if prompt == "" || utf8.RuneCountInString(prompt) > 2000 || prompt != body ||
+		textValue(input["size"]) != "1024x1024" || !agentImageCountIsOne(input["count"]) {
+		return nil, true, false
+	}
+	return map[string]any{
+		"schema": "direxio.agent_action_request.v2",
+		"action": "generate_image",
+		"input": map[string]any{
+			"prompt": prompt,
+			"size":   "1024x1024",
+			"count":  1,
+		},
+	}, true, true
+}
+
+func agentImageCountIsOne(value any) bool {
+	switch count := value.(type) {
+	case int:
+		return count == 1
+	case int32:
+		return count == 1
+	case int64:
+		return count == 1
+	case float32:
+		return count == 1
+	case float64:
+		return count == 1
+	default:
+		return false
+	}
 }
 
 func agentRoomMessageTypeSupported(content map[string]any) bool {

@@ -37,12 +37,51 @@ func TestHTTPClientHandlesMessageWithStableIdentity(t *testing.T) {
 		SenderKind:       "user",
 		MessageID:        "$event",
 		Content:          "run it",
+		AgentAction: map[string]any{
+			"schema": "direxio.agent_action_request.v2",
+			"action": "generate_image",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Reply != "done" || received.MessageID != "$event" || received.ConversationID != received.RoomID {
 		t.Fatalf("unexpected bridge exchange: response=%#v request=%#v", response, received)
+	}
+	if received.AgentAction["action"] != "generate_image" {
+		t.Fatalf("typed Agent action was not forwarded: %#v", received.AgentAction)
+	}
+}
+
+func TestModuleDoesNotSendImmediateReplyForAcceptedImageTask(t *testing.T) {
+	client := &stubClient{response: MessageResponse{
+		Accepted: true,
+		TaskID:   "task-image-1",
+		Status:   "queued",
+	}}
+	sender := &stubSender{}
+	module := New(Config{
+		NodeID:   "node.example",
+		Client:   client,
+		Sender:   sender,
+		Dispatch: func(run func()) { run() },
+	})
+	module.Handle(context.Background(), Message{
+		RoomID:     "!agent:node.example",
+		EventID:    "$image-request",
+		SenderMXID: "@owner:node.example",
+		Body:       "A rainy Shanghai night",
+		AgentAction: map[string]any{
+			"schema": "direxio.agent_action_request.v2",
+			"action": "generate_image",
+		},
+	})
+
+	if len(client.requests) != 1 {
+		t.Fatalf("expected one Product Agent request, got %d", len(client.requests))
+	}
+	if len(sender.replies) != 0 {
+		t.Fatalf("accepted async task must not emit an immediate Matrix reply: %#v", sender.replies)
 	}
 }
 

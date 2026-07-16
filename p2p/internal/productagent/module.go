@@ -25,6 +25,7 @@ type Message struct {
 	SenderMXID  string
 	Body        string
 	AgentConfig map[string]any
+	AgentAction map[string]any
 }
 
 type Reply struct {
@@ -91,13 +92,14 @@ func (m *Module) dispatch(message Message) {
 		MessageID:        strings.TrimSpace(message.EventID),
 		Content:          strings.TrimSpace(message.Body),
 		AgentConfig:      cloneMap(message.AgentConfig),
+		AgentAction:      cloneMap(message.AgentAction),
 	})
 	cancelRequest()
 	if err != nil {
 		logrus.WithError(err).Warn("Product Agent bridge request failed")
 		return
 	}
-	if response.Ignored {
+	if response.Ignored || response.Accepted {
 		return
 	}
 	body, fields := ReplyPayload(response)
@@ -141,6 +143,9 @@ func (m *Module) claim(eventID string) bool {
 }
 
 func ReplyPayload(response MessageResponse) (string, map[string]any) {
+	if response.Accepted {
+		return "", nil
+	}
 	if response.OutboundMessage != nil {
 		content := strings.TrimSpace(response.OutboundMessage.Content)
 		if content != "" {
