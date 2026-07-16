@@ -38,6 +38,7 @@ type cloudTestService struct {
 	list                  func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
 	get                   func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
 	preview               func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
+	createGoal            func(*agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error)
 	getPlan               func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
 	createQuote           func(*agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error)
 	getQuote              func(*agentv1.GetCloudQuoteRequest) (*agentv1.GetCloudQuoteResponse, error)
@@ -54,6 +55,16 @@ type cloudTestService struct {
 	createDestroy         func(*agentv1.CreateCloudDeploymentDestroyChallengeRequest) (*agentv1.CreateCloudDeploymentDestroyChallengeResponse, error)
 	approveDestroy        func(*agentv1.ApproveCloudDeploymentDestroyRequest) (*agentv1.ApproveCloudDeploymentDestroyResponse, error)
 	getDestroy            func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error)
+}
+
+func (service *cloudTestService) CreateCloudGoal(_ context.Context, request *agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error) {
+	service.mu.Lock()
+	callback := service.createGoal
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
 }
 
 func (service *cloudTestService) CreateCloudQuote(_ context.Context, request *agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error) {

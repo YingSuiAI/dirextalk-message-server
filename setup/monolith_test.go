@@ -16,6 +16,8 @@ import (
 
 type testAgentGRPCRunner struct{}
 
+const testAgentInstanceID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
 func (*testAgentGRPCRunner) Apply(context.Context, string) error { return nil }
 func (*testAgentGRPCRunner) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
 	return map[string]any{}, nil
@@ -24,6 +26,12 @@ func (*testAgentGRPCRunner) Stream(context.Context, string, map[string]any, func
 	return nil
 }
 func (*testAgentGRPCRunner) Close() error { return nil }
+func (*testAgentGRPCRunner) AgentEventSource() p2p.AgentEventSource {
+	return p2p.AgentEventSource{AgentInstanceID: testAgentInstanceID, CallerID: "dirextalk-project:example.com"}
+}
+func (*testAgentGRPCRunner) WatchEvents(context.Context, int64) (p2p.AgentEventStream, error) {
+	return nil, nil
+}
 func (*testAgentGRPCRunner) ListCloudDeployments(context.Context) ([]p2p.CloudDeployment, error) {
 	return []p2p.CloudDeployment{}, nil
 }
@@ -41,6 +49,9 @@ func (*testAgentGRPCRunner) PreviewAgentAWSIdentity(context.Context, p2p.CloudId
 }
 func (*testAgentGRPCRunner) GetAgentCloudPlan(context.Context, p2p.AgentCloudPlanRequest) (p2p.AgentCloudPlan, bool, error) {
 	return p2p.AgentCloudPlan{}, false, nil
+}
+func (*testAgentGRPCRunner) CreateAgentCloudGoal(context.Context, p2p.AgentCloudGoalCreateRequest) (p2p.AgentCloudGoalResult, error) {
+	return p2p.AgentCloudGoalResult{}, nil
 }
 func (*testAgentGRPCRunner) ListAgentCloudPlans(context.Context) ([]p2p.AgentCloudPlan, error) {
 	return nil, nil
@@ -189,6 +200,7 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	t.Setenv("P2P_AGENT_GRPC_CA_FILE", caFile)
 	t.Setenv("P2P_AGENT_GRPC_SERVER_NAME", "agent.internal")
 	t.Setenv("P2P_AGENT_GRPC_SERVICE_KEY_FILE", serviceKeyFile)
+	t.Setenv("P2P_AGENT_GRPC_INSTANCE_ID", testAgentInstanceID)
 
 	config, err := p2pAgentGRPCBackendConfigFromEnv()
 	if err != nil {
@@ -219,8 +231,12 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || cloudControlClient != wantRunner {
 		t.Fatalf("remote cloud control client=%v err=%v", cloudControlClient, err)
 	}
+	eventClient, err := p2pAgentEventClient(config, runner, "example.com")
+	if err != nil || eventClient != wantRunner {
+		t.Fatalf("remote Agent event client=%v err=%v", eventClient, err)
+	}
 	if received.Target != "dns:///agent.internal:7443" || received.CAFile != caFile || received.ServerName != "agent.internal" ||
-		received.ServiceKeyFile != serviceKeyFile || received.OwnerID != "dirextalk-project:example.com" {
+		received.ServiceKeyFile != serviceKeyFile || received.AgentInstanceID != testAgentInstanceID || received.OwnerID != "dirextalk-project:example.com" {
 		t.Fatalf("Agent dial config=%#v", received)
 	}
 
@@ -243,13 +259,16 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if _, err = p2pAgentCloudControlClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without typed cloud control capability")
 	}
+	if _, err = p2pAgentEventClient(config, &chatOnlyAgentGRPCRunner{}, "example.com"); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without durable events capability")
+	}
 }
 
 func unsetAgentGRPCEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"P2P_AGENT_GRPC_ENABLED", "P2P_AGENT_GRPC_TARGET", "P2P_AGENT_GRPC_CA_FILE",
-		"P2P_AGENT_GRPC_SERVER_NAME", "P2P_AGENT_GRPC_SERVICE_KEY_FILE",
+		"P2P_AGENT_GRPC_SERVER_NAME", "P2P_AGENT_GRPC_SERVICE_KEY_FILE", "P2P_AGENT_GRPC_INSTANCE_ID",
 		"P2P_AGENT_GRPC_SERVICE_KEY",
 	} {
 		unsetEnvironmentVariable(t, name)

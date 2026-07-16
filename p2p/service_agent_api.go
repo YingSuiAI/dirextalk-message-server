@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	agentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agent"
+	agentevents "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentevents"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentgrpc"
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
@@ -52,6 +53,8 @@ type CloudIdentityPreviewEvidence = cloudmodule.IdentityPreviewEvidence
 // expose approval-device administration, raw credentials, caller-selected
 // provider resources, or arbitrary AWS operations.
 type CloudAgentControlClient = cloudmodule.AgentCloudControlClient
+type AgentCloudGoalCreateRequest = cloudmodule.AgentCloudGoalCreateRequest
+type AgentCloudGoalResult = cloudmodule.AgentCloudGoalResult
 type AgentCloudPlanRequest = cloudmodule.AgentCloudPlanRequest
 type AgentCloudConnectionRequest = cloudmodule.AgentCloudConnectionRequest
 type AgentCloudPlan = cloudmodule.AgentCloudPlan
@@ -67,12 +70,24 @@ type AgentCloudDeploymentDestroyResult = cloudmodule.AgentCloudDeploymentDestroy
 type AgentCloudDestroyOperationRequest = cloudmodule.AgentCloudDestroyOperationRequest
 type AgentCloudDestroyOperation = cloudmodule.AgentCloudDestroyOperation
 
+type AgentEventSource = agentevents.Source
+type AgentEventStream = agentevents.EventStream
+
+// AgentEventClient is the read-only durable TaskService WatchEvents capability.
+// Its source identity is stable across Service Key rotation and binds the
+// persisted cursor to one Agent instance and one calling project.
+type AgentEventClient interface {
+	WatchEvents(context.Context, int64) (AgentEventStream, error)
+	AgentEventSource() AgentEventSource
+}
+
 type AgentGRPCConfig struct {
-	Target         string
-	CAFile         string
-	ServerName     string
-	ServiceKeyFile string
-	OwnerID        string
+	Target          string
+	CAFile          string
+	ServerName      string
+	ServiceKeyFile  string
+	AgentInstanceID string
+	OwnerID         string
 }
 
 // NewAgentGRPCChatRunner is the public construction seam for setup. The same
@@ -82,7 +97,7 @@ type AgentGRPCConfig struct {
 func NewAgentGRPCChatRunner(ctx context.Context, config AgentGRPCConfig) (ClosableNativeAgentRunner, error) {
 	return agentgrpc.New(ctx, agentgrpc.Config{
 		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,
-		ServiceKeyFile: config.ServiceKeyFile, OwnerID: config.OwnerID,
+		ServiceKeyFile: config.ServiceKeyFile, AgentInstanceID: config.AgentInstanceID, OwnerID: config.OwnerID,
 	})
 }
 

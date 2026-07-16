@@ -50,6 +50,7 @@ type Config struct {
 	CAFile          string
 	ServerName      string
 	ServiceKeyFile  string
+	AgentInstanceID string
 	OwnerID         string
 	UnaryTimeout    time.Duration
 	StreamTimeout   time.Duration
@@ -60,13 +61,15 @@ type Config struct {
 // Runner implements the Message Server NativeAgentRunner contract over the
 // versioned Agent RuntimeService gRPC API.
 type Runner struct {
-	connection    *grpc.ClientConn
-	runtime       agentv1.RuntimeServiceClient
-	cloud         agentv1.CloudControlServiceClient
-	secrets       agentv1.SecretBootstrapServiceClient
-	ownerID       string
-	chainTimeout  time.Duration
-	streamTimeout time.Duration
+	connection      *grpc.ClientConn
+	runtime         agentv1.RuntimeServiceClient
+	tasks           agentv1.TaskServiceClient
+	cloud           agentv1.CloudControlServiceClient
+	secrets         agentv1.SecretBootstrapServiceClient
+	agentInstanceID string
+	ownerID         string
+	chainTimeout    time.Duration
+	streamTimeout   time.Duration
 }
 
 // New validates mounted trust material and creates a TLS 1.3-only gRPC client.
@@ -78,9 +81,12 @@ func New(ctx context.Context, config Config) (*Runner, error) {
 	config.CAFile = strings.TrimSpace(config.CAFile)
 	config.ServerName = strings.TrimSpace(config.ServerName)
 	config.ServiceKeyFile = strings.TrimSpace(config.ServiceKeyFile)
+	config.AgentInstanceID = strings.TrimSpace(config.AgentInstanceID)
 	config.OwnerID = strings.TrimSpace(config.OwnerID)
-	if config.Target == "" || config.CAFile == "" || config.ServerName == "" || config.ServiceKeyFile == "" || config.OwnerID == "" {
-		return nil, errors.New("agent gRPC target, CA, server name, service key file, and owner are required")
+	instanceID, instanceErr := uuid.Parse(config.AgentInstanceID)
+	if config.Target == "" || config.CAFile == "" || config.ServerName == "" || config.ServiceKeyFile == "" || config.OwnerID == "" ||
+		instanceErr != nil || instanceID == uuid.Nil || instanceID.String() != config.AgentInstanceID {
+		return nil, errors.New("agent gRPC target, CA, server name, service key file, instance ID, and owner are required")
 	}
 	if strings.ContainsAny(config.ServerName, "\x00/\\") {
 		return nil, errors.New("agent gRPC server name is invalid")
@@ -112,7 +118,8 @@ func New(ctx context.Context, config Config) (*Runner, error) {
 	}
 	return &Runner{
 		connection: connection, runtime: agentv1.NewRuntimeServiceClient(connection),
-		cloud: agentv1.NewCloudControlServiceClient(connection), secrets: agentv1.NewSecretBootstrapServiceClient(connection), ownerID: config.OwnerID,
+		tasks: agentv1.NewTaskServiceClient(connection), cloud: agentv1.NewCloudControlServiceClient(connection),
+		secrets: agentv1.NewSecretBootstrapServiceClient(connection), agentInstanceID: config.AgentInstanceID, ownerID: config.OwnerID,
 		chainTimeout: unaryTimeout, streamTimeout: streamTimeout,
 	}, nil
 }

@@ -12,14 +12,22 @@ var (
 	ErrAgentCloudControlRejected        = errors.New("agent cloud control request was rejected")
 	ErrAgentCloudControlUnavailable     = errors.New("agent cloud control service is unavailable")
 	ErrAgentCloudControlInvalidResponse = errors.New("agent cloud control returned an invalid response")
+	ErrAgentCloudConnectionNotFound     = errors.New("agent cloud connection was not found")
 )
 
-const AgentCloudPlanStatusApproved = "approved"
+const (
+	AgentCloudPlanStatusApproved                = "approved"
+	AgentCloudGoalExecutionQueued               = "queued"
+	AgentCloudGoalOutcomePending                = "pending"
+	AgentCloudGoalRetentionEphemeralAutoDestroy = "ephemeral_auto_destroy"
+	AgentCloudGoalPlanningResearchQueued        = "research_queued"
+)
 
 // AgentCloudControlClient is intentionally narrower than the Agent gRPC
 // service. It can neither register approval devices, retrieve secrets, nor
 // choose arbitrary provider resources for destruction.
 type AgentCloudControlClient interface {
+	CreateAgentCloudGoal(context.Context, AgentCloudGoalCreateRequest) (AgentCloudGoalResult, error)
 	ListAgentCloudPlans(context.Context) ([]AgentCloudPlan, error)
 	ListAgentCloudConnections(context.Context) ([]AgentCloudConnection, error)
 	GetAgentCloudPlan(context.Context, AgentCloudPlanRequest) (AgentCloudPlan, bool, error)
@@ -30,6 +38,26 @@ type AgentCloudControlClient interface {
 	CreateAgentCloudDeploymentDestroyChallenge(context.Context, AgentCloudDeploymentDestroyChallengeRequest) (AgentCloudDeploymentDestroyChallenge, error)
 	ApproveAgentCloudDeploymentDestroy(context.Context, AgentCloudDeploymentDestroyApproveRequest) (AgentCloudDeploymentDestroyResult, error)
 	GetAgentCloudDestroyOperation(context.Context, AgentCloudDestroyOperationRequest) (AgentCloudDestroyOperation, bool, error)
+}
+
+type AgentCloudGoalCreateRequest struct {
+	IdempotencyKey, ConnectionID, Goal, RecipeID, RetentionPolicy string
+}
+
+type AgentCloudGoalTask struct {
+	TaskID, OwnerID, Goal, ExecutionStatus, OutcomeStatus, RetentionPolicy string
+	CurrentStepID, ApprovedPlanID                                          string
+	Revision                                                               int64
+	CreatedAt, UpdatedAt                                                   time.Time
+}
+
+type AgentCloudGoalPlanning struct {
+	TaskID, OwnerID, ConnectionID, RecipeID, State, RelatedPlanID string
+}
+
+type AgentCloudGoalResult struct {
+	Task     AgentCloudGoalTask
+	Planning AgentCloudGoalPlanning
 }
 
 // AgentCloudPlanningClient is an optional, protocol-neutral seam for the

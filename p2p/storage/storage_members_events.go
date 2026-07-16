@@ -327,12 +327,16 @@ func (s *DatabaseStore) InsertEvent(ctx context.Context, event p2pEvent) (bool, 
 		return false, err
 	}
 	var inserted bool
-	err = s.writer.Do(nil, nil, func(txn *sql.Tx) error {
-		result, err := s.db.ExecContext(ctx, `
+	err = s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		sequence, err := nextProductEventSequence(ctx, txn, event.Seq)
+		if err != nil {
+			return err
+		}
+		result, err := txn.ExecContext(ctx, `
 			INSERT INTO p2p_events (seq, type, room_id, event_id, dedupe_key, payload_json, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT DO NOTHING
-		`, event.Seq, event.Type, event.RoomID, event.EventID, event.DedupeKey, string(payloadJSON), event.CreatedAt)
+		`, sequence, event.Type, event.RoomID, event.EventID, event.DedupeKey, string(payloadJSON), event.CreatedAt)
 		if err != nil {
 			return err
 		}

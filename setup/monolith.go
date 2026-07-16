@@ -40,6 +40,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/agenthistory"
 	syncstorage "github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/google/uuid"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/sirupsen/logrus"
@@ -77,11 +78,12 @@ type AgentGRPCRunner = p2p.ClosableNativeAgentRunner
 type AgentGRPCRunnerFactory func(context.Context, AgentGRPCDialConfig) (AgentGRPCRunner, error)
 
 type p2pAgentGRPCBackendConfig struct {
-	Enabled        bool
-	Target         string
-	CAFile         string
-	ServerName     string
-	ServiceKeyFile string
+	Enabled         bool
+	Target          string
+	CAFile          string
+	ServerName      string
+	ServiceKeyFile  string
+	AgentInstanceID string
 }
 
 // AddAllPublicRoutes attaches all public paths to the given router
@@ -147,6 +149,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 		logrus.Fatal("P2P Agent gRPC cloud control backend is unavailable")
 	}
+	agentEventClient, err := p2pAgentEventClient(agentBackend, agentChatRunner, string(cfg.Global.ServerName))
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC event backend is unavailable")
+	}
 	if agentChatRunner != nil {
 		startAgentGRPCRunnerLifecycle(processCtx, agentChatRunner)
 	}
@@ -158,6 +167,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionMaxRows:           p2pEventRetentionMaxRowsFromEnv(),
 		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
 		NativeAgentChatRunner:              agentChatRunner,
+		AgentEventClient:                   agentEventClient,
 		CloudDeploymentReader:              agentCloudDeploymentReader,
 		CloudSecretBootstrapClient:         agentSecretBootstrapClient,
 		CloudIdentityPreviewClient:         agentIdentityPreviewClient,
@@ -184,6 +194,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		defer processCtx.ComponentFinished()
 		if relayErr := p2pService.RunCloudProjectionRelay(processCtx.Context()); relayErr != nil && processCtx.Context().Err() == nil {
 			logrus.WithError(relayErr).Warn("P2P cloud projection relay unavailable")
+		}
+	}()
+	processCtx.ComponentStarted()
+	go func() {
+		defer processCtx.ComponentFinished()
+		if relayErr := p2pService.RunAgentEventRelay(processCtx.Context()); relayErr != nil && processCtx.Context().Err() == nil {
+			logrus.WithError(relayErr).Warn("P2P Agent event projection relay unavailable")
 		}
 	}()
 	matrixHistoryReader := p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil)
@@ -223,20 +240,29 @@ func p2pAgentGRPCBackendConfigFromEnv() (p2pAgentGRPCBackendConfig, error) {
 		return p2pAgentGRPCBackendConfig{}, err
 	}
 	config := p2pAgentGRPCBackendConfig{
-		Enabled:        enabled,
-		Target:         strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_TARGET")),
-		CAFile:         strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_CA_FILE")),
-		ServerName:     strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVER_NAME")),
-		ServiceKeyFile: strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVICE_KEY_FILE")),
+		Enabled:         enabled,
+		Target:          strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_TARGET")),
+		CAFile:          strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_CA_FILE")),
+		ServerName:      strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVER_NAME")),
+		ServiceKeyFile:  strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVICE_KEY_FILE")),
+		AgentInstanceID: strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_INSTANCE_ID")),
 	}
 	if !config.Enabled {
 		return config, nil
 	}
-	if validateAgentGRPCTarget(config.Target) != nil || validateAgentGRPCServerName(config.ServerName) != nil ||
+	if validateAgentGRPCTarget(config.Target) != nil || validateAgentGRPCServerName(config.ServerName) != nil || validateAgentInstanceID(config.AgentInstanceID) != nil ||
 		validateAgentMountedFile(config.CAFile, false) != nil || validateAgentMountedFile(config.ServiceKeyFile, true) != nil {
 		return p2pAgentGRPCBackendConfig{}, errors.New("enabled Agent gRPC backend is incomplete or invalid")
 	}
 	return config, nil
+}
+
+func validateAgentInstanceID(value string) error {
+	parsed, err := uuid.Parse(strings.TrimSpace(value))
+	if err != nil || parsed == uuid.Nil || parsed.String() != value {
+		return errors.New("invalid Agent instance ID")
+	}
+	return nil
 }
 
 func strictOptionalBool(name string) (bool, error) {
@@ -310,7 +336,7 @@ func newP2PAgentChatRunner(ctx context.Context, serverName string, config p2pAge
 	}
 	runner, err := factory(ctx, AgentGRPCDialConfig{
 		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,
-		ServiceKeyFile: config.ServiceKeyFile, OwnerID: ownerID,
+		ServiceKeyFile: config.ServiceKeyFile, AgentInstanceID: config.AgentInstanceID, OwnerID: ownerID,
 	})
 	if err != nil {
 		if runner != nil {
@@ -364,6 +390,22 @@ func p2pAgentCloudControlClient(config p2pAgentGRPCBackendConfig, runner AgentGR
 	client, ok := runner.(p2p.CloudAgentControlClient)
 	if !ok || client == nil {
 		return nil, errors.New("enabled Agent gRPC backend does not support typed cloud control")
+	}
+	return client, nil
+}
+
+func p2pAgentEventClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner, serverName string) (p2p.AgentEventClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.AgentEventClient)
+	expectedCaller := "dirextalk-project:" + strings.ToLower(strings.TrimSpace(serverName))
+	source := p2p.AgentEventSource{}
+	if ok && client != nil {
+		source = client.AgentEventSource()
+	}
+	if !ok || client == nil || source.AgentInstanceID != config.AgentInstanceID || source.CallerID != expectedCaller {
+		return nil, errors.New("enabled Agent gRPC backend does not support durable events")
 	}
 	return client, nil
 }

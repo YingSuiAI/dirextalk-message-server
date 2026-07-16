@@ -1925,6 +1925,26 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: independent Agent event projection cursor v72",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_agent_event_cursors(
+					agent_instance_id UUID NOT NULL,caller_id TEXT NOT NULL CHECK(caller_id<>''),
+					after_seq BIGINT NOT NULL DEFAULT 0 CHECK(after_seq>=0),updated_at BIGINT NOT NULL,
+					PRIMARY KEY(agent_instance_id,caller_id)
+				)`,
+				`CREATE TABLE IF NOT EXISTS p2p_agent_projection_revisions(
+					agent_instance_id UUID NOT NULL,caller_id TEXT NOT NULL CHECK(caller_id<>''),event_type TEXT NOT NULL,
+					aggregate_type TEXT NOT NULL,aggregate_id UUID NOT NULL,revision BIGINT NOT NULL CHECK(revision>0),
+					source_event_seq BIGINT NOT NULL CHECK(source_event_seq>0),projected_event_seq BIGINT NOT NULL CHECK(projected_event_seq>0),updated_at BIGINT NOT NULL,
+					PRIMARY KEY(agent_instance_id,caller_id,event_type,aggregate_id),
+					FOREIGN KEY(agent_instance_id,caller_id) REFERENCES p2p_agent_event_cursors(agent_instance_id,caller_id) ON DELETE CASCADE
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_agent_projection_revisions_aggregate_idx ON p2p_agent_projection_revisions(agent_instance_id,caller_id,aggregate_type,aggregate_id)`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

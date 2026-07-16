@@ -330,6 +330,7 @@ type testRuntimeServer struct {
 	caFile  string
 	keyFile string
 	service *runtimeTestService
+	tasks   *taskTestService
 	cloud   *cloudTestService
 	secrets *secretBootstrapTestService
 }
@@ -342,12 +343,14 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 		t.Fatal(err)
 	}
 	service := &runtimeTestService{}
+	tasks := &taskTestService{}
 	cloud := &cloudTestService{}
 	secrets := &secretBootstrapTestService{}
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13,
 	})))
 	agentv1.RegisterRuntimeServiceServer(server, service)
+	agentv1.RegisterTaskServiceServer(server, tasks)
 	agentv1.RegisterCloudControlServiceServer(server, cloud)
 	agentv1.RegisterSecretBootstrapServiceServer(server, secrets)
 	go func() { _ = server.Serve(listener) }()
@@ -361,7 +364,7 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 	if err := os.WriteFile(keyFile, []byte(testServiceKey+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service, cloud: cloud, secrets: secrets}
+	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service, tasks: tasks, cloud: cloud, secrets: secrets}
 }
 
 func newTestRunner(t *testing.T, server testRuntimeServer, override Config) *Runner {
@@ -370,6 +373,7 @@ func newTestRunner(t *testing.T, server testRuntimeServer, override Config) *Run
 	override.CAFile = server.caFile
 	override.ServerName = "agent.test"
 	override.ServiceKeyFile = server.keyFile
+	override.AgentInstanceID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	override.OwnerID = "owner-from-config"
 	runner, err := New(context.Background(), override)
 	if err != nil {

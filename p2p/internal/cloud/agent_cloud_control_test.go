@@ -14,6 +14,10 @@ import (
 )
 
 type agentControlModuleClient struct {
+	goalResult              AgentCloudGoalResult
+	goalErr                 error
+	goalRequest             AgentCloudGoalCreateRequest
+	goalCalls               int
 	plan                    AgentCloudPlan
 	listedPlans             []AgentCloudPlan
 	planFound               bool
@@ -49,6 +53,12 @@ type agentControlModuleClient struct {
 	destroyChallengeCalls   int
 	destroyApproveCalls     int
 	destroyOperationCalls   int
+}
+
+func (client *agentControlModuleClient) CreateAgentCloudGoal(_ context.Context, request AgentCloudGoalCreateRequest) (AgentCloudGoalResult, error) {
+	client.goalCalls++
+	client.goalRequest = request
+	return client.goalResult, client.goalErr
 }
 
 type agentPlanningModuleClient struct {

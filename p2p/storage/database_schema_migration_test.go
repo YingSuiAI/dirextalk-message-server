@@ -105,6 +105,7 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_cloud_service_secret_bootstrap_updated_marker_idx",
 		"p2p_cloud_service_secret_bootstrap_observe_claim_idx",
 		"p2p_cloud_service_secret_observe_commands_approval_idx",
+		"p2p_agent_projection_revisions_aggregate_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {

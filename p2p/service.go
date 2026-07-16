@@ -55,6 +55,9 @@ type Config struct {
 	// Agent service. All other Agent actions continue to use NativeAgentRunner
 	// or the existing local runtime.
 	NativeAgentChatRunner NativeAgentRunner
+	// AgentEventClient consumes only the durable TaskService WatchEvents stream.
+	// PostgreSQL owns its per-instance/caller cursor and ProductCore projection.
+	AgentEventClient AgentEventClient
 	// CloudDeploymentReader delegates only deployment list/get to the
 	// independent Agent. Mutations and all other Cloud actions remain local.
 	CloudDeploymentReader CloudDeploymentReader
@@ -171,6 +174,7 @@ type Service struct {
 	mcpModule                 *mcpmodule.Module
 	mcpCapabilities           *dirextalkmcp.Service
 	releaseController         releasecontrol.Controller
+	agentEventClient          AgentEventClient
 	legacyAgentGatewayModule  *legacygatewaymodule.Module
 
 	servicePortalState
@@ -620,6 +624,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		remoteAllowPrivate: cfg.RemoteNodeAllowPrivateBaseURLs,
 		storeMode:          storeMode(store),
 		releaseController:  cfg.ReleaseController,
+		agentEventClient:   cfg.AgentEventClient,
 		servicePortalState: servicePortalState{
 			initialized:             state.Initialized,
 			password:                state.Password,
