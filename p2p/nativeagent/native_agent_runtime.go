@@ -171,6 +171,9 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		"steps":      trace["steps"],
 		"trace":      trace,
 	}
+	if references := nativeAgentReferences(produced); len(references) > 0 {
+		done["references"] = references
+	}
 	if reasoning != "" {
 		done["reasoning_content"] = reasoning
 	}

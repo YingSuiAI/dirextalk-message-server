@@ -48,7 +48,7 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 	}
 	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
 	trace := buildAgentTrace(run, produced, toolCalls, text)
-	return map[string]any{
+	result := map[string]any{
 		"ok":         true,
 		"native":     true,
 		"framework":  "eino",
@@ -58,7 +58,11 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 		"tool_calls": toolCalls,
 		"steps":      trace["steps"],
 		"trace":      trace,
-	}, nil
+	}
+	if references := nativeAgentReferences(produced); len(references) > 0 {
+		result["references"] = references
+	}
+	return result, nil
 }
 
 func (r *Runtime) agentSystemPrompt(ctx context.Context, config map[string]any, params map[string]any, extra string) string {

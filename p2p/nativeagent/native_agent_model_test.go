@@ -47,7 +47,7 @@ func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
 			Parameters:  objectSchema(map[string]any{"query": stringSchema()}),
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				toolCalled = true
-				return map[string]any{"contacts": []map[string]any{{"display_name": "Ada"}}}, nil
+				return map[string]any{"contacts": []map[string]any{{"display_name": "Ada", "room_id": "!ada:example.com"}}}, nil
 			},
 		}},
 	})
@@ -73,6 +73,10 @@ func TestModelLoopCallsToolThenFinalizesAndStoresMemory(t *testing.T) {
 	}
 	if result["framework"] != "eino" {
 		t.Fatalf("expected eino framework marker, got %#v", result)
+	}
+	references, ok := result["references"].([]map[string]any)
+	if !ok || len(references) != 1 || references[0]["kind"] != "room" || references[0]["room_id"] != "!ada:example.com" || references[0]["room_type"] != "direct" {
+		t.Fatalf("expected contact room reference, got %#v", result["references"])
 	}
 	steps, ok := result["steps"].([]map[string]any)
 	if !ok || len(steps) < 4 {
@@ -506,6 +510,58 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 	}
 	if events[2].Data["framework"] != "eino" || events[2].Data["trace"] == nil {
 		t.Fatalf("expected eino stream done marker with trace, got %#v", events[2])
+	}
+}
+
+func TestStreamDoneIncludesReferencesFromBuiltInToolResults(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_rooms\",\"type\":\"function\",\"function\":{\"name\":\"dirextalk_rooms_search\",\"arguments\":\"{\\\"query\\\":\\\"Team\\\"}\"}}]}}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"已找到 Team。\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{
+		DataDir: filepath.Join(t.TempDir(), "agent"),
+		Store:   &testConfigStore{config: map[string]any{"enabled_tools": []any{"dirextalk_rooms_search"}}},
+		Tools: []Tool{{
+			Name:        "dirextalk_rooms_search",
+			Description: "Search rooms.",
+			Parameters:  objectSchema(map[string]any{"query": stringSchema()}),
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				return map[string]any{"rooms": []map[string]any{{"type": "group", "name": "Team", "room_id": "!team:example.com"}}}, nil
+			},
+		}},
+	})
+	var events []Event
+	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
+		"prompt": "找到 Team 群聊",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "mock-stream",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	}, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+	if requestCount != 2 || len(events) == 0 || events[len(events)-1].Event != "done" {
+		t.Fatalf("expected tool loop and done event, requests=%d events=%#v", requestCount, events)
+	}
+	references, ok := events[len(events)-1].Data["references"].([]map[string]any)
+	if !ok || len(references) != 1 || references[0]["room_id"] != "!team:example.com" || references[0]["room_type"] != "group" {
+		t.Fatalf("expected room reference in done event, got %#v", events[len(events)-1].Data["references"])
 	}
 }
 

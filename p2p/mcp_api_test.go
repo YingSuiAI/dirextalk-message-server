@@ -792,6 +792,9 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 	posts := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
 	})
+	if posts["channel_id"] != ch.ChannelID || posts["room_id"] != ch.RoomID {
+		t.Fatalf("expected channel identity in post result, got %#v", posts)
+	}
 	gotPosts := posts["posts"].([]mcpPostSummary)
 	if len(gotPosts) != 1 || gotPosts[0].PostID != post.PostID || gotPosts[0].Msg != "post body" {
 		t.Fatalf("unexpected post summaries: %#v", gotPosts)

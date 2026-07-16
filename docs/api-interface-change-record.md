@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-13
+Last updated: 2026-07-16
+
+## 2026-07-16 Native Agent Room And Post References
+
+Successful non-stream `agent.chat` responses and realtime Native Agent stream `done` payloads may now include additive `references[]`. The server derives these references only from full, successful built-in Dirextalk tool results produced during that run; it does not parse the model's final Markdown or accept third-party MCP/runtime output as a navigation contract.
+
+Contact list/search and room search results produce deduplicated room references. A messages-list result produces one reference for its containing room and does not expose or target a message `event_id`. Channel-post list results produce one post reference per valid post. References preserve tool/result order and use either `{kind:"room",room_id,room_type?,title?,preview?}` or `{kind:"channel_post",room_id,channel_id,post_id,title?,preview?}`. `room_type`, when present, is normalized to `direct`, `group`, or `channel`.
+
+`mcp.channel_posts.list` and the embedded `dirextalk_channel_posts_list` result envelope now include top-level `channel_id` alongside `room_id`, `name`, `posts`, and pagination fields. This is additive and lets clients open an exact channel post without inferring channel identity from content.
 
 ## 2026-07-13 Join And Decision Recovery Contract
 

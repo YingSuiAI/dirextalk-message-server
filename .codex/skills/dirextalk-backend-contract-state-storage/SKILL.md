@@ -22,6 +22,7 @@ Read the relevant generated/action contract, `docs/agent-mcp-current-contract.md
 - New groups use `history_visibility=joined`; current channels are unified post+chat rooms and use `shared`. Preserve legacy `channel_type` only as tolerated metadata, not a behavior switch.
 - `agent_room_id` and `system_room_id` are real durable Matrix rooms. Agent availability is `io.dirextalk.agent.status` state keyed by `@agent:<server>`; owner reports are `msg_type=report` timeline events.
 - Native Agent tools and external `/mcp` share `internal/dirextalkmcp` schemas, authorization, pagination, DTOs, errors, and invocation. Adapt dependencies in `p2p`; do not fork MCP business logic.
+- Native Agent navigation references are derived only from successful built-in Dirextalk tool-result envelopes, not model text or third-party/runtime tools. Keep room/post identity fields additive, deterministic, ordered, deduplicated, and free of message `event_id` unless the product contract explicitly expands to message-level navigation.
 - Remote public lookup uses the supplied `remote_node_base_url`. Approval is not joined until the requester node completes Matrix join.
 
 ## Realtime And Push

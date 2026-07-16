@@ -23,6 +23,8 @@ This document is the backend-owned current contract for Dirextalk Agent state, N
 - Native Agent is owned by `dirextalk-message-server`. The backend owns native `agent.*` actions, `client.native_agent_stream` / `server.native_agent_stream.*` frames, model-provider request handling, skills, external MCP client wiring, runtime CLI tools, orchestration, built-in Dirextalk tools, native config storage, and sanitized migration from the former hidden Agent plugin config.
 - Native Agent is not installed, enabled, configured, or invoked through `plugins.*`. Backend `plugins.*` actions remain for non-Agent plugins.
 - Model API keys are request-scoped inputs. The message server must not persist, return, or inject them into plugin or runtime environment state.
+- Successful `agent.chat` responses and Native Agent stream `done` payloads may include additive `references[]` derived deterministically from the full successful built-in Dirextalk tool results from that run. Room references use `kind=room`, `room_id`, optional `room_type=direct|group|channel`, `title`, and optional `preview`; channel-post references use `kind=channel_post`, `room_id`, `channel_id`, `post_id`, `title`, and optional `preview`. References preserve tool/result order, deduplicate rooms and posts, never include message `event_id`, and are not inferred from model-authored text or third-party/runtime tool output.
+- `mcp.channel_posts.list` and the embedded `dirextalk_channel_posts_list` result envelope include both top-level `channel_id` and `room_id`, allowing a post reference to identify its product channel and Matrix room without parsing post content.
 
 ## Consumer Boundaries
 
