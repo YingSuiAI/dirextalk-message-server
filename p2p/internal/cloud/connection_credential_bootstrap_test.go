@@ -104,12 +104,14 @@ func TestConnectionCredentialBootstrapMissingClientIsUnavailable(t *testing.T) {
 
 type credentialBootstrapModuleStore struct {
 	Store
-	plan  ConnectionRolePlan
-	calls int
+	plan         ConnectionRolePlan
+	calls        int
+	loadRequests []LoadConnectionCredentialBootstrapRequest
 }
 
 func (store *credentialBootstrapModuleStore) LoadCloudConnectionCredentialBootstrap(_ context.Context, request LoadConnectionCredentialBootstrapRequest) (ConnectionRolePlan, error) {
 	store.calls++
+	store.loadRequests = append(store.loadRequests, request)
 	if request.OwnerMXID != "@owner:example.com" || request.BootstrapID != store.plan.BootstrapID || request.ExpectedRevision != store.plan.Revision {
 		return ConnectionRolePlan{}, ErrConnectionBootstrapConflict
 	}

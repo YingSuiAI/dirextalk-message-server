@@ -9,6 +9,9 @@ const (
 	RealtimeWSTicketAction                         = "realtime.ws_ticket.create"
 	CloudConnectionCredentialBootstrapCreateAction = "cloud.connections.credential_bootstrap.create"
 	CloudConnectionIdentityPreviewAction           = "cloud.connections.identity.preview"
+	CloudConnectionRegistrationCompleteAction      = "cloud.connections.registration.complete"
+	CloudPlanConfirmationPrepareAction             = "cloud.plans.confirmation.prepare"
+	CloudPlanApproveAction                         = "cloud.plans.approve"
 )
 
 type ActionAuth string
@@ -68,9 +71,9 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.connections.role_plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: CloudConnectionCredentialBootstrapCreateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: CloudConnectionIdentityPreviewAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.connections.registration.complete", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.plans.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.plans.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionRegistrationCompleteAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudPlanConfirmationPrepareAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudPlanApproveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.recipe_execution.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.recipe_execution.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.secrets.bootstrap.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

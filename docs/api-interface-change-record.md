@@ -2,6 +2,40 @@
 
 Last updated: 2026-07-16
 
+## 2026-07-16 Agent Approval-v1 and AWS Connection establishment
+
+When the independent Agent backend is enabled, root credential onboarding now
+uses a canonical lowercase UUID as its cloud connection target. The existing
+legacy Connection Stack identifiers and response shapes remain unchanged when
+that backend is disabled.
+
+The owner-only HTTP action `cloud.plans.confirmation.prepare` additionally
+requires `signer_key_id` in Agent mode. Message Server reads the current Agent
+Plan over typed gRPC, binds the configured owner, exact revision, quote,
+candidate and every approval scope, and returns the Agent-owned unsigned
+Approval-v1 descriptor plus its exact deterministic-CBOR signing bytes. The
+client signs those bytes with its Ed25519 approval key. `cloud.plans.approve`
+returns only `{plan, submission_status: "waiting_connection"}` after the
+Agent's durable approved Plan is read back; it never fabricates a Deployment
+or Job when the post-approval launcher is not ready.
+
+In Agent mode, `cloud.connections.registration.complete` accepts exactly
+`bootstrap_id`, `expected_revision`, `session_id`,
+`expected_session_revision`, `plan_id`, `expected_plan_revision`, `approval`,
+and `idempotency_key`. Message Server reloads the owner Role Plan before and
+after the call, binds its device key, Connection UUID and Region to the
+approved Plan, then calls only the typed Agent establishment RPC. A lost or
+ambiguous response is reconciled through Agent `GetCloudConnection`; absent a
+verified fact, the response is `pending_reconciliation`, never `active` or
+failed. The normal `cloud.connections.get` query also reads that owner-bound
+Agent fact so reconnects can recover after a short challenge or Role Plan has
+expired. Only an independently read-back `active` status completes onboarding.
+
+Confirmation, approval, and registration responses are non-cacheable. Service
+Keys provide transport identity only: approval-device administration, raw
+secret retrieval and arbitrary AWS operations remain unavailable through this
+façade.
+
 ## 2026-07-16 Agent-backed AWS identity preview
 
 The owner-authenticated, HTTP-only

@@ -30,14 +30,91 @@ const (
 
 type cloudTestService struct {
 	agentv1.UnimplementedCloudControlServiceServer
-	mu             sync.Mutex
-	listRequests   []*agentv1.ListCloudDeploymentsRequest
-	getRequests    []*agentv1.GetCloudDeploymentRequest
-	previewRequest *agentv1.PreviewAwsIdentityRequest
-	auth           []string
-	list           func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
-	get            func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
-	preview        func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
+	mu              sync.Mutex
+	listRequests    []*agentv1.ListCloudDeploymentsRequest
+	getRequests     []*agentv1.GetCloudDeploymentRequest
+	previewRequest  *agentv1.PreviewAwsIdentityRequest
+	auth            []string
+	list            func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
+	get             func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
+	preview         func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
+	getPlan         func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
+	createChallenge func(*agentv1.CreateApprovalChallengeRequest) (*agentv1.CreateApprovalChallengeResponse, error)
+	approvePlan     func(*agentv1.ApproveCloudPlanRequest) (*agentv1.ApproveCloudPlanResponse, error)
+	establish       func(*agentv1.EstablishAwsConnectionRequest) (*agentv1.EstablishAwsConnectionResponse, error)
+	getConnection   func(*agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error)
+	listConnections func(*agentv1.ListCloudConnectionsRequest) (*agentv1.ListCloudConnectionsResponse, error)
+	listPlans       func(*agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error)
+}
+
+func (service *cloudTestService) ListCloudPlans(_ context.Context, request *agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error) {
+	service.mu.Lock()
+	callback := service.listPlans
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return &agentv1.ListCloudPlansResponse{}, nil
+}
+
+func (service *cloudTestService) ListCloudConnections(_ context.Context, request *agentv1.ListCloudConnectionsRequest) (*agentv1.ListCloudConnectionsResponse, error) {
+	service.mu.Lock()
+	callback := service.listConnections
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return &agentv1.ListCloudConnectionsResponse{}, nil
+}
+
+func (service *cloudTestService) GetCloudPlan(_ context.Context, request *agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error) {
+	service.mu.Lock()
+	callback := service.getPlan
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
+}
+
+func (service *cloudTestService) CreateApprovalChallenge(_ context.Context, request *agentv1.CreateApprovalChallengeRequest) (*agentv1.CreateApprovalChallengeResponse, error) {
+	service.mu.Lock()
+	callback := service.createChallenge
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) ApproveCloudPlan(_ context.Context, request *agentv1.ApproveCloudPlanRequest) (*agentv1.ApproveCloudPlanResponse, error) {
+	service.mu.Lock()
+	callback := service.approvePlan
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) EstablishAwsConnection(_ context.Context, request *agentv1.EstablishAwsConnectionRequest) (*agentv1.EstablishAwsConnectionResponse, error) {
+	service.mu.Lock()
+	callback := service.establish
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) GetCloudConnection(_ context.Context, request *agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error) {
+	service.mu.Lock()
+	callback := service.getConnection
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
 }
 
 func (service *cloudTestService) PreviewAwsIdentity(ctx context.Context, request *agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error) {

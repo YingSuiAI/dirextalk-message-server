@@ -50,7 +50,7 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return
 		}
-		if action == serviceapi.CloudConnectionCredentialBootstrapCreateAction || action == serviceapi.CloudConnectionIdentityPreviewAction {
+		if sensitiveCloudHTTPAction(action) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Pragma", "no-cache")
 		}
@@ -91,6 +91,19 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, http.StatusOK, ResponseForRequest(r, response))
+	}
+}
+
+func sensitiveCloudHTTPAction(action string) bool {
+	switch action {
+	case serviceapi.CloudConnectionCredentialBootstrapCreateAction,
+		serviceapi.CloudConnectionIdentityPreviewAction,
+		serviceapi.CloudConnectionRegistrationCompleteAction,
+		serviceapi.CloudPlanConfirmationPrepareAction,
+		serviceapi.CloudPlanApproveAction:
+		return true
+	default:
+		return false
 	}
 }
 

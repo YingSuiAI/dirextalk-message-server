@@ -75,12 +75,36 @@ func TestRemoteAgentSecretBootstrapUsesDurableRolePlanAndDedicatedOwnerOnlyUploa
 		},
 	})
 	router := newP2PTestRouter(service)
-	roleResult := cloudCommand(t, router, service, "cloud.connections.role_plan", map[string]any{
+	rolePlanKey := uuid.NewString()
+	rolePlanParams := map[string]any{
 		"provider": "aws", "region": "ap-northeast-1", "device_approval_key_id": "device-key-root-1",
 		"device_approval_public_key_spki_base64": testEd25519SPKIBase64(t), "allow_root_credential_bootstrap": true,
-		"idempotency_key": uuid.NewString(),
-	})
+		"idempotency_key": rolePlanKey,
+	}
+	injectedParams := make(map[string]any, len(rolePlanParams)+1)
+	for key, value := range rolePlanParams {
+		injectedParams[key] = value
+	}
+	injectedParams["cloud_connection_id"] = uuid.NewString()
+	injected := jsonRequest(t, "/_p2p/command", map[string]any{"action": "cloud.connections.role_plan", "params": injectedParams})
+	injected.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	injectedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(injectedRecorder, injected)
+	if injectedRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("client-supplied connection target status=%d body=%s", injectedRecorder.Code, injectedRecorder.Body.String())
+	}
+
+	roleResult := cloudCommand(t, router, service, "cloud.connections.role_plan", rolePlanParams)
 	rolePlan := roleResult["role_plan"].(map[string]any)
+	connectionID := rolePlan["cloud_connection_id"].(string)
+	parsedConnectionID, err := uuid.Parse(connectionID)
+	if err != nil || parsedConnectionID.String() != connectionID {
+		t.Fatalf("remote Agent connection target is not a canonical UUID: %q err=%v", connectionID, err)
+	}
+	replayedRolePlan := cloudCommand(t, router, service, "cloud.connections.role_plan", rolePlanParams)["role_plan"].(map[string]any)
+	if replayedRolePlan["cloud_connection_id"] != connectionID || replayedRolePlan["bootstrap_id"] != rolePlan["bootstrap_id"] {
+		t.Fatalf("remote role-plan replay changed its durable target: first=%#v replay=%#v", rolePlan, replayedRolePlan)
+	}
 	bootstrapParams := map[string]any{
 		"bootstrap_id": rolePlan["bootstrap_id"], "expected_revision": rolePlan["revision"], "idempotency_key": uuid.NewString(),
 	}

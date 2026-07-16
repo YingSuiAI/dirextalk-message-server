@@ -30,7 +30,7 @@ func TestRemoteIdentityPreviewBindsDurableRolePlanAndDoesNotCreateConnection(t *
 	sessionID := uuid.NewString()
 	client := &productIdentityPreviewClient{}
 	service := NewService(Config{
-		ServerName: "example.com", CloudIdentityPreviewClient: client,
+		ServerName: "example.com", CloudSecretBootstrapClient: &productSecretBootstrapClient{}, CloudIdentityPreviewClient: client,
 		CloudConnectionStack: CloudConnectionStackConfig{
 			TemplateDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ConnectionTemplate: testPublishIntentConnectionTemplate(),
 			SourceTreeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", NodeKeyID: "node-key-1",
@@ -45,6 +45,10 @@ func TestRemoteIdentityPreviewBindsDurableRolePlanAndDoesNotCreateConnection(t *
 	})
 	rolePlan := roleResult["role_plan"].(map[string]any)
 	connectionID := rolePlan["cloud_connection_id"].(string)
+	parsedConnectionID, err := uuid.Parse(connectionID)
+	if err != nil || parsedConnectionID.String() != connectionID {
+		t.Fatalf("identity preview target is not the canonical Agent connection UUID: %q err=%v", connectionID, err)
+	}
 	client.evidence = cloudmodule.IdentityPreviewEvidence{
 		BootstrapSessionID: sessionID, SessionRevision: 2, OwnerID: "dirextalk-project:example.com", TargetID: connectionID,
 		AccountID: "123456789012", PrincipalARN: "arn:aws:iam::123456789012:root", PrincipalID: "123456789012",

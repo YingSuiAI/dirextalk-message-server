@@ -500,4 +500,20 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 	if identityRec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("identity preview response must never be cacheable: %#v", identityRec.Header())
 	}
+	for _, action := range []string{
+		"cloud.connections.registration.complete",
+		"cloud.plans.confirmation.prepare",
+		"cloud.plans.approve",
+	} {
+		request := jsonRequest(t, "/_p2p/command", map[string]any{"action": action, "params": map[string]any{}})
+		request.Header.Set("Authorization", "Bearer "+service.AgentToken())
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("agent token must not call %s, got %d body=%s", action, recorder.Code, recorder.Body.String())
+		}
+		if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Pragma") != "no-cache" {
+			t.Fatalf("%s response must never be cacheable: %#v", action, recorder.Header())
+		}
+	}
 }

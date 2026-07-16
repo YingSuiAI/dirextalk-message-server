@@ -125,6 +125,7 @@ type Config struct {
 	CredentialBootstrapClient ConnectionCredentialBootstrapClient
 	SecretBootstrapClient     SecretBootstrapClient
 	IdentityPreviewClient     IdentityPreviewClient
+	AgentCloudControlClient   AgentCloudControlClient
 }
 
 type Module struct {
@@ -413,6 +414,12 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 	now := m.now().UnixMilli()
 	bootstrapID := m.newID("connection_bootstrap")
 	connectionID := m.newID("connection")
+	// The independent Agent owns CloudConnection identifiers and its public
+	// Establish contract accepts canonical UUIDs. Preserve the established
+	// ProductCore identifier format for every legacy/local configuration.
+	if m.cfg.AgentCloudControlClient != nil || m.cfg.SecretBootstrapClient != nil || m.cfg.IdentityPreviewClient != nil {
+		connectionID = uuid.NewString()
+	}
 	templateURL := ""
 	if !allowRootCredentialBootstrap {
 		var templateURLErr error
@@ -449,6 +456,12 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 // or directly request the candidate endpoint: the mounted-key Orchestrator
 // must submit the fixed signed Broker attestation first.
 func (m *Module) completeConnectionRegistration(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if canonicalUUID(actionbase.Params(params).String("plan_id")) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		return m.completeAgentConnectionRegistration(ctx, params)
+	}
 	if err := only(params, "bootstrap_id", "expected_revision", "idempotency_key", "broker_command_url", "stack_arn"); err != nil {
 		return nil, err
 	}
@@ -525,6 +538,12 @@ func (m *Module) completeConnectionRegistration(ctx context.Context, params map[
 // defaults; public ingress, secret delivery, and integrations must be added by
 // a later revisioned plan instead of being smuggled into a purchase approval.
 func (m *Module) preparePlanConfirmation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if canonicalUUID(actionbase.Params(params).String("plan_id")) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		return m.prepareAgentPlanConfirmation(ctx, params)
+	}
 	if err := only(params, "plan_id", "expected_revision", "quote_id", "candidate_tier", "idempotency_key"); err != nil {
 		return nil, err
 	}
@@ -590,6 +609,12 @@ func (m *Module) preparePlanConfirmation(ctx context.Context, params map[string]
 // path to this handler, and the store atomically records the private provision
 // request before it exposes any queued Deployment projection.
 func (m *Module) approvePlan(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if canonicalUUID(actionbase.Params(params).String("plan_id")) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		return m.approveAgentPlan(ctx, params)
+	}
 	if err := only(params, "plan_id", "expected_revision", "approval", "idempotency_key"); err != nil {
 		return nil, err
 	}
@@ -1928,9 +1953,43 @@ func (m *Module) connectionsList(ctx context.Context, params map[string]any) (an
 	if err := only(params); err != nil {
 		return nil, err
 	}
-	items, err := m.store.ListCloudConnections(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
+	items := make([]Connection, 0)
+	if m != nil && m.store != nil {
+		local, err := m.store.ListCloudConnections(ctx)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		for _, item := range local {
+			// Canonical UUIDs belong to Agent. Never expose a stale local row
+			// whose subsequent Get would be routed to a different fact source.
+			if m.cfg.AgentCloudControlClient != nil && canonicalUUID(item.ConnectionID) {
+				continue
+			}
+			items = append(items, item)
+		}
+	}
+	if m != nil && m.cfg.AgentCloudControlClient != nil {
+		remote, err := m.cfg.AgentCloudControlClient.ListAgentCloudConnections(ctx)
+		if err != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_connection_agent_unavailable", "cloud connection status is temporarily unavailable")
+		}
+		seen := make(map[string]struct{}, len(items)+len(remote))
+		for _, item := range items {
+			seen[item.ConnectionID] = struct{}{}
+		}
+		for _, item := range remote {
+			if validateReadableAgentCloudConnection(item, item.ConnectionID) != nil {
+				return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_connection_agent_invalid", "cloud Agent returned an invalid connection status")
+			}
+			if _, duplicate := seen[item.ConnectionID]; duplicate {
+				return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_connection_agent_invalid", "cloud Agent returned a duplicate connection status")
+			}
+			seen[item.ConnectionID] = struct{}{}
+			items = append(items, agentCloudConnectionSummary(item))
+		}
+	}
+	if m == nil || (m.store == nil && m.cfg.AgentCloudControlClient == nil) {
+		return nil, unavailableError()
 	}
 	return map[string]any{"connections": items}, nil
 }
@@ -1940,6 +1999,22 @@ func (m *Module) connectionsGet(ctx context.Context, params map[string]any) (any
 		return nil, err
 	}
 	id := actionbase.Params(params).String("cloud_connection_id")
+	if canonicalUUID(id) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		item, found, err := m.cfg.AgentCloudControlClient.GetAgentCloudConnection(ctx, AgentCloudConnectionRequest{ConnectionID: id})
+		if err != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_connection_agent_unavailable", "cloud connection status is temporarily unavailable")
+		}
+		if !found {
+			return nil, actionbase.CodedError(http.StatusNotFound, "cloud_connection_not_found", "cloud connection was not found")
+		}
+		if validateReadableAgentCloudConnection(item, id) != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_connection_agent_invalid", "cloud Agent returned an invalid connection status")
+		}
+		return agentCloudConnectionView(item), nil
+	}
 	if id == "" {
 		return nil, actionbase.BadRequest("cloud_connection_id is required")
 	}
@@ -1957,9 +2032,40 @@ func (m *Module) plansList(ctx context.Context, params map[string]any) (any, *ac
 	if err := only(params); err != nil {
 		return nil, err
 	}
-	items, err := m.store.ListCloudPlans(ctx)
-	if err != nil {
-		return nil, actionbase.InternalError(err)
+	items := make([]Plan, 0)
+	if m != nil && m.store != nil {
+		local, err := m.store.ListCloudPlans(ctx)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		items = append(items, local...)
+	}
+	if m != nil && m.cfg.AgentCloudControlClient != nil {
+		remote, err := m.cfg.AgentCloudControlClient.ListAgentCloudPlans(ctx)
+		if err != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_plan_agent_unavailable", "cloud plan status is temporarily unavailable")
+		}
+		positions := make(map[string]int, len(items)+len(remote))
+		for index, item := range items {
+			positions[item.PlanID] = index
+		}
+		for _, item := range remote {
+			if validateReadableAgentCloudPlan(item) != nil {
+				return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_plan_agent_invalid", "cloud Agent returned an invalid plan status")
+			}
+			summary := agentCloudPlanSummary(item)
+			if index, duplicate := positions[item.PlanID]; duplicate {
+				// Agent is authoritative for canonical IDs, but retaining the
+				// row position avoids making an existing local projection vanish.
+				items[index] = summary
+				continue
+			}
+			positions[item.PlanID] = len(items)
+			items = append(items, summary)
+		}
+	}
+	if m == nil || (m.store == nil && m.cfg.AgentCloudControlClient == nil) {
+		return nil, unavailableError()
 	}
 	return map[string]any{"plans": planSummaries(items)}, nil
 }
@@ -1971,6 +2077,22 @@ func (m *Module) plansGet(ctx context.Context, params map[string]any) (any, *act
 	id := actionbase.Params(params).String("plan_id")
 	if id == "" {
 		return nil, actionbase.BadRequest("plan_id is required")
+	}
+	if canonicalUUID(id) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		item, found, err := m.cfg.AgentCloudControlClient.GetAgentCloudPlan(ctx, AgentCloudPlanRequest{PlanID: id})
+		if err != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_plan_agent_unavailable", "cloud plan status is temporarily unavailable")
+		}
+		if !found {
+			return nil, actionbase.CodedError(http.StatusNotFound, "cloud_plan_not_found", "cloud plan was not found")
+		}
+		if validateReadableAgentCloudPlan(item) != nil {
+			return nil, actionbase.CodedError(http.StatusBadGateway, "cloud_plan_agent_invalid", "cloud Agent returned an invalid plan status")
+		}
+		return agentCloudPlanView(item), nil
 	}
 	item, ok, err := m.store.GetCloudPlan(ctx, id)
 	if err != nil {

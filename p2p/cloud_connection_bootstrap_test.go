@@ -40,6 +40,13 @@ func TestCloudConnectionRolePlanQueuesOnlyVerifiedRegistration(t *testing.T) {
 	if !ok || plan["provider"] != "aws" || plan["region"] != "ap-northeast-1" || plan["status"] != cloudmodule.ConnectionBootstrapAwaitingStack || plan["bootstrap_id"] == "" || plan["cloud_connection_id"] == "" || plan["source_tree_digest"] != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" || plan["allow_root_credential_bootstrap"] != false || plan["template_url"] != testS3ConnectionTemplateURL("ap-northeast-1") {
 		t.Fatalf("role plan = %#v", rolePlan)
 	}
+	legacyConnectionID := plan["cloud_connection_id"].(string)
+	if !strings.HasPrefix(legacyConnectionID, "cloud_connection_") {
+		t.Fatalf("legacy role plan changed its public connection ID format: %q", legacyConnectionID)
+	}
+	if _, err := uuid.Parse(legacyConnectionID); err == nil {
+		t.Fatalf("legacy role plan unexpectedly returned an Agent UUID: %q", legacyConnectionID)
+	}
 	if template, ok := plan["connection_template"].(map[string]any); !ok || template["mode"] != "s3_binding" {
 		t.Fatalf("role plan omitted immutable connection template: %#v", rolePlan)
 	}
@@ -60,6 +67,9 @@ func TestCloudConnectionRolePlanQueuesOnlyVerifiedRegistration(t *testing.T) {
 	})
 	if replay["role_plan"].(map[string]any)["bootstrap_id"] != plan["bootstrap_id"] {
 		t.Fatalf("role-plan replay changed its bootstrap: first=%#v replay=%#v", rolePlan, replay)
+	}
+	if replay["role_plan"].(map[string]any)["cloud_connection_id"] != legacyConnectionID {
+		t.Fatalf("role-plan replay changed its connection ID: first=%#v replay=%#v", rolePlan, replay)
 	}
 
 	invalidEndpoint := jsonRequest(t, "/_p2p/command", map[string]any{

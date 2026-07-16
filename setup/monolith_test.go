@@ -39,6 +39,27 @@ func (*testAgentGRPCRunner) UploadAgentEncryptedSecret(context.Context, p2p.Uplo
 func (*testAgentGRPCRunner) PreviewAgentAWSIdentity(context.Context, p2p.CloudIdentityPreviewRequest) (p2p.CloudIdentityPreviewEvidence, error) {
 	return p2p.CloudIdentityPreviewEvidence{}, nil
 }
+func (*testAgentGRPCRunner) GetAgentCloudPlan(context.Context, p2p.AgentCloudPlanRequest) (p2p.AgentCloudPlan, bool, error) {
+	return p2p.AgentCloudPlan{}, false, nil
+}
+func (*testAgentGRPCRunner) ListAgentCloudPlans(context.Context) ([]p2p.AgentCloudPlan, error) {
+	return nil, nil
+}
+func (*testAgentGRPCRunner) ListAgentCloudConnections(context.Context) ([]p2p.AgentCloudConnection, error) {
+	return nil, nil
+}
+func (*testAgentGRPCRunner) CreateAgentCloudApprovalChallenge(context.Context, p2p.AgentCloudChallengeRequest) (p2p.AgentCloudChallenge, error) {
+	return p2p.AgentCloudChallenge{}, nil
+}
+func (*testAgentGRPCRunner) ApproveAgentCloudPlan(context.Context, p2p.AgentCloudApproveRequest) (p2p.AgentCloudPlan, error) {
+	return p2p.AgentCloudPlan{}, nil
+}
+func (*testAgentGRPCRunner) EstablishAgentAWSConnection(context.Context, p2p.AgentCloudEstablishRequest) (p2p.AgentCloudConnection, error) {
+	return p2p.AgentCloudConnection{}, nil
+}
+func (*testAgentGRPCRunner) GetAgentCloudConnection(context.Context, p2p.AgentCloudConnectionRequest) (p2p.AgentCloudConnection, bool, error) {
+	return p2p.AgentCloudConnection{}, false, nil
+}
 
 type chatOnlyAgentGRPCRunner struct{}
 
@@ -185,6 +206,10 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || identityClient != wantRunner {
 		t.Fatalf("remote identity preview client=%v err=%v", identityClient, err)
 	}
+	cloudControlClient, err := p2pAgentCloudControlClient(config, runner)
+	if err != nil || cloudControlClient != wantRunner {
+		t.Fatalf("remote cloud control client=%v err=%v", cloudControlClient, err)
+	}
 	if received.Target != "dns:///agent.internal:7443" || received.CAFile != caFile || received.ServerName != "agent.internal" ||
 		received.ServiceKeyFile != serviceKeyFile || received.OwnerID != "dirextalk-project:example.com" {
 		t.Fatalf("Agent dial config=%#v", received)
@@ -205,6 +230,9 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	}
 	if _, err = p2pAgentIdentityPreviewClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without AWS identity preview capability")
+	}
+	if _, err = p2pAgentCloudControlClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without typed cloud control capability")
 	}
 }
 

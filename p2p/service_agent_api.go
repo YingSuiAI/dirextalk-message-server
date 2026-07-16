@@ -47,6 +47,20 @@ type CloudIdentityPreviewClient = cloudmodule.IdentityPreviewClient
 type CloudIdentityPreviewRequest = cloudmodule.IdentityPreviewRequest
 type CloudIdentityPreviewEvidence = cloudmodule.IdentityPreviewEvidence
 
+// CloudAgentControlClient exposes only the typed plan approval and AWS
+// connection-establishment capabilities required by ProductCore. It does not
+// expose approval-device administration, raw credentials, or arbitrary AWS
+// operations.
+type CloudAgentControlClient = cloudmodule.AgentCloudControlClient
+type AgentCloudPlanRequest = cloudmodule.AgentCloudPlanRequest
+type AgentCloudConnectionRequest = cloudmodule.AgentCloudConnectionRequest
+type AgentCloudPlan = cloudmodule.AgentCloudPlan
+type AgentCloudChallengeRequest = cloudmodule.AgentCloudChallengeRequest
+type AgentCloudChallenge = cloudmodule.AgentCloudChallenge
+type AgentCloudApproveRequest = cloudmodule.AgentCloudApproveRequest
+type AgentCloudEstablishRequest = cloudmodule.AgentCloudEstablishRequest
+type AgentCloudConnection = cloudmodule.AgentCloudConnection
+
 type AgentGRPCConfig struct {
 	Target         string
 	CAFile         string
@@ -56,8 +70,9 @@ type AgentGRPCConfig struct {
 }
 
 // NewAgentGRPCChatRunner is the public construction seam for setup. The same
-// narrow transport also implements read-only cloud queries and encrypted
-// secret bootstrap; each capability is wired through a separate interface.
+// narrow transport also implements Cloud queries, encrypted secret bootstrap,
+// and typed approval/connection establishment. Each capability is wired
+// through a separate interface so setup fails closed when one is absent.
 func NewAgentGRPCChatRunner(ctx context.Context, config AgentGRPCConfig) (ClosableNativeAgentRunner, error) {
 	return agentgrpc.New(ctx, agentgrpc.Config{
 		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,

@@ -140,6 +140,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 		logrus.Fatal("P2P Agent gRPC identity preview backend is unavailable")
 	}
+	agentCloudControlClient, err := p2pAgentCloudControlClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC cloud control backend is unavailable")
+	}
 	if agentChatRunner != nil {
 		startAgentGRPCRunnerLifecycle(processCtx, agentChatRunner)
 	}
@@ -154,6 +161,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		CloudDeploymentReader:              agentCloudDeploymentReader,
 		CloudSecretBootstrapClient:         agentSecretBootstrapClient,
 		CloudIdentityPreviewClient:         agentIdentityPreviewClient,
+		CloudAgentControlClient:            agentCloudControlClient,
 		PushRules:                          m.UserAPI,
 		ReleaseController:                  releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
 		CloudConnectionStack:               p2pCloudConnectionStackConfigFromEnv(),
@@ -345,6 +353,17 @@ func p2pAgentIdentityPreviewClient(config p2pAgentGRPCBackendConfig, runner Agen
 	client, ok := runner.(p2p.CloudIdentityPreviewClient)
 	if !ok || client == nil {
 		return nil, errors.New("enabled Agent gRPC backend does not support AWS identity preview")
+	}
+	return client, nil
+}
+
+func p2pAgentCloudControlClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudAgentControlClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.CloudAgentControlClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support typed cloud control")
 	}
 	return client, nil
 }

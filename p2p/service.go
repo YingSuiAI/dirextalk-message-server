@@ -65,8 +65,12 @@ type Config struct {
 	// by one uploaded Agent bootstrap session. It cannot create a connection or
 	// consume the uploaded credential.
 	CloudIdentityPreviewClient CloudIdentityPreviewClient
-	NativeAgentDataDir         string
-	ReleaseController          releasecontrol.Controller
+	// CloudAgentControlClient exposes only typed Agent plan approval and AWS
+	// connection establishment. It cannot administer approval devices, retrieve
+	// credentials, or invoke arbitrary AWS APIs.
+	CloudAgentControlClient CloudAgentControlClient
+	NativeAgentDataDir      string
+	ReleaseController       releasecontrol.Controller
 	// CloudConnectionStack is public configuration for the owner-only
 	// CloudFormation role-plan handoff. It contains a template identity and
 	// Node public key only; the Ed25519 private key remains mounted solely in
@@ -855,6 +859,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		CredentialBootstrapClient: credentialBootstrapClient,
 		SecretBootstrapClient:     cfg.CloudSecretBootstrapClient,
 		IdentityPreviewClient:     cfg.CloudIdentityPreviewClient,
+		AgentCloudControlClient:   cfg.CloudAgentControlClient,
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,
