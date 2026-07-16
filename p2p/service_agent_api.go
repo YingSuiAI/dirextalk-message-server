@@ -34,6 +34,13 @@ type CloudDeploymentReader interface {
 	GetCloudDeployment(context.Context, string) (CloudDeployment, bool, error)
 }
 
+// CloudSecretBootstrapClient exposes only create and encrypted upload. The
+// Message Server cannot complete, consume, or deliver a secret through it.
+type CloudSecretBootstrapClient = cloudmodule.SecretBootstrapClient
+type CloudSecretBootstrapSession = cloudmodule.AgentSecretBootstrapSession
+type CreateCloudSecretBootstrapRequest = cloudmodule.CreateAgentSecretBootstrapRequest
+type UploadCloudEncryptedSecretRequest = cloudmodule.UploadAgentEncryptedSecretRequest
+
 type AgentGRPCConfig struct {
 	Target         string
 	CAFile         string
@@ -42,9 +49,9 @@ type AgentGRPCConfig struct {
 	OwnerID        string
 }
 
-// NewAgentGRPCChatRunner is the public construction seam for setup. The
-// implementation remains in p2p/internal and is routed only through the
-// dedicated NativeAgentChatRunner field.
+// NewAgentGRPCChatRunner is the public construction seam for setup. The same
+// narrow transport also implements read-only cloud queries and encrypted
+// secret bootstrap; each capability is wired through a separate interface.
 func NewAgentGRPCChatRunner(ctx context.Context, config AgentGRPCConfig) (ClosableNativeAgentRunner, error) {
 	return agentgrpc.New(ctx, agentgrpc.Config{
 		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,

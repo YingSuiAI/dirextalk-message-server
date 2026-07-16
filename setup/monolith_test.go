@@ -30,6 +30,12 @@ func (*testAgentGRPCRunner) ListCloudDeployments(context.Context) ([]p2p.CloudDe
 func (*testAgentGRPCRunner) GetCloudDeployment(context.Context, string) (p2p.CloudDeployment, bool, error) {
 	return p2p.CloudDeployment{}, false, nil
 }
+func (*testAgentGRPCRunner) CreateAgentSecretBootstrap(context.Context, p2p.CreateCloudSecretBootstrapRequest) (p2p.CloudSecretBootstrapSession, error) {
+	return p2p.CloudSecretBootstrapSession{}, nil
+}
+func (*testAgentGRPCRunner) UploadAgentEncryptedSecret(context.Context, p2p.UploadCloudEncryptedSecretRequest) (p2p.CloudSecretBootstrapSession, error) {
+	return p2p.CloudSecretBootstrapSession{}, nil
+}
 
 type chatOnlyAgentGRPCRunner struct{}
 
@@ -168,6 +174,10 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || cloudReader != wantRunner {
 		t.Fatalf("remote Cloud deployment reader=%v err=%v", cloudReader, err)
 	}
+	secretClient, err := p2pAgentSecretBootstrapClient(config, runner)
+	if err != nil || secretClient != wantRunner {
+		t.Fatalf("remote secret bootstrap client=%v err=%v", secretClient, err)
+	}
 	if received.Target != "dns:///agent.internal:7443" || received.CAFile != caFile || received.ServerName != "agent.internal" ||
 		received.ServiceKeyFile != serviceKeyFile || received.OwnerID != "dirextalk-project:example.com" {
 		t.Fatalf("Agent dial config=%#v", received)
@@ -182,6 +192,9 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	}
 	if _, err = p2pAgentCloudDeploymentReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without Cloud deployment query capability")
+	}
+	if _, err = p2pAgentSecretBootstrapClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without encrypted secret bootstrap capability")
 	}
 }
 

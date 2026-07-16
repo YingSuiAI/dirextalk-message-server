@@ -58,8 +58,11 @@ type Config struct {
 	// CloudDeploymentReader delegates only deployment list/get to the
 	// independent Agent. Mutations and all other Cloud actions remain local.
 	CloudDeploymentReader CloudDeploymentReader
-	NativeAgentDataDir    string
-	ReleaseController     releasecontrol.Controller
+	// CloudSecretBootstrapClient supports only an encrypted upload session. It
+	// deliberately has no secret completion or typed destination capability.
+	CloudSecretBootstrapClient CloudSecretBootstrapClient
+	NativeAgentDataDir         string
+	ReleaseController          releasecontrol.Controller
 	// CloudConnectionStack is public configuration for the owner-only
 	// CloudFormation role-plan handoff. It contains a template identity and
 	// Node public key only; the Ed25519 private key remains mounted solely in
@@ -846,6 +849,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			RolePlanTTL: cfg.CloudConnectionStack.RolePlanTTL,
 		},
 		CredentialBootstrapClient: credentialBootstrapClient,
+		SecretBootstrapClient:     cfg.CloudSecretBootstrapClient,
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,

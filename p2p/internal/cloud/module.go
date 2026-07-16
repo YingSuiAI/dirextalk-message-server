@@ -66,6 +66,11 @@ const (
 	cloudConnectionCredentialBootstrapUnavailableCode   = "cloud_connection_credential_bootstrap_unavailable"
 	cloudConnectionCredentialBootstrapInvalidCode       = "cloud_connection_credential_bootstrap_invalid"
 	cloudConnectionCredentialBootstrapUpstreamCode      = "cloud_connection_credential_bootstrap_upstream_error"
+	cloudSecretBootstrapInvalidCode                     = "cloud_secret_bootstrap_invalid"
+	cloudSecretBootstrapConflictCode                    = "cloud_secret_bootstrap_conflict"
+	cloudSecretBootstrapRejectedCode                    = "cloud_secret_bootstrap_rejected"
+	cloudSecretBootstrapUnavailableCode                 = "cloud_secret_bootstrap_unavailable"
+	cloudSecretBootstrapUpstreamCode                    = "cloud_secret_bootstrap_upstream_error"
 	cloudPlanConfirmationInvalidCode                    = "cloud_plan_confirmation_invalid"
 	cloudPlanConfirmationConflictCode                   = "cloud_plan_confirmation_conflict"
 	cloudQuoteExpiredCode                               = "cloud_quote_expired"
@@ -112,6 +117,7 @@ type Config struct {
 	DeploymentCreateEnabled   bool
 	ConnectionStack           ConnectionStackConfig
 	CredentialBootstrapClient ConnectionCredentialBootstrapClient
+	SecretBootstrapClient     SecretBootstrapClient
 }
 
 type Module struct {

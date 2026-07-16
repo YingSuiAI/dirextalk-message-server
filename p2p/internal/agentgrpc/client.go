@@ -63,6 +63,7 @@ type Runner struct {
 	connection    *grpc.ClientConn
 	runtime       agentv1.RuntimeServiceClient
 	cloud         agentv1.CloudControlServiceClient
+	secrets       agentv1.SecretBootstrapServiceClient
 	ownerID       string
 	chainTimeout  time.Duration
 	streamTimeout time.Duration
@@ -111,7 +112,7 @@ func New(ctx context.Context, config Config) (*Runner, error) {
 	}
 	return &Runner{
 		connection: connection, runtime: agentv1.NewRuntimeServiceClient(connection),
-		cloud: agentv1.NewCloudControlServiceClient(connection), ownerID: config.OwnerID,
+		cloud: agentv1.NewCloudControlServiceClient(connection), secrets: agentv1.NewSecretBootstrapServiceClient(connection), ownerID: config.OwnerID,
 		chainTimeout: unaryTimeout, streamTimeout: streamTimeout,
 	}, nil
 }

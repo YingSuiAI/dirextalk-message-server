@@ -126,6 +126,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 		logrus.Fatal("P2P Agent gRPC cloud query backend is unavailable")
 	}
+	agentSecretBootstrapClient, err := p2pAgentSecretBootstrapClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC secret bootstrap backend is unavailable")
+	}
 	if agentChatRunner != nil {
 		startAgentGRPCRunnerLifecycle(processCtx, agentChatRunner)
 	}
@@ -138,6 +145,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
 		NativeAgentChatRunner:              agentChatRunner,
 		CloudDeploymentReader:              agentCloudDeploymentReader,
+		CloudSecretBootstrapClient:         agentSecretBootstrapClient,
 		PushRules:                          m.UserAPI,
 		ReleaseController:                  releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
 		CloudConnectionStack:               p2pCloudConnectionStackConfigFromEnv(),
@@ -309,6 +317,17 @@ func p2pAgentCloudDeploymentReader(config p2pAgentGRPCBackendConfig, runner Agen
 		return nil, errors.New("enabled Agent gRPC backend does not support cloud deployment queries")
 	}
 	return reader, nil
+}
+
+func p2pAgentSecretBootstrapClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudSecretBootstrapClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.CloudSecretBootstrapClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support encrypted secret bootstrap")
+	}
+	return client, nil
 }
 
 func startAgentGRPCRunnerLifecycle(processCtx *process.ProcessContext, runner AgentGRPCRunner) {

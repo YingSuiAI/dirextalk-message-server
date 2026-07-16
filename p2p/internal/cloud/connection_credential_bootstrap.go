@@ -32,7 +32,7 @@ func (m *Module) createConnectionCredentialBootstrap(ctx context.Context, params
 	if err := only(params, "bootstrap_id", "expected_revision", "idempotency_key"); err != nil {
 		return nil, err
 	}
-	if m == nil || m.store == nil || m.cfg.CredentialBootstrapClient == nil {
+	if m == nil || m.store == nil || (m.cfg.CredentialBootstrapClient == nil && m.cfg.SecretBootstrapClient == nil) {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionCredentialBootstrapUnavailableCode, "cloud connection credential bootstrap is not configured")
 	}
 	store, ok := m.store.(ConnectionCredentialBootstrapStore)
@@ -56,6 +56,9 @@ func (m *Module) createConnectionCredentialBootstrap(ctx context.Context, params
 	rolePlan, err := store.LoadCloudConnectionCredentialBootstrap(ctx, load)
 	if err != nil {
 		return nil, connectionCredentialBootstrapStoreError(err)
+	}
+	if m.cfg.SecretBootstrapClient != nil {
+		return m.createAgentConnectionCredentialBootstrap(ctx, store, load, rolePlan, idempotencyKey)
 	}
 	request, err := connectionCredentialBootstrapRequest(idempotencyKey, rolePlan)
 	if err != nil {
