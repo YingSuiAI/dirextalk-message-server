@@ -106,20 +106,28 @@ func (builder *Builder) Build(ctx context.Context, config BuildConfig, artifact 
 		return manifest, nil
 	}
 
-	file, openErr := os.Open(artifact.Path)
-	if openErr != nil {
-		return ImageManifest{}, openErr
-	}
-	defer file.Close()
-	upload, putErr := builder.provider.PutArtifact(ctx, config.Bucket, config.ObjectKey, config.ArtifactVersion, file, artifact.ArchiveSize, artifact.ArchiveSHA256)
-	if putErr != nil {
-		return ImageManifest{}, putErr
-	}
-	defer func() {
-		if cleanupErr := builder.provider.DeleteArtifact(context.WithoutCancel(ctx), config.Bucket, config.ObjectKey, upload.VersionID); err == nil && cleanupErr != nil {
-			err = cleanupErr
+	var upload ArtifactUpload
+	if config.ReleaseSource != nil {
+		// Explicit release mode uses a previously verified immutable archive;
+		// it must never re-upload or delete that retained release object.
+		upload = ArtifactUpload{VersionID: config.ReleaseSource.VersionID}
+	} else {
+		file, openErr := os.Open(artifact.Path)
+		if openErr != nil {
+			return ImageManifest{}, openErr
 		}
-	}()
+		defer file.Close()
+		var putErr error
+		upload, putErr = builder.provider.PutArtifact(ctx, config.Bucket, config.ObjectKey, config.ArtifactVersion, file, artifact.ArchiveSize, artifact.ArchiveSHA256)
+		if putErr != nil {
+			return ImageManifest{}, putErr
+		}
+		defer func() {
+			if cleanupErr := builder.provider.DeleteArtifact(context.WithoutCancel(ctx), config.Bucket, config.ObjectKey, upload.VersionID); err == nil && cleanupErr != nil {
+				err = cleanupErr
+			}
+		}()
+	}
 	url, presignErr := builder.provider.PresignArtifactGET(ctx, config.Bucket, config.ObjectKey, upload.VersionID, 15*time.Minute)
 	if presignErr != nil {
 		return ImageManifest{}, presignErr
@@ -309,7 +317,12 @@ func (builder *Builder) manifestFromObservation(config BuildConfig, artifact Val
 	}
 	snapshots := append([]string(nil), image.SnapshotIDs...)
 	sort.Strings(snapshots)
-	manifest := ImageManifest{SchemaVersion: ImageManifestSchema, ArtifactVersion: config.ArtifactVersion, Region: config.Region, ImageID: image.ImageID, ImageName: image.Name, BaseAMIID: config.BaseAMIID, OCISource: config.OCISource, ArchiveSHA256: artifact.ArchiveSHA256, TrustedCatalogDigest: artifact.CatalogDigest, WorkerResourceManifestDigest: artifact.Catalog.WorkerResourceManifestDigest, WorkerOCICatalogDigest: artifact.Catalog.WorkerOCICatalogDigest, WorkerBinaryDigest: artifact.Catalog.WorkerBinaryDigest, RecipeArtifactMode: mode, SnapshotIDs: snapshots, CreatedAt: builder.clock.Now().UTC().Format(time.RFC3339Nano)}
+	var sourceArchive = config.ReleaseSource
+	if sourceArchive != nil {
+		copied := *sourceArchive
+		sourceArchive = &copied
+	}
+	manifest := ImageManifest{SchemaVersion: ImageManifestSchema, ArtifactVersion: config.ArtifactVersion, Region: config.Region, ImageID: image.ImageID, ImageName: image.Name, BaseAMIID: config.BaseAMIID, OCISource: config.OCISource, ArchiveSHA256: artifact.ArchiveSHA256, TrustedCatalogDigest: artifact.CatalogDigest, WorkerResourceManifestDigest: artifact.Catalog.WorkerResourceManifestDigest, WorkerOCICatalogDigest: artifact.Catalog.WorkerOCICatalogDigest, WorkerBinaryDigest: artifact.Catalog.WorkerBinaryDigest, RecipeArtifactMode: mode, SourceArchive: sourceArchive, SnapshotIDs: snapshots, CreatedAt: builder.clock.Now().UTC().Format(time.RFC3339Nano)}
 	return manifest, manifest.Validate()
 }
 

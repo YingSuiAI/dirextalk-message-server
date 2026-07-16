@@ -131,8 +131,7 @@ func ValidateArchive(path string) (ValidatedArtifact, error) {
 	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) || after.Size() != before.Size() {
 		return ValidatedArtifact{}, ErrInvalidArtifact
 	}
-	archiveHash := sha256.New()
-	reader := tar.NewReader(io.TeeReader(file, archiveHash))
+	reader := tar.NewReader(file)
 	metadata := map[string][]byte{}
 	var catalog TrustedCatalog
 	for index, wantPath := range archiveOrder {
@@ -219,6 +218,19 @@ func ValidateArchive(path string) (ValidatedArtifact, error) {
 	catalog.Files = sortedFiles(catalog.Files)
 	catalogDigest, err := digestCanonical(catalog)
 	if err != nil {
+		return ValidatedArtifact{}, ErrInvalidArtifact
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return ValidatedArtifact{}, ErrInvalidArtifact
+	}
+	// S3 ChecksumSHA256 covers the complete object bytes, including tar
+	// padding. Hash the exact file only after the structural validation above.
+	archiveHash := sha256.New()
+	if _, err := io.Copy(archiveHash, file); err != nil {
+		return ValidatedArtifact{}, ErrInvalidArtifact
+	}
+	final, err := file.Stat()
+	if err != nil || !final.Mode().IsRegular() || !os.SameFile(before, final) || final.Size() != before.Size() {
 		return ValidatedArtifact{}, ErrInvalidArtifact
 	}
 	return ValidatedArtifact{Catalog: catalog, CatalogDigest: catalogDigest, ArchiveSHA256: namedSHA(archiveHash.Sum(nil)), ArchiveSize: before.Size(), ImageDigest: entry.Descriptor.ImageDigest, Path: path}, nil

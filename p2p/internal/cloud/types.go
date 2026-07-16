@@ -228,8 +228,12 @@ type Connection struct {
 // only in the independent Cloud Orchestrator process; this facade receives
 // only its public identity for the CloudFormation role plan.
 type ConnectionStackConfig struct {
+	// TemplateURL is retained only to fail closed during the configuration
+	// migration. An executable template is always carried by
+	// ConnectionTemplate; a raw URL is rejected even if it looks pinned.
 	TemplateURL             string
 	TemplateDigest          string
+	ConnectionTemplate      ConnectionTemplateReference
 	SourceTreeDigest        string
 	NodeKeyID               string
 	NodePublicKeySPKIBase64 string
@@ -241,11 +245,15 @@ type ConnectionStackConfig struct {
 // realtime events. They are read only by the independently deployed
 // Orchestrator while it verifies the fixed Broker command.
 type ConnectionBootstrap struct {
-	BootstrapID                       string
-	OwnerMXID                         string
-	ConnectionID                      string
-	Provider                          string
-	RequestedRegion                   string
+	BootstrapID        string
+	OwnerMXID          string
+	ConnectionID       string
+	Provider           string
+	RequestedRegion    string
+	ConnectionTemplate ConnectionTemplateReference
+	// TemplateURL is a derived, display-only CloudFormation URL for an
+	// immutable S3 binding. It is empty while a root bootstrap holds an
+	// immutable publish intent and must never be configured directly.
 	TemplateURL                       string
 	TemplateDigest                    string
 	SourceTreeDigest                  string
@@ -275,19 +283,20 @@ type ConnectionBootstrap struct {
 // no AWS credential, Broker endpoint, stack ARN, private key, or service
 // secret. It is returned only from HTTP role-plan creation, not via realtime.
 type ConnectionRolePlan struct {
-	BootstrapID                  string            `json:"bootstrap_id"`
-	CloudConnectionID            string            `json:"cloud_connection_id"`
-	Provider                     string            `json:"provider"`
-	Region                       string            `json:"region"`
-	Status                       string            `json:"status"`
-	Revision                     int64             `json:"revision"`
-	ExpiresAt                    int64             `json:"expires_at"`
-	TemplateURL                  string            `json:"template_url"`
-	TemplateDigest               string            `json:"template_digest"`
-	SourceTreeDigest             string            `json:"source_tree_digest"`
-	StackName                    string            `json:"stack_name"`
-	AllowRootCredentialBootstrap bool              `json:"allow_root_credential_bootstrap"`
-	CloudFormationParams         map[string]string `json:"cloudformation_parameters"`
+	BootstrapID                  string                      `json:"bootstrap_id"`
+	CloudConnectionID            string                      `json:"cloud_connection_id"`
+	Provider                     string                      `json:"provider"`
+	Region                       string                      `json:"region"`
+	Status                       string                      `json:"status"`
+	Revision                     int64                       `json:"revision"`
+	ExpiresAt                    int64                       `json:"expires_at"`
+	ConnectionTemplate           ConnectionTemplateReference `json:"connection_template"`
+	TemplateURL                  string                      `json:"template_url"`
+	TemplateDigest               string                      `json:"template_digest"`
+	SourceTreeDigest             string                      `json:"source_tree_digest"`
+	StackName                    string                      `json:"stack_name"`
+	AllowRootCredentialBootstrap bool                        `json:"allow_root_credential_bootstrap"`
+	CloudFormationParams         map[string]string           `json:"cloudformation_parameters"`
 }
 
 // ConnectionCredentialBootstrapRequest is derived entirely from the durable
@@ -300,20 +309,19 @@ type ConnectionCredentialBootstrapRequest struct {
 }
 
 type ConnectionCredentialBootstrapRolePlanWire struct {
-	BootstrapID                  string            `json:"bootstrap_id"`
-	ConnectionID                 string            `json:"connection_id"`
-	Region                       string            `json:"region"`
-	StackName                    string            `json:"stack_name"`
-	TemplateURL                  string            `json:"template_url"`
-	TemplateDigest               string            `json:"template_digest"`
-	SourceTreeDigest             string            `json:"source_tree_digest"`
-	FixedParameters              map[string]string `json:"fixed_parameters"`
-	NodeKeyID                    string            `json:"node_key_id"`
-	NodeEd25519PublicKey         string            `json:"node_ed25519_public_key"`
-	DeviceKeyID                  string            `json:"device_key_id"`
-	DeviceEd25519PublicKey       string            `json:"device_ed25519_public_key"`
-	AllowRootCredentialBootstrap bool              `json:"allow_root_credential_bootstrap"`
-	ExpiresAt                    string            `json:"expires_at"`
+	BootstrapID                  string                      `json:"bootstrap_id"`
+	ConnectionID                 string                      `json:"connection_id"`
+	Region                       string                      `json:"region"`
+	StackName                    string                      `json:"stack_name"`
+	ConnectionTemplate           ConnectionTemplateReference `json:"connection_template"`
+	SourceTreeDigest             string                      `json:"source_tree_digest"`
+	FixedParameters              map[string]string           `json:"fixed_parameters"`
+	NodeKeyID                    string                      `json:"node_key_id"`
+	NodeEd25519PublicKey         string                      `json:"node_ed25519_public_key"`
+	DeviceKeyID                  string                      `json:"device_key_id"`
+	DeviceEd25519PublicKey       string                      `json:"device_ed25519_public_key"`
+	AllowRootCredentialBootstrap bool                        `json:"allow_root_credential_bootstrap"`
+	ExpiresAt                    string                      `json:"expires_at"`
 }
 
 type ConnectionCredentialBootstrapReceipt struct {

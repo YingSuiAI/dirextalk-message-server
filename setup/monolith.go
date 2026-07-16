@@ -227,11 +227,25 @@ func p2pCloudDeploymentCreateEnabledFromEnv() bool {
 }
 
 // p2pCloudConnectionStackConfigFromEnv reads only public Connection Stack
-// identity. The corresponding Ed25519 private key is intentionally not an
-// environment value and is loaded solely by the independent Orchestrator from
-// a mounted file. Incomplete or malformed values are fail-closed later by the
-// Cloud role-plan action, leaving that action unavailable instead of guessing.
+// identity. The executable template is a closed immutable reference, never a
+// caller-configured URL. The corresponding Ed25519 private key is intentionally
+// not an environment value and is loaded solely by the independent
+// Orchestrator from a mounted file. Malformed, legacy, or incomplete values
+// fail closed later by the Cloud role-plan action.
 func p2pCloudConnectionStackConfigFromEnv() p2p.CloudConnectionStackConfig {
+	// Do not silently reinterpret an old mutable configuration. LookupEnv is
+	// deliberate: even a present-but-empty legacy setting requires an operator
+	// to remove it before the new immutable contract becomes usable.
+	if _, present := os.LookupEnv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL"); present {
+		return p2p.CloudConnectionStackConfig{}
+	}
+	if _, present := os.LookupEnv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST"); present {
+		return p2p.CloudConnectionStackConfig{}
+	}
+	template, err := p2p.ParseCloudConnectionTemplateJSON(os.Getenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON"))
+	if err != nil {
+		return p2p.CloudConnectionStackConfig{}
+	}
 	ttl := 15 * time.Minute
 	if raw := strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS")); raw != "" {
 		seconds, err := strconv.ParseInt(raw, 10, 64)
@@ -242,8 +256,8 @@ func p2pCloudConnectionStackConfigFromEnv() p2p.CloudConnectionStackConfig {
 		}
 	}
 	return p2p.CloudConnectionStackConfig{
-		TemplateURL:             strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL")),
-		TemplateDigest:          strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST")),
+		TemplateDigest:          template.ContentDigest(),
+		ConnectionTemplate:      template,
 		SourceTreeDigest:        strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST")),
 		NodeKeyID:               strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID")),
 		NodePublicKeySPKIBase64: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64")),

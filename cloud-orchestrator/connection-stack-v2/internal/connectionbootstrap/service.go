@@ -13,6 +13,9 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/artifactpublish"
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/connectionfoundation"
 )
 
 const hkdfInfo = "dirextalk.connection-bootstrap/x25519-aes256gcm/v1"
@@ -33,20 +36,95 @@ type ClientFactory interface {
 	Clients(Credentials) (STSClient, StackClient, error)
 }
 type StackRequest struct {
-	StackName, TemplateURL, ClientRequestToken string
-	Parameters                                 map[string]string
-	Tags                                       map[string]string
-}
-type Service struct {
-	config  Config
-	factory ClientFactory
-	random  io.Reader
-	clock   Clock
-	store   *sessionStore
+	StackName, ClientRequestToken string
+	Region                        string
+	Template                      artifactpublish.ConnectionTemplateReference
+	Parameters                    map[string]string
+	Tags                          map[string]string
 }
 
-func NewService(config Config, factory ClientFactory, randomSource io.Reader, clock Clock) (*Service, error) {
-	if config.Validate() != nil || factory == nil {
+const (
+	stackTagManaged          = "dirextalk:managed"
+	stackTagConnectionID     = "dirextalk:connection-id"
+	stackTagRegion           = "dirextalk:region"
+	stackTagTemplateBinding  = "dirextalk:connection-template-binding"
+	stackTagParameterBinding = "dirextalk:connection-parameters"
+)
+
+// FoundationResolveRequest contains only trusted, non-secret identity data.
+// It deliberately has no raw AWS credential, resource-ID, network, or generic
+// parameter fields: a resolver must use its reviewed provider policy and return
+// a fully validated connectionfoundation.Plan.
+type FoundationResolveRequest struct {
+	BootstrapID  string
+	ConnectionID string
+	Region       string
+	AccountID    string
+}
+
+// RootBootstrapResolution is the only root-path execution input accepted by
+// the Stack request builder. All values are non-secret, provider read-back
+// facts: the resolver must return its Foundation Plan plus the exact immutable
+// artifacts it published into that Foundation's bucket. Generic IDs, URL
+// fields, arbitrary parameters, and credentials are intentionally absent.
+type RootBootstrapResolution struct {
+	FoundationPlan     connectionfoundation.Plan
+	FoundationArtifact artifactpublish.Policy
+	ConnectionTemplate artifactpublish.ConnectionTemplateReference
+	BrokerArtifact     artifactpublish.BrokerArtifactReference
+}
+
+// FoundationResolver is the root-bootstrap-only hook for a reviewed provider.
+// It is invoked only after STS has authenticated an owner-approved root
+// credential. Credentials are passed only by stack-local value for the
+// duration of ResolveFoundation and are zeroed by Service before any receipt
+// returns. The returned Plan is revalidated before CreateStack; neither the
+// credential nor the Plan is recorded in bootstrap receipt or session state.
+type FoundationResolver interface {
+	ResolveFoundation(context.Context, FoundationResolveRequest, Credentials) (RootBootstrapResolution, error)
+}
+
+type stackResolution struct {
+	FoundationPlan     connectionfoundation.Plan
+	ArtifactPolicy     artifactpublish.Policy
+	ConnectionTemplate artifactpublish.ConnectionTemplateReference
+	BrokerArtifact     artifactpublish.BrokerArtifactReference
+}
+
+type ServiceOption func(*serviceOptions) error
+
+type serviceOptions struct{ foundationResolver FoundationResolver }
+
+func WithFoundationResolver(resolver FoundationResolver) ServiceOption {
+	return func(options *serviceOptions) error {
+		if resolver == nil || options.foundationResolver != nil {
+			return ErrInvalid
+		}
+		options.foundationResolver = resolver
+		return nil
+	}
+}
+
+type Service struct {
+	config             Config
+	factory            ClientFactory
+	foundationResolver FoundationResolver
+	random             io.Reader
+	clock              Clock
+	store              *sessionStore
+}
+
+func NewService(config Config, factory ClientFactory, randomSource io.Reader, clock Clock, options ...ServiceOption) (*Service, error) {
+	if factory == nil {
+		return nil, ErrInvalid
+	}
+	serviceOptions := serviceOptions{}
+	for _, option := range options {
+		if option == nil || option(&serviceOptions) != nil {
+			return nil, ErrInvalid
+		}
+	}
+	if config.validate(serviceOptions.foundationResolver != nil) != nil {
 		return nil, ErrInvalid
 	}
 	if randomSource == nil {
@@ -55,7 +133,7 @@ func NewService(config Config, factory ClientFactory, randomSource io.Reader, cl
 	if clock == nil {
 		clock = realClock{}
 	}
-	return &Service{config: config, factory: factory, random: randomSource, clock: clock, store: newSessionStore()}, nil
+	return &Service{config: config, factory: factory, foundationResolver: serviceOptions.foundationResolver, random: randomSource, clock: clock, store: newSessionStore()}, nil
 }
 func (service *Service) CleanupExpired() {
 	if service != nil {
@@ -70,7 +148,14 @@ func (service *Service) CreateSession(request CreateRequest) (CreateResponse, er
 	now := service.clock.Now().UTC()
 	plan := request.RolePlan
 	roleExpires, _ := time.Parse(time.RFC3339Nano, plan.ExpiresAt)
-	if !now.Before(roleExpires) || roleExpires.Sub(now) < time.Minute || plan.Region != service.config.Region || plan.TemplateURL != service.config.TemplateURL || plan.TemplateDigest != service.config.TemplateDigest || plan.SourceTreeDigest != service.config.SourceTreeDigest {
+	if !now.Before(roleExpires) || roleExpires.Sub(now) < time.Minute || plan.Region != service.config.Region || plan.SourceTreeDigest != service.config.SourceTreeDigest {
+		return CreateResponse{}, ErrInvalid
+	}
+	if !plan.AllowRootCredentialBootstrap {
+		if service.config.validateStaticBootstrapInputs() != nil || !plan.ConnectionTemplate.Equal(service.config.ConnectionTemplate) {
+			return CreateResponse{}, ErrInvalid
+		}
+	} else if service.config.ConnectionTemplate.Mode == connectionTemplateModePublishIntent && !plan.ConnectionTemplate.Equal(service.config.ConnectionTemplate) {
 		return CreateResponse{}, ErrInvalid
 	}
 	requestRaw, _ := json.Marshal(request)
@@ -105,7 +190,8 @@ func (service *Service) CreateSession(request CreateRequest) (CreateResponse, er
 		NodeKeyID: plan.NodeKeyID, NodeEd25519PublicKey: plan.NodeEd25519PublicKey,
 		DeviceKeyID: plan.DeviceKeyID, DeviceEd25519PublicKey: plan.DeviceEd25519PublicKey,
 		StackName: plan.StackName, AllowRootCredentialBootstrap: plan.AllowRootCredentialBootstrap,
-		FixedParameters: cloneStringMap(plan.FixedParameters),
+		ConnectionTemplate: plan.ConnectionTemplate.Clone(),
+		FixedParameters:    cloneStringMap(plan.FixedParameters),
 	}
 	expiresAt := expires.Format(time.RFC3339Nano)
 	responseBase := CreateResponse{Schema: CreateResponseSchema, Status: "awaiting_upload", RequestID: request.RequestID, SessionID: id, ConnectionID: plan.ConnectionID, ServerX25519PublicKey: base64.StdEncoding.EncodeToString(publicRaw), UploadURL: strings.TrimRight(service.config.UploadBaseURL, "/") + "/v1/aws-bootstrap/sessions/" + id, ExpiresAt: expiresAt, HKDF: "HKDF-SHA256 info=" + hkdfInfo, AAD: string(EnvelopeAAD(id, plan.ConnectionID, expiresAt))}
@@ -188,14 +274,24 @@ func (service *Service) consume(ctx context.Context, sessionID string, envelope 
 	// permits it. The credential can then create only the fixed Connection Stack
 	// below, and is zeroed before the receipt returns without reaching the
 	// Agent, Worker, Broker, or ProductCore storage.
-	if err != nil || caller.AccountID == "" || caller.ARN == "" || (rootARN(caller.ARN) && !begin.identity.AllowRootCredentialBootstrap) {
+	if err != nil || caller.AccountID == "" || caller.ARN == "" {
 		service.store.fail(sessionID)
-		if rootARN(caller.ARN) {
-			return Receipt{}, ErrUnauthorized
-		}
 		return Receipt{}, ErrInvalid
 	}
-	request := service.stackRequest(begin.identity, sessionID, fingerprint)
+	if rootARN(caller.ARN) && !begin.identity.AllowRootCredentialBootstrap {
+		service.store.fail(sessionID)
+		return Receipt{}, ErrUnauthorized
+	}
+	resolution, err := service.resolveStackResolution(ctx, begin.identity, caller, credentials)
+	if err != nil {
+		service.store.fail(sessionID)
+		return Receipt{}, ErrInvalid
+	}
+	request, err := service.stackRequest(begin.identity, sessionID, fingerprint, resolution)
+	if err != nil {
+		service.store.fail(sessionID)
+		return Receipt{}, err
+	}
 	stackID, err := stackClient.CreateStack(ctx, request)
 	if err != nil || stackID == "" {
 		service.store.fail(sessionID)
@@ -207,17 +303,73 @@ func (service *Service) consume(ctx context.Context, sessionID string, envelope 
 	return receipt, nil
 }
 
-func (service *Service) stackRequest(identity Identity, sessionID, fingerprint string) StackRequest {
+func (service *Service) resolveStackResolution(ctx context.Context, identity Identity, caller CallerIdentity, credentials Credentials) (stackResolution, error) {
+	if !rootARN(caller.ARN) {
+		if identity.AllowRootCredentialBootstrap {
+			return stackResolution{}, ErrInvalid
+		}
+		return service.config.staticStackResolution()
+	}
+	if !identity.AllowRootCredentialBootstrap || service.foundationResolver == nil {
+		return stackResolution{}, ErrInvalid
+	}
+	request := FoundationResolveRequest{BootstrapID: identity.BootstrapID, ConnectionID: identity.ConnectionID, Region: service.config.Region, AccountID: caller.AccountID}
+	if !request.valid() {
+		return stackResolution{}, ErrInvalid
+	}
+	rootResolution, err := service.foundationResolver.ResolveFoundation(ctx, request, credentials)
+	if err != nil || rootResolution.validate(request, identity.ConnectionTemplate) != nil {
+		return stackResolution{}, ErrInvalid
+	}
+	return stackResolution{FoundationPlan: rootResolution.FoundationPlan, ArtifactPolicy: rootResolution.FoundationArtifact, ConnectionTemplate: rootResolution.ConnectionTemplate, BrokerArtifact: rootResolution.BrokerArtifact}, nil
+}
+
+func (request FoundationResolveRequest) valid() bool {
+	return identifierPattern.MatchString(request.BootstrapID) && identifierPattern.MatchString(request.ConnectionID) && regionPattern.MatchString(request.Region) && accountIDPattern.MatchString(request.AccountID)
+}
+
+func (config Config) staticStackResolution() (stackResolution, error) {
+	if config.validateStaticBootstrapInputs() != nil {
+		return stackResolution{}, ErrInvalid
+	}
+	template, err := config.ConnectionTemplate.ArtifactReference(config.ArtifactPolicy)
+	if err != nil {
+		return stackResolution{}, ErrInvalid
+	}
+	return stackResolution{FoundationPlan: config.FoundationPlan, ArtifactPolicy: config.ArtifactPolicy, ConnectionTemplate: template, BrokerArtifact: config.BrokerArtifact}, nil
+}
+
+func (resolution RootBootstrapResolution) validate(request FoundationResolveRequest, expectedTemplate ConnectionTemplateReference) error {
+	if !request.valid() || expectedTemplate.ValidateForRootCredentialBootstrap(true) != nil || resolution.FoundationPlan.Region != request.Region || resolution.FoundationPlan.Validate() != nil ||
+		!validFoundationArtifactPolicy(resolution.FoundationArtifact, request.Region, request.AccountID) ||
+		resolution.FoundationPlan.Worker.Artifact.Bucket != resolution.FoundationArtifact.Bucket ||
+		resolution.ConnectionTemplate.ValidateFor(resolution.FoundationArtifact) != nil || resolution.BrokerArtifact.ValidateFor(resolution.FoundationArtifact) != nil {
+		return ErrInvalid
+	}
+	intent := expectedTemplate.PublishIntent
+	binding := resolution.ConnectionTemplate.Binding
+	if intent == nil || string(binding.Kind) != intent.Kind || binding.Version != intent.Version || binding.SHA256 != intent.SHA256 || binding.SizeBytes != intent.SizeBytes || binding.ContentType != intent.ContentType {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validFoundationArtifactPolicy(policy artifactpublish.Policy, region, accountID string) bool {
+	return policy.Validate() == nil && canonicalKMSKeyARNPattern.MatchString(policy.KMSKeyID) && strings.Contains(policy.KMSKeyID, ":kms:"+region+":"+accountID+":key/")
+}
+
+func (service *Service) stackRequest(identity Identity, sessionID, fingerprint string, resolution stackResolution) (StackRequest, error) {
 	parameters := cloneStringMap(identity.FixedParameters)
-	parameters["BrokerArtifactBucket"] = service.config.BrokerArtifactBucket
-	parameters["BrokerArtifactKey"] = service.config.BrokerArtifactKey
-	parameters["BrokerArtifactVersion"] = service.config.BrokerArtifactVersion
-	parameters["WorkerBaseAmiId"] = service.config.WorkerAMIID
-	parameters["WorkerResourceManifestDigest"] = service.config.ArtifactManifestDigest
-	parameters["WorkerVpcId"] = service.config.NetworkID
-	parameters["WorkerSubnetId"] = service.config.WorkerSubnetID
-	parameters["WorkerAvailabilityZone"] = service.config.WorkerAvailabilityZone
-	parameters["WorkerIdentityRsaPublicKeyPem"] = service.config.WorkerIdentityRSAPublicKeyPEM
+	parameters["BrokerArtifactBucket"] = resolution.BrokerArtifact.Bucket
+	parameters["BrokerArtifactKey"] = resolution.BrokerArtifact.Key
+	parameters["BrokerArtifactVersion"] = resolution.BrokerArtifact.VersionID
+	foundationParameters, err := resolution.FoundationPlan.TemplateParameters()
+	if err != nil {
+		return StackRequest{}, ErrInvalid
+	}
+	for key, value := range foundationParameters {
+		parameters[key] = value
+	}
 	if service.config.DeploymentCreateEnabled {
 		parameters["EnableDeploymentCreate"] = "true"
 	} else {
@@ -238,13 +390,22 @@ func (service *Service) stackRequest(identity Identity, sessionID, fingerprint s
 	} else {
 		parameters["EnableDynamicArtifacts"] = "false"
 	}
-	tags := make(map[string]string, len(service.config.FixedTags)+2)
+	// These lifecycle controls remain closed in the first Connection Stack
+	// release. Supplying their defaults explicitly lets DescribeStacks compare
+	// the complete parameter set after a lost CreateStack response.
+	parameters["EnableServiceBackup"] = "false"
+	parameters["EnableServiceRestorePlan"] = "false"
+	parameters["EnableServiceRestore"] = "false"
+	tags := make(map[string]string, len(service.config.FixedTags)+5)
 	for key, value := range service.config.FixedTags {
 		tags[key] = value
 	}
-	tags["dirextalk:managed"] = "true"
-	tags["dirextalk:connection-id"] = identity.ConnectionID
-	return StackRequest{StackName: identity.StackName, TemplateURL: service.config.TemplateURL, ClientRequestToken: clientRequestToken(sessionID, identity.ConnectionID, fingerprint), Parameters: parameters, Tags: tags}
+	tags[stackTagManaged] = "true"
+	tags[stackTagConnectionID] = identity.ConnectionID
+	tags[stackTagRegion] = service.config.Region
+	tags[stackTagTemplateBinding] = connectionTemplateBindingFingerprint(resolution.ConnectionTemplate)
+	tags[stackTagParameterBinding] = stackParameterBindingFingerprint(parameters)
+	return StackRequest{StackName: identity.StackName, Region: service.config.Region, Template: resolution.ConnectionTemplate, ClientRequestToken: clientRequestToken(sessionID, identity.ConnectionID, fingerprint), Parameters: parameters, Tags: tags}, nil
 }
 
 func cloneStringMap(source map[string]string) map[string]string {

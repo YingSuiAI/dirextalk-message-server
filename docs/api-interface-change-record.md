@@ -2,6 +2,31 @@
 
 Last updated: 2026-07-16
 
+## 2026-07-16 Immutable Connection Stack template contract
+
+`cloud.connections.role_plan` and the dedicated credential-bootstrap request
+now carry the closed `connection_template` union. A normal role plan contains
+only a version-pinned S3 binding; a rootkey-enabled role plan contains only the
+reviewed publish intent and therefore has no CloudFormation handoff URL. The
+legacy `template_url` and `template_digest` fields remain derived display
+values only for an S3 binding, and every client/server parser rejects a missing
+or mismatched typed reference rather than treating either legacy field as an
+execution authority.
+
+Server startup now accepts only
+`P2P_CLOUD_CONNECTION_TEMPLATE_JSON`; the prior URL/digest environment
+variables fail closed even when present but empty. Flutter persists the same
+closed union, clears old cached plans, and never creates an external
+CloudFormation URL for a publish intent. This does not add any Agent/MCP
+mutation permission or expose AWS credentials.
+
+The independent Go Connection Stack now binds an immutable Broker ZIP object
+version and a Foundation-owned private Worker security group. If a CreateStack
+response is lost, it accepts the deterministic stack only after exact
+CloudFormation parameter, tag, ARN and original-template read-back. This is an
+internal controller contract; real AWS deployment remains disabled pending the
+separately tracked root-bootstrap resolver and isolated staging validation.
+
 ## 2026-07-16 Restricted AWS rootkey bootstrap
 
 `cloud.connections.role_plan` now accepts the optional boolean

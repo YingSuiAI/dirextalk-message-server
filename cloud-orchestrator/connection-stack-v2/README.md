@@ -137,6 +137,45 @@ parameters. The controller maps only its own
 `service_secrets_enabled` and `dynamic_artifacts_enabled` configuration to the
 corresponding fixed template flags; no uploaded value can enable an AWS action.
 
+The controller configuration also requires one typed `foundation_plan`. Its
+region must exactly equal the controller region and it is the sole source of
+the seven Worker template parameters: immutable AMI and resource-manifest
+digest, VPC, private subnet, Worker security group, Availability Zone, and IID
+verifier public key.
+Legacy loose `worker_ami_id`, VPC/subnet/AZ, manifest-digest, and IID-PEM
+configuration fields are rejected rather than merged into the request.
+
+## Disposable Connection Stack teardown
+
+`cmd/connection-stack-teardown` is a separate Go-only owner cleanup controller.
+It accepts only a Connection ID and Region when it creates a plan; it has no
+credential, ARN, table, bucket, image, snapshot, or generic AWS API flags.
+It uses the standard AWS SDK credential chain of the owner-operated process.
+
+```powershell
+go run ./cmd/connection-stack-teardown plan --connection-id <connection-id> --region <region> > teardown-plan.json
+go run ./cmd/connection-stack-teardown execute --plan teardown-plan.json
+go run ./cmd/connection-stack-teardown readback --plan teardown-plan.json
+```
+
+The plan is derived from the deterministic Connection Stack name and the
+Stack's own CloudFormation resource inventory. Before `execute` makes a
+mutation, it re-reads that inventory and rejects a stale or redirected plan.
+It does not pass `RetainResources` to CloudFormation: normal stack deletion is
+requested first, then only the reviewed retained resources are cleaned.
+
+The current closed cleanup set is the retained DynamoDB tables, optional
+dynamic-artifact S3 bucket and table, optional service-secret table/key/alias,
+optional dynamic-artifact key, plus manual-retention backup AMIs and snapshots
+that have the exact Connection ownership tags. DynamoDB deletion protection is
+disabled and read back before each table deletion; versioned S3 objects and
+delete markers are emptied before bucket deletion; every AMI/snapshot is read
+back after deregistration/deletion. KMS aliases are removed first and keys are
+scheduled with the fixed seven-day deletion window. A KMS key is reported as
+`pending_key_deletion`, never as `verified_destroyed`, until AWS actually
+removes it. Provider denial, lost plan provenance, a new untracked retained
+resource, or incomplete read-back fails closed.
+
 ## Verify locally
 
 ```powershell

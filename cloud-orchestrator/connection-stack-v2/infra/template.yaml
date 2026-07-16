@@ -15,8 +15,8 @@ Parameters:
     Description: Immutable S3 object key for the reviewed Go Lambda zip.
   BrokerArtifactVersion:
     Type: String
-    Default: ""
-    Description: Optional immutable S3 object version for the Go Lambda zip.
+    MinLength: 1
+    Description: Exact immutable S3 object version for the reviewed Go Lambda zip.
   ConnectionId:
     Type: String
     AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
@@ -60,6 +60,9 @@ Parameters:
   WorkerSubnetId:
     Type: String
     AllowedPattern: "^subnet-[0-9a-f]{8,17}$"
+  WorkerSecurityGroupId:
+    Type: String
+    AllowedPattern: "^sg-[0-9a-f]{8,17}$"
   WorkerAvailabilityZone:
     Type: String
     AllowedPattern: "^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9][a-z]$"
@@ -124,7 +127,6 @@ Rules:
           deployment creation is enabled.
 
 Conditions:
-  HasBrokerArtifactVersion: !Not [!Equals [!Ref BrokerArtifactVersion, ""]]
   DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
   DeploymentDestroyEnabled: !Equals [!Ref EnableDeploymentDestroy, "true"]
   ServiceBackupEnabled: !Equals [!Ref EnableServiceBackup, "true"]
@@ -135,25 +137,6 @@ Conditions:
   ServiceSecretDestroyEnabled: !And [!Condition DeploymentDestroyEnabled, !Condition ServiceSecretsEnabled]
 
 Resources:
-  WorkerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Dirextalk isolated worker egress only
-      VpcId: !Ref WorkerVpcId
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: udp
-          FromPort: 53
-          ToPort: 53
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 53
-          ToPort: 53
-          CidrIp: 0.0.0.0/0
-
   BrokerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -883,7 +866,7 @@ Resources:
                     - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
                     - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
                     - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${WorkerSubnetId}"
-                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${WorkerSecurityGroup}"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${WorkerSecurityGroupId}"
                   Condition:
                     StringEquals:
                       aws:RequestTag/dirextalk:managed: "true"
@@ -936,7 +919,7 @@ Resources:
       Code:
         S3Bucket: !Ref BrokerArtifactBucket
         S3Key: !Ref BrokerArtifactKey
-        S3ObjectVersion: !If [HasBrokerArtifactVersion, !Ref BrokerArtifactVersion, !Ref "AWS::NoValue"]
+        S3ObjectVersion: !Ref BrokerArtifactVersion
       Environment:
         Variables:
           DIREXTALK_CONNECTION_ID: !Ref ConnectionId
@@ -955,7 +938,7 @@ Resources:
           DIREXTALK_WORKER_VPC_ID: !Ref WorkerVpcId
           DIREXTALK_WORKER_SUBNET_ID: !Ref WorkerSubnetId
           DIREXTALK_WORKER_AVAILABILITY_ZONE: !Ref WorkerAvailabilityZone
-          DIREXTALK_WORKER_SECURITY_GROUP_ID: !GetAtt WorkerSecurityGroup.GroupId
+          DIREXTALK_WORKER_SECURITY_GROUP_ID: !Ref WorkerSecurityGroupId
           DIREXTALK_COMMAND_RECEIPTS_TABLE: !Ref CommandReceiptsTable
           DIREXTALK_CONNECTION_COUNTERS_TABLE: !Ref ConnectionCountersTable
           DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
@@ -1243,7 +1226,7 @@ Outputs:
   WorkerAvailabilityZone:
     Value: !Ref WorkerAvailabilityZone
   WorkerSecurityGroupId:
-    Value: !GetAtt WorkerSecurityGroup.GroupId
+    Value: !Ref WorkerSecurityGroupId
   DeploymentCreateEnabled:
     Value: !Ref EnableDeploymentCreate
   ServiceSecretsEnabled:

@@ -34,10 +34,10 @@ func (s *MemoryStore) CreateCloudGoal(_ context.Context, request cloudmodule.Cre
 func (s *MemoryStore) CreateCloudConnectionBootstrap(_ context.Context, request cloudmodule.CreateConnectionBootstrapRequest) (cloudmodule.CreateConnectionBootstrapResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	bootstrap := request.Bootstrap
+	bootstrap := cloneCloudConnectionBootstrap(request.Bootstrap)
 	idempotencyKey := bootstrap.OwnerMXID + "\x00" + bootstrap.IdempotencyHash
 	if bootstrapID, ok := s.cloudConnectionBootstrapIdem[idempotencyKey]; ok {
-		existing := s.cloudConnectionBootstraps[bootstrapID]
+		existing := cloneCloudConnectionBootstrap(s.cloudConnectionBootstraps[bootstrapID])
 		if existing.RequestDigest != bootstrap.RequestDigest {
 			return cloudmodule.CreateConnectionBootstrapResult{}, cloudmodule.ErrIdempotencyConflict
 		}
@@ -49,6 +49,11 @@ func (s *MemoryStore) CreateCloudConnectionBootstrap(_ context.Context, request 
 	s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
 	s.cloudConnectionBootstrapIdem[idempotencyKey] = bootstrap.BootstrapID
 	return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
+func cloneCloudConnectionBootstrap(bootstrap cloudmodule.ConnectionBootstrap) cloudmodule.ConnectionBootstrap {
+	bootstrap.ConnectionTemplate = bootstrap.ConnectionTemplate.Clone()
+	return bootstrap
 }
 
 func (s *MemoryStore) LoadCloudConnectionCredentialBootstrap(_ context.Context, request cloudmodule.LoadConnectionCredentialBootstrapRequest) (cloudmodule.ConnectionRolePlan, error) {

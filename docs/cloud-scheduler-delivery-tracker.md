@@ -758,16 +758,33 @@ stage; later checked workboard sections are the authoritative delivery record.
 
 ## Next action
 
-Upload the already built uniquely versioned **prerelease** Worker artifact and
-register its exact dynamic-artifact S3 `versionId`, then use the Go builder to
-assemble one matching dynamic-artifact AMI. Do not use `latest`, the formal
-`v1.0.3` tag, or any release/deployer script.
+### Paused handoff — 2026-07-16
 
-Rootkey bootstrap and verified SSH access to `a8.dirextalk.ai` are available
-through the constrained owner path. The next real-AWS prerequisites are to
-upload the prerelease Worker artifact, register its exact dynamic S3 version,
-build the matching dynamic AMI, deploy the reviewed Connection Stack controller
-and prove disposable-account cleanup/read-back. Immediately before any billable
-create the owner must confirm the latest Region, instance/disk specification
-and live quote. Until those prerequisites are complete, keep every real
-mutation gate off and use the completed fake lifecycle only.
+- [x] Replace mutable Connection Stack URLs with one strict, version-pinned
+  `connection_template` union across ProductCore, PostgreSQL, the Go bootstrap
+  controller and Flutter. A normal role plan carries one exact S3 object
+  version; a rootkey plan carries only a no-URL publish intent.
+- [x] Add Go-only immutable artifact publication/read-back, a typed private
+  Connection Foundation (including a no-ingress Worker security group), strict
+  Foundation-to-Stack parameter binding, and CreateStack response-loss
+  recovery that accepts only an exact CloudFormation read-back.
+- [x] Add a typed Connection Stack teardown controller and retain KMS state as
+  `pending_key_deletion` during AWS's mandatory waiting period. No deployer,
+  release, Node, or npm script was added.
+- [x] Pin the Cloud image build bases and use only the prerelease identifier
+  `v1.1.0-cloud-mvp.20260716.1`; neither `latest` nor `v1.0.3` is accepted by
+  the new artifact contracts.
+- [~] Preserve the in-progress `internal/rootbootstrap` release-config/file
+  source and resolver contract tests. `resolver.go` is intentionally not yet
+  implemented; its WIP test is guarded by `rootbootstrap_wip` so the paused
+  branch remains buildable. Preserve this work rather than replacing it with
+  a permissive root-key path.
+- [~] Preserve the `internal/foundationteardown` typed contract draft. Its
+  provider/service/read-back implementation remains the next lifecycle task.
+
+Resume by implementing the reviewed root-bootstrap resolver and Foundation
+teardown provider, then build/register the uniquely versioned prerelease
+Worker artifact and matching AMI. Only after those pieces and the isolated
+staging controller are ready may an owner-confirmed, quoted disposable AWS
+test create resources. Real AWS mutation, a8 staging deployment, and Agent
+conversation/OpenClaw/knowledge-base acceptance have not run in this commit.

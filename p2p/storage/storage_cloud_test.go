@@ -2,9 +2,14 @@ package storage
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +20,78 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
+
+func TestDatabaseStoreConnectionBootstrapPersistsRootTemplatePublishIntent(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.July, 16, 8, 0, 0, 0, time.UTC)
+	publicKey := cloudConnectionBootstrapSPKI(t)
+	template := cloudConnectionTemplatePublishIntent()
+	bootstrap := cloudmodule.ConnectionBootstrap{
+		BootstrapID: "bootstrap-persisted-intent-0001", OwnerMXID: "@owner:example.com", ConnectionID: "connection-persisted-intent-0001", Provider: "aws", RequestedRegion: "us-east-1",
+		ConnectionTemplate: template, TemplateURL: "", TemplateDigest: template.ContentDigest(), SourceTreeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		StackName: "dirextalk-connection-persisted-intent-0001", NodeKeyID: "node-key-persisted-0001", NodePublicKeySPKIBase64: publicKey,
+		DeviceApprovalKeyID: "device-key-persisted-0001", DeviceApprovalPublicKeySPKIBase64: publicKey, AllowRootCredentialBootstrap: true,
+		Status: cloudmodule.ConnectionBootstrapAwaitingStack, Revision: 1, IdempotencyHash: "bootstrap-persisted-intent-idempotency", RequestDigest: "bootstrap-persisted-intent-request",
+		ExpiresAt: now.Add(15 * time.Minute).UnixMilli(), CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli(),
+	}
+	if _, err := store.CreateCloudConnectionBootstrap(ctx, cloudmodule.CreateConnectionBootstrapRequest{Bootstrap: bootstrap}); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	var persistedJSON string
+	if err := store.DB().QueryRowContext(ctx, `SELECT connection_template_json FROM p2p_cloud_connection_bootstraps WHERE bootstrap_id = $1`, bootstrap.BootstrapID).Scan(&persistedJSON); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	if strings.Contains(persistedJSON, "template_url") || strings.Contains(persistedJSON, "bucket") || strings.Contains(persistedJSON, "version_id") {
+		store.Close()
+		t.Fatalf("root publish intent persisted mutable or pre-foundation location data: %s", persistedJSON)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	plan, err := reopened.LoadCloudConnectionCredentialBootstrap(ctx, cloudmodule.LoadConnectionCredentialBootstrapRequest{
+		OwnerMXID: bootstrap.OwnerMXID, BootstrapID: bootstrap.BootstrapID, ExpectedRevision: bootstrap.Revision, Now: now.Add(time.Minute).UnixMilli(),
+	})
+	if err != nil || !reflect.DeepEqual(plan.ConnectionTemplate, template) || plan.TemplateURL != "" || plan.TemplateDigest != template.ContentDigest() {
+		t.Fatalf("root publish intent did not survive storage restart: plan=%#v err=%v", plan, err)
+	}
+}
+
+func cloudConnectionBootstrapSPKI(t *testing.T) string {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(der)
+}
+
+func cloudConnectionTemplatePublishIntent() cloudmodule.ConnectionTemplateReference {
+	return cloudmodule.ConnectionTemplateReference{
+		Schema: "dirextalk.connection-template-reference/v1", Mode: "publish_intent",
+		PublishIntent: &cloudmodule.ConnectionTemplatePublishIntent{
+			Kind: "connection_stack_template", Version: "v1.1.0-cloud-mvp.20260716.1",
+			SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 512, ContentType: "application/x-yaml",
+		},
+	}
+}
 
 func TestDatabaseStoreCreateCloudGoalIsAtomicAndIdempotent(t *testing.T) {
 	ctx := context.Background()

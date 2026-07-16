@@ -111,6 +111,9 @@ func connectionCredentialBootstrapStoreError(err error) *actionbase.Error {
 }
 
 func connectionCredentialBootstrapRequest(requestID string, plan ConnectionRolePlan) (ConnectionCredentialBootstrapRequest, error) {
+	if err := validateConnectionRolePlanTemplate(plan); err != nil {
+		return ConnectionCredentialBootstrapRequest{}, err
+	}
 	fixed := make(map[string]string, 7)
 	for _, key := range []string{"ConnectionId", "ConnectionGeneration", "NodeKeyId", "NodePublicKeySpkiBase64", "DeviceApprovalKeyId", "DeviceApprovalPublicKeySpkiBase64", "StageName"} {
 		value := plan.CloudFormationParams[key]
@@ -124,13 +127,33 @@ func connectionCredentialBootstrapRequest(requestID string, plan ConnectionRoleP
 		RequestID: requestID,
 		RolePlan: ConnectionCredentialBootstrapRolePlanWire{
 			BootstrapID: plan.BootstrapID, ConnectionID: plan.CloudConnectionID, Region: plan.Region, StackName: plan.StackName,
-			TemplateURL: plan.TemplateURL, TemplateDigest: plan.TemplateDigest, SourceTreeDigest: plan.SourceTreeDigest,
+			ConnectionTemplate: plan.ConnectionTemplate.Clone(), SourceTreeDigest: plan.SourceTreeDigest,
 			FixedParameters: fixed, NodeKeyID: plan.CloudFormationParams["NodeKeyId"], NodeEd25519PublicKey: plan.CloudFormationParams["NodePublicKeySpkiBase64"],
 			DeviceKeyID: plan.CloudFormationParams["DeviceApprovalKeyId"], DeviceEd25519PublicKey: plan.CloudFormationParams["DeviceApprovalPublicKeySpkiBase64"],
 			AllowRootCredentialBootstrap: plan.AllowRootCredentialBootstrap,
 			ExpiresAt:                    time.UnixMilli(plan.ExpiresAt).UTC().Format(time.RFC3339Nano),
 		},
 	}, nil
+}
+
+func validateConnectionRolePlanTemplate(plan ConnectionRolePlan) error {
+	if plan.ConnectionTemplate.ValidateForRootCredentialBootstrap(plan.AllowRootCredentialBootstrap) != nil ||
+		plan.TemplateDigest != plan.ConnectionTemplate.ContentDigest() {
+		return errors.New("cloud connection role plan template reference is invalid")
+	}
+	switch plan.ConnectionTemplate.Mode {
+	case connectionTemplateModeS3Binding:
+		if plan.ConnectionTemplate.Binding == nil || validateTemplateURLForBinding(plan.TemplateURL, plan.Region, *plan.ConnectionTemplate.Binding) != nil {
+			return errors.New("cloud connection role plan template URL is invalid")
+		}
+	case connectionTemplateModePublishIntent:
+		if plan.TemplateURL != "" {
+			return errors.New("cloud connection role plan template URL is invalid")
+		}
+	default:
+		return errors.New("cloud connection role plan template reference is invalid")
+	}
+	return nil
 }
 
 func validateConnectionCredentialBootstrapSession(session ConnectionCredentialBootstrapSession, request ConnectionCredentialBootstrapRequest, now time.Time) error {

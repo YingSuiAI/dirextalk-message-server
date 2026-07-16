@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/artifactpublish"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -71,7 +72,11 @@ type BuildConfig struct {
 	// contains only the measured Worker runtime and resolves approved Recipe
 	// artifacts at task time instead of binding the bundled static catalog.
 	DynamicRecipeArtifacts bool
-	Timeout                time.Duration
+	// ReleaseSource is set only after the Worker archive has been published
+	// through the immutable release path. Nil preserves the historical
+	// temporary upload-and-delete build behavior.
+	ReleaseSource *artifactpublish.Binding
+	Timeout       time.Duration
 }
 
 func (config BuildConfig) Validate(artifact ValidatedArtifact) error {
@@ -86,25 +91,33 @@ func (config BuildConfig) Validate(artifact ValidatedArtifact) error {
 	if len(match) != 3 || match[2] != artifact.ImageDigest || config.OCISource != artifact.Catalog.ImageSource || strings.Contains(config.OCISource, "//") || strings.Contains(config.OCISource, "/../") || strings.Contains(config.OCISource, "/./") || strings.Contains(config.OCISource, "/@") {
 		return ErrInvalidConfig
 	}
+	if config.ReleaseSource != nil {
+		if err := validateReleaseSource(*config.ReleaseSource, artifact); err != nil || config.Bucket != config.ReleaseSource.Bucket || config.ObjectKey != config.ReleaseSource.Key {
+			return ErrInvalidConfig
+		}
+	}
 	return nil
 }
 
 type ImageManifest struct {
-	SchemaVersion                string   `json:"schema_version"`
-	ArtifactVersion              string   `json:"artifact_version"`
-	Region                       string   `json:"region"`
-	ImageID                      string   `json:"image_id"`
-	ImageName                    string   `json:"image_name"`
-	BaseAMIID                    string   `json:"base_ami_id"`
-	OCISource                    string   `json:"oci_source"`
-	ArchiveSHA256                string   `json:"archive_sha256"`
-	TrustedCatalogDigest         string   `json:"trusted_catalog_digest"`
-	WorkerResourceManifestDigest string   `json:"worker_resource_manifest_digest"`
-	WorkerOCICatalogDigest       string   `json:"worker_oci_catalog_digest"`
-	WorkerBinaryDigest           string   `json:"worker_binary_digest"`
-	RecipeArtifactMode           string   `json:"recipe_artifact_mode"`
-	SnapshotIDs                  []string `json:"snapshot_ids"`
-	CreatedAt                    string   `json:"created_at"`
+	SchemaVersion                string `json:"schema_version"`
+	ArtifactVersion              string `json:"artifact_version"`
+	Region                       string `json:"region"`
+	ImageID                      string `json:"image_id"`
+	ImageName                    string `json:"image_name"`
+	BaseAMIID                    string `json:"base_ami_id"`
+	OCISource                    string `json:"oci_source"`
+	ArchiveSHA256                string `json:"archive_sha256"`
+	TrustedCatalogDigest         string `json:"trusted_catalog_digest"`
+	WorkerResourceManifestDigest string `json:"worker_resource_manifest_digest"`
+	WorkerOCICatalogDigest       string `json:"worker_oci_catalog_digest"`
+	WorkerBinaryDigest           string `json:"worker_binary_digest"`
+	RecipeArtifactMode           string `json:"recipe_artifact_mode"`
+	// SourceArchive is populated only by explicit release-publish builds. It
+	// records the immutable S3 object version from which this AMI was built.
+	SourceArchive *artifactpublish.Binding `json:"source_archive,omitempty"`
+	SnapshotIDs   []string                 `json:"snapshot_ids"`
+	CreatedAt     string                   `json:"created_at"`
 }
 
 func (manifest ImageManifest) Validate() error {
@@ -119,12 +132,32 @@ func (manifest ImageManifest) Validate() error {
 			return ErrInvalidConfig
 		}
 	}
+	if manifest.SourceArchive != nil {
+		if err := validateReleaseBinding(*manifest.SourceArchive, manifest.ArtifactVersion, manifest.ArchiveSHA256); err != nil {
+			return ErrInvalidConfig
+		}
+	}
 	for _, id := range manifest.SnapshotIDs {
 		if !strings.HasPrefix(id, "snap-") {
 			return ErrInvalidConfig
 		}
 	}
 	if _, err := time.Parse(time.RFC3339Nano, manifest.CreatedAt); err != nil {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateReleaseSource(binding artifactpublish.Binding, artifact ValidatedArtifact) error {
+	if err := validateReleaseBinding(binding, artifact.Catalog.ArtifactVersion, artifact.ArchiveSHA256); err != nil || binding.SizeBytes != artifact.ArchiveSize {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateReleaseBinding(binding artifactpublish.Binding, version, archiveSHA256 string) error {
+	policy := artifactpublish.Policy{Bucket: binding.Bucket, KMSKeyID: binding.KMSKeyID}
+	if binding.Kind != artifactpublish.KindWorkerArchive || binding.Version != version || binding.SHA256 != archiveSHA256 || binding.ValidateFor(policy) != nil {
 		return ErrInvalidConfig
 	}
 	return nil

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/cloud-orchestrator/connection-stack-v2/internal/artifactpublish"
 )
 
 func TestBuildVerifyDestroyHappyAndResponseLossRecovery(t *testing.T) {
@@ -28,7 +30,7 @@ func TestBuildVerifyDestroyHappyAndResponseLossRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
-			if provider.putCalls != 1 || provider.deleteObjectCalls != 1 || provider.terminateCalls != 1 || manifest.TrustedCatalogDigest != artifact.CatalogDigest || manifest.RecipeArtifactMode != RecipeArtifactStatic {
+			if provider.putCalls != 1 || provider.deleteObjectCalls != 1 || provider.terminateCalls != 1 || manifest.TrustedCatalogDigest != artifact.CatalogDigest || manifest.RecipeArtifactMode != RecipeArtifactStatic || manifest.SourceArchive != nil {
 				t.Fatalf("cleanup/binding mismatch: %#v", provider)
 			}
 			if provider.launchSpec.Tags["dirextalk:recipe-artifact-mode"] != RecipeArtifactStatic ||
@@ -111,6 +113,44 @@ func TestBuildDynamicRecipeArtifactImageDoesNotPrepullOrBindStaticCatalog(t *tes
 	}
 }
 
+func TestBuildReleaseSourceCarriesImmutableBindingWithoutTemporaryCleanup(t *testing.T) {
+	artifact := artifactFixture(t)
+	binding := releaseBinding(t, artifact)
+	clock := &fakeClock{now: time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC)}
+	provider := &fakeProvider{artifact: artifact, images: map[string]ImageObservation{}}
+	builder, _ := NewBuilder(provider, clock)
+	builder.poll = time.Second
+	config := buildConfigFixture(artifact)
+	config.Bucket = binding.Bucket
+	config.ObjectKey = binding.Key
+	config.ReleaseSource = &binding
+	provider.marker = successMarker(config.ArtifactVersion, artifact, false)
+
+	manifest, err := builder.Build(context.Background(), config, artifact)
+	if err != nil {
+		t.Fatalf("Build release source: %v", err)
+	}
+	if provider.putCalls != 0 || provider.deleteObjectCalls != 0 || provider.presignVersion != binding.VersionID || manifest.SourceArchive == nil || *manifest.SourceArchive != binding {
+		t.Fatalf("release source was not pinned: put=%d delete=%d presign=%q manifest=%#v", provider.putCalls, provider.deleteObjectCalls, provider.presignVersion, manifest.SourceArchive)
+	}
+	raw, _ := json.Marshal(manifest)
+	parsed, err := ParseImageManifest(raw)
+	if err != nil || parsed.SourceArchive == nil || *parsed.SourceArchive != binding {
+		t.Fatalf("ParseImageManifest release source=%#v err=%v", parsed.SourceArchive, err)
+	}
+
+	mutable := binding
+	mutable.VersionID = "null"
+	config.ReleaseSource = &mutable
+	if err := config.Validate(artifact); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("mutable source accepted by build config: %v", err)
+	}
+	manifest.SourceArchive = &mutable
+	if err := manifest.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("mutable source accepted by image manifest: %v", err)
+	}
+}
+
 func TestValidateArchiveRejectsTamperAndSymlink(t *testing.T) {
 	artifact := artifactFixture(t)
 	if artifact.Catalog.ArtifactVersion != "v1.2.0-stage-t.1" || artifact.ImageDigest != digest("2") || artifact.Catalog.ImageSource != "ghcr.io/dirextalk/worker-fixture@"+artifact.ImageDigest {
@@ -164,6 +204,7 @@ type fakeProvider struct {
 	builder                                     BuilderObservation
 	images                                      map[string]ImageObservation
 	launchSpec                                  LaunchSpec
+	presignBucket, presignKey, presignVersion   string
 	putCalls, deleteObjectCalls, terminateCalls int
 }
 
@@ -175,7 +216,8 @@ func (provider *fakeProvider) PutArtifact(_ context.Context, _, _, _ string, fil
 	}
 	return ArtifactUpload{VersionID: "version-0001"}, nil
 }
-func (provider *fakeProvider) PresignArtifactGET(context.Context, string, string, string, time.Duration) (string, error) {
+func (provider *fakeProvider) PresignArtifactGET(_ context.Context, bucket, key, version string, _ time.Duration) (string, error) {
+	provider.presignBucket, provider.presignKey, provider.presignVersion = bucket, key, version
 	return "https://artifacts.example.invalid/worker.tar?X-Amz-Signature=redacted", nil
 }
 func (provider *fakeProvider) DeleteArtifact(context.Context, string, string, string) error {
@@ -247,6 +289,16 @@ func (provider *fakeProvider) DeleteSnapshot(_ context.Context, _ string, tags m
 
 func buildConfigFixture(artifact ValidatedArtifact) BuildConfig {
 	return BuildConfig{Region: "us-east-1", BaseAMIID: "ami-0abcdef0123456789", SubnetID: "subnet-0abcdef0123456789", SecurityGroupID: "sg-0abcdef0123456789", Bucket: "dirextalk-worker-artifacts", ObjectKey: "worker/v1.2.0-stage-t.1/artifact.tar", ArtifactVersion: artifact.Catalog.ArtifactVersion, InstanceType: "m7i.large", OCISource: "ghcr.io/dirextalk/worker-fixture@" + artifact.ImageDigest, Timeout: 10 * time.Minute}
+}
+
+func releaseBinding(t *testing.T, artifact ValidatedArtifact) artifactpublish.Binding {
+	t.Helper()
+	policy := artifactpublish.Policy{Bucket: "dirextalk-release-artifacts", KMSKeyID: "alias/dirextalk-worker-release"}
+	binding, err := artifactpublish.NewBinding(policy, artifactpublish.ArtifactDescriptor{Kind: artifactpublish.KindWorkerArchive, Version: artifact.Catalog.ArtifactVersion, SHA256: artifact.ArchiveSHA256, SizeBytes: artifact.ArchiveSize}, "3Lg5kqtJlcpXroDTDmJ+.yKk6aYxEtR2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }
 
 func artifactFixture(t *testing.T) ValidatedArtifact {

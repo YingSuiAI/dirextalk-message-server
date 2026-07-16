@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -76,15 +77,16 @@ func TestP2PEventRetentionInvalidEnvDisablesPruning(t *testing.T) {
 }
 
 func TestP2PCloudConnectionStackConfigFromEnv(t *testing.T) {
-	t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL", "https://artifacts.example.invalid/connection-stack-v2/template.json")
-	t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	unsetEnvironmentVariable(t, "P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL")
+	unsetEnvironmentVariable(t, "P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST")
+	t.Setenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON", `{"schema":"dirextalk.connection-template-reference/v1","mode":"s3_binding","binding":{"schema":"dirextalk.immutable-artifact-binding/v1","kind":"connection_stack_template","version":"v1.1.0-cloud-mvp.20260716.1","bucket":"dirextalk-artifacts","key":"releases/connection-stack/v1.1.0-cloud-mvp.20260716.1/connection-stack-v1.1.0-cloud-mvp.20260716.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.yaml","version_id":"version-00000001","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size_bytes":512,"content_type":"application/x-yaml","kms_key_id":"alias/dirextalk-artifacts"}}`)
 	t.Setenv("P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	t.Setenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID", "node-key-1")
 	t.Setenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64", "public-key-material")
 	t.Setenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS", "900")
 
 	config := p2pCloudConnectionStackConfigFromEnv()
-	if config.TemplateURL != "https://artifacts.example.invalid/connection-stack-v2/template.json" ||
+	if config.TemplateURL != "" || config.ConnectionTemplate.Mode != "s3_binding" ||
 		config.TemplateDigest != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
 		config.SourceTreeDigest != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
 		config.NodeKeyID != "node-key-1" || config.NodePublicKeySPKIBase64 != "public-key-material" ||
@@ -96,6 +98,47 @@ func TestP2PCloudConnectionStackConfigFromEnv(t *testing.T) {
 	if config := p2pCloudConnectionStackConfigFromEnv(); config.RolePlanTTL != 0 {
 		t.Fatalf("invalid role-plan TTL must fail closed: %#v", config)
 	}
+}
+
+func TestP2PCloudConnectionStackConfigFromEnvRejectsLegacyOrMalformedTemplateSettings(t *testing.T) {
+	validTemplate := `{"schema":"dirextalk.connection-template-reference/v1","mode":"publish_intent","publish_intent":{"kind":"connection_stack_template","version":"v1.1.0-cloud-mvp.20260716.1","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size_bytes":512,"content_type":"application/x-yaml"}}`
+	for name, configure := range map[string]func(*testing.T){
+		"legacy_url": func(t *testing.T) {
+			t.Setenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON", validTemplate)
+			t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL", "https://s3.us-east-1.amazonaws.com/dirextalk-artifacts/template.yaml?versionId=version-00000001")
+		},
+		"legacy_digest": func(t *testing.T) {
+			t.Setenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON", validTemplate)
+			t.Setenv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		},
+		"unknown_json_field": func(t *testing.T) {
+			t.Setenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON", validTemplate[:len(validTemplate)-1]+`,"url":"https://mutable.example.invalid/template.yaml"}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			unsetEnvironmentVariable(t, "P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL")
+			unsetEnvironmentVariable(t, "P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST")
+			configure(t)
+			if config := p2pCloudConnectionStackConfigFromEnv(); config.ConnectionTemplate.Mode != "" || config.TemplateDigest != "" || config.RolePlanTTL != 0 {
+				t.Fatalf("legacy or malformed template configuration was accepted: %#v", config)
+			}
+		})
+	}
+}
+
+func unsetEnvironmentVariable(t *testing.T, name string) {
+	t.Helper()
+	previous, existed := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(name, previous)
+			return
+		}
+		_ = os.Unsetenv(name)
+	})
 }
 
 func TestP2PCloudConnectionCredentialBootstrapConfigFromEnv(t *testing.T) {

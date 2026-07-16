@@ -30,15 +30,20 @@ var (
 // caller owns where these non-secret values are configured; this module never
 // reads a node private key or any AWS credential.
 func ValidateConnectionStackConfig(config ConnectionStackConfig) error {
+	// A raw URL cannot express the full immutable artifact contract and is
+	// especially impossible before a root bootstrap creates its artifact
+	// bucket. Keep the legacy field only long enough to reject old settings.
+	if config.TemplateURL != "" {
+		return errors.New("cloud connection stack template URL is invalid")
+	}
 	if !namedSHA256Pattern.MatchString(config.TemplateDigest) {
 		return errors.New("cloud connection stack template digest is invalid")
 	}
+	if config.ConnectionTemplate.Validate() != nil || config.TemplateDigest != config.ConnectionTemplate.ContentDigest() {
+		return errors.New("cloud connection stack template reference is invalid")
+	}
 	if !namedSHA256Pattern.MatchString(config.SourceTreeDigest) {
 		return errors.New("cloud connection stack source-tree digest is invalid")
-	}
-	parsed, err := url.ParseRequestURI(strings.TrimSpace(config.TemplateURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || len(config.TemplateURL) > 2048 {
-		return errors.New("cloud connection stack template URL is invalid")
 	}
 	if !cloudKeyIDPattern.MatchString(config.NodeKeyID) {
 		return errors.New("cloud connection stack node key id is invalid")
@@ -63,9 +68,12 @@ func validateConnectionBootstrap(bootstrap ConnectionBootstrap) error {
 	// The role-plan lifetime is represented by ExpiresAt here. Validate the
 	// immutable template and key identity directly instead of inventing a TTL
 	// merely to reuse the public configuration validator.
-	if !namedSHA256Pattern.MatchString(bootstrap.TemplateDigest) || !namedSHA256Pattern.MatchString(bootstrap.SourceTreeDigest) || !validTemplateURL(bootstrap.TemplateURL) ||
+	if !namedSHA256Pattern.MatchString(bootstrap.TemplateDigest) || !namedSHA256Pattern.MatchString(bootstrap.SourceTreeDigest) ||
 		!cloudKeyIDPattern.MatchString(bootstrap.NodeKeyID) || validateEd25519SPKIBase64(bootstrap.NodePublicKeySPKIBase64) != nil {
 		return errors.New("cloud connection bootstrap stack identity is invalid")
+	}
+	if err := validateConnectionBootstrapTemplate(bootstrap); err != nil {
+		return err
 	}
 	if err := validateEd25519SPKIBase64(bootstrap.DeviceApprovalPublicKeySPKIBase64); err != nil {
 		return errors.New("cloud connection bootstrap device approval key is invalid")
@@ -73,9 +81,24 @@ func validateConnectionBootstrap(bootstrap ConnectionBootstrap) error {
 	return nil
 }
 
-func validTemplateURL(raw string) bool {
-	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.Hostname() != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.RawPath == "" && len(raw) <= 2048
+func validateConnectionBootstrapTemplate(bootstrap ConnectionBootstrap) error {
+	if bootstrap.ConnectionTemplate.ValidateForRootCredentialBootstrap(bootstrap.AllowRootCredentialBootstrap) != nil ||
+		bootstrap.TemplateDigest != bootstrap.ConnectionTemplate.ContentDigest() {
+		return errors.New("cloud connection bootstrap template reference is invalid")
+	}
+	switch bootstrap.ConnectionTemplate.Mode {
+	case connectionTemplateModeS3Binding:
+		if bootstrap.ConnectionTemplate.Binding == nil || validateTemplateURLForBinding(bootstrap.TemplateURL, bootstrap.RequestedRegion, *bootstrap.ConnectionTemplate.Binding) != nil {
+			return errors.New("cloud connection bootstrap template URL is invalid")
+		}
+	case connectionTemplateModePublishIntent:
+		if bootstrap.TemplateURL != "" {
+			return errors.New("cloud connection bootstrap template URL is invalid")
+		}
+	default:
+		return errors.New("cloud connection bootstrap template reference is invalid")
+	}
+	return nil
 }
 
 func validateEd25519SPKIBase64(value string) error {
@@ -103,6 +126,7 @@ func (bootstrap ConnectionBootstrap) RolePlan() ConnectionRolePlan {
 		Status:                       bootstrap.Status,
 		Revision:                     bootstrap.Revision,
 		ExpiresAt:                    bootstrap.ExpiresAt,
+		ConnectionTemplate:           bootstrap.ConnectionTemplate.Clone(),
 		TemplateURL:                  bootstrap.TemplateURL,
 		TemplateDigest:               bootstrap.TemplateDigest,
 		SourceTreeDigest:             bootstrap.SourceTreeDigest,
@@ -175,8 +199,8 @@ func ValidateConnectionRegistrationStackARN(raw, requestedRegion string) error {
 	return nil
 }
 
-func connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey string, allowRootCredentialBootstrap bool) string {
-	return digestFields(provider, region, deviceKeyID, devicePublicKey, fmt.Sprintf("%t", allowRootCredentialBootstrap))
+func connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey string, allowRootCredentialBootstrap bool, template ConnectionTemplateReference) string {
+	return digestFields(provider, region, deviceKeyID, devicePublicKey, fmt.Sprintf("%t", allowRootCredentialBootstrap), template.IdentityDigest())
 }
 
 func connectionBootstrapCompletionDigest(bootstrapID, brokerCommandURL, stackARN string) string {

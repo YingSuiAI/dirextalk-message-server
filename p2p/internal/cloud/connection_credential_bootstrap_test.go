@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +20,8 @@ func TestConnectionCredentialBootstrapUsesOnlyDurableRolePlanAndPassesSessionSta
 	plan := ConnectionRolePlan{
 		BootstrapID: "bootstrap-credential-test-0001", CloudConnectionID: connectionID, Provider: "aws", Region: "us-east-1",
 		Status: ConnectionBootstrapAwaitingStack, Revision: 1, ExpiresAt: now.Add(15 * time.Minute).UnixMilli(),
-		TemplateURL:                  "https://artifacts.example.invalid/connection-stack-v2.yaml",
+		ConnectionTemplate:           credentialBootstrapPublishIntent(),
+		TemplateURL:                  "",
 		TemplateDigest:               "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		SourceTreeDigest:             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		StackName:                    connectionStackName(connectionID),
@@ -46,8 +48,12 @@ func TestConnectionCredentialBootstrapUsesOnlyDurableRolePlanAndPassesSessionSta
 	}
 	if client.request.RequestID != params["idempotency_key"] || client.request.RolePlan.BootstrapID != plan.BootstrapID || client.request.RolePlan.ConnectionID != connectionID ||
 		client.request.RolePlan.NodeEd25519PublicKey != publicKey || client.request.RolePlan.DeviceEd25519PublicKey != publicKey ||
-		!client.request.RolePlan.AllowRootCredentialBootstrap || !reflect.DeepEqual(client.request.RolePlan.FixedParameters, plan.CloudFormationParams) {
+		!client.request.RolePlan.AllowRootCredentialBootstrap || !reflect.DeepEqual(client.request.RolePlan.FixedParameters, plan.CloudFormationParams) || !reflect.DeepEqual(client.request.RolePlan.ConnectionTemplate, plan.ConnectionTemplate) {
 		t.Fatalf("request was not derived from durable role plan: %#v", client.request)
+	}
+	encodedRequest, err := json.Marshal(client.request)
+	if err != nil || !strings.Contains(string(encodedRequest), `"connection_template"`) || strings.Contains(string(encodedRequest), `"template_url"`) || strings.Contains(string(encodedRequest), `"template_digest"`) {
+		t.Fatalf("credential bootstrap wire must carry only the typed template reference: %s err=%v", encodedRequest, err)
 	}
 	response := result.(map[string]any)["session"].(map[string]any)
 	if response["status"] != "awaiting_upload" || response["upload_bearer"] == "" || response["session_id"] != "aws-bootstrap-session-test-0001" {
@@ -72,6 +78,17 @@ func TestConnectionCredentialBootstrapUsesOnlyDurableRolePlanAndPassesSessionSta
 	injected := map[string]any{"bootstrap_id": plan.BootstrapID, "expected_revision": float64(1), "idempotency_key": params["idempotency_key"], "region": "eu-west-1"}
 	if _, apiErr = module.Handlers()[actionConnectionsCredentialBootstrapCreate](t.Context(), injected); apiErr == nil || client.calls != 2 {
 		t.Fatalf("client-supplied role-plan material was accepted: err=%v calls=%d", apiErr, client.calls)
+	}
+}
+
+func credentialBootstrapPublishIntent() ConnectionTemplateReference {
+	return ConnectionTemplateReference{
+		Schema: connectionTemplateReferenceSchema,
+		Mode:   connectionTemplateModePublishIntent,
+		PublishIntent: &ConnectionTemplatePublishIntent{
+			Kind: connectionTemplateArtifactKind, Version: "v1.1.0-cloud-mvp.20260716.1",
+			SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 512, ContentType: connectionTemplateContentType,
+		},
 	}
 }
 

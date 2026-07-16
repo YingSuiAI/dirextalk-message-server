@@ -177,7 +177,8 @@ func seedConnectionRegistrationBootstrap(t *testing.T, ctx context.Context, data
 	devicePublic := connectionRegistrationSPKI(t)
 	bootstrap := cloudmodule.ConnectionBootstrap{
 		BootstrapID: "bootstrap-1", OwnerMXID: "@owner:example.com", ConnectionID: "connection-1", Provider: "aws",
-		RequestedRegion: "ap-northeast-1", TemplateURL: "https://artifacts.example.invalid/connection-stack-v2/template.json",
+		RequestedRegion: "ap-northeast-1", ConnectionTemplate: connectionRegistrationTemplateBinding(),
+		TemplateURL:    "https://s3.ap-northeast-1.amazonaws.com/dirextalk-artifacts/releases/connection-stack/v1.1.0-cloud-mvp.20260716.1/connection-stack-v1.1.0-cloud-mvp.20260716.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.yaml?versionId=version-00000001",
 		TemplateDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SourceTreeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", StackName: "dirextalk-connection-1",
 		NodeKeyID: "node-key-1", NodePublicKeySPKIBase64: nodePublic, DeviceApprovalKeyID: "device-key-1",
 		DeviceApprovalPublicKeySPKIBase64: devicePublic, Status: cloudmodule.ConnectionBootstrapAwaitingStack,
@@ -208,6 +209,18 @@ func seedConnectionRegistrationBootstrap(t *testing.T, ctx context.Context, data
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func connectionRegistrationTemplateBinding() cloudmodule.ConnectionTemplateReference {
+	return cloudmodule.ConnectionTemplateReference{
+		Schema: "dirextalk.connection-template-reference/v1", Mode: "s3_binding",
+		Binding: &cloudmodule.ConnectionTemplateBinding{
+			Schema: "dirextalk.immutable-artifact-binding/v1", Kind: "connection_stack_template", Version: "v1.1.0-cloud-mvp.20260716.1",
+			Bucket: "dirextalk-artifacts", Key: "releases/connection-stack/v1.1.0-cloud-mvp.20260716.1/connection-stack-v1.1.0-cloud-mvp.20260716.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.yaml",
+			VersionID: "version-00000001", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 512,
+			ContentType: "application/x-yaml", KMSKeyID: "alias/dirextalk-artifacts",
+		},
 	}
 }
 

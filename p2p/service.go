@@ -71,12 +71,28 @@ type Config struct {
 // owner-only Connection Stack role-plan. It contains public key material only;
 // the Cloud Orchestrator receives the matching private key from a mounted file.
 type CloudConnectionStackConfig struct {
+	// TemplateURL is a rejected legacy setting. The executable template is the
+	// closed ConnectionTemplate union below; keeping this field prevents an old
+	// environment configuration from silently becoming an arbitrary fetch.
 	TemplateURL             string
 	TemplateDigest          string
+	ConnectionTemplate      CloudConnectionTemplate
 	SourceTreeDigest        string
 	NodeKeyID               string
 	NodePublicKeySPKIBase64 string
 	RolePlanTTL             time.Duration
+}
+
+// CloudConnectionTemplate is the closed immutable template reference shared
+// by setup and the p2p Cloud module. It deliberately exposes no URL-only
+// compatibility constructor.
+type CloudConnectionTemplate = cloudmodule.ConnectionTemplateReference
+
+// ParseCloudConnectionTemplateJSON is the only public configuration parser
+// for a Connection Stack template. Keeping the parser here prevents setup
+// from importing p2p/internal/cloud or accepting a mutable URL fallback.
+func ParseCloudConnectionTemplateJSON(raw string) (CloudConnectionTemplate, error) {
+	return cloudmodule.ParseConnectionTemplateReference(raw)
 }
 
 type CloudConnectionCredentialBootstrapConfig struct {
@@ -817,7 +833,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 		DeploymentCreateEnabled: cfg.CloudDeploymentCreateEnabled,
 		ConnectionStack: cloudmodule.ConnectionStackConfig{
-			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,
+			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, ConnectionTemplate: cfg.CloudConnectionStack.ConnectionTemplate, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,
 			NodeKeyID: cfg.CloudConnectionStack.NodeKeyID, NodePublicKeySPKIBase64: cfg.CloudConnectionStack.NodePublicKeySPKIBase64,
 			RolePlanTTL: cfg.CloudConnectionStack.RolePlanTTL,
 		},

@@ -119,6 +119,7 @@ type Module struct {
 }
 
 func New(store Store, cfg Config) *Module {
+	cfg.ConnectionStack.ConnectionTemplate = cfg.ConnectionStack.ConnectionTemplate.Clone()
 	return &Module{store: store, cfg: cfg}
 }
 
@@ -387,6 +388,9 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 	if _, err := uuid.Parse(idempotencyKey); err != nil {
 		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
 	}
+	if stackConfig.ConnectionTemplate.ValidateForRootCredentialBootstrap(allowRootCredentialBootstrap) != nil {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionBootstrapInvalidCode, "cloud connection role plan is invalid")
+	}
 	ownerMXID := m.ownerMXID()
 	if ownerMXID == "" {
 		return nil, actionbase.InternalError(context.Canceled)
@@ -394,14 +398,22 @@ func (m *Module) createConnectionRolePlan(ctx context.Context, params map[string
 	now := m.now().UnixMilli()
 	bootstrapID := m.newID("connection_bootstrap")
 	connectionID := m.newID("connection")
+	templateURL := ""
+	if !allowRootCredentialBootstrap {
+		var templateURLErr error
+		templateURL, templateURLErr = stackConfig.ConnectionTemplate.CloudFormationURL(region)
+		if templateURLErr != nil {
+			return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionStackUnavailableCode, "cloud connection stack is not configured")
+		}
+	}
 	bootstrap := ConnectionBootstrap{
 		BootstrapID: bootstrapID, OwnerMXID: ownerMXID, ConnectionID: connectionID, Provider: provider,
-		RequestedRegion: region, TemplateURL: stackConfig.TemplateURL, TemplateDigest: stackConfig.TemplateDigest, SourceTreeDigest: stackConfig.SourceTreeDigest,
+		RequestedRegion: region, ConnectionTemplate: stackConfig.ConnectionTemplate.Clone(), TemplateURL: templateURL, TemplateDigest: stackConfig.TemplateDigest, SourceTreeDigest: stackConfig.SourceTreeDigest,
 		StackName: connectionStackName(connectionID), NodeKeyID: stackConfig.NodeKeyID,
 		NodePublicKeySPKIBase64: stackConfig.NodePublicKeySPKIBase64, DeviceApprovalKeyID: deviceKeyID,
 		DeviceApprovalPublicKeySPKIBase64: devicePublicKey, AllowRootCredentialBootstrap: allowRootCredentialBootstrap, Status: ConnectionBootstrapAwaitingStack,
 		Revision: 1, IdempotencyHash: digest(idempotencyKey),
-		RequestDigest: connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey, allowRootCredentialBootstrap),
+		RequestDigest: connectionBootstrapRequestDigest(provider, region, deviceKeyID, devicePublicKey, allowRootCredentialBootstrap, stackConfig.ConnectionTemplate),
 		ExpiresAt:     now + stackConfig.RolePlanTTL.Milliseconds(), CreatedAt: now, UpdatedAt: now,
 	}
 	if err := validateConnectionBootstrap(bootstrap); err != nil {

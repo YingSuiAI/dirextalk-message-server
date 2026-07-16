@@ -1914,6 +1914,17 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: immutable connection template reference v71",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				// A raw URL cannot survive a restart as the execution authority.
+				// Existing pre-v71 rows deliberately receive an empty value and fail
+				// closed when read; new role plans persist the complete closed union.
+				`ALTER TABLE p2p_cloud_connection_bootstraps ADD COLUMN IF NOT EXISTS connection_template_json TEXT NOT NULL DEFAULT ''`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

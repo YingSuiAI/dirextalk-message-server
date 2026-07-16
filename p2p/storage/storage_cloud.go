@@ -31,7 +31,7 @@ const cloudJobColumns = `
 
 const cloudConnectionBootstrapColumns = `
 	bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
-	template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
+	template_url, template_digest, connection_template_json, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
 	device_approval_key_id, device_approval_public_key_spki_base64, allow_root_credential_bootstrap,
 	candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
 	completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
@@ -187,24 +187,28 @@ func (s *DatabaseStore) CreateCloudGoal(ctx context.Context, request cloudmodule
 
 func (s *DatabaseStore) CreateCloudConnectionBootstrap(ctx context.Context, request cloudmodule.CreateConnectionBootstrapRequest) (cloudmodule.CreateConnectionBootstrapResult, error) {
 	result := cloudmodule.CreateConnectionBootstrapResult{}
+	bootstrap := request.Bootstrap
+	templateJSON, templateErr := cloudmodule.EncodeConnectionTemplateReference(bootstrap.ConnectionTemplate)
+	if templateErr != nil {
+		return result, cloudmodule.ErrConnectionBootstrapInvalid
+	}
 	err := s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
-		bootstrap := request.Bootstrap
 		var inserted string
 		err := txn.QueryRowContext(ctx, `
 			INSERT INTO p2p_cloud_connection_bootstraps (
 				bootstrap_id, owner_mxid, cloud_connection_id, provider, requested_region,
-				template_url, template_digest, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
+				template_url, template_digest, connection_template_json, source_tree_digest, stack_name, node_key_id, node_public_key_spki_base64,
 				device_approval_key_id, device_approval_public_key_spki_base64, allow_root_credential_bootstrap,
 				candidate_broker_url, stack_arn, status, revision, idempotency_hash, request_digest,
 				completion_idempotency_hash, completion_request_digest, job_id, next_node_counter,
 				expires_at, created_at, updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '', '', $15, $16, $17, $18, '', '', '', 0, $19, $20, $20
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, '', '', $16, $17, $18, $19, '', '', '', 0, $20, $21, $21
 			)
 			ON CONFLICT (owner_mxid, idempotency_hash) DO NOTHING
 			RETURNING bootstrap_id
 		`, bootstrap.BootstrapID, bootstrap.OwnerMXID, bootstrap.ConnectionID, bootstrap.Provider, bootstrap.RequestedRegion,
-			bootstrap.TemplateURL, bootstrap.TemplateDigest, bootstrap.SourceTreeDigest, bootstrap.StackName, bootstrap.NodeKeyID, bootstrap.NodePublicKeySPKIBase64,
+			bootstrap.TemplateURL, bootstrap.TemplateDigest, templateJSON, bootstrap.SourceTreeDigest, bootstrap.StackName, bootstrap.NodeKeyID, bootstrap.NodePublicKeySPKIBase64,
 			bootstrap.DeviceApprovalKeyID, bootstrap.DeviceApprovalPublicKeySPKIBase64, bootstrap.AllowRootCredentialBootstrap, bootstrap.Status, bootstrap.Revision,
 			bootstrap.IdempotencyHash, bootstrap.RequestDigest, bootstrap.ExpiresAt, bootstrap.CreatedAt).Scan(&inserted)
 		switch {
@@ -953,14 +957,23 @@ func scanCloudConnection(row cloudScanner, item *cloudmodule.Connection) error {
 }
 
 func scanCloudConnectionBootstrap(row cloudScanner, item *cloudmodule.ConnectionBootstrap) error {
-	return row.Scan(
+	var templateJSON string
+	if err := row.Scan(
 		&item.BootstrapID, &item.OwnerMXID, &item.ConnectionID, &item.Provider, &item.RequestedRegion,
-		&item.TemplateURL, &item.TemplateDigest, &item.SourceTreeDigest, &item.StackName, &item.NodeKeyID, &item.NodePublicKeySPKIBase64,
+		&item.TemplateURL, &item.TemplateDigest, &templateJSON, &item.SourceTreeDigest, &item.StackName, &item.NodeKeyID, &item.NodePublicKeySPKIBase64,
 		&item.DeviceApprovalKeyID, &item.DeviceApprovalPublicKeySPKIBase64, &item.AllowRootCredentialBootstrap,
 		&item.CandidateBrokerURL, &item.StackARN, &item.Status, &item.Revision, &item.IdempotencyHash, &item.RequestDigest,
 		&item.CompletionIdempotencyHash, &item.CompletionRequestDigest, &item.JobID, &item.NextNodeCounter,
 		&item.ExpiresAt, &item.CreatedAt, &item.UpdatedAt,
-	)
+	); err != nil {
+		return err
+	}
+	template, err := cloudmodule.ParsePersistedConnectionTemplateReference(templateJSON)
+	if err != nil {
+		return cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	item.ConnectionTemplate = template
+	return nil
 }
 
 func requireCloudBootstrapMutation(result sql.Result) error {
