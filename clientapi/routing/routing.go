@@ -50,6 +50,38 @@ type WellKnownClientResponse struct {
 	SlidingSyncProxy *WellKnownSlidingSyncProxy `json:"org.matrix.msc3575.proxy,omitempty"`
 }
 
+type versionsResponse struct {
+	Versions         []string        `json:"versions"`
+	UnstableFeatures map[string]bool `json:"unstable_features"`
+}
+
+func clientVersionsResponse(mscs []string) versionsResponse {
+	unstableFeatures := map[string]bool{
+		"io.dirextalk.media.resumable_upload": true,
+		"org.matrix.e2e_cross_signing":        true,
+		"org.matrix.msc2285.stable":           true,
+		"org.matrix.msc3916.stable":           true,
+	}
+	for _, msc := range mscs {
+		unstableFeatures["org.matrix."+msc] = true
+	}
+	return versionsResponse{
+		Versions: []string{
+			"r0.0.1",
+			"r0.1.0",
+			"r0.2.0",
+			"r0.3.0",
+			"r0.4.0",
+			"r0.5.0",
+			"r0.6.1",
+			"v1.0",
+			"v1.1",
+			"v1.2",
+		},
+		UnstableFeatures: unstableFeatures,
+	}
+}
+
 func wellKnownClientBaseURL(req *http.Request, configured string) string {
 	if !isAutoWellKnownClientName(configured) {
 		return configured
@@ -118,15 +150,6 @@ func Setup(
 	rateLimits := httputil.NewRateLimits(&cfg.RateLimiting)
 	userInteractiveAuth := auth.NewUserInteractive(userAPI, cfg)
 
-	unstableFeatures := map[string]bool{
-		"org.matrix.e2e_cross_signing": true,
-		"org.matrix.msc2285.stable":    true,
-		"org.matrix.msc3916.stable":    true,
-	}
-	for _, msc := range cfg.MSCs.MSCs {
-		unstableFeatures["org.matrix."+msc] = true
-	}
-
 	// singleflight protects /join endpoints from being invoked
 	// multiple times from the same user and room, otherwise
 	// a state reset can occur. This also avoids unneeded
@@ -162,21 +185,7 @@ func Setup(
 		httputil.MakeExternalAPI("versions", func(req *http.Request) util.JSONResponse {
 			return util.JSONResponse{
 				Code: http.StatusOK,
-				JSON: struct {
-					Versions         []string        `json:"versions"`
-					UnstableFeatures map[string]bool `json:"unstable_features"`
-				}{Versions: []string{
-					"r0.0.1",
-					"r0.1.0",
-					"r0.2.0",
-					"r0.3.0",
-					"r0.4.0",
-					"r0.5.0",
-					"r0.6.1",
-					"v1.0",
-					"v1.1",
-					"v1.2",
-				}, UnstableFeatures: unstableFeatures},
+				JSON: clientVersionsResponse(cfg.MSCs.MSCs),
 			}
 		}),
 	).Methods(http.MethodGet, http.MethodOptions)

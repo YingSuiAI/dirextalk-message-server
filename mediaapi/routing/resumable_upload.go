@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/fileutils"
@@ -41,6 +42,16 @@ const (
 )
 
 var contentRangePattern = regexp.MustCompile(`^bytes ([0-9]+)-([0-9]+)/([0-9]+)$`)
+
+type resumableUploadLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+var (
+	resumableUploadLocksMu sync.Mutex
+	resumableUploadLocks   = map[string]*resumableUploadLock{}
+)
 
 type resumableUploadStartRequest struct {
 	Filename    string `json:"filename"`
@@ -68,7 +79,7 @@ type resumableUploadSession struct {
 	ExpiresAt     time.Time `json:"expires_at"`
 }
 
-// ResumableUploadStart implements POST /_matrix/media/v3/upload/resumable.
+// ResumableUploadStart implements POST /_matrix/media/unstable/io.dirextalk/upload/resumable.
 func ResumableUploadStart(req *http.Request, cfg *config.MediaAPI, dev *userapi.Device) util.JSONResponse {
 	var body resumableUploadStartRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -87,8 +98,10 @@ func ResumableUploadStart(req *http.Request, cfg *config.MediaAPI, dev *userapi.
 		return *requestEntityTooLargeJSONResponse(cfg.MaxFileSizeBytes)
 	}
 
-	if body.SHA256 != "" && !isSupportedSHA256(body.SHA256) {
-		return util.JSONResponse{Code: http.StatusBadRequest, JSON: spec.BadJSON("sha256 must be hex or base64url encoded")}
+	if body.SHA256 != "" {
+		if _, ok := decodeSHA256Digest(body.SHA256); !ok {
+			return util.JSONResponse{Code: http.StatusBadRequest, JSON: spec.BadJSON("sha256 must be hex or base64url encoded SHA-256 digest")}
+		}
 	}
 
 	if err := cleanupExpiredResumableUploads(cfg); err != nil {
@@ -118,7 +131,7 @@ func ResumableUploadStart(req *http.Request, cfg *config.MediaAPI, dev *userapi.
 	return util.JSONResponse{Code: http.StatusOK, JSON: session.statusResponse()}
 }
 
-// ResumableUploadStatus implements GET /_matrix/media/v3/upload/resumable/{uploadID}.
+// ResumableUploadStatus implements GET /_matrix/media/unstable/io.dirextalk/upload/resumable/{uploadID}.
 func ResumableUploadStatus(req *http.Request, cfg *config.MediaAPI, dev *userapi.Device, uploadID string) util.JSONResponse {
 	session, resErr := loadOwnedResumableUpload(req.Context(), cfg, dev, uploadID)
 	if resErr != nil {
@@ -127,8 +140,11 @@ func ResumableUploadStatus(req *http.Request, cfg *config.MediaAPI, dev *userapi
 	return util.JSONResponse{Code: http.StatusOK, JSON: session.statusResponse()}
 }
 
-// ResumableUploadChunk implements PUT /_matrix/media/v3/upload/resumable/{uploadID}/chunk.
+// ResumableUploadChunk implements PUT /_matrix/media/unstable/io.dirextalk/upload/resumable/{uploadID}/chunk.
 func ResumableUploadChunk(req *http.Request, cfg *config.MediaAPI, dev *userapi.Device, uploadID string) util.JSONResponse {
+	unlock := lockResumableUpload(uploadID)
+	defer unlock()
+
 	session, resErr := loadOwnedResumableUpload(req.Context(), cfg, dev, uploadID)
 	if resErr != nil {
 		return *resErr
@@ -187,8 +203,11 @@ func ResumableUploadChunk(req *http.Request, cfg *config.MediaAPI, dev *userapi.
 	return util.JSONResponse{Code: http.StatusOK, JSON: session.statusResponse()}
 }
 
-// ResumableUploadComplete implements POST /_matrix/media/v3/upload/resumable/{uploadID}/complete.
+// ResumableUploadComplete implements POST /_matrix/media/unstable/io.dirextalk/upload/resumable/{uploadID}/complete.
 func ResumableUploadComplete(req *http.Request, cfg *config.MediaAPI, dev *userapi.Device, uploadID string, db storage.Database, activeThumbnailGeneration *types.ActiveThumbnailGeneration) util.JSONResponse {
+	unlock := lockResumableUpload(uploadID)
+	defer unlock()
+
 	session, resErr := loadOwnedResumableUpload(req.Context(), cfg, dev, uploadID)
 	if resErr != nil {
 		return *resErr
@@ -257,8 +276,11 @@ func ResumableUploadComplete(req *http.Request, cfg *config.MediaAPI, dev *usera
 	}
 }
 
-// ResumableUploadCancel implements DELETE /_matrix/media/v3/upload/resumable/{uploadID}.
+// ResumableUploadCancel implements DELETE /_matrix/media/unstable/io.dirextalk/upload/resumable/{uploadID}.
 func ResumableUploadCancel(req *http.Request, cfg *config.MediaAPI, dev *userapi.Device, uploadID string) util.JSONResponse {
+	unlock := lockResumableUpload(uploadID)
+	defer unlock()
+
 	session, resErr := loadOwnedResumableUpload(req.Context(), cfg, dev, uploadID)
 	if resErr != nil {
 		return *resErr
@@ -320,6 +342,28 @@ func generateResumableUploadID() (string, error) {
 	return hex.EncodeToString(idBytes), nil
 }
 
+func lockResumableUpload(uploadID string) func() {
+	resumableUploadLocksMu.Lock()
+	lock := resumableUploadLocks[uploadID]
+	if lock == nil {
+		lock = &resumableUploadLock{}
+		resumableUploadLocks[uploadID] = lock
+	}
+	lock.refs++
+	resumableUploadLocksMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		resumableUploadLocksMu.Lock()
+		defer resumableUploadLocksMu.Unlock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(resumableUploadLocks, uploadID)
+		}
+	}
+}
+
 func resumableUploadBaseDir(cfg *config.MediaAPI) string {
 	return filepath.Join(string(cfg.AbsBasePath), "tmp", "resumable")
 }
@@ -342,11 +386,12 @@ func saveResumableUploadSession(cfg *config.MediaAPI, session *resumableUploadSe
 		return err
 	}
 	path := resumableUploadSessionPath(cfg, session.UploadID)
-	tmpPath := path + ".tmp"
-	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	file, err := os.CreateTemp(dir, "session.json.*.tmp")
 	if err != nil {
 		return err
 	}
+	tmpPath := file.Name()
+	defer os.Remove(tmpPath) // nolint: errcheck
 	encErr := json.NewEncoder(file).Encode(session)
 	closeErr := file.Close()
 	if encErr != nil {
@@ -412,23 +457,21 @@ func hashFile(path string) ([]byte, int64, error) {
 	return hasher.Sum(nil), size, nil
 }
 
-func isSupportedSHA256(value string) bool {
-	_, err := hex.DecodeString(value)
-	if err == nil {
-		return true
-	}
-	_, err = base64.RawURLEncoding.DecodeString(value)
-	return err == nil
-}
-
 func sha256Matches(value string, hash []byte) bool {
-	if decoded, err := hex.DecodeString(value); err == nil {
-		return string(decoded) == string(hash)
-	}
-	if decoded, err := base64.RawURLEncoding.DecodeString(value); err == nil {
+	if decoded, ok := decodeSHA256Digest(value); ok {
 		return string(decoded) == string(hash)
 	}
 	return false
+}
+
+func decodeSHA256Digest(value string) ([]byte, bool) {
+	if decoded, err := hex.DecodeString(value); err == nil && len(decoded) == sha256.Size {
+		return decoded, true
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(value); err == nil && len(decoded) == sha256.Size {
+		return decoded, true
+	}
+	return nil, false
 }
 
 func resumableLog(req *http.Request, uploadID string) *log.Entry {

@@ -14,12 +14,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/mediaapi/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
+	"github.com/matrix-org/util"
 )
 
 func TestResumableUploadCompletesAndStoresMedia(t *testing.T) {
@@ -136,6 +138,132 @@ func TestResumableUploadStartEnforcesMaxSize(t *testing.T) {
 	}
 }
 
+func TestResumableUploadStartRejectsShortSHA256(t *testing.T) {
+	cfg := testResumableMediaConfig(t, 100)
+	dev := &userapi.Device{UserID: "@alice:example.com"}
+	res := ResumableUploadStart(testJSONRequest(t, resumableUploadStartRequest{
+		Filename: "clip.mp4",
+		Size:     4,
+		SHA256:   "00",
+	}), cfg, dev)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400: %#v", res.Code, res.JSON)
+	}
+}
+
+func TestResumableUploadConcurrentSameOffsetChunkDoesNotDoubleWrite(t *testing.T) {
+	cfg := testResumableMediaConfig(t, 100)
+	dev := &userapi.Device{UserID: "@alice:example.com"}
+	payload := []byte("abcd")
+
+	startRes := ResumableUploadStart(testJSONRequest(t, resumableUploadStartRequest{
+		Filename: "clip.mp4",
+		Size:     int64(len(payload) * 2),
+	}), cfg, dev)
+	if startRes.Code != http.StatusOK {
+		t.Fatalf("start code = %d, want 200: %#v", startRes.Code, startRes.JSON)
+	}
+	var status resumableUploadStatusResponse
+	mustRoundTripJSON(t, startRes.JSON, &status)
+
+	var wg sync.WaitGroup
+	results := make(chan util.JSONResponse, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- ResumableUploadChunk(
+				testChunkRequest(payload, 0, len(payload)-1, len(payload)*2),
+				cfg,
+				dev,
+				status.UploadID,
+			)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	codes := map[int]int{}
+	for res := range results {
+		codes[res.Code]++
+	}
+	if codes[http.StatusOK] != 1 || codes[http.StatusConflict] != 1 {
+		t.Fatalf("response codes = %#v, want one 200 and one 409", codes)
+	}
+
+	stored, err := os.ReadFile(resumableUploadContentPath(cfg, status.UploadID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored, payload) {
+		t.Fatalf("stored payload = %q, want %q", stored, payload)
+	}
+	session, err := loadResumableUploadSession(cfg, status.UploadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ReceivedBytes != int64(len(payload)) {
+		t.Fatalf("received bytes = %d, want %d", session.ReceivedBytes, len(payload))
+	}
+}
+
+func TestResumableUploadCompleteWaitsForInFlightChunk(t *testing.T) {
+	cfg := testResumableMediaConfig(t, 100)
+	db := newTestResumableMediaDB()
+	dev := &userapi.Device{UserID: "@alice:example.com"}
+	payload := []byte("complete after chunk")
+
+	startRes := ResumableUploadStart(testJSONRequest(t, resumableUploadStartRequest{
+		Filename: "clip.mp4",
+		Size:     int64(len(payload)),
+	}), cfg, dev)
+	if startRes.Code != http.StatusOK {
+		t.Fatalf("start code = %d, want 200: %#v", startRes.Code, startRes.JSON)
+	}
+	var status resumableUploadStatusResponse
+	mustRoundTripJSON(t, startRes.JSON, &status)
+
+	body := &blockingChunkBody{
+		data:      payload,
+		firstRead: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	chunkReq := testChunkRequest(nil, 0, len(payload)-1, len(payload))
+	chunkReq.Body = body
+	chunkDone := make(chan util.JSONResponse, 1)
+	go func() {
+		chunkDone <- ResumableUploadChunk(chunkReq, cfg, dev, status.UploadID)
+	}()
+	<-body.firstRead
+
+	completeDone := make(chan util.JSONResponse, 1)
+	go func() {
+		completeDone <- ResumableUploadComplete(
+			testJSONRequest(t, nil),
+			cfg,
+			dev,
+			status.UploadID,
+			db,
+			&types.ActiveThumbnailGeneration{PathToResult: map[string]*types.ThumbnailGenerationResult{}},
+		)
+	}()
+	select {
+	case res := <-completeDone:
+		t.Fatalf("complete returned before in-flight chunk finished: %#v", res)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(body.release)
+	chunkRes := <-chunkDone
+	if chunkRes.Code != http.StatusOK {
+		t.Fatalf("chunk code = %d, want 200: %#v", chunkRes.Code, chunkRes.JSON)
+	}
+	completeRes := <-completeDone
+	if completeRes.Code != http.StatusOK {
+		t.Fatalf("complete code = %d, want 200: %#v", completeRes.Code, completeRes.JSON)
+	}
+}
+
 func testResumableMediaConfig(t *testing.T, maxBytes config.FileSizeBytes) *config.MediaAPI {
 	t.Helper()
 	base := t.TempDir()
@@ -150,6 +278,27 @@ func testResumableMediaConfig(t *testing.T, maxBytes config.FileSizeBytes) *conf
 		AbsBasePath:            config.Path(base),
 		MaxThumbnailGenerators: 1,
 	}
+}
+
+type blockingChunkBody struct {
+	data      []byte
+	firstRead chan struct{}
+	release   chan struct{}
+	sent      bool
+}
+
+func (b *blockingChunkBody) Read(p []byte) (int, error) {
+	if b.sent {
+		return 0, io.EOF
+	}
+	b.sent = true
+	close(b.firstRead)
+	<-b.release
+	return copy(p, b.data), nil
+}
+
+func (b *blockingChunkBody) Close() error {
+	return nil
 }
 
 func testJSONRequest(t *testing.T, body any) *http.Request {

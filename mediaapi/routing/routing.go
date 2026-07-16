@@ -50,6 +50,7 @@ func Setup(
 	rateLimits := httputil.NewRateLimits(&cfg.ClientAPI.RateLimiting)
 
 	v3mux := routers.Media.PathPrefix("/{apiversion:(?:r0|v1|v3)}/").Subrouter()
+	unstableDirextalkMux := routers.Media.PathPrefix("/unstable/io.dirextalk/").Subrouter()
 	v1mux := routers.Client.PathPrefix("/v1/media/").Subrouter()
 	v1fedMux := routers.Federation.PathPrefix("/v1/media/").Subrouter()
 
@@ -131,11 +132,11 @@ func Setup(
 	})
 
 	v3mux.Handle("/upload", uploadHandler).Methods(http.MethodPost, http.MethodOptions)
-	v3mux.Handle("/upload/resumable", resumableUploadStartHandler).Methods(http.MethodPost, http.MethodOptions)
-	v3mux.Handle("/upload/resumable/{uploadID}", resumableUploadStatusHandler).Methods(http.MethodGet, http.MethodOptions)
-	v3mux.Handle("/upload/resumable/{uploadID}/chunk", resumableUploadChunkHandler).Methods(http.MethodPut, http.MethodOptions)
-	v3mux.Handle("/upload/resumable/{uploadID}/complete", resumableUploadCompleteHandler).Methods(http.MethodPost, http.MethodOptions)
-	v3mux.Handle("/upload/resumable/{uploadID}", resumableUploadCancelHandler).Methods(http.MethodDelete, http.MethodOptions)
+	unstableDirextalkMux.Handle("/upload/resumable", resumableUploadStartHandler).Methods(http.MethodPost, http.MethodOptions)
+	unstableDirextalkMux.Handle("/upload/resumable/{uploadID}", resumableUploadStatusHandler).Methods(http.MethodGet, http.MethodOptions)
+	unstableDirextalkMux.Handle("/upload/resumable/{uploadID}/chunk", resumableUploadChunkHandler).Methods(http.MethodPut, http.MethodOptions)
+	unstableDirextalkMux.Handle("/upload/resumable/{uploadID}/complete", resumableUploadCompleteHandler).Methods(http.MethodPost, http.MethodOptions)
+	unstableDirextalkMux.Handle("/upload/resumable/{uploadID}", resumableUploadCancelHandler).Methods(http.MethodDelete, http.MethodOptions)
 	v3mux.Handle("/config", configHandler).Methods(http.MethodGet, http.MethodOptions)
 
 	activeRemoteRequests := &types.ActiveRemoteRequests{
