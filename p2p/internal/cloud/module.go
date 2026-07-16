@@ -36,6 +36,7 @@ const (
 	actionGoalsCreate                                   = "cloud.goals.create"
 	actionConnectionsRolePlan                           = "cloud.connections.role_plan"
 	actionConnectionsCredentialBootstrapCreate          = "cloud.connections.credential_bootstrap.create"
+	actionConnectionsIdentityPreview                    = "cloud.connections.identity.preview"
 	actionConnectionsRegistrationComplete               = "cloud.connections.registration.complete"
 	actionPlansConfirmationPrepare                      = "cloud.plans.confirmation.prepare"
 	actionPlansApprove                                  = "cloud.plans.approve"
@@ -71,6 +72,11 @@ const (
 	cloudSecretBootstrapRejectedCode                    = "cloud_secret_bootstrap_rejected"
 	cloudSecretBootstrapUnavailableCode                 = "cloud_secret_bootstrap_unavailable"
 	cloudSecretBootstrapUpstreamCode                    = "cloud_secret_bootstrap_upstream_error"
+	cloudIdentityPreviewInvalidCode                     = "cloud_connection_identity_preview_invalid"
+	cloudIdentityPreviewConflictCode                    = "cloud_connection_identity_preview_conflict"
+	cloudIdentityPreviewRejectedCode                    = "cloud_connection_identity_preview_rejected"
+	cloudIdentityPreviewUnavailableCode                 = "cloud_connection_identity_preview_unavailable"
+	cloudIdentityPreviewUpstreamCode                    = "cloud_connection_identity_preview_upstream_error"
 	cloudPlanConfirmationInvalidCode                    = "cloud_plan_confirmation_invalid"
 	cloudPlanConfirmationConflictCode                   = "cloud_plan_confirmation_conflict"
 	cloudQuoteExpiredCode                               = "cloud_quote_expired"
@@ -118,6 +124,7 @@ type Config struct {
 	ConnectionStack           ConnectionStackConfig
 	CredentialBootstrapClient ConnectionCredentialBootstrapClient
 	SecretBootstrapClient     SecretBootstrapClient
+	IdentityPreviewClient     IdentityPreviewClient
 }
 
 type Module struct {
@@ -132,24 +139,25 @@ func New(store Store, cfg Config) *Module {
 
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionBootstrap:                            m.bootstrap,
-		actionConnectionsList:                      m.connectionsList,
-		actionConnectionsGet:                       m.connectionsGet,
-		actionPlansList:                            m.plansList,
-		actionPlansGet:                             m.plansGet,
-		actionDeploymentsList:                      m.deploymentsList,
-		actionDeploymentsGet:                       m.deploymentsGet,
-		actionServicesList:                         m.servicesList,
-		actionServicesGet:                          m.servicesGet,
-		actionRecipesList:                          m.recipesList,
-		actionRecipesGet:                           m.recipesGet,
-		actionEventsList:                           m.eventsList,
-		actionGoalsCreate:                          m.createGoal,
-		actionConnectionsRolePlan:                  m.createConnectionRolePlan,
-		actionConnectionsCredentialBootstrapCreate: m.createConnectionCredentialBootstrap,
-		actionConnectionsRegistrationComplete:      m.completeConnectionRegistration,
-		actionPlansConfirmationPrepare:             m.preparePlanConfirmation,
-		actionPlansApprove:                         m.approvePlan,
+		actionBootstrap:                                     m.bootstrap,
+		actionConnectionsList:                               m.connectionsList,
+		actionConnectionsGet:                                m.connectionsGet,
+		actionPlansList:                                     m.plansList,
+		actionPlansGet:                                      m.plansGet,
+		actionDeploymentsList:                               m.deploymentsList,
+		actionDeploymentsGet:                                m.deploymentsGet,
+		actionServicesList:                                  m.servicesList,
+		actionServicesGet:                                   m.servicesGet,
+		actionRecipesList:                                   m.recipesList,
+		actionRecipesGet:                                    m.recipesGet,
+		actionEventsList:                                    m.eventsList,
+		actionGoalsCreate:                                   m.createGoal,
+		actionConnectionsRolePlan:                           m.createConnectionRolePlan,
+		actionConnectionsCredentialBootstrapCreate:          m.createConnectionCredentialBootstrap,
+		actionConnectionsIdentityPreview:                    m.previewConnectionIdentity,
+		actionConnectionsRegistrationComplete:               m.completeConnectionRegistration,
+		actionPlansConfirmationPrepare:                      m.preparePlanConfirmation,
+		actionPlansApprove:                                  m.approvePlan,
 		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
 		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
 		actionSecretsBootstrapPlan:                          m.prepareServiceSecretBootstrap,

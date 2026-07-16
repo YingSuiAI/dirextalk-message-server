@@ -444,7 +444,7 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 		}
 	}
 	for _, action := range []string{
-		"cloud.goals.create", "cloud.connections.role_plan", "cloud.connections.credential_bootstrap.create", "cloud.connections.registration.complete", "cloud.plans.confirmation.prepare", "cloud.plans.approve", "cloud.deployments.recipe_execution.confirmation.prepare", "cloud.deployments.recipe_execution.approve", "cloud.secrets.bootstrap.plan", "cloud.deployments.pairing.resume",
+		"cloud.goals.create", "cloud.connections.role_plan", "cloud.connections.credential_bootstrap.create", "cloud.connections.identity.preview", "cloud.connections.registration.complete", "cloud.plans.confirmation.prepare", "cloud.plans.approve", "cloud.deployments.recipe_execution.confirmation.prepare", "cloud.deployments.recipe_execution.approve", "cloud.secrets.bootstrap.plan", "cloud.deployments.pairing.resume",
 		"cloud.services.operation.plan", "cloud.services.operation.approve", "cloud.services.destroy.plan", "cloud.services.destroy.approve",
 	} {
 		spec, ok := serviceapi.ActionSpecFor(action)
@@ -483,5 +483,21 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 	}
 	if credentialRec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("credential bootstrap response must never be cacheable: %#v", credentialRec.Header())
+	}
+	identityRequest := jsonRequest(t, "/_p2p/command", map[string]any{
+		"action": "cloud.connections.identity.preview",
+		"params": map[string]any{
+			"bootstrap_id": "bootstrap-auth-test-0001", "expected_revision": 1,
+			"session_id": uuid.NewString(), "expected_session_revision": 2,
+		},
+	})
+	identityRequest.Header.Set("Authorization", "Bearer "+service.AgentToken())
+	identityRec := httptest.NewRecorder()
+	router.ServeHTTP(identityRec, identityRequest)
+	if identityRec.Code != http.StatusUnauthorized {
+		t.Fatalf("agent token must not preview AWS identity, got %d body=%s", identityRec.Code, identityRec.Body.String())
+	}
+	if identityRec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("identity preview response must never be cacheable: %#v", identityRec.Header())
 	}
 }

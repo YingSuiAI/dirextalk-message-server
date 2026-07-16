@@ -8,6 +8,7 @@ import (
 const (
 	RealtimeWSTicketAction                         = "realtime.ws_ticket.create"
 	CloudConnectionCredentialBootstrapCreateAction = "cloud.connections.credential_bootstrap.create"
+	CloudConnectionIdentityPreviewAction           = "cloud.connections.identity.preview"
 )
 
 type ActionAuth string
@@ -66,6 +67,7 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.goals.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.role_plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: CloudConnectionCredentialBootstrapCreateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionIdentityPreviewAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.connections.registration.complete", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.plans.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.plans.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

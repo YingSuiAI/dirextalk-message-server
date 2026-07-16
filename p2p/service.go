@@ -61,6 +61,10 @@ type Config struct {
 	// CloudSecretBootstrapClient supports only an encrypted upload session. It
 	// deliberately has no secret completion or typed destination capability.
 	CloudSecretBootstrapClient CloudSecretBootstrapClient
+	// CloudIdentityPreviewClient verifies only the caller identity represented
+	// by one uploaded Agent bootstrap session. It cannot create a connection or
+	// consume the uploaded credential.
+	CloudIdentityPreviewClient CloudIdentityPreviewClient
 	NativeAgentDataDir         string
 	ReleaseController          releasecontrol.Controller
 	// CloudConnectionStack is public configuration for the owner-only
@@ -850,6 +854,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 		CredentialBootstrapClient: credentialBootstrapClient,
 		SecretBootstrapClient:     cfg.CloudSecretBootstrapClient,
+		IdentityPreviewClient:     cfg.CloudIdentityPreviewClient,
 	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,

@@ -41,6 +41,12 @@ type CloudSecretBootstrapSession = cloudmodule.AgentSecretBootstrapSession
 type CreateCloudSecretBootstrapRequest = cloudmodule.CreateAgentSecretBootstrapRequest
 type UploadCloudEncryptedSecretRequest = cloudmodule.UploadAgentEncryptedSecretRequest
 
+// CloudIdentityPreviewClient exposes only read-only AWS caller-identity
+// inspection for one already uploaded bootstrap session.
+type CloudIdentityPreviewClient = cloudmodule.IdentityPreviewClient
+type CloudIdentityPreviewRequest = cloudmodule.IdentityPreviewRequest
+type CloudIdentityPreviewEvidence = cloudmodule.IdentityPreviewEvidence
+
 type AgentGRPCConfig struct {
 	Target         string
 	CAFile         string

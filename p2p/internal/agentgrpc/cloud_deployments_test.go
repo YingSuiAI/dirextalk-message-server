@@ -30,12 +30,31 @@ const (
 
 type cloudTestService struct {
 	agentv1.UnimplementedCloudControlServiceServer
-	mu           sync.Mutex
-	listRequests []*agentv1.ListCloudDeploymentsRequest
-	getRequests  []*agentv1.GetCloudDeploymentRequest
-	auth         []string
-	list         func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
-	get          func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
+	mu             sync.Mutex
+	listRequests   []*agentv1.ListCloudDeploymentsRequest
+	getRequests    []*agentv1.GetCloudDeploymentRequest
+	previewRequest *agentv1.PreviewAwsIdentityRequest
+	auth           []string
+	list           func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
+	get            func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
+	preview        func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
+}
+
+func (service *cloudTestService) PreviewAwsIdentity(ctx context.Context, request *agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error) {
+	values := metadata.ValueFromIncomingContext(ctx, "authorization")
+	authorization := ""
+	if len(values) == 1 {
+		authorization = values[0]
+	}
+	service.mu.Lock()
+	service.previewRequest = request
+	service.auth = append(service.auth, authorization)
+	callback := service.preview
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
 }
 
 func (service *cloudTestService) ListCloudDeployments(ctx context.Context, request *agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error) {

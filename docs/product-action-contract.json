@@ -153,6 +153,11 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.connections.identity.preview",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.connections.registration.complete",
       "auth": "owner",
       "transport": "http_only"

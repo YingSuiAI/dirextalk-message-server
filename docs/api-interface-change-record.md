@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-16
 
+## 2026-07-16 Agent-backed AWS identity preview
+
+The owner-authenticated, HTTP-only
+`cloud.connections.identity.preview` action accepts exactly `bootstrap_id`,
+the durable Role Plan `expected_revision`, `session_id`, and
+`expected_session_revision`. Message Server reloads the owner-scoped Role Plan
+before and after the Agent call and derives the AWS Region and cloud connection
+target from that record; the client cannot provide or override owner, target,
+or Region.
+
+When the remote Agent backend is enabled, the action performs only the Agent's
+read-only STS caller-identity inspection for an already uploaded encrypted
+bootstrap session. It validates the returned persistent evidence binding for
+session, revision, Agent owner, connection target, Region and validity window,
+then returns `identity`, `cloud_connection_id`, `bootstrap_session_id`,
+`session_revision`, `verification_status=identity_verified`, `observed_at`,
+and `expires_at`. It does not create or list an active Cloud Connection and it
+does not consume the uploaded secret. Responses are non-cacheable; Agent
+tokens and realtime WS requests cannot invoke the action. With the legacy
+local backend, the action is present but returns a stable unavailable error and
+does not change the existing registration flow.
+
 ## 2026-07-16 Immutable Connection Stack template contract
 
 `cloud.connections.role_plan` and the dedicated credential-bootstrap request
