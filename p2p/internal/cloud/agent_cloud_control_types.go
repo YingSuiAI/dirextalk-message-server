@@ -17,7 +17,8 @@ var (
 const AgentCloudPlanStatusApproved = "approved"
 
 // AgentCloudControlClient is intentionally narrower than the Agent gRPC
-// service. It can neither register approval devices nor retrieve secrets.
+// service. It can neither register approval devices, retrieve secrets, nor
+// choose arbitrary provider resources for destruction.
 type AgentCloudControlClient interface {
 	ListAgentCloudPlans(context.Context) ([]AgentCloudPlan, error)
 	ListAgentCloudConnections(context.Context) ([]AgentCloudConnection, error)
@@ -26,6 +27,9 @@ type AgentCloudControlClient interface {
 	ApproveAgentCloudPlan(context.Context, AgentCloudApproveRequest) (AgentCloudPlan, error)
 	EstablishAgentAWSConnection(context.Context, AgentCloudEstablishRequest) (AgentCloudConnection, error)
 	GetAgentCloudConnection(context.Context, AgentCloudConnectionRequest) (AgentCloudConnection, bool, error)
+	CreateAgentCloudDeploymentDestroyChallenge(context.Context, AgentCloudDeploymentDestroyChallengeRequest) (AgentCloudDeploymentDestroyChallenge, error)
+	ApproveAgentCloudDeploymentDestroy(context.Context, AgentCloudDeploymentDestroyApproveRequest) (AgentCloudDeploymentDestroyResult, error)
+	GetAgentCloudDestroyOperation(context.Context, AgentCloudDestroyOperationRequest) (AgentCloudDestroyOperation, bool, error)
 }
 
 type AgentCloudPlanRequest struct{ PlanID string }
@@ -135,4 +139,77 @@ type AgentCloudConnection struct {
 	ControlRoleARN, FoundationStackID, Status string
 	Revision, CredentialGeneration            int64
 	CreatedAt, UpdatedAt                      time.Time
+}
+
+type AgentCloudDeploymentDestroyChallengeRequest struct {
+	IdempotencyKey, DeploymentID, SignerKeyID string
+	ExpectedRevision                          int64
+	ExpectedDeployment                        Deployment
+}
+
+type AgentCloudResourceReadBack struct {
+	Observed   bool      `json:"observed"`
+	Exists     bool      `json:"exists"`
+	ProviderID string    `json:"provider_id"`
+	ObservedAt time.Time `json:"observed_at"`
+	TagDigest  string    `json:"tag_digest"`
+}
+
+type AgentCloudDestroyResourceScope struct {
+	ResourceID           string                     `json:"resource_id"`
+	Type                 string                     `json:"type"`
+	ProviderID           string                     `json:"provider_id"`
+	Revision             int64                      `json:"revision"`
+	DependsOnResourceIDs []string                   `json:"depends_on_resource_ids"`
+	RetentionPolicy      string                     `json:"retention_policy"`
+	DestroyDeadline      time.Time                  `json:"destroy_deadline"`
+	AutoDestroyApproved  bool                       `json:"auto_destroy_approved"`
+	Status               string                     `json:"status"`
+	Region               string                     `json:"region"`
+	SpecDigest           string                     `json:"spec_digest"`
+	ApprovedPlanHash     string                     `json:"approved_plan_hash"`
+	OriginalApprovalID   string                     `json:"original_approval_id"`
+	ReadBack             AgentCloudResourceReadBack `json:"read_back"`
+}
+
+type AgentCloudDeploymentDestroyScope struct {
+	SchemaVersion      string                           `json:"schema_version"`
+	AgentInstanceID    string                           `json:"agent_instance_id"`
+	OwnerID            string                           `json:"owner_id"`
+	DeploymentID       string                           `json:"deployment_id"`
+	DeploymentRevision int64                            `json:"deployment_revision"`
+	TaskID             string                           `json:"task_id"`
+	PlanID             string                           `json:"plan_id"`
+	PlanHash           string                           `json:"plan_hash"`
+	ConnectionID       string                           `json:"connection_id"`
+	Resources          []AgentCloudDestroyResourceScope `json:"resources"`
+}
+
+type AgentCloudDeploymentDestroyChallenge struct {
+	OperationID, ChallengeID, ApprovalID, SignerKeyID string
+	Scope                                             AgentCloudDeploymentDestroyScope
+	ExpiresAt                                         time.Time
+	SigningPayloadCBOR                                []byte
+	Revision                                          int64
+}
+
+type AgentCloudDeploymentDestroyApproveRequest struct {
+	IdempotencyKey, DeploymentID, ExpectedOperationID string
+	ExpectedRevision                                  int64
+	ExpectedDeployment                                Deployment
+	Approval                                          AgentCloudApprovalSignature
+}
+
+type AgentCloudDestroyOperationRequest struct{ OperationID string }
+
+type AgentCloudDestroyOperation struct {
+	OperationID, OwnerID, DeploymentID, ApprovalID string
+	ScopeDigest, Status, ErrorCode, BlockedReason  string
+	Revision                                       int64
+	CreatedAt, UpdatedAt                           time.Time
+}
+
+type AgentCloudDeploymentDestroyResult struct {
+	Operation  AgentCloudDestroyOperation
+	Deployment Deployment
 }

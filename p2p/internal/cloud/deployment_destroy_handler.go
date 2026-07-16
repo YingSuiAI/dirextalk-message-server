@@ -25,6 +25,12 @@ const (
 )
 
 func (m *Module) prepareDeploymentDestroy(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if canonicalUUID(actionbase.Params(params).String("deployment_id")) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		return m.prepareAgentDeploymentDestroy(ctx, params)
+	}
 	if err := only(params, "deployment_id", "expected_revision", "idempotency_key"); err != nil {
 		return nil, err
 	}
@@ -57,6 +63,12 @@ func (m *Module) prepareDeploymentDestroy(ctx context.Context, params map[string
 }
 
 func (m *Module) approveDeploymentDestroy(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if canonicalUUID(actionbase.Params(params).String("deployment_id")) {
+		if m == nil || m.cfg.AgentCloudControlClient == nil {
+			return nil, unavailableError()
+		}
+		return m.approveAgentDeploymentDestroy(ctx, params)
+	}
 	if err := only(params, "deployment_id", "expected_revision", "idempotency_key", "approval"); err != nil {
 		return nil, err
 	}

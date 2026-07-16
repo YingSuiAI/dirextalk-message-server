@@ -47,10 +47,10 @@ type CloudIdentityPreviewClient = cloudmodule.IdentityPreviewClient
 type CloudIdentityPreviewRequest = cloudmodule.IdentityPreviewRequest
 type CloudIdentityPreviewEvidence = cloudmodule.IdentityPreviewEvidence
 
-// CloudAgentControlClient exposes only the typed plan approval and AWS
-// connection-establishment capabilities required by ProductCore. It does not
-// expose approval-device administration, raw credentials, or arbitrary AWS
-// operations.
+// CloudAgentControlClient exposes only typed plan approval, AWS connection
+// establishment, and exact Agent-owned Deployment destruction. It does not
+// expose approval-device administration, raw credentials, caller-selected
+// provider resources, or arbitrary AWS operations.
 type CloudAgentControlClient = cloudmodule.AgentCloudControlClient
 type AgentCloudPlanRequest = cloudmodule.AgentCloudPlanRequest
 type AgentCloudConnectionRequest = cloudmodule.AgentCloudConnectionRequest
@@ -60,6 +60,12 @@ type AgentCloudChallenge = cloudmodule.AgentCloudChallenge
 type AgentCloudApproveRequest = cloudmodule.AgentCloudApproveRequest
 type AgentCloudEstablishRequest = cloudmodule.AgentCloudEstablishRequest
 type AgentCloudConnection = cloudmodule.AgentCloudConnection
+type AgentCloudDeploymentDestroyChallengeRequest = cloudmodule.AgentCloudDeploymentDestroyChallengeRequest
+type AgentCloudDeploymentDestroyChallenge = cloudmodule.AgentCloudDeploymentDestroyChallenge
+type AgentCloudDeploymentDestroyApproveRequest = cloudmodule.AgentCloudDeploymentDestroyApproveRequest
+type AgentCloudDeploymentDestroyResult = cloudmodule.AgentCloudDeploymentDestroyResult
+type AgentCloudDestroyOperationRequest = cloudmodule.AgentCloudDestroyOperationRequest
+type AgentCloudDestroyOperation = cloudmodule.AgentCloudDestroyOperation
 
 type AgentGRPCConfig struct {
 	Target         string

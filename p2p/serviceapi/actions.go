@@ -12,6 +12,8 @@ const (
 	CloudConnectionRegistrationCompleteAction      = "cloud.connections.registration.complete"
 	CloudPlanConfirmationPrepareAction             = "cloud.plans.confirmation.prepare"
 	CloudPlanApproveAction                         = "cloud.plans.approve"
+	CloudDeploymentDestroyPlanAction               = "cloud.deployments.destroy.plan"
+	CloudDeploymentDestroyApproveAction            = "cloud.deployments.destroy.approve"
 )
 
 type ActionAuth string
@@ -80,8 +82,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.deployments.pairing.resume", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.jobs.cancel.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.jobs.cancel.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.deployments.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.deployments.destroy.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentDestroyPlanAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentDestroyApproveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.operation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.services.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

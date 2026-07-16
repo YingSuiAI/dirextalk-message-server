@@ -60,6 +60,15 @@ func (*testAgentGRPCRunner) EstablishAgentAWSConnection(context.Context, p2p.Age
 func (*testAgentGRPCRunner) GetAgentCloudConnection(context.Context, p2p.AgentCloudConnectionRequest) (p2p.AgentCloudConnection, bool, error) {
 	return p2p.AgentCloudConnection{}, false, nil
 }
+func (*testAgentGRPCRunner) CreateAgentCloudDeploymentDestroyChallenge(context.Context, p2p.AgentCloudDeploymentDestroyChallengeRequest) (p2p.AgentCloudDeploymentDestroyChallenge, error) {
+	return p2p.AgentCloudDeploymentDestroyChallenge{}, nil
+}
+func (*testAgentGRPCRunner) ApproveAgentCloudDeploymentDestroy(context.Context, p2p.AgentCloudDeploymentDestroyApproveRequest) (p2p.AgentCloudDeploymentDestroyResult, error) {
+	return p2p.AgentCloudDeploymentDestroyResult{}, nil
+}
+func (*testAgentGRPCRunner) GetAgentCloudDestroyOperation(context.Context, p2p.AgentCloudDestroyOperationRequest) (p2p.AgentCloudDestroyOperation, bool, error) {
+	return p2p.AgentCloudDestroyOperation{}, false, nil
+}
 
 type chatOnlyAgentGRPCRunner struct{}
 

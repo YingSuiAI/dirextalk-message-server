@@ -14,29 +14,41 @@ import (
 )
 
 type agentControlModuleClient struct {
-	plan                AgentCloudPlan
-	listedPlans         []AgentCloudPlan
-	planFound           bool
-	getPlanErr          error
-	challenge           AgentCloudChallenge
-	challengeErr        error
-	challengeRequest    AgentCloudChallengeRequest
-	approveRequest      AgentCloudApproveRequest
-	approveErr          error
-	approveToApproved   bool
-	establishRequest    AgentCloudEstablishRequest
-	establishConnection AgentCloudConnection
-	establishErr        error
-	recoveredConnection AgentCloudConnection
-	listedConnections   []AgentCloudConnection
-	recoveredFound      bool
-	recoveredErr        error
-	getPlanCalls        int
-	challengeCalls      int
-	approveCalls        int
-	establishCalls      int
-	getConnectionCalls  int
-	listConnectionCalls int
+	plan                    AgentCloudPlan
+	listedPlans             []AgentCloudPlan
+	planFound               bool
+	getPlanErr              error
+	challenge               AgentCloudChallenge
+	challengeErr            error
+	challengeRequest        AgentCloudChallengeRequest
+	approveRequest          AgentCloudApproveRequest
+	approveErr              error
+	approveToApproved       bool
+	establishRequest        AgentCloudEstablishRequest
+	establishConnection     AgentCloudConnection
+	establishErr            error
+	recoveredConnection     AgentCloudConnection
+	listedConnections       []AgentCloudConnection
+	recoveredFound          bool
+	recoveredErr            error
+	getPlanCalls            int
+	challengeCalls          int
+	approveCalls            int
+	establishCalls          int
+	getConnectionCalls      int
+	listConnectionCalls     int
+	destroyChallenge        AgentCloudDeploymentDestroyChallenge
+	destroyChallengeRequest AgentCloudDeploymentDestroyChallengeRequest
+	destroyChallengeErr     error
+	destroyApproveResult    AgentCloudDeploymentDestroyResult
+	destroyApproveRequest   AgentCloudDeploymentDestroyApproveRequest
+	destroyApproveErr       error
+	destroyOperation        AgentCloudDestroyOperation
+	destroyOperationFound   bool
+	destroyOperationErr     error
+	destroyChallengeCalls   int
+	destroyApproveCalls     int
+	destroyOperationCalls   int
 }
 
 func (client *agentControlModuleClient) ListAgentCloudPlans(context.Context) ([]AgentCloudPlan, error) {
@@ -83,6 +95,26 @@ func (client *agentControlModuleClient) GetAgentCloudConnection(_ context.Contex
 		return AgentCloudConnection{}, false, ErrAgentCloudControlInvalid
 	}
 	return client.recoveredConnection, client.recoveredFound, client.recoveredErr
+}
+
+func (client *agentControlModuleClient) CreateAgentCloudDeploymentDestroyChallenge(_ context.Context, request AgentCloudDeploymentDestroyChallengeRequest) (AgentCloudDeploymentDestroyChallenge, error) {
+	client.destroyChallengeCalls++
+	client.destroyChallengeRequest = request
+	return client.destroyChallenge, client.destroyChallengeErr
+}
+
+func (client *agentControlModuleClient) ApproveAgentCloudDeploymentDestroy(_ context.Context, request AgentCloudDeploymentDestroyApproveRequest) (AgentCloudDeploymentDestroyResult, error) {
+	client.destroyApproveCalls++
+	client.destroyApproveRequest = request
+	return client.destroyApproveResult, client.destroyApproveErr
+}
+
+func (client *agentControlModuleClient) GetAgentCloudDestroyOperation(_ context.Context, request AgentCloudDestroyOperationRequest) (AgentCloudDestroyOperation, bool, error) {
+	client.destroyOperationCalls++
+	if request.OperationID != client.destroyOperation.OperationID {
+		return AgentCloudDestroyOperation{}, false, ErrAgentCloudControlInvalid
+	}
+	return client.destroyOperation, client.destroyOperationFound, client.destroyOperationErr
 }
 
 type agentProvenanceStore struct {

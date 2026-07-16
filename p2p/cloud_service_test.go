@@ -445,6 +445,7 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 	}
 	for _, action := range []string{
 		"cloud.goals.create", "cloud.connections.role_plan", "cloud.connections.credential_bootstrap.create", "cloud.connections.identity.preview", "cloud.connections.registration.complete", "cloud.plans.confirmation.prepare", "cloud.plans.approve", "cloud.deployments.recipe_execution.confirmation.prepare", "cloud.deployments.recipe_execution.approve", "cloud.secrets.bootstrap.plan", "cloud.deployments.pairing.resume",
+		"cloud.deployments.destroy.plan", "cloud.deployments.destroy.approve",
 		"cloud.services.operation.plan", "cloud.services.operation.approve", "cloud.services.destroy.plan", "cloud.services.destroy.approve",
 	} {
 		spec, ok := serviceapi.ActionSpecFor(action)
@@ -504,6 +505,8 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 		"cloud.connections.registration.complete",
 		"cloud.plans.confirmation.prepare",
 		"cloud.plans.approve",
+		"cloud.deployments.destroy.plan",
+		"cloud.deployments.destroy.approve",
 	} {
 		request := jsonRequest(t, "/_p2p/command", map[string]any{"action": action, "params": map[string]any{}})
 		request.Header.Set("Authorization", "Bearer "+service.AgentToken())

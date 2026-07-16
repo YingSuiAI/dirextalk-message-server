@@ -30,21 +30,27 @@ const (
 
 type cloudTestService struct {
 	agentv1.UnimplementedCloudControlServiceServer
-	mu              sync.Mutex
-	listRequests    []*agentv1.ListCloudDeploymentsRequest
-	getRequests     []*agentv1.GetCloudDeploymentRequest
-	previewRequest  *agentv1.PreviewAwsIdentityRequest
-	auth            []string
-	list            func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
-	get             func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
-	preview         func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
-	getPlan         func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
-	createChallenge func(*agentv1.CreateApprovalChallengeRequest) (*agentv1.CreateApprovalChallengeResponse, error)
-	approvePlan     func(*agentv1.ApproveCloudPlanRequest) (*agentv1.ApproveCloudPlanResponse, error)
-	establish       func(*agentv1.EstablishAwsConnectionRequest) (*agentv1.EstablishAwsConnectionResponse, error)
-	getConnection   func(*agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error)
-	listConnections func(*agentv1.ListCloudConnectionsRequest) (*agentv1.ListCloudConnectionsResponse, error)
-	listPlans       func(*agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error)
+	mu                    sync.Mutex
+	listRequests          []*agentv1.ListCloudDeploymentsRequest
+	getRequests           []*agentv1.GetCloudDeploymentRequest
+	previewRequest        *agentv1.PreviewAwsIdentityRequest
+	auth                  []string
+	list                  func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
+	get                   func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
+	preview               func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
+	getPlan               func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
+	createChallenge       func(*agentv1.CreateApprovalChallengeRequest) (*agentv1.CreateApprovalChallengeResponse, error)
+	approvePlan           func(*agentv1.ApproveCloudPlanRequest) (*agentv1.ApproveCloudPlanResponse, error)
+	establish             func(*agentv1.EstablishAwsConnectionRequest) (*agentv1.EstablishAwsConnectionResponse, error)
+	getConnection         func(*agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error)
+	listConnections       func(*agentv1.ListCloudConnectionsRequest) (*agentv1.ListCloudConnectionsResponse, error)
+	listPlans             func(*agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error)
+	createDestroyRequest  *agentv1.CreateCloudDeploymentDestroyChallengeRequest
+	approveDestroyRequest *agentv1.ApproveCloudDeploymentDestroyRequest
+	getDestroyRequest     *agentv1.GetCloudDestroyOperationRequest
+	createDestroy         func(*agentv1.CreateCloudDeploymentDestroyChallengeRequest) (*agentv1.CreateCloudDeploymentDestroyChallengeResponse, error)
+	approveDestroy        func(*agentv1.ApproveCloudDeploymentDestroyRequest) (*agentv1.ApproveCloudDeploymentDestroyResponse, error)
+	getDestroy            func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error)
 }
 
 func (service *cloudTestService) ListCloudPlans(_ context.Context, request *agentv1.ListCloudPlansRequest) (*agentv1.ListCloudPlansResponse, error) {
@@ -117,6 +123,39 @@ func (service *cloudTestService) GetCloudConnection(_ context.Context, request *
 	return nil, status.Error(codes.NotFound, "missing")
 }
 
+func (service *cloudTestService) CreateCloudDeploymentDestroyChallenge(ctx context.Context, request *agentv1.CreateCloudDeploymentDestroyChallengeRequest) (*agentv1.CreateCloudDeploymentDestroyChallengeResponse, error) {
+	service.captureDestroy(ctx, request, nil, nil)
+	service.mu.Lock()
+	callback := service.createDestroy
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) ApproveCloudDeploymentDestroy(ctx context.Context, request *agentv1.ApproveCloudDeploymentDestroyRequest) (*agentv1.ApproveCloudDeploymentDestroyResponse, error) {
+	service.captureDestroy(ctx, nil, request, nil)
+	service.mu.Lock()
+	callback := service.approveDestroy
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) GetCloudDestroyOperation(ctx context.Context, request *agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error) {
+	service.captureDestroy(ctx, nil, nil, request)
+	service.mu.Lock()
+	callback := service.getDestroy
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
+}
+
 func (service *cloudTestService) PreviewAwsIdentity(ctx context.Context, request *agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error) {
 	values := metadata.ValueFromIncomingContext(ctx, "authorization")
 	authorization := ""
@@ -170,6 +209,20 @@ func (service *cloudTestService) capture(ctx context.Context, list *agentv1.List
 	if get != nil {
 		service.getRequests = append(service.getRequests, get)
 	}
+	service.auth = append(service.auth, authorization)
+}
+
+func (service *cloudTestService) captureDestroy(ctx context.Context, create *agentv1.CreateCloudDeploymentDestroyChallengeRequest, approve *agentv1.ApproveCloudDeploymentDestroyRequest, get *agentv1.GetCloudDestroyOperationRequest) {
+	values := metadata.ValueFromIncomingContext(ctx, "authorization")
+	authorization := ""
+	if len(values) == 1 {
+		authorization = values[0]
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.createDestroyRequest = create
+	service.approveDestroyRequest = approve
+	service.getDestroyRequest = get
 	service.auth = append(service.auth, authorization)
 }
 

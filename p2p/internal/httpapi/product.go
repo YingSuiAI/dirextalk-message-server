@@ -100,7 +100,9 @@ func sensitiveCloudHTTPAction(action string) bool {
 		serviceapi.CloudConnectionIdentityPreviewAction,
 		serviceapi.CloudConnectionRegistrationCompleteAction,
 		serviceapi.CloudPlanConfirmationPrepareAction,
-		serviceapi.CloudPlanApproveAction:
+		serviceapi.CloudPlanApproveAction,
+		serviceapi.CloudDeploymentDestroyPlanAction,
+		serviceapi.CloudDeploymentDestroyApproveAction:
 		return true
 	default:
 		return false

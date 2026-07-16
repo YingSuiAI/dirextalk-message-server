@@ -2,6 +2,31 @@
 
 Last updated: 2026-07-16
 
+## 2026-07-16 Agent-owned manual Deployment destruction façade
+
+For canonical lowercase UUID Deployment IDs, the existing owner HTTP-only
+`cloud.deployments.destroy.plan/approve` actions now delegate exclusively to
+the independent Agent. Legacy/local Deployment IDs retain their prior store
+contract. Agent-mode prepare additionally requires `signer_key_id` and returns
+the existing `confirmation` envelope with the current Deployment, an Agent
+destroy-approval descriptor, and its exact deterministic-CBOR signing bytes
+and digest.
+
+The signed scope binds the Agent instance, owner, Deployment revision, Task,
+Plan hash, Connection, and the normalized complete EC2/EBS/ENI/security-group
+resource graph, including dependencies, retention, destroy deadline, original
+approval, and provider read-back evidence. Message Server receives neither AWS
+credentials nor an arbitrary destroy target.
+
+Approve projects the Agent's durable `CloudDestroyOperation` into the existing
+`{deployment, job}` response; it does not persist or manufacture a local Cloud
+fact. Ambiguous responses are reconciled by operation ID and Deployment read-
+back. Only an Agent operation plus Deployment read-back can yield
+`verified_destroyed`; `destroy_blocked` remains a failed destroy Job and may
+temporarily accompany an older Deployment projection while that projection is
+refreshed. Both actions are non-cacheable and remain unavailable to Agent/MCP
+tokens and websocket mutation.
+
 ## 2026-07-16 Agent Approval-v1 and AWS Connection establishment
 
 When the independent Agent backend is enabled, root credential onboarding now

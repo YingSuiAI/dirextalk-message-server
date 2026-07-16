@@ -65,9 +65,10 @@ type Config struct {
 	// by one uploaded Agent bootstrap session. It cannot create a connection or
 	// consume the uploaded credential.
 	CloudIdentityPreviewClient CloudIdentityPreviewClient
-	// CloudAgentControlClient exposes only typed Agent plan approval and AWS
-	// connection establishment. It cannot administer approval devices, retrieve
-	// credentials, or invoke arbitrary AWS APIs.
+	// CloudAgentControlClient exposes only typed Agent plan approval, AWS
+	// connection establishment, and exact Agent-owned Deployment destruction.
+	// It cannot administer approval devices, retrieve credentials, select
+	// arbitrary provider resources, or invoke arbitrary AWS APIs.
 	CloudAgentControlClient CloudAgentControlClient
 	NativeAgentDataDir      string
 	ReleaseController       releasecontrol.Controller
