@@ -128,11 +128,133 @@ func (runner *Runner) mapCloudDeployment(remote *agentv1.CloudDeployment) (cloud
 	if err != nil || updatedAt < createdAt {
 		return cloudmodule.Deployment{}, errors.New("agent service returned an invalid cloud deployment response")
 	}
+	health, err := mapCloudDeploymentHealth(remote.GetHealth())
+	if err != nil {
+		return cloudmodule.Deployment{}, err
+	}
 	return cloudmodule.Deployment{
 		DeploymentID: remote.GetDeploymentId(), PlanID: remote.GetPlanId(), ConnectionID: remote.GetConnectionId(),
 		Execution: execution, Outcome: outcome, Resource: resourceStatus, Revision: remote.GetRevision(),
-		CreatedAt: createdAt, UpdatedAt: updatedAt,
+		Health: health, CreatedAt: createdAt, UpdatedAt: updatedAt,
 	}, nil
+}
+
+func mapCloudDeploymentHealth(remote *agentv1.CloudHealthSummary) (*cloudmodule.DeploymentHealthSummary, error) {
+	unknown := &cloudmodule.DeploymentHealthSummary{
+		Status: "unknown", EvidenceType: "none", ProbeCounts: []cloudmodule.DeploymentHealthProbeCount{},
+	}
+	// Older Agent peers cannot send field 14. Treat absence exactly like the
+	// current Agent's explicit no-monitor summary instead of fabricating a
+	// successful observation.
+	if remote == nil {
+		return unknown, nil
+	}
+	status, ok := cloudDeploymentHealthStatus(remote.GetStatus())
+	if !ok {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	evidenceType, ok := cloudDeploymentHealthEvidence(remote.GetEvidenceType())
+	if !ok {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	result := &cloudmodule.DeploymentHealthSummary{
+		Status: status, Revision: remote.GetRevision(), ProbeCount: remote.GetProbeCount(),
+		ProbeCounts: make([]cloudmodule.DeploymentHealthProbeCount, 0, len(remote.GetProbeCounts())),
+		ExternalEvidenceDigest: remote.GetExternalEvidenceDigest(), EvidenceType: evidenceType,
+	}
+	if status == "unknown" {
+		if result.Revision != 0 || remote.GetObservedAt() != nil || remote.GetNextDueAt() != nil || result.ProbeCount != 0 ||
+			len(remote.GetProbeCounts()) != 0 || result.ExternalEvidenceDigest != "" || evidenceType != "none" {
+			return nil, errors.New("agent service returned an invalid cloud deployment response")
+		}
+		return result, nil
+	}
+	if result.Revision <= 0 || result.ProbeCount == 0 || remote.GetNextDueAt() == nil {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	nextDueAt, err := timestampMillis(remote.GetNextDueAt())
+	if err != nil {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	result.NextDueAt = nextDueAt
+	seen := make(map[string]struct{}, len(remote.GetProbeCounts()))
+	var total uint64
+	for _, count := range remote.GetProbeCounts() {
+		if count == nil || count.GetCount() == 0 {
+			return nil, errors.New("agent service returned an invalid cloud deployment response")
+		}
+		kind, valid := cloudDeploymentHealthProbeKind(count.GetKind())
+		if !valid {
+			return nil, errors.New("agent service returned an invalid cloud deployment response")
+		}
+		if _, duplicate := seen[kind]; duplicate {
+			return nil, errors.New("agent service returned an invalid cloud deployment response")
+		}
+		seen[kind] = struct{}{}
+		total += uint64(count.GetCount())
+		result.ProbeCounts = append(result.ProbeCounts, cloudmodule.DeploymentHealthProbeCount{Kind: kind, Count: count.GetCount()})
+	}
+	if total != uint64(result.ProbeCount) {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	if status == "pending" {
+		if remote.GetObservedAt() != nil || result.ExternalEvidenceDigest != "" || evidenceType != "none" {
+			return nil, errors.New("agent service returned an invalid cloud deployment response")
+		}
+		return result, nil
+	}
+	if remote.GetObservedAt() == nil || evidenceType != "independent_external" || !agentCloudDigestPattern.MatchString(result.ExternalEvidenceDigest) {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	observedAt, err := timestampMillis(remote.GetObservedAt())
+	if err != nil || nextDueAt < observedAt {
+		return nil, errors.New("agent service returned an invalid cloud deployment response")
+	}
+	result.ObservedAt = observedAt
+	return result, nil
+}
+
+func cloudDeploymentHealthStatus(value agentv1.CloudHealthStatus) (string, bool) {
+	switch value {
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNKNOWN:
+		return "unknown", true
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_PENDING:
+		return "pending", true
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_HEALTHY:
+		return "healthy", true
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_DEGRADED:
+		return "degraded", true
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNHEALTHY:
+		return "unhealthy", true
+	case agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_CANCELED:
+		return "canceled", true
+	default:
+		return "", false
+	}
+}
+
+func cloudDeploymentHealthProbeKind(value agentv1.CloudHealthProbeKind) (string, bool) {
+	switch value {
+	case agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_LIVENESS:
+		return "liveness", true
+	case agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_READINESS:
+		return "readiness", true
+	case agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_SEMANTIC:
+		return "semantic", true
+	default:
+		return "", false
+	}
+}
+
+func cloudDeploymentHealthEvidence(value agentv1.CloudHealthEvidenceType) (string, bool) {
+	switch value {
+	case agentv1.CloudHealthEvidenceType_CLOUD_HEALTH_EVIDENCE_TYPE_NONE:
+		return "none", true
+	case agentv1.CloudHealthEvidenceType_CLOUD_HEALTH_EVIDENCE_TYPE_INDEPENDENT_EXTERNAL:
+		return "independent_external", true
+	default:
+		return "", false
+	}
 }
 
 func validUUID(value string) bool {

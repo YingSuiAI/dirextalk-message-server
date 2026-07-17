@@ -3,8 +3,10 @@ package agentgrpc
 import (
 	"context"
 	"crypto/ed25519"
+	"path"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,18 +27,20 @@ const (
 )
 
 var (
-	agentCloudDigestPattern     = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	agentCloudIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	agentCloudAccountPattern    = regexp.MustCompile(`^[0-9]{12}$`)
-	agentCloudRoleARNPattern    = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role/([A-Za-z0-9+=,.@_/-]{1,512})$`)
-	agentCloudStackARNPattern   = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):cloudformation:([a-z0-9-]+):([0-9]{12}):stack/([^\x00-\x20\x7f]{1,256})/([0-9a-f-]{36})$`)
-	agentCloudAZPattern         = regexp.MustCompile(`^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+[a-z]$`)
-	agentCloudInstancePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.[a-z0-9]+$`)
-	agentCloudAMIPattern        = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
-	agentCloudVPCPattern        = regexp.MustCompile(`^vpc-[0-9a-f]{8,17}$`)
-	agentCloudSubnetPattern     = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
-	agentCloudSGPattern         = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
-	agentCloudSecretRefPattern  = regexp.MustCompile(`^secret_ref:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
+	agentCloudDigestPattern       = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	agentCloudIdentifierPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	agentCloudAccountPattern      = regexp.MustCompile(`^[0-9]{12}$`)
+	agentCloudRoleARNPattern      = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role/([A-Za-z0-9+=,.@_/-]{1,512})$`)
+	agentCloudStackARNPattern     = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):cloudformation:([a-z0-9-]+):([0-9]{12}):stack/([^\x00-\x20\x7f]{1,256})/([0-9a-f-]{36})$`)
+	agentCloudAZPattern           = regexp.MustCompile(`^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+[a-z]$`)
+	agentCloudInstancePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.[a-z0-9]+$`)
+	agentCloudAMIPattern          = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
+	agentCloudVPCPattern          = regexp.MustCompile(`^vpc-[0-9a-f]{8,17}$`)
+	agentCloudSubnetPattern       = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
+	agentCloudSGPattern           = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
+	agentCloudSecretRefPattern    = regexp.MustCompile(`^secret_ref:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
+	agentCloudVolumeDevicePattern = regexp.MustCompile(`^/dev/sd[f-p]$`)
+	agentCloudVolumeKMSPattern    = regexp.MustCompile(`^(?:alias/[A-Za-z0-9/_-]{1,240}|arn:(?:aws|aws-cn|aws-us-gov):kms:[a-z0-9-]+:[0-9]{12}:(?:key/[0-9a-f-]{36}|alias/[A-Za-z0-9/_-]{1,240}))$`)
 )
 
 // ListAgentCloudPlans adapts Agent's owner-scoped cursor API to the existing
@@ -316,7 +320,7 @@ func (runner *Runner) mapAgentCloudPlan(remote *agentv1.CloudPlan, expectedPlanI
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
 	retention, ok := mapAgentCloudRetention(remote.GetRetention())
-	if !ok {
+	if !ok || !validAgentCloudVolumeRetention(resource.VolumeScopes, retention) {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
 	recipe := remote.GetRecipe()
@@ -462,7 +466,76 @@ func mapAgentCloudResource(value *agentv1.CloudResourceScope) (cloudmodule.Agent
 		(value.GetGpuCount() > 0 && (value.GetGpuCount() > 64 || value.GetGpuType() == "" || value.GetGpuMemoryMib() == 0)) {
 		return cloudmodule.AgentCloudResourceScope{}, false
 	}
-	return cloudmodule.AgentCloudResourceScope{Region: value.GetRegion(), AvailabilityZones: append([]string(nil), value.GetAvailabilityZones()...), InstanceType: value.GetInstanceType(), InstanceCount: value.GetInstanceCount(), Architecture: value.GetArchitecture(), VCPU: value.GetVcpu(), MemoryMiB: value.GetMemoryMib(), GPUType: value.GetGpuType(), GPUCount: value.GetGpuCount(), GPUMemoryMiB: value.GetGpuMemoryMib(), DiskGiB: value.GetDiskGib(), VolumeType: value.GetVolumeType(), VolumeIOPS: value.GetVolumeIops(), VolumeThroughputMiBPS: value.GetVolumeThroughputMibps(), VolumeEncrypted: value.GetVolumeEncrypted(), PurchaseOption: purchase, WorkerImageID: value.GetWorkerImageId(), WorkerImageDigest: value.GetWorkerImageDigest()}, true
+	volumes, ok := mapAgentCloudVolumes(value.GetVolumeScopes())
+	if !ok {
+		return cloudmodule.AgentCloudResourceScope{}, false
+	}
+	return cloudmodule.AgentCloudResourceScope{Region: value.GetRegion(), AvailabilityZones: append([]string(nil), value.GetAvailabilityZones()...), InstanceType: value.GetInstanceType(), InstanceCount: value.GetInstanceCount(), Architecture: value.GetArchitecture(), VCPU: value.GetVcpu(), MemoryMiB: value.GetMemoryMib(), GPUType: value.GetGpuType(), GPUCount: value.GetGpuCount(), GPUMemoryMiB: value.GetGpuMemoryMib(), DiskGiB: value.GetDiskGib(), VolumeType: value.GetVolumeType(), VolumeIOPS: value.GetVolumeIops(), VolumeThroughputMiBPS: value.GetVolumeThroughputMibps(), VolumeEncrypted: value.GetVolumeEncrypted(), PurchaseOption: purchase, WorkerImageID: value.GetWorkerImageId(), WorkerImageDigest: value.GetWorkerImageDigest(), VolumeScopes: volumes}, true
+}
+
+func mapAgentCloudVolumes(values []*agentv1.CloudVolumeScope) ([]cloudmodule.AgentCloudVolumeScope, bool) {
+	if len(values) > 11 {
+		return nil, false
+	}
+	// Repeated protobuf fields are allowed to be absent. Preserve that canonical
+	// empty form here so an older no-data-volume quote still compares equal to
+	// the caller's request; a non-nil empty slice is observably different to
+	// reflect.DeepEqual even though it has the same protobuf wire form.
+	if len(values) == 0 {
+		return nil, true
+	}
+	result := make([]cloudmodule.AgentCloudVolumeScope, 0, len(values))
+	seenSlots := make(map[string]struct{}, len(values))
+	seenDevices := make(map[string]struct{}, len(values))
+	seenMounts := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == nil || !agentCloudIdentifierPattern.MatchString(value.GetSlotId()) || value.GetSizeGib() == 0 || value.GetSizeGib() > 65_536 ||
+			value.GetVolumeType() != "gp3" || value.GetIops() < 3_000 || value.GetIops() > 80_000 ||
+			value.GetThroughputMibps() < 125 || value.GetThroughputMibps() > 2_000 || !value.GetEncrypted() ||
+			!agentCloudVolumeKMSPattern.MatchString(value.GetKmsKeyId()) || !agentCloudVolumeDevicePattern.MatchString(value.GetDeviceName()) ||
+			value.GetMountPath() == "" || value.GetMountPath() == "/" || !strings.HasPrefix(value.GetMountPath(), "/") ||
+			path.Clean(value.GetMountPath()) != value.GetMountPath() || strings.Contains(value.GetMountPath(), "\\") ||
+			(value.GetDisposition() != "delete_with_deployment" && value.GetDisposition() != "retain_with_managed_service") {
+			return nil, false
+		}
+		for _, reserved := range []string{"/dev", "/proc", "/sys", "/run/secrets"} {
+			if value.GetMountPath() == reserved || strings.HasPrefix(value.GetMountPath(), reserved+"/") {
+				return nil, false
+			}
+		}
+		if _, duplicate := seenSlots[value.GetSlotId()]; duplicate {
+			return nil, false
+		}
+		if _, duplicate := seenDevices[value.GetDeviceName()]; duplicate {
+			return nil, false
+		}
+		if _, duplicate := seenMounts[value.GetMountPath()]; duplicate {
+			return nil, false
+		}
+		seenSlots[value.GetSlotId()] = struct{}{}
+		seenDevices[value.GetDeviceName()] = struct{}{}
+		seenMounts[value.GetMountPath()] = struct{}{}
+		result = append(result, cloudmodule.AgentCloudVolumeScope{
+			SlotID: value.GetSlotId(), SizeGiB: value.GetSizeGib(), VolumeType: value.GetVolumeType(), IOPS: value.GetIops(),
+			ThroughputMiBPS: value.GetThroughputMibps(), Encrypted: value.GetEncrypted(), KMSKeyID: value.GetKmsKeyId(),
+			DeviceName: value.GetDeviceName(), MountPath: value.GetMountPath(), ReadOnly: value.GetReadOnly(),
+			Persistent: value.GetPersistent(), Disposition: value.GetDisposition(),
+		})
+	}
+	sort.Slice(result, func(left, right int) bool {
+		return result[left].SlotID < result[right].SlotID
+	})
+	return result, true
+}
+
+func validAgentCloudVolumeRetention(values []cloudmodule.AgentCloudVolumeScope, retention cloudmodule.AgentCloudRetentionScope) bool {
+	for _, value := range values {
+		if (retention.Class == "ephemeral" && value.Disposition != "delete_with_deployment") ||
+			(retention.Class == "managed" && value.Disposition != "retain_with_managed_service") {
+			return false
+		}
+	}
+	return true
 }
 
 func mapAgentCloudNetwork(value *agentv1.CloudNetworkScope) (cloudmodule.AgentCloudNetworkScope, bool) {

@@ -27,6 +27,8 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 		}
 		for _, scope := range request.GetScopes() {
 			if scope.GetOwnerId() != "owner-from-config" || scope.GetResource().GetWorkerImageId() != "" || scope.GetResource().GetWorkerImageDigest() != "" ||
+				len(scope.GetResource().GetVolumeScopes()) != 1 || scope.GetResource().GetVolumeScopes()[0].GetSlotId() != "knowledge" ||
+				scope.GetResource().GetVolumeScopes()[0].GetMountPath() != "/srv/knowledge" || scope.GetResource().GetVolumeScopes()[0].GetKmsKeyId() != "alias/dirextalk-agent-test" ||
 				scope.GetNetwork().GetSecurityGroupMode() != agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_CREATE_DEDICATED ||
 				scope.GetNetwork().GetSecurityGroupId() != "" || !scope.GetNetwork().GetPublicIpv4() {
 				t.Fatalf("owner or server-owned Worker release was changed: %#v", scope)
@@ -56,6 +58,7 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 		BootstrapSessionID: "019f6a80-1234-7abc-8def-012345678914", ExpectedSessionRevision: 1,
 	})
 	if err != nil || created.QuoteID != testQuoteID || len(created.Candidates) != 3 || created.Candidates[1].Scope.Resource.WorkerImageID == "" ||
+		len(created.Candidates[1].Scope.Resource.VolumeScopes) != 1 || created.Candidates[1].Scope.Resource.VolumeScopes[0].SlotID != "knowledge" ||
 		created.Candidates[1].Scope.Network.SecurityGroupMode != "create_dedicated" || !created.Candidates[1].Scope.Network.PublicIPv4 {
 		t.Fatalf("created quote=%#v err=%v", created, err)
 	}
@@ -81,6 +84,41 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 	}
 }
 
+func TestAgentCloudResourceMappingPreservesAbsentDataVolumeScope(t *testing.T) {
+	t.Parallel()
+	resource := planningQuoteScopes(true)[0].Resource
+	resource.VolumeScopes = nil
+	remote, ok := agentCloudResourceToProto(resource, false)
+	if !ok || len(remote.GetVolumeScopes()) != 0 {
+		t.Fatalf("resource without data volumes did not encode as absent: %#v ok=%v", remote, ok)
+	}
+	mapped, ok := mapAgentCloudResource(remote)
+	expected := resource
+	// Candidate profile belongs to CloudQuoteCandidate, not CloudResourceScope
+	// when the generic resource mapper is used directly.
+	expected.CandidateProfile = ""
+	if !ok || mapped.VolumeScopes != nil || !reflect.DeepEqual(mapped, expected) {
+		t.Fatalf("resource without data volumes changed across protobuf mapping: %#v ok=%v", mapped, ok)
+	}
+}
+
+func TestAgentCloudResourceMappingNormalizesDataVolumeScopeOrder(t *testing.T) {
+	t.Parallel()
+	resource := planningQuoteScopes(true)[0].Resource
+	knowledge := resource.VolumeScopes[0]
+	cache := knowledge
+	cache.SlotID, cache.DeviceName, cache.MountPath = "cache", "/dev/sdg", "/srv/cache"
+	resource.VolumeScopes = []cloudmodule.AgentCloudVolumeScope{knowledge, cache}
+	remote, ok := agentCloudResourceToProto(resource, false)
+	if !ok {
+		t.Fatal("resource with valid data volumes did not encode")
+	}
+	mapped, ok := mapAgentCloudResource(remote)
+	if !ok || len(mapped.VolumeScopes) != 2 || mapped.VolumeScopes[0].SlotID != "cache" || mapped.VolumeScopes[1].SlotID != "knowledge" {
+		t.Fatalf("data-volume scope order was not normalized: %#v ok=%v", mapped.VolumeScopes, ok)
+	}
+}
+
 func planningQuoteScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
 	profiles := []string{"economic", "recommended", "performance"}
 	result := make([]cloudmodule.AgentCloudQuoteScope, 0, len(profiles))
@@ -90,6 +128,11 @@ func planningQuoteScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
 			InstanceType: []string{"t3.large", "m7i.large", "c7i.xlarge"}[index], InstanceCount: 1,
 			Architecture: "amd64", VCPU: uint32(2 + index*2), MemoryMiB: uint64(8192 + index*8192),
 			DiskGiB: 40, VolumeType: "gp3", VolumeEncrypted: true, PurchaseOption: "on_demand",
+			VolumeScopes: []cloudmodule.AgentCloudVolumeScope{{
+				SlotID: "knowledge", SizeGiB: 80, VolumeType: "gp3", IOPS: 3_000, ThroughputMiBPS: 125,
+				Encrypted: true, KMSKeyID: "alias/dirextalk-agent-test", DeviceName: "/dev/sdf", MountPath: "/srv/knowledge",
+				Persistent: true, Disposition: "delete_with_deployment",
+			}},
 		}
 		if workerBound {
 			resource.WorkerImageID = "ami-0123456789abcdef0"

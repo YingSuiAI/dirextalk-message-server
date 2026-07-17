@@ -222,7 +222,9 @@ func TestAgentPlanConfirmationReturnsExactUnsignedDescriptorAndRejectsClientScop
 	approval := confirmation["approval"].(agentCloudApprovalV1)
 	if approval.SchemaVersion != agentCloudApprovalSchema || approval.ConnectionID != plan.ConnectionID || approval.QuoteCandidateID != "economic" ||
 		approval.ResourceScope.Region != plan.Resource.Region || approval.NetworkScope.SecurityGroupMode != "create_dedicated" ||
-		!approval.NetworkScope.PublicIPv4 || approval.RetentionScope.Class != "ephemeral" || approval.Signature != "" {
+		len(approval.ResourceScope.VolumeScopes) != 1 || approval.ResourceScope.VolumeScopes[0].SlotID != "knowledge" ||
+		approval.ResourceScope.VolumeScopes[0].MountPath != "/srv/knowledge" || !approval.NetworkScope.PublicIPv4 ||
+		approval.RetentionScope.Class != "ephemeral" || approval.Signature != "" {
 		t.Fatalf("unsigned Agent approval descriptor=%#v", approval)
 	}
 	encoded, err := json.Marshal(approval)
@@ -571,6 +573,11 @@ func readyAgentPlan(now time.Time) AgentCloudPlan {
 			Region: "ap-northeast-1", AvailabilityZones: []string{"ap-northeast-1a"}, InstanceType: "t3.large", InstanceCount: 1,
 			Architecture: "amd64", VCPU: 2, MemoryMiB: 8192, DiskGiB: 40, VolumeType: "gp3", VolumeEncrypted: true,
 			PurchaseOption: "on_demand", WorkerImageID: "ami-0123456789abcdef0", WorkerImageDigest: "sha256:" + repeatAgentHex("4"),
+			VolumeScopes: []AgentCloudVolumeScope{{
+				SlotID: "knowledge", SizeGiB: 80, VolumeType: "gp3", IOPS: 3_000, ThroughputMiBPS: 125,
+				Encrypted: true, KMSKeyID: "alias/dirextalk-agent-test", DeviceName: "/dev/sdf", MountPath: "/srv/knowledge",
+				Persistent: true, Disposition: "delete_with_deployment",
+			}},
 		},
 		Network: AgentCloudNetworkScope{
 			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupMode: "create_dedicated",

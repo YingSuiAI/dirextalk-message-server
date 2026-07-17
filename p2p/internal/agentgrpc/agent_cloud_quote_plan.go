@@ -211,6 +211,9 @@ func agentCloudQuoteScopeToProto(value cloudmodule.AgentCloudQuoteScope, owner s
 	if !ok {
 		return nil, false
 	}
+	if !validAgentCloudVolumeRetention(value.Resource.VolumeScopes, value.Retention) {
+		return nil, false
+	}
 	secrets := make([]*agentv1.CloudSecretScope, 0, len(value.SecretScope))
 	for _, secret := range value.SecretScope {
 		if !agentCloudSecretRefPattern.MatchString(secret.SecretRef) || !validAgentCloudText(secret.Purpose, 256) || (secret.Delivery != "file" && secret.Delivery != "environment") {
@@ -245,7 +248,7 @@ func mapAgentCloudQuoteScope(value *agentv1.CloudQuoteScope, expectedOwner strin
 		return cloudmodule.AgentCloudQuoteScope{}, false
 	}
 	retention, ok := mapAgentCloudRetention(value.GetRetention())
-	if !ok {
+	if !ok || !validAgentCloudVolumeRetention(resource.VolumeScopes, retention) {
 		return cloudmodule.AgentCloudQuoteScope{}, false
 	}
 	secrets := make([]cloudmodule.AgentCloudSecretScope, 0, len(value.GetSecretScope()))
@@ -271,6 +274,17 @@ func agentCloudResourceToProto(value cloudmodule.AgentCloudResourceScope, allowU
 		return nil, false
 	}
 	resource := &agentv1.CloudResourceScope{CandidateProfile: profile, Region: value.Region, AvailabilityZones: append([]string(nil), value.AvailabilityZones...), InstanceType: value.InstanceType, InstanceCount: value.InstanceCount, Architecture: value.Architecture, Vcpu: value.VCPU, MemoryMib: value.MemoryMiB, GpuType: value.GPUType, GpuCount: value.GPUCount, GpuMemoryMib: value.GPUMemoryMiB, DiskGib: value.DiskGiB, VolumeType: value.VolumeType, VolumeIops: value.VolumeIOPS, VolumeThroughputMibps: value.VolumeThroughputMiBPS, VolumeEncrypted: value.VolumeEncrypted, WorkerImageId: value.WorkerImageID, WorkerImageDigest: value.WorkerImageDigest}
+	if len(value.VolumeScopes) > 0 {
+		resource.VolumeScopes = make([]*agentv1.CloudVolumeScope, 0, len(value.VolumeScopes))
+		for _, volume := range value.VolumeScopes {
+			resource.VolumeScopes = append(resource.VolumeScopes, &agentv1.CloudVolumeScope{
+				SlotId: volume.SlotID, SizeGib: volume.SizeGiB, VolumeType: volume.VolumeType, Iops: volume.IOPS,
+				ThroughputMibps: volume.ThroughputMiBPS, Encrypted: volume.Encrypted, KmsKeyId: volume.KMSKeyID,
+				DeviceName: volume.DeviceName, MountPath: volume.MountPath, ReadOnly: volume.ReadOnly,
+				Persistent: volume.Persistent, Disposition: volume.Disposition,
+			})
+		}
+	}
 	switch value.PurchaseOption {
 	case "on_demand":
 		resource.PurchaseOption = agentv1.CloudPurchaseOption_CLOUD_PURCHASE_OPTION_ON_DEMAND

@@ -3,6 +3,7 @@ package agentgrpc
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -276,6 +277,17 @@ func TestCloudDeploymentReaderTraversesPagesWithBoundOwnerAndMountedAuthenticati
 	runner := newTestRunner(t, server, Config{UnaryTimeout: time.Second})
 	first := cloudDeployment(testDeploymentID1, testPlanID1, testConnectionID1, 1)
 	second := cloudDeployment(testDeploymentID2, testPlanID2, testConnectionID2, 2)
+	second.Health = &agentv1.CloudHealthSummary{
+		Status: agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_DEGRADED, Revision: 9,
+		ObservedAt: timestamppb.New(time.Unix(3, 0)), NextDueAt: timestamppb.New(time.Unix(4, 0)), ProbeCount: 3,
+		ProbeCounts: []*agentv1.CloudHealthProbeCount{
+			{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_LIVENESS, Count: 1},
+			{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_READINESS, Count: 1},
+			{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_SEMANTIC, Count: 1},
+		},
+		ExternalEvidenceDigest: "sha256:" + strings.Repeat("a", 64),
+		EvidenceType:           agentv1.CloudHealthEvidenceType_CLOUD_HEALTH_EVIDENCE_TYPE_INDEPENDENT_EXTERNAL,
+	}
 	server.cloud.list = func(request *agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error) {
 		switch request.GetPageToken() {
 		case "":
@@ -299,11 +311,18 @@ func TestCloudDeploymentReaderTraversesPagesWithBoundOwnerAndMountedAuthenticati
 	}
 	if len(items) != 2 || items[0].DeploymentID != testDeploymentID1 || items[0].PlanID != testPlanID1 ||
 		items[0].ConnectionID != testConnectionID1 || items[0].Execution != "running" || items[0].Outcome != "pending" ||
-		items[0].Resource != "active" || items[0].CreatedAt != 1_000 || items[0].UpdatedAt != 2_000 {
+		items[0].Resource != "active" || items[0].CreatedAt != 1_000 || items[0].UpdatedAt != 2_000 ||
+		items[0].Health == nil || items[0].Health.Status != "unknown" || items[0].Health.EvidenceType != "none" {
 		t.Fatalf("mapped deployments = %#v", items)
 	}
+	if items[1].Health == nil || items[1].Health.Status != "degraded" || items[1].Health.Revision != 9 ||
+		items[1].Health.ObservedAt != 3_000 || items[1].Health.NextDueAt != 4_000 || items[1].Health.ProbeCount != 3 ||
+		len(items[1].Health.ProbeCounts) != 3 || items[1].Health.EvidenceType != "independent_external" ||
+		items[1].Health.ExternalEvidenceDigest != second.GetHealth().GetExternalEvidenceDigest() {
+		t.Fatalf("mapped health = %#v", items[1].Health)
+	}
 	got, found, err := runner.GetCloudDeployment(t.Context(), testDeploymentID2)
-	if err != nil || !found || got != items[1] {
+	if err != nil || !found || !reflect.DeepEqual(got, items[1]) {
 		t.Fatalf("get deployment = %#v found=%v err=%v", got, found, err)
 	}
 
@@ -429,6 +448,53 @@ func TestCloudDeploymentReaderRejectsInvalidStatesRelationsAndUnboundedPaginatio
 			t.Fatalf("page limit error = %v", err)
 		}
 	})
+}
+
+func TestCloudDeploymentReaderRejectsMalformedHealthWithoutLeakingRemoteDetails(t *testing.T) {
+	t.Parallel()
+	server := startRuntimeServer(t)
+	runner := newTestRunner(t, server, Config{UnaryTimeout: time.Second})
+	base := cloudDeployment(testDeploymentID1, testPlanID1, testConnectionID1, 1)
+	valid := &agentv1.CloudHealthSummary{
+		Status: agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_HEALTHY, Revision: 2,
+		ObservedAt: timestamppb.New(time.Unix(3, 0)), NextDueAt: timestamppb.New(time.Unix(4, 0)), ProbeCount: 1,
+		ProbeCounts: []*agentv1.CloudHealthProbeCount{{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_READINESS, Count: 1}},
+		ExternalEvidenceDigest: "sha256:" + strings.Repeat("b", 64),
+		EvidenceType:           agentv1.CloudHealthEvidenceType_CLOUD_HEALTH_EVIDENCE_TYPE_INDEPENDENT_EXTERNAL,
+	}
+	tests := []struct {
+		name   string
+		mutate func(*agentv1.CloudHealthSummary)
+	}{
+		{name: "unspecified status", mutate: func(value *agentv1.CloudHealthSummary) { value.Status = agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNSPECIFIED }},
+		{name: "duplicate probe kind", mutate: func(value *agentv1.CloudHealthSummary) {
+			value.ProbeCount = 2
+			value.ProbeCounts = append(value.ProbeCounts, proto.Clone(value.ProbeCounts[0]).(*agentv1.CloudHealthProbeCount))
+		}},
+		{name: "probe total mismatch", mutate: func(value *agentv1.CloudHealthSummary) { value.ProbeCount = 2 }},
+		{name: "missing observation", mutate: func(value *agentv1.CloudHealthSummary) { value.ObservedAt = nil }},
+		{name: "non digest evidence", mutate: func(value *agentv1.CloudHealthSummary) { value.ExternalEvidenceDigest = cloudErrorCanary }},
+		{name: "pending with external evidence", mutate: func(value *agentv1.CloudHealthSummary) {
+			value.Status = agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_PENDING
+		}},
+		{name: "unknown with revision", mutate: func(value *agentv1.CloudHealthSummary) {
+			value.Status = agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNKNOWN
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := proto.Clone(base).(*agentv1.CloudDeployment)
+			invalid.Health = proto.Clone(valid).(*agentv1.CloudHealthSummary)
+			test.mutate(invalid.Health)
+			server.cloud.list = func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error) {
+				return &agentv1.ListCloudDeploymentsResponse{Deployments: []*agentv1.CloudDeployment{invalid}}, nil
+			}
+			_, err := runner.ListCloudDeployments(t.Context())
+			if err == nil || !strings.Contains(err.Error(), "invalid cloud deployment response") || strings.Contains(err.Error(), cloudErrorCanary) {
+				t.Fatalf("malformed health error = %v", err)
+			}
+		})
+	}
 }
 
 func cloudDeployment(deploymentID, planID, connectionID string, revision int64) *agentv1.CloudDeployment {

@@ -1,6 +1,20 @@
 # API Interface Change Record
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
+
+## 2026-07-17 Agent Deployment health summary
+
+The owner-readable `cloud.deployments.list/get` ProductCore projection gains an
+additive optional `health` object when an independent Agent health monitor has
+a summary. It contains only aggregate status, its independent monotonic
+revision, observed/next-due timestamps, per-kind counts, an evidence digest,
+and evidence type. It deliberately excludes probe targets, URLs, headers,
+request/response content, pairing material, and secret references.
+
+The Deployment's existing revision remains unchanged by a health-only update;
+clients merge the nested health revision independently and ignore stale health
+summaries. Absent `health` remains compatible with older Agent deployments and
+means no independently persisted health summary is available.
 
 ## 2026-07-16 Agent-owned manual Deployment destruction façade
 

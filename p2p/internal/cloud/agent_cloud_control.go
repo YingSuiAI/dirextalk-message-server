@@ -11,7 +11,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +26,12 @@ const (
 	agentCloudConnectionMode        = "agent_foundation_v1"
 	agentCloudReadyForConfirmation  = "ready_for_confirmation"
 	agentCloudPendingReconciliation = "pending_reconciliation"
+)
+
+var (
+	agentCloudVolumeDevicePattern = regexp.MustCompile(`^/dev/sd[f-p]$`)
+	agentCloudVolumeKMSPattern    = regexp.MustCompile(`^(?:alias/[A-Za-z0-9/_-]{1,240}|arn:(?:aws|aws-cn|aws-us-gov):kms:[a-z0-9-]+:[0-9]{12}:(?:key/[0-9a-f-]{36}|alias/[A-Za-z0-9/_-]{1,240}))$`)
+	agentCloudVolumeSlotPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 type agentCloudApprovalV1 struct {
@@ -72,6 +80,22 @@ type agentCloudResourceScopeV1 struct {
 	PurchaseOption        string   `json:"purchase_option"`
 	WorkerImageID         string   `json:"worker_image_id"`
 	WorkerImageDigest     string   `json:"worker_image_digest"`
+	VolumeScopes          []agentCloudVolumeScopeV1 `json:"volume_scopes,omitempty"`
+}
+
+type agentCloudVolumeScopeV1 struct {
+	SlotID          string `json:"slot_id"`
+	SizeGiB         uint32 `json:"size_gib"`
+	VolumeType      string `json:"volume_type"`
+	IOPS            uint32 `json:"iops,omitempty"`
+	ThroughputMiBPS uint32 `json:"throughput_mibps,omitempty"`
+	Encrypted       bool   `json:"encrypted"`
+	KMSKeyID        string `json:"kms_key_id"`
+	DeviceName      string `json:"device_name"`
+	MountPath       string `json:"mount_path"`
+	ReadOnly        bool   `json:"read_only"`
+	Persistent      bool   `json:"persistent"`
+	Disposition     string `json:"disposition"`
 }
 
 type agentCloudNetworkScopeV1 struct {
@@ -419,6 +443,15 @@ func agentApprovalFromChallenge(plan AgentCloudPlan, challenge AgentCloudChallen
 }
 
 func resourceScopeFromAgent(value AgentCloudResourceScope) agentCloudResourceScopeV1 {
+	volumes := make([]agentCloudVolumeScopeV1, len(value.VolumeScopes))
+	for index, volume := range value.VolumeScopes {
+		volumes[index] = agentCloudVolumeScopeV1{
+			SlotID: volume.SlotID, SizeGiB: volume.SizeGiB, VolumeType: volume.VolumeType, IOPS: volume.IOPS,
+			ThroughputMiBPS: volume.ThroughputMiBPS, Encrypted: volume.Encrypted, KMSKeyID: volume.KMSKeyID,
+			DeviceName: volume.DeviceName, MountPath: volume.MountPath, ReadOnly: volume.ReadOnly,
+			Persistent: volume.Persistent, Disposition: volume.Disposition,
+		}
+	}
 	return agentCloudResourceScopeV1{
 		Region: value.Region, AvailabilityZones: append([]string(nil), value.AvailabilityZones...), InstanceType: value.InstanceType,
 		InstanceCount: value.InstanceCount, Architecture: value.Architecture, VCPU: value.VCPU, MemoryMiB: value.MemoryMiB,
@@ -426,6 +459,7 @@ func resourceScopeFromAgent(value AgentCloudResourceScope) agentCloudResourceSco
 		VolumeType: value.VolumeType, VolumeIOPS: value.VolumeIOPS, VolumeThroughputMiBPS: value.VolumeThroughputMiBPS,
 		VolumeEncrypted: value.VolumeEncrypted, PurchaseOption: value.PurchaseOption,
 		WorkerImageID: value.WorkerImageID, WorkerImageDigest: value.WorkerImageDigest,
+		VolumeScopes: volumes,
 	}
 }
 
@@ -601,7 +635,50 @@ func validateAgentApprovalScopes(value agentCloudApprovalV1) error {
 	if value.RetentionScope.Class != "ephemeral" && value.RetentionScope.Class != "managed" {
 		return ErrAgentCloudControlInvalidResponse
 	}
+	if !validAgentApprovalVolumes(r.VolumeScopes, value.RetentionScope.Class) {
+		return ErrAgentCloudControlInvalidResponse
+	}
 	return nil
+}
+
+func validAgentApprovalVolumes(values []agentCloudVolumeScopeV1, retentionClass string) bool {
+	if len(values) > 11 {
+		return false
+	}
+	seenSlots := make(map[string]struct{}, len(values))
+	seenDevices := make(map[string]struct{}, len(values))
+	seenMounts := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !agentCloudVolumeSlotPattern.MatchString(value.SlotID) || value.SizeGiB == 0 || value.SizeGiB > 65_536 || value.VolumeType != "gp3" ||
+			value.IOPS < 3_000 || value.IOPS > 80_000 || value.ThroughputMiBPS < 125 || value.ThroughputMiBPS > 2_000 ||
+			!value.Encrypted || !agentCloudVolumeKMSPattern.MatchString(value.KMSKeyID) || !agentCloudVolumeDevicePattern.MatchString(value.DeviceName) ||
+			value.MountPath == "" || value.MountPath == "/" || !strings.HasPrefix(value.MountPath, "/") ||
+			path.Clean(value.MountPath) != value.MountPath || strings.Contains(value.MountPath, "\\") {
+			return false
+		}
+		for _, reserved := range []string{"/dev", "/proc", "/sys", "/run/secrets"} {
+			if value.MountPath == reserved || strings.HasPrefix(value.MountPath, reserved+"/") {
+				return false
+			}
+		}
+		if _, duplicate := seenSlots[value.SlotID]; duplicate {
+			return false
+		}
+		if _, duplicate := seenDevices[value.DeviceName]; duplicate {
+			return false
+		}
+		if _, duplicate := seenMounts[value.MountPath]; duplicate {
+			return false
+		}
+		seenSlots[value.SlotID] = struct{}{}
+		seenDevices[value.DeviceName] = struct{}{}
+		seenMounts[value.MountPath] = struct{}{}
+		if (retentionClass == "ephemeral" && value.Disposition != "delete_with_deployment") ||
+			(retentionClass == "managed" && value.Disposition != "retain_with_managed_service") {
+			return false
+		}
+	}
+	return true
 }
 
 func validateAgentCloudConnection(value AgentCloudConnection, ownerID, connectionID, region string) error {

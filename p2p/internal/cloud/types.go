@@ -426,9 +426,29 @@ type Deployment struct {
 	Execution    string `json:"execution_status"`
 	Outcome      string `json:"outcome_status"`
 	Resource     string `json:"resource_status"`
+	Health       *DeploymentHealthSummary `json:"health,omitempty"`
 	Revision     int64  `json:"revision"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
+}
+
+// DeploymentHealthSummary is a deliberately de-sensitive, independently
+// revisioned health axis. It must never contain probe endpoints, headers,
+// request/response bodies, pairing material, or secret references.
+type DeploymentHealthSummary struct {
+	Status                 string                       `json:"status"`
+	Revision               int64                        `json:"revision"`
+	ObservedAt             int64                        `json:"observed_at,omitempty"`
+	NextDueAt              int64                        `json:"next_due_at,omitempty"`
+	ProbeCount             uint32                       `json:"probe_count"`
+	ProbeCounts            []DeploymentHealthProbeCount `json:"probe_counts"`
+	ExternalEvidenceDigest string                       `json:"external_evidence_digest,omitempty"`
+	EvidenceType           string                       `json:"evidence_type"`
+}
+
+type DeploymentHealthProbeCount struct {
+	Kind  string `json:"kind"`
+	Count uint32 `json:"count"`
 }
 
 // Job tracks one durable Cloud control-plane operation. It is independent

@@ -27,6 +27,8 @@ type ClosableNativeAgentRunner interface {
 // CloudDeployment is the existing ProductCore projection shape. The alias lets
 // setup wire a generic Agent client without exposing p2p/internal packages.
 type CloudDeployment = cloudmodule.Deployment
+type CloudDeploymentHealthSummary = cloudmodule.DeploymentHealthSummary
+type CloudDeploymentHealthProbeCount = cloudmodule.DeploymentHealthProbeCount
 
 // CloudDeploymentReader is intentionally query-only. Service identity alone
 // can never acquire approval or lifecycle mutation capability through it.

@@ -179,6 +179,25 @@ type AgentCloudResourceScope struct {
 	PurchaseOption        string
 	WorkerImageID         string
 	WorkerImageDigest     string
+	VolumeScopes          []AgentCloudVolumeScope
+}
+
+// AgentCloudVolumeScope is an approval- and quote-bound data volume. It is
+// deliberately separate from DiskGiB, which describes only the Worker root
+// disk and cannot satisfy a persistent Recipe volume slot.
+type AgentCloudVolumeScope struct {
+	SlotID          string
+	SizeGiB         uint32
+	VolumeType      string
+	IOPS            uint32
+	ThroughputMiBPS uint32
+	Encrypted       bool
+	KMSKeyID        string
+	DeviceName      string
+	MountPath       string
+	ReadOnly        bool
+	Persistent      bool
+	Disposition     string
 }
 
 type AgentCloudNetworkScope struct {
