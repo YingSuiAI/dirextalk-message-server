@@ -56,6 +56,12 @@ const (
 	actionServicesRestoreApprove                        = "cloud.services.restore.approve"
 	actionServicesManagementPlan                        = "cloud.services.management.plan"
 	actionServicesManagementApprove                     = "cloud.services.management.approve"
+	actionServicesManagedPreparationPrepare             = "cloud.services.managed_preparation.prepare"
+	actionServicesManagedPreparationApprove             = "cloud.services.managed_preparation.approve"
+	actionServicesManagedPreparationGet                 = "cloud.services.managed_preparation.get"
+	actionServicesRootHelperKeyPrepare                  = "cloud.services.root_helper_key.prepare"
+	actionServicesRootHelperKeyApprove                  = "cloud.services.root_helper_key.approve"
+	actionServicesRootHelperKeyGet                      = "cloud.services.root_helper_key.get"
 	cloudUnavailableCode                                = "cloud_orchestrator_unavailable"
 	cloudIdempotencyInvalidCode                         = "cloud_idempotency_key_invalid"
 	cloudGoalInvalidCode                                = "cloud_goal_invalid"
@@ -115,6 +121,10 @@ const (
 	cloudServiceManagementAcceptanceConflictCode        = "cloud_service_management_acceptance_conflict"
 	cloudServiceManagementAcceptanceExpiredCode         = "cloud_service_management_acceptance_expired"
 	cloudServiceManagementAcceptanceSignatureCode       = "cloud_service_management_acceptance_signature_invalid"
+	cloudServiceManagedPreparationInvalidCode           = "cloud_service_managed_preparation_invalid"
+	cloudServiceManagedPreparationConflictCode          = "cloud_service_managed_preparation_conflict"
+	cloudServiceRootHelperKeyInvalidCode                = "cloud_service_root_helper_key_invalid"
+	cloudServiceRootHelperKeyConflictCode               = "cloud_service_root_helper_key_conflict"
 )
 
 type Config struct {
@@ -182,6 +192,12 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionServicesRestoreApprove:                        m.approveServiceRestore,
 		actionServicesManagementPlan:                        m.prepareServiceManagementAcceptance,
 		actionServicesManagementApprove:                     m.approveServiceManagementAcceptance,
+		actionServicesManagedPreparationPrepare:             m.prepareManagedPreparation,
+		actionServicesManagedPreparationApprove:             m.approveManagedPreparation,
+		actionServicesManagedPreparationGet:                 m.getManagedPreparation,
+		actionServicesRootHelperKeyPrepare:                  m.prepareRootHelperKey,
+		actionServicesRootHelperKeyApprove:                  m.approveRootHelperKey,
+		actionServicesRootHelperKeyGet:                      m.getRootHelperKey,
 	}
 }
 

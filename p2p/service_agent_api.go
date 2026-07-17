@@ -50,8 +50,9 @@ type CloudIdentityPreviewClient = cloudmodule.IdentityPreviewClient
 type CloudIdentityPreviewRequest = cloudmodule.IdentityPreviewRequest
 type CloudIdentityPreviewEvidence = cloudmodule.IdentityPreviewEvidence
 
-// CloudAgentControlClient exposes only typed plan approval, AWS connection
-// establishment, and exact Agent-owned Deployment destruction. It does not
+// CloudAgentControlClient exposes typed plan approval, AWS connection
+// establishment, exact Agent-owned Deployment destruction, and optional
+// Agent-owned lifecycle capabilities such as managed acceptance. It does not
 // expose approval-device administration, raw credentials, caller-selected
 // provider resources, or arbitrary AWS operations.
 type CloudAgentControlClient = cloudmodule.AgentCloudControlClient

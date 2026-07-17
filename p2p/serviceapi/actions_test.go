@@ -9,8 +9,8 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	first := ActionSpecs()
 	second := ActionSpecs()
 
-	if len(first) != 185 {
-		t.Fatalf("ActionSpecs() returned %d actions, want 185", len(first))
+	if len(first) != 191 {
+		t.Fatalf("ActionSpecs() returned %d actions, want 191", len(first))
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("ActionSpecs() did not preserve action order")
@@ -36,6 +36,32 @@ func TestCloudCancellationAndDeploymentDestroyActionsAreOwnerHTTPOnly(t *testing
 
 func TestCloudFoundationActionsAreOwnerHTTPOnly(t *testing.T) {
 	for _, action := range []string{CloudConnectionFoundationConfirmationPrepareAction, CloudConnectionFoundationApproveAction, CloudConnectionFoundationOperationGetAction} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudManagedPreparationActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		"cloud.services.managed_preparation.prepare",
+		"cloud.services.managed_preparation.approve",
+		"cloud.services.managed_preparation.get",
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudRootHelperKeyActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		"cloud.services.root_helper_key.prepare",
+		"cloud.services.root_helper_key.approve",
+		"cloud.services.root_helper_key.get",
+	} {
 		spec, ok := ActionSpecFor(action)
 		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
 			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)

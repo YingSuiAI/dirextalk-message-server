@@ -1557,6 +1557,52 @@ stale revisions, expired challenges, changed evidence, signature/key mismatch
 or conflicting work fail closed without promoting maturity. Agent tokens,
 public MCP and WebSocket `client.request` cannot call either action.
 
+## 2026-07-17 — Managed acceptance delegated to independent Agent
+
+The existing owner HTTP-only `cloud.services.management.plan/approve` request
+and response JSON remain unchanged, but Message Server now acts only as a
+compatibility façade. It resolves the owner-scoped legacy
+`service_id -> deployment_id/revision` mapping and active device key, then
+delegates challenge creation, approval and exact operation readback to Agent.
+Agent revalidates every Service, Deployment, Connection, Plan, Recipe, health,
+backup, restore, restart and provider-resource binding.
+
+Message Server reconstructs the legacy approval only from Agent's rich scope
+and rejects it unless Agent's signing CBOR is byte-identical to the legacy
+deterministic payload and its scope digest is that payload's SHA-256. Approval
+forwards the exact signed acceptance, and a lost response recovers only the
+same `acceptance_id` operation; it never replays the signature. Only a
+successful Agent operation with complete compatibility Service, Recipe and
+acceptance views can produce the legacy response. These actions no longer
+create a local acceptance, outbox record, Job or ProductCore event.
+
+## 2026-07-17 — Agent-owned managed preparation façade
+
+Three owner-authenticated HTTP-only ProductCore actions add the no-store
+compatibility façade `cloud.services.managed_preparation.prepare/approve/get`.
+Prepare accepts exactly `service_id`, current Deployment `expected_revision`,
+positive `cost_alert_amount_minor`, and a UUID `idempotency_key`. Approve
+accepts the same Service/revision boundary, the returned full approval scope,
+and a distinct UUID idempotency key. Get accepts exactly `service_id`,
+`expected_revision`, and `operation_id`.
+
+Message Server derives only the owner-scoped legacy Service-to-Deployment
+mapping and active device signer. Agent owns the operation, fixed phase order
+`restart -> backup -> restore_create -> restore_swap -> semantic_health ->
+finalize`, cloud facts, health, cost and stack evidence. The façade reconstructs
+the versioned deterministic-CBOR signing payload and requires byte equality
+with Agent's raw payload before returning it. The full provider-bound scope is
+transported only so the client can perform the same verification and signature;
+provider identifiers must not be rendered, logged, published or projected.
+
+Approve performs exact owner-bound Get before sending a signature. Only a clean
+NotFound may send it once; an unknown result is recovered only through Get and
+never by resending the signature. Revision gaps require a replacement prepare.
+The public operation exposes de-secreted phase/step progress, and exposes
+health/cost/stack digest, revision and observation time only on a succeeded
+operation. Message Server persists no preparation operation, Job, outbox or
+event and does not publish this façade through WebSocket or MCP.
+
 ## 2026-07-15 — Selectable private Recipe and scoped service secrets v1
 
 `cloud.goals.create` now accepts the optional pair `recipe_id` and

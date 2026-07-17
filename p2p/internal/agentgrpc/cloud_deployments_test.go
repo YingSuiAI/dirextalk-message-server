@@ -59,6 +59,9 @@ type cloudTestService struct {
 	createFoundation      func(*agentv1.CreateAwsFoundationOperationChallengeRequest) (*agentv1.CreateAwsFoundationOperationChallengeResponse, error)
 	approveFoundation     func(*agentv1.ApproveAwsFoundationOperationRequest) (*agentv1.ApproveAwsFoundationOperationResponse, error)
 	getFoundation         func(*agentv1.GetAwsFoundationOperationRequest) (*agentv1.GetAwsFoundationOperationResponse, error)
+	createManaged         func(*agentv1.CreateCloudManagedAcceptanceChallengeRequest) (*agentv1.CreateCloudManagedAcceptanceChallengeResponse, error)
+	approveManaged        func(*agentv1.ApproveCloudManagedAcceptanceRequest) (*agentv1.ApproveCloudManagedAcceptanceResponse, error)
+	getManaged            func(*agentv1.GetCloudManagedAcceptanceOperationRequest) (*agentv1.GetCloudManagedAcceptanceOperationResponse, error)
 }
 
 func (service *cloudTestService) CreateCloudGoal(_ context.Context, request *agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error) {
@@ -189,6 +192,36 @@ func (service *cloudTestService) GetAwsFoundationOperation(_ context.Context, re
 		return callback(request)
 	}
 	return nil, status.Error(codes.NotFound, "missing")
+}
+
+func (service *cloudTestService) CreateCloudManagedAcceptanceChallenge(_ context.Context, request *agentv1.CreateCloudManagedAcceptanceChallengeRequest) (*agentv1.CreateCloudManagedAcceptanceChallengeResponse, error) {
+	service.mu.Lock()
+	callback := service.createManaged
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) ApproveCloudManagedAcceptance(_ context.Context, request *agentv1.ApproveCloudManagedAcceptanceRequest) (*agentv1.ApproveCloudManagedAcceptanceResponse, error) {
+	service.mu.Lock()
+	callback := service.approveManaged
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) GetCloudManagedAcceptanceOperation(_ context.Context, request *agentv1.GetCloudManagedAcceptanceOperationRequest) (*agentv1.GetCloudManagedAcceptanceOperationResponse, error) {
+	service.mu.Lock()
+	callback := service.getManaged
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
 }
 
 func (service *cloudTestService) GetCloudConnection(_ context.Context, request *agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error) {

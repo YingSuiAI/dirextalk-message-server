@@ -19,36 +19,51 @@ const (
 // ServiceManagementAcceptanceTargetV1 binds a maturity change to evidence
 // already persisted by the control plane. It grants no Worker or AWS action.
 type ServiceManagementAcceptanceTargetV1 struct {
-	AcceptanceID                    string              `json:"acceptance_id"`
-	ServiceID                       string              `json:"service_id"`
-	ServiceRevision                 uint64              `json:"service_revision"`
-	DeploymentID                    string              `json:"deployment_id"`
-	DeploymentRevision              uint64              `json:"deployment_revision"`
-	CloudConnectionID               string              `json:"cloud_connection_id"`
-	RecipeID                        string              `json:"recipe_id"`
-	RecipeDigest                    string              `json:"recipe_digest"`
-	RecipeRevision                  uint64              `json:"recipe_revision"`
-	RecipeMaturity                  RecipeMaturity      `json:"recipe_maturity"`
-	InstalledManifestDigest         string              `json:"installed_manifest_digest"`
-	ArtifactDigest                  string              `json:"artifact_digest"`
-	ReadinessSemanticEvidenceDigest string              `json:"readiness_semantic_evidence_digest"`
-	ReadinessStackObservationDigest string              `json:"readiness_stack_observation_digest"`
-	RestartOperationID              string              `json:"restart_operation_id"`
-	RestartOperationRevision        uint64              `json:"restart_operation_revision"`
-	BackupID                        string              `json:"backup_id"`
-	BackupRevision                  uint64              `json:"backup_revision"`
-	RestoreID                       string              `json:"restore_id"`
-	RestoreRevision                 uint64              `json:"restore_revision"`
-	SourceArtifactDigests           []string            `json:"source_artifact_digests"`
-	Health                          HealthContractV1    `json:"health"`
-	Lifecycle                       LifecycleContractV1 `json:"lifecycle"`
-	VolumeSlots                     []VolumeSlotV1      `json:"volume_slots"`
-	DataSlots                       []DataSlotV1        `json:"data_slots"`
-	SecretSlots                     []SecretSlotV1      `json:"secret_slots"`
-	DestroyInstanceID               string              `json:"destroy_instance_id"`
-	DestroyVolumeIDs                []string            `json:"destroy_volume_ids"`
-	DestroyNetworkInterfaceIDs      []string            `json:"destroy_network_interface_ids"`
-	AcceptancePolicy                string              `json:"acceptance_policy"`
+	AgentInstanceID                 string                                  `json:"agent_instance_id"`
+	OwnerID                         string                                  `json:"owner_id"`
+	AcceptanceID                    string                                  `json:"acceptance_id"`
+	ServiceID                       string                                  `json:"service_id"`
+	ServiceRevision                 uint64                                  `json:"service_revision"`
+	DeploymentID                    string                                  `json:"deployment_id"`
+	DeploymentRevision              uint64                                  `json:"deployment_revision"`
+	CloudConnectionID               string                                  `json:"cloud_connection_id"`
+	ConnectionRevision              int64                                   `json:"connection_revision"`
+	PlanID                          string                                  `json:"plan_id"`
+	PlanRevision                    uint64                                  `json:"plan_revision"`
+	PlanHash                        string                                  `json:"plan_hash"`
+	RecipeID                        string                                  `json:"recipe_id"`
+	RecipeDigest                    string                                  `json:"recipe_digest"`
+	RecipeRevision                  uint64                                  `json:"recipe_revision"`
+	RecipeMaturity                  RecipeMaturity                          `json:"recipe_maturity"`
+	InstalledManifestDigest         string                                  `json:"installed_manifest_digest"`
+	ArtifactDigest                  string                                  `json:"artifact_digest"`
+	ReadinessSemanticEvidenceDigest string                                  `json:"readiness_semantic_evidence_digest"`
+	ReadinessStackObservationDigest string                                  `json:"readiness_stack_observation_digest"`
+	RestartOperationID              string                                  `json:"restart_operation_id"`
+	RestartOperationRevision        uint64                                  `json:"restart_operation_revision"`
+	BackupID                        string                                  `json:"backup_id"`
+	BackupRevision                  uint64                                  `json:"backup_revision"`
+	RestoreID                       string                                  `json:"restore_id"`
+	RestoreRevision                 uint64                                  `json:"restore_revision"`
+	SourceArtifactDigests           []string                                `json:"source_artifact_digests"`
+	HealthRevision                  int64                                   `json:"health_revision"`
+	HealthMonitorKind               string                                  `json:"health_monitor_kind"`
+	HealthStatus                    string                                  `json:"health_status"`
+	HealthEvidenceType              string                                  `json:"health_evidence_type"`
+	HealthEvidenceDigest            string                                  `json:"health_evidence_digest"`
+	HealthObservedAt                time.Time                               `json:"health_observed_at"`
+	Currency                        string                                  `json:"currency"`
+	CostAlertAmountMinor            int64                                   `json:"cost_alert_amount_minor"`
+	Health                          HealthContractV1                        `json:"health"`
+	Lifecycle                       ServiceManagementAcceptanceLifecycleV2  `json:"lifecycle"`
+	VolumeSlots                     []VolumeSlotV1                          `json:"volume_slots"`
+	DataSlots                       []DataSlotV1                            `json:"data_slots"`
+	SecretSlots                     []SecretSlotV1                          `json:"secret_slots"`
+	Resources                       []ServiceManagementAcceptanceResourceV2 `json:"resources"`
+	DestroyInstanceID               string                                  `json:"destroy_instance_id"`
+	DestroyVolumeIDs                []string                                `json:"destroy_volume_ids"`
+	DestroyNetworkInterfaceIDs      []string                                `json:"destroy_network_interface_ids"`
+	AcceptancePolicy                string                                  `json:"acceptance_policy"`
 }
 
 type ServiceManagementAcceptanceApprovalV1 struct {
@@ -63,7 +78,27 @@ type ServiceManagementAcceptanceApprovalV1 struct {
 	Signature string    `json:"signature,omitempty"`
 }
 
-type serviceManagementAcceptancePayloadV1 struct {
+type ServiceManagementAcceptanceLifecycleV2 struct {
+	Start       string `json:"start"`
+	Stop        string `json:"stop"`
+	Maintenance string `json:"maintenance"`
+	Restart     string `json:"restart"`
+	Upgrade     string `json:"upgrade"`
+	Rollback    string `json:"rollback"`
+	Backup      string `json:"backup"`
+	Restore     string `json:"restore"`
+	Destroy     string `json:"destroy"`
+}
+
+type ServiceManagementAcceptanceResourceV2 struct {
+	ResourceID string `json:"resource_id"`
+	Type       string `json:"type"`
+	Revision   int64  `json:"revision"`
+	ProviderID string `json:"provider_id"`
+	TagDigest  string `json:"tag_digest"`
+}
+
+type serviceManagementAcceptancePayloadV2 struct {
 	SchemaVersion  string `json:"schema_version"`
 	PayloadVersion string `json:"payload_version"`
 	HashAlgorithm  string `json:"hash_algorithm"`
@@ -80,21 +115,26 @@ var ErrServiceManagementAcceptanceBinding = errors.New("service management accep
 
 func (t ServiceManagementAcceptanceTargetV1) Validate() error {
 	for label, value := range map[string]string{
-		"acceptance_id": t.AcceptanceID, "service_id": t.ServiceID, "deployment_id": t.DeploymentID,
-		"cloud_connection_id": t.CloudConnectionID, "recipe_id": t.RecipeID, "restart_operation_id": t.RestartOperationID,
+		"agent_instance_id": t.AgentInstanceID, "acceptance_id": t.AcceptanceID,
+		"service_id": t.ServiceID, "deployment_id": t.DeploymentID, "cloud_connection_id": t.CloudConnectionID,
+		"plan_id": t.PlanID, "recipe_id": t.RecipeID, "restart_operation_id": t.RestartOperationID,
 		"backup_id": t.BackupID, "restore_id": t.RestoreID,
 	} {
 		if err := validateIdentifier(label, value); err != nil {
 			return err
 		}
 	}
-	if t.ServiceRevision == 0 || t.DeploymentRevision == 0 || t.RecipeRevision == 0 || t.RestartOperationRevision == 0 || t.BackupRevision == 0 || t.RestoreRevision == 0 {
+	if t.OwnerID == "" || t.ServiceRevision == 0 || t.DeploymentRevision == 0 || t.ConnectionRevision <= 0 || t.PlanRevision == 0 ||
+		t.RecipeRevision == 0 || t.RestartOperationRevision == 0 || t.BackupRevision == 0 || t.RestoreRevision == 0 ||
+		t.HealthRevision <= 0 || t.HealthObservedAt.IsZero() || t.HealthObservedAt.Location() != time.UTC ||
+		t.HealthMonitorKind != "service" || t.HealthStatus != "healthy" || t.HealthEvidenceType != "independent_external" ||
+		len(t.Currency) != 3 || t.CostAlertAmountMinor <= 0 || len(t.Resources) == 0 {
 		return errors.New("service management acceptance revisions must be positive")
 	}
 	if t.RecipeMaturity != RecipeAwaitingManagementAccept && t.RecipeMaturity != RecipeManaged {
 		return errors.New("service management acceptance recipe maturity is invalid")
 	}
-	for label, digest := range map[string]string{"recipe_digest": t.RecipeDigest, "installed_manifest_digest": t.InstalledManifestDigest, "artifact_digest": t.ArtifactDigest, "readiness_semantic_evidence_digest": t.ReadinessSemanticEvidenceDigest, "readiness_stack_observation_digest": t.ReadinessStackObservationDigest} {
+	for label, digest := range map[string]string{"plan_hash": t.PlanHash, "recipe_digest": t.RecipeDigest, "installed_manifest_digest": t.InstalledManifestDigest, "artifact_digest": t.ArtifactDigest, "readiness_semantic_evidence_digest": t.ReadinessSemanticEvidenceDigest, "readiness_stack_observation_digest": t.ReadinessStackObservationDigest, "health_evidence_digest": t.HealthEvidenceDigest} {
 		if err := validateDigest(label, digest); err != nil {
 			return err
 		}
@@ -121,6 +161,20 @@ func (t ServiceManagementAcceptanceTargetV1) Validate() error {
 	}
 	if !ec2InstanceIDPattern.MatchString(t.DestroyInstanceID) || validateProviderResourceIDs("destroy_volume_ids", t.DestroyVolumeIDs, ebsVolumeIDPattern) != nil || validateProviderResourceIDs("destroy_network_interface_ids", t.DestroyNetworkInterfaceIDs, ec2NetworkInterfaceIDPattern) != nil {
 		return errors.New("service management destroy scope is invalid")
+	}
+	previousResourceID := ""
+	providers := map[string]struct{}{}
+	for _, item := range t.Resources {
+		if err := validateIdentifier("resource_id", item.ResourceID); err != nil || item.ResourceID <= previousResourceID ||
+			!serviceManagementAcceptanceResourceType(item.Type) || item.Revision <= 0 || item.ProviderID == "" ||
+			validateDigest("resource_tag_digest", item.TagDigest) != nil {
+			return errors.New("service management resource scope is invalid")
+		}
+		if _, exists := providers[item.ProviderID]; exists {
+			return errors.New("service management resource scope is invalid")
+		}
+		providers[item.ProviderID] = struct{}{}
+		previousResourceID = item.ResourceID
 	}
 	if t.AcceptancePolicy != ServiceManagementAcceptancePolicy {
 		return errors.New("service management acceptance policy is invalid")
@@ -179,7 +233,7 @@ func (a ServiceManagementAcceptanceApprovalV1) SigningPayload() ([]byte, error) 
 		return nil, err
 	}
 	a.ServiceManagementAcceptanceTargetV1 = normalizeServiceManagementAcceptanceTarget(a.ServiceManagementAcceptanceTargetV1)
-	return canonicalCBOR(serviceManagementAcceptancePayloadV1{SchemaVersion: a.SchemaVersion, PayloadVersion: "service-management-acceptance-signing-payload/v1", HashAlgorithm: HashAlgorithmDeterministicCBORSHA256, Intent: a.Intent, ApprovalID: a.ApprovalID, ChallengeID: a.ChallengeID, SignerKeyID: a.SignerKeyID, ServiceManagementAcceptanceTargetV1: a.ServiceManagementAcceptanceTargetV1, IssuedAt: a.IssuedAt.UTC(), ExpiresAt: a.ExpiresAt.UTC()})
+	return canonicalCBOR(serviceManagementAcceptancePayloadV2{SchemaVersion: a.SchemaVersion, PayloadVersion: "service-management-acceptance-signing-payload/v2", HashAlgorithm: HashAlgorithmDeterministicCBORSHA256, Intent: a.Intent, ApprovalID: a.ApprovalID, ChallengeID: a.ChallengeID, SignerKeyID: a.SignerKeyID, ServiceManagementAcceptanceTargetV1: a.ServiceManagementAcceptanceTargetV1, IssuedAt: a.IssuedAt.UTC(), ExpiresAt: a.ExpiresAt.UTC()})
 }
 
 func (a ServiceManagementAcceptanceApprovalV1) Sign(key ed25519.PrivateKey, now time.Time) (ServiceManagementAcceptanceApprovalV1, error) {
@@ -227,7 +281,27 @@ func normalizeServiceManagementAcceptanceTarget(t ServiceManagementAcceptanceTar
 	sort.Slice(t.VolumeSlots, func(i, j int) bool { return t.VolumeSlots[i].SlotID < t.VolumeSlots[j].SlotID })
 	sort.Slice(t.DataSlots, func(i, j int) bool { return t.DataSlots[i].SlotID < t.DataSlots[j].SlotID })
 	sort.Slice(t.SecretSlots, func(i, j int) bool { return t.SecretSlots[i].SlotID < t.SecretSlots[j].SlotID })
+	t.Resources = append([]ServiceManagementAcceptanceResourceV2(nil), t.Resources...)
+	sort.Slice(t.Resources, func(i, j int) bool { return t.Resources[i].ResourceID < t.Resources[j].ResourceID })
 	t.DestroyVolumeIDs = canonicalSet(t.DestroyVolumeIDs)
 	t.DestroyNetworkInterfaceIDs = canonicalSet(t.DestroyNetworkInterfaceIDs)
 	return t
+}
+
+func serviceManagementAcceptanceResourceType(value string) bool {
+	switch value {
+	case "ec2", "ebs", "eni", "eip", "security_group", "endpoint", "snapshot", "alb", "target_group", "listener", "security_group_rule":
+		return true
+	default:
+		return false
+	}
+}
+
+func (l ServiceManagementAcceptanceLifecycleV2) validate() error {
+	for _, value := range []string{l.Start, l.Stop, l.Maintenance, l.Restart, l.Upgrade, l.Rollback, l.Backup, l.Restore, l.Destroy} {
+		if value == "" || len(value) > 512 {
+			return errors.New("service management lifecycle contract is invalid")
+		}
+	}
+	return nil
 }

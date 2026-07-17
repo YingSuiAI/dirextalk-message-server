@@ -273,6 +273,36 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.services.managed_preparation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.managed_preparation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.managed_preparation.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "agent.password",
       "auth": "owner",
       "transport": "http_and_ws_request"

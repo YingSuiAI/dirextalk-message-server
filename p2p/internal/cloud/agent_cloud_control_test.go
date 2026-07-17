@@ -62,6 +62,18 @@ type agentControlModuleClient struct {
 	foundationOperation        AgentCloudFoundationOperation
 	foundationOperationFound   bool
 	foundationOperationErr     error
+	managedChallenge           AgentCloudManagedAcceptanceChallenge
+	managedChallengeRequest    AgentCloudManagedAcceptanceChallengeRequest
+	managedChallengeErr        error
+	managedApproveOperation    AgentCloudManagedAcceptanceOperation
+	managedApproveRequest      AgentCloudManagedAcceptanceApproveRequest
+	managedApproveErr          error
+	managedOperation           AgentCloudManagedAcceptanceOperation
+	managedOperationFound      bool
+	managedOperationFoundAfter int
+	managedOperationErr        error
+	managedApproveCalls        int
+	managedOperationCalls      int
 }
 
 func (client *agentControlModuleClient) CreateAgentCloudGoal(_ context.Context, request AgentCloudGoalCreateRequest) (AgentCloudGoalResult, error) {
@@ -147,6 +159,26 @@ func (client *agentControlModuleClient) GetAgentAWSFoundationOperation(_ context
 		return AgentCloudFoundationOperation{}, false, ErrAgentCloudControlInvalid
 	}
 	return client.foundationOperation, client.foundationOperationFound, client.foundationOperationErr
+}
+
+func (client *agentControlModuleClient) CreateCloudManagedAcceptanceChallenge(_ context.Context, request AgentCloudManagedAcceptanceChallengeRequest) (AgentCloudManagedAcceptanceChallenge, error) {
+	client.managedChallengeRequest = request
+	return client.managedChallenge, client.managedChallengeErr
+}
+
+func (client *agentControlModuleClient) ApproveCloudManagedAcceptance(_ context.Context, request AgentCloudManagedAcceptanceApproveRequest) (AgentCloudManagedAcceptanceOperation, error) {
+	client.managedApproveCalls++
+	client.managedApproveRequest = request
+	return client.managedApproveOperation, client.managedApproveErr
+}
+
+func (client *agentControlModuleClient) GetCloudManagedAcceptanceOperation(_ context.Context, request AgentCloudManagedAcceptanceOperationRequest) (AgentCloudManagedAcceptanceOperation, bool, error) {
+	client.managedOperationCalls++
+	if request.OperationID != client.managedOperation.OperationID {
+		return AgentCloudManagedAcceptanceOperation{}, false, ErrAgentCloudControlInvalid
+	}
+	found := client.managedOperationFound && client.managedOperationCalls > client.managedOperationFoundAfter
+	return client.managedOperation, found, client.managedOperationErr
 }
 
 func (client *agentControlModuleClient) GetAgentCloudConnection(_ context.Context, request AgentCloudConnectionRequest) (AgentCloudConnection, bool, error) {
