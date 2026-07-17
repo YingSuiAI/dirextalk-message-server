@@ -2,11 +2,13 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -107,6 +109,192 @@ func TestGroupAndChannelMemberListsUseExactConversationCreator(t *testing.T) {
 				t.Fatalf("creator roles were not canonicalized by exact MXID: %#v", members)
 			}
 		})
+	}
+}
+
+func TestGroupAndChannelMemberReadsRepairLegacyCreatorForHTTPAndMCP(t *testing.T) {
+	ctx := context.Background()
+	const (
+		staleCreator  = "@profile-writer:example.com"
+		actualCreator = "@actual-creator:example.com"
+	)
+	for _, tc := range []struct {
+		name      string
+		action    string
+		roomID    string
+		channelID string
+		kind      dirextalkdomain.ConversationKind
+		params    map[string]any
+	}{
+		{
+			name:   "group",
+			action: "groups.members",
+			roomID: "!legacy-group:example.com",
+			kind:   dirextalkdomain.ConversationKindGroup,
+			params: map[string]any{"room_id": "!legacy-group:example.com"},
+		},
+		{
+			name:      "channel",
+			action:    "channels.members",
+			roomID:    "!legacy-channel:example.com",
+			channelID: "legacy_channel",
+			kind:      dirextalkdomain.ConversationKindChannel,
+			params:    map[string]any{"room_id": "!legacy-channel:example.com", "channel_id": "legacy_channel"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &roomCreatorReadingTransport{
+				recordingTransport: &recordingTransport{},
+				creators:           map[string]string{tc.roomID: actualCreator},
+			}
+			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
+				MatrixRoomID: tc.roomID, Kind: tc.kind, CreatedByMXID: staleCreator,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, member := range []memberRecord{
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: staleCreator, Membership: "join", Role: "owner", JoinedAt: 10},
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: "@alice:example.com", Membership: "join", Role: "member", JoinedAt: 20},
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: actualCreator, Membership: "join", Role: "member", JoinedAt: 30},
+			} {
+				if err := service.store.UpsertMember(ctx, member); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			httpResult := mustHandle[map[string]any](t, service, tc.action, tc.params)
+			httpMembers := httpResult["members"].([]memberRecord)
+			assertRepairedMemberOwner(t, httpMembers[0].UserID, httpMembers[0].Role, httpMembers[1].UserID, httpMembers[1].Role, actualCreator, staleCreator)
+			assertStoredConversationCreator(t, service, tc.roomID, actualCreator)
+
+			if err := service.conversationModule.SetCreator(ctx, tc.roomID, staleCreator); err != nil {
+				t.Fatal(err)
+			}
+			mcpResult := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{"room_id": tc.roomID})
+			mcpMembers := mcpResult["members"].([]mcpMemberSummary)
+			assertRepairedMemberOwner(t, mcpMembers[0].UserMXID, mcpMembers[0].Role, mcpMembers[1].UserMXID, mcpMembers[1].Role, actualCreator, staleCreator)
+			assertStoredConversationCreator(t, service, tc.roomID, actualCreator)
+			if got := len(transport.reads); got != 2 {
+				t.Fatalf("creator reads = %d, want HTTP and MCP reads", got)
+			}
+		})
+	}
+}
+
+func TestRoomOwnerReaderEmptyClearsStaleCreatorAndErrorPreservesIt(t *testing.T) {
+	ctx := context.Background()
+	const roomID = "!legacy-group:example.com"
+	for _, tc := range []struct {
+		name        string
+		readerError error
+		wantError   bool
+		wantCreator string
+	}{
+		{name: "unresolved creator clears stale projection"},
+		{name: "roomserver error preserves stale projection", readerError: errors.New("roomserver unavailable"), wantError: true, wantCreator: "@profile-writer:example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &roomCreatorReadingTransport{recordingTransport: &recordingTransport{}, err: tc.readerError}
+			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
+				MatrixRoomID: roomID, Kind: dirextalkdomain.ConversationKindGroup, CreatedByMXID: "@profile-writer:example.com",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, member := range []memberRecord{
+				{RoomID: roomID, UserID: "@first:example.com", Membership: "join", Role: "member", JoinedAt: 10},
+				{RoomID: roomID, UserID: "@profile-writer:example.com", Membership: "join", Role: "owner", JoinedAt: 20},
+			} {
+				if err := service.store.UpsertMember(ctx, member); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			result, actionErr := service.Handle(ctx, "groups.members", map[string]any{"room_id": roomID})
+			if tc.wantError {
+				if actionErr == nil || result != nil {
+					t.Fatalf("expected owner read error, result=%#v err=%#v", result, actionErr)
+				}
+			} else {
+				if actionErr != nil {
+					t.Fatal(actionErr)
+				}
+				members := result.(map[string]any)["members"].([]memberRecord)
+				if members[0].UserID != "@first:example.com" || members[0].Role != "member" {
+					t.Fatalf("unresolved creator did not fall back to join order: %#v", members)
+				}
+			}
+			assertStoredConversationCreator(t, service, roomID, tc.wantCreator)
+		})
+	}
+}
+
+func TestResolveRoomOwnerIgnoresNonGroupChannelConversation(t *testing.T) {
+	ctx := context.Background()
+	const roomID = "!direct:example.com"
+	transport := &roomCreatorReadingTransport{
+		recordingTransport: &recordingTransport{},
+		creators:           map[string]string{roomID: "@actual-creator:example.com"},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
+		MatrixRoomID: roomID, Kind: dirextalkdomain.ConversationKindDirect, CreatedByMXID: "@legacy:example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ownerMXID, err := service.resolveRoomOwner(ctx, roomID)
+	if err != nil || ownerMXID != "" || len(transport.reads) != 0 {
+		t.Fatalf("direct owner resolution = (%q, %v), reads=%#v", ownerMXID, err, transport.reads)
+	}
+	assertStoredConversationCreator(t, service, roomID, "@legacy:example.com")
+}
+
+func TestResolveRoomOwnerClearsStaleCreatorWithoutReader(t *testing.T) {
+	ctx := context.Background()
+	const roomID = "!group:example.com"
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, &recordingTransport{})
+	if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
+		MatrixRoomID: roomID, Kind: dirextalkdomain.ConversationKindGroup, CreatedByMXID: "@legacy:example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ownerMXID, err := service.resolveRoomOwner(ctx, roomID)
+	if err != nil || ownerMXID != "" {
+		t.Fatalf("owner resolution without reader = (%q, %v)", ownerMXID, err)
+	}
+	assertStoredConversationCreator(t, service, roomID, "")
+}
+
+type roomCreatorReadingTransport struct {
+	*recordingTransport
+	creators map[string]string
+	err      error
+	reads    []string
+}
+
+func (t *roomCreatorReadingTransport) ReadRoomCreator(_ context.Context, roomID string) (string, error) {
+	t.reads = append(t.reads, roomID)
+	if t.err != nil {
+		return "", t.err
+	}
+	return t.creators[roomID], nil
+}
+
+func assertRepairedMemberOwner(t *testing.T, firstID, firstRole, secondID, secondRole, wantOwner, staleOwner string) {
+	t.Helper()
+	if firstID != wantOwner || firstRole != "owner" || secondID != staleOwner || secondRole != "member" {
+		t.Fatalf("member owner repair = (%q, %q), (%q, %q), want actual owner then stale member", firstID, firstRole, secondID, secondRole)
+	}
+}
+
+func assertStoredConversationCreator(t *testing.T, service *Service, roomID, want string) {
+	t.Helper()
+	record, ok, err := service.conversationModule.GetRecord(context.Background(), "", roomID)
+	if err != nil || !ok || record.CreatedByMXID != want {
+		t.Fatalf("stored creator = (%#v, %v, %v), want %q", record, ok, err, want)
 	}
 }
 

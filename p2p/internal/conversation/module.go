@@ -57,13 +57,13 @@ func (m *Module) Save(ctx context.Context, record dirextalkdomain.ConversationRe
 	return m.store.UpsertConversation(ctx, dirextalkdomain.NormalizeConversationRecord(record))
 }
 
-// SetCreator persists the creator extracted from the authoritative
-// m.room.create event. Ordinary conversation projection saves cannot mutate
-// this identity.
+// SetCreator reconciles the creator extracted from authoritative
+// m.room.create state. An empty creator clears stale legacy projections;
+// ordinary conversation projection saves cannot mutate this identity.
 func (m *Module) SetCreator(ctx context.Context, roomID, creatorMXID string) error {
 	roomID = strings.TrimSpace(roomID)
 	creatorMXID = strings.TrimSpace(creatorMXID)
-	if roomID == "" || creatorMXID == "" {
+	if roomID == "" {
 		return nil
 	}
 	return m.store.SetConversationCreator(ctx, roomID, creatorMXID)

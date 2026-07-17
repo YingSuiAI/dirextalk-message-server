@@ -2,6 +2,7 @@ package dendrite
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -13,6 +14,45 @@ import (
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
+
+func (t *DendriteTransport) ReadRoomCreator(ctx context.Context, roomID string) (string, error) {
+	validRoomID, err := spec.NewRoomID(strings.TrimSpace(roomID))
+	if err != nil {
+		return "", err
+	}
+	tuple := gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}
+	var res roomserverAPI.QueryCurrentStateResponse
+	if err := t.rsAPI.QueryCurrentState(ctx, &roomserverAPI.QueryCurrentStateRequest{
+		RoomID: validRoomID.String(), StateTuples: []gomatrixserverlib.StateKeyTuple{tuple},
+	}, &res); err != nil {
+		return "", err
+	}
+	event := res.StateEvents[tuple]
+	if event == nil || event.Type() != spec.MRoomCreate || event.StateKey() == nil || *event.StateKey() != "" {
+		return "", nil
+	}
+
+	senderID := event.SenderID()
+	if strings.TrimSpace(string(senderID)) == "" {
+		return "", nil
+	}
+	creator, err := t.rsAPI.QueryUserIDForSender(ctx, *validRoomID, senderID)
+	if err != nil {
+		return "", err
+	}
+	if creator != nil {
+		return creator.String(), nil
+	}
+	return validRoomCreatorMXID(string(senderID)), nil
+}
+
+func validRoomCreatorMXID(value string) string {
+	userID, err := spec.NewUserID(strings.TrimSpace(value), true)
+	if err != nil || userID == nil {
+		return ""
+	}
+	return userID.String()
+}
 
 func (t *DendriteTransport) GetRoomChannel(ctx context.Context, roomID string) (channel, bool, error) {
 	var res roomserverAPI.QueryCurrentStateResponse
@@ -55,9 +95,13 @@ func (t *DendriteTransport) GetRoomChannel(ctx context.Context, roomID string) (
 }
 
 func (t *DendriteTransport) ListRoomMembers(ctx context.Context, roomID string) ([]memberRecord, error) {
+	validRoomID, err := spec.NewRoomID(strings.TrimSpace(roomID))
+	if err != nil {
+		return nil, err
+	}
 	var res roomserverAPI.QueryCurrentStateResponse
 	if err := t.rsAPI.QueryCurrentState(ctx, &roomserverAPI.QueryCurrentStateRequest{
-		RoomID:         roomID,
+		RoomID:         validRoomID.String(),
 		AllowWildcards: true,
 		StateTuples: []gomatrixserverlib.StateKeyTuple{
 			{EventType: spec.MRoomMember, StateKey: "*"},
@@ -76,6 +120,23 @@ func (t *DendriteTransport) ListRoomMembers(ctx context.Context, roomID string) 
 		}
 		if userID == "" {
 			userID = string(event.SenderID())
+		}
+		if fullMXID := validRoomCreatorMXID(userID); fullMXID != "" {
+			userID = fullMXID
+		} else {
+			senderID := spec.SenderID(strings.TrimSpace(userID))
+			raw, rawErr := senderID.RawBytes()
+			if rawErr != nil || len(raw) != ed25519.PublicKeySize {
+				continue
+			}
+			resolved, resolveErr := t.rsAPI.QueryUserIDForSender(ctx, *validRoomID, senderID)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			if resolved == nil {
+				continue
+			}
+			userID = resolved.String()
 		}
 		content := map[string]any{}
 		if err := json.Unmarshal(event.Content(), &content); err != nil {

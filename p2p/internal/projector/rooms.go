@@ -67,7 +67,7 @@ func (m *Module) projectRoomCreate(ctx context.Context, event *types.HeaderedEve
 		}
 	}
 
-	creatorMXID := authoritativeRoomCreatorMXID(event, content)
+	creatorMXID := authoritativeRoomCreatorMXID(event)
 	if creatorMXID == "" {
 		return nil
 	}
@@ -78,13 +78,11 @@ func groupOrChannelConversation(kind dirextalkdomain.ConversationKind) bool {
 	return kind == dirextalkdomain.ConversationKindGroup || kind == dirextalkdomain.ConversationKindChannel
 }
 
-func authoritativeRoomCreatorMXID(event *types.HeaderedEvent, content map[string]any) string {
+func authoritativeRoomCreatorMXID(event *types.HeaderedEvent) string {
 	if event != nil {
-		if mxid := validFullMXID(string(event.SenderID())); mxid != "" {
-			return mxid
-		}
+		return validFullMXID(string(event.SenderID()))
 	}
-	return validFullMXID(textValue(content["creator"]))
+	return ""
 }
 
 func validFullMXID(value string) string {
