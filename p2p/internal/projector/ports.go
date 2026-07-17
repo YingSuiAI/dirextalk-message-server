@@ -16,6 +16,7 @@ type EventSink interface {
 type ConversationPort interface {
 	GetRecord(context.Context, string, string) (dirextalkdomain.ConversationRecord, bool, error)
 	Save(context.Context, dirextalkdomain.ConversationRecord) error
+	SetCreator(context.Context, string, string) error
 }
 
 // ChannelPort distinguishes a state projection upsert from a workflow save.

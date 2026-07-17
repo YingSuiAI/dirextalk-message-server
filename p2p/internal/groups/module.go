@@ -125,10 +125,6 @@ func RecordsFromViews(views []View) []dirextalkdomain.GroupRecord {
 
 // Save persists the durable group before refreshing its conversation record.
 func (m *Module) Save(ctx context.Context, group View) error {
-	return m.saveWithCreator(ctx, group, "")
-}
-
-func (m *Module) saveWithCreator(ctx context.Context, group View, creatorMXID string) error {
 	if m.store == nil {
 		return errors.New("group store is not configured")
 	}
@@ -139,9 +135,7 @@ func (m *Module) saveWithCreator(ctx context.Context, group View, creatorMXID st
 	if m.conversation == nil {
 		return errors.New("group conversation port is not configured")
 	}
-	conversation := dirextalkdomain.ConversationFromGroup(record)
-	conversation.CreatedByMXID = creatorMXID
-	return m.conversation.Save(ctx, conversation)
+	return m.conversation.Save(ctx, dirextalkdomain.ConversationFromGroup(record))
 }
 
 // Delete removes the durable group before removing its group conversation.

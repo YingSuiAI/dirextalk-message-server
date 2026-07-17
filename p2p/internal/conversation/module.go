@@ -18,6 +18,7 @@ const (
 // Store is the durable conversation repository used by Module.
 type Store interface {
 	UpsertConversation(ctx context.Context, record dirextalkdomain.ConversationRecord) error
+	SetConversationCreator(ctx context.Context, matrixRoomID, creatorMXID string) error
 	GetConversationByID(ctx context.Context, conversationID string) (dirextalkdomain.ConversationRecord, bool, error)
 	GetConversationByRoomID(ctx context.Context, matrixRoomID string) (dirextalkdomain.ConversationRecord, bool, error)
 	ListConversations(ctx context.Context) ([]dirextalkdomain.ConversationRecord, error)
@@ -54,6 +55,18 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 
 func (m *Module) Save(ctx context.Context, record dirextalkdomain.ConversationRecord) error {
 	return m.store.UpsertConversation(ctx, dirextalkdomain.NormalizeConversationRecord(record))
+}
+
+// SetCreator persists the creator extracted from the authoritative
+// m.room.create event. Ordinary conversation projection saves cannot mutate
+// this identity.
+func (m *Module) SetCreator(ctx context.Context, roomID, creatorMXID string) error {
+	roomID = strings.TrimSpace(roomID)
+	creatorMXID = strings.TrimSpace(creatorMXID)
+	if roomID == "" || creatorMXID == "" {
+		return nil
+	}
+	return m.store.SetConversationCreator(ctx, roomID, creatorMXID)
 }
 
 func (m *Module) DeleteKindByRoom(ctx context.Context, roomID string, kind dirextalkdomain.ConversationKind) error {

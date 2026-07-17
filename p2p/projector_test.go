@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
@@ -151,6 +152,114 @@ func TestProjectRoomProfileCreatesConversation(t *testing.T) {
 	}
 	if !ok || got.Kind != conversationKindGroup || got.Title != "Launch Group" {
 		t.Fatalf("expected projected group conversation, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestProjectRoomProfileNeverClaimsConversationCreator(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		roomID   string
+		roomType string
+		profile  map[string]any
+	}{
+		{
+			name:     "group",
+			roomID:   "!profile-group:example.com",
+			roomType: DirextalkRoomTypeGroup,
+			profile:  map[string]any{"room_type": DirextalkRoomTypeGroup, "name": "Group"},
+		},
+		{
+			name:     "channel",
+			roomID:   "!profile-channel:example.com",
+			roomType: DirextalkRoomTypeChannel,
+			profile:  map[string]any{"room_type": DirextalkRoomTypeChannel, "channel_id": "profile_channel", "name": "Channel"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			profile := trustedStateEvent(t, tc.roomID, "@profile-writer:example.com", DirextalkRoomProfileEventType, "", tc.profile)
+			if err := service.ProjectRoomEvent(context.Background(), profile); err != nil {
+				t.Fatal(err)
+			}
+			record, ok, err := service.getConversation(context.Background(), "", tc.roomID)
+			if err != nil || !ok {
+				t.Fatalf("projected conversation = (%#v, %v, %v)", record, ok, err)
+			}
+			if record.CreatedByMXID != "" {
+				t.Fatalf("%s profile sender was treated as creator: %#v", tc.roomType, record)
+			}
+		})
+	}
+}
+
+func TestProjectRoomCreatePersistsExactCreatorBeforeProfileUpdates(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		roomID   string
+		roomType string
+		kind     dirextalkdomain.ConversationKind
+		profile  map[string]any
+	}{
+		{
+			name:     "group",
+			roomID:   "!created-group:example.com",
+			roomType: DirextalkRoomTypeGroup,
+			kind:     dirextalkdomain.ConversationKindGroup,
+			profile:  map[string]any{"room_type": DirextalkRoomTypeGroup, "name": "Group"},
+		},
+		{
+			name:     "channel",
+			roomID:   "!created-channel:example.com",
+			roomType: DirextalkRoomTypeChannel,
+			kind:     dirextalkdomain.ConversationKindChannel,
+			profile:  map[string]any{"room_type": DirextalkRoomTypeChannel, "channel_id": "created_channel", "name": "Channel"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			service := NewService(Config{ServerName: "example.com"})
+			create := trustedStateEvent(t, tc.roomID, "@actual-creator:remote.example", "m.room.create", "", map[string]any{
+				"creator": "@spoofed:example.com",
+				"type":    tc.roomType,
+			})
+			if err := service.ProjectRoomEvent(ctx, create); err != nil {
+				t.Fatal(err)
+			}
+			record, ok, err := service.getConversation(ctx, "", tc.roomID)
+			if err != nil || !ok {
+				t.Fatalf("create projection = (%#v, %v, %v)", record, ok, err)
+			}
+			if record.Kind != tc.kind || record.CreatedByMXID != "@actual-creator:remote.example" || record.ProjectionState != dirextalkdomain.ConversationProjectionPending {
+				t.Fatalf("unexpected create projection: %#v", record)
+			}
+
+			profile := trustedStateEvent(t, tc.roomID, "@later-profile-writer:example.com", DirextalkRoomProfileEventType, "", tc.profile)
+			if err := service.ProjectRoomEvent(ctx, profile); err != nil {
+				t.Fatal(err)
+			}
+			record, ok, err = service.getConversation(ctx, "", tc.roomID)
+			if err != nil || !ok || record.CreatedByMXID != "@actual-creator:remote.example" || record.ProjectionState != dirextalkdomain.ConversationProjectionReady {
+				t.Fatalf("profile update changed authoritative creator: (%#v, %v, %v)", record, ok, err)
+			}
+		})
+	}
+}
+
+func TestProjectRoomCreateLeavesUnresolvableCreatorEmpty(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "example.com"})
+	event := trustedStateEvent(t, "!pseudonymous-group:example.com", "$pseudonymous-sender", "m.room.create", "", map[string]any{
+		"type": DirextalkRoomTypeGroup,
+	})
+	if err := service.ProjectRoomEvent(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	record, ok, err := service.getConversation(ctx, "", "!pseudonymous-group:example.com")
+	if err != nil || !ok {
+		t.Fatalf("create projection = (%#v, %v, %v)", record, ok, err)
+	}
+	if record.CreatedByMXID != "" {
+		t.Fatalf("unresolvable create sender became creator: %#v", record)
 	}
 }
 

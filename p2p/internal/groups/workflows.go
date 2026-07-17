@@ -36,11 +36,7 @@ func (m *Module) Create(ctx context.Context, raw map[string]any) (any, *actionba
 	if group.Name == "" || group.Name == "Group" && name == "" {
 		group.Name = fallback(name, roomID)
 	}
-	creatorMXID := ""
-	if m.config.OwnerMXID != nil {
-		creatorMXID = m.config.OwnerMXID()
-	}
-	if err := m.saveWithCreator(ctx, group, creatorMXID); err != nil {
+	if err := m.Save(ctx, group); err != nil {
 		return nil, actionbase.InternalError(err)
 	}
 	if m.config.SaveOwnerMember == nil {

@@ -69,7 +69,7 @@ func upsertConversation(ctx context.Context, db conversationDB, record conversat
 		ON CONFLICT(conversation_id) DO UPDATE SET
 			matrix_room_id = EXCLUDED.matrix_room_id,
 			lifecycle = EXCLUDED.lifecycle,
-			created_by_mxid = CASE WHEN EXCLUDED.created_by_mxid <> '' THEN EXCLUDED.created_by_mxid ELSE p2p_conversations.created_by_mxid END,
+			created_by_mxid = CASE WHEN p2p_conversations.created_by_mxid <> '' THEN p2p_conversations.created_by_mxid ELSE EXCLUDED.created_by_mxid END,
 			peer_mxid = CASE WHEN EXCLUDED.peer_mxid <> '' THEN EXCLUDED.peer_mxid ELSE p2p_conversations.peer_mxid END,
 			title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE p2p_conversations.title END,
 			avatar_url = CASE WHEN EXCLUDED.avatar_url <> '' THEN EXCLUDED.avatar_url ELSE p2p_conversations.avatar_url END,
@@ -82,6 +82,27 @@ func upsertConversation(ctx context.Context, db conversationDB, record conversat
 		`, record.ConversationID, record.MatrixRoomID, record.Kind, record.Lifecycle, record.CreatedByMXID, record.PeerMXID, record.Title,
 		record.AvatarURL, record.LastEventID, record.LastMessage, record.LastActivityAt, record.ProjectionState, record.ProjectionReason, record.CreatedAt, record.UpdatedAt)
 	return err
+}
+
+func (s *DatabaseStore) SetConversationCreator(ctx context.Context, matrixRoomID, creatorMXID string) error {
+	return s.writer.Do(s.db, nil, func(txn *sql.Tx) error {
+		result, err := txn.ExecContext(ctx, `
+			UPDATE p2p_conversations
+			SET created_by_mxid = $1
+			WHERE matrix_room_id = $2
+		`, creatorMXID, matrixRoomID)
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated == 0 {
+			return fmt.Errorf("conversation not found for room %s", matrixRoomID)
+		}
+		return nil
+	})
 }
 
 func (s *DatabaseStore) GetConversationByID(ctx context.Context, conversationID string) (conversationRecord, bool, error) {

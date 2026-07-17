@@ -22,7 +22,9 @@ When the durable conversation projection contains the room creator's Matrix ID, 
 
 Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
 
-New local group/channel creation persists the creator MXID into the conversation projection immediately, before the asynchronous Matrix state projector catches up. The `dirextalk_room_members_list` MCP tool applies the same exact-creator role and ordering rule.
+The creator projection is assigned only from the authoritative `m.room.create` event: its validated full-MXID sender, or the legacy `creator` content field when the sender cannot be represented as an MXID. Binding an existing `room_id`, the current node identity, and later room-profile event senders do not infer or replace the creator. When neither create-event identity can be confirmed, the creator remains empty and the whole list uses the join-order fallback.
+
+The `dirextalk_room_members_list` MCP tool applies the same rule once, after merging product projections with Matrix room-state members: exact creator first, then ascending `joined_at`, missing timestamps last, and full MXID as the tie-breaker.
 
 ## 2026-07-16 Native Agent Room And Post References
 
