@@ -69,12 +69,12 @@ func TestListFiltersHiddenMembersNormalizesRolesAndSortsCopy(t *testing.T) {
 		t.Fatal(actionErr)
 	}
 	members := result.(map[string]any)["members"].([]dirextalkdomain.MemberRecord)
-	if got, want := memberIDs(members), []string{"@owner:example.com", "@early:example.com", "@late:example.com", "@zero:example.com"}; !reflect.DeepEqual(got, want) {
+	if got, want := memberIDs(members), []string{"@early:example.com", "@late:example.com", "@owner:example.com", "@zero:example.com"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("member order = %#v, want %#v; records=%#v", got, want, members)
 	}
-	for index, member := range members {
+	for _, member := range members {
 		wantRole := "member"
-		if index == 0 {
+		if member.UserID == "@owner:example.com" {
 			wantRole = "owner"
 		}
 		if member.Role != wantRole {
@@ -133,17 +133,57 @@ func TestListStatusAliasAndRoleFilters(t *testing.T) {
 	}
 }
 
-func TestSortByJoinOrderPinsOwnersAndPlacesZeroLast(t *testing.T) {
+func TestSortByJoinOrderIgnoresRoleAndPlacesZeroLast(t *testing.T) {
 	members := []dirextalkdomain.MemberRecord{
 		{UserID: "@zero-b:example.com", Role: "member"},
 		{UserID: "@same-b:example.com", Role: "member", JoinedAt: 10},
-		{UserID: "@owner:example.com", Role: "OWNER", JoinedAt: 100},
+		{UserID: "@owner:member.example.com", Role: "OWNER", JoinedAt: 100},
+		{UserID: "@owner:creator.example.com", Role: "member", JoinedAt: 5},
 		{UserID: "@same-a:example.com", Role: "member", JoinedAt: 10},
 		{UserID: "@zero-a:example.com", Role: "member"},
 	}
 	SortByJoinOrder(members)
-	if got, want := memberIDs(members), []string{"@owner:example.com", "@same-a:example.com", "@same-b:example.com", "@zero-a:example.com", "@zero-b:example.com"}; !reflect.DeepEqual(got, want) {
+	if got, want := memberIDs(members), []string{"@owner:creator.example.com", "@same-a:example.com", "@same-b:example.com", "@owner:member.example.com", "@zero-a:example.com", "@zero-b:example.com"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("member order = %#v, want %#v", got, want)
+	}
+}
+
+func TestListFallsBackToJoinOrderWhenProjectedOwnerMissing(t *testing.T) {
+	const roomID = "!group:creator.example.com"
+	store := &testStore{records: []dirextalkdomain.MemberRecord{
+		{RoomID: roomID, UserID: "@owner:member.example.com", Membership: "join", Role: "owner", JoinedAt: 30},
+		{RoomID: roomID, UserID: "@owner:creator.example.com", Membership: "join", Role: "member", JoinedAt: 10},
+	}}
+	resolvedRoomID := ""
+	module := New(store, Config{
+		ResolveRoomOwner: func(_ context.Context, roomID string) (string, error) {
+			resolvedRoomID = roomID
+			return "", nil
+		},
+	})
+
+	result, actionErr := module.List(context.Background(), map[string]any{"room_id": roomID})
+	if actionErr != nil {
+		t.Fatal(actionErr)
+	}
+	members := result.(map[string]any)["members"].([]dirextalkdomain.MemberRecord)
+	if resolvedRoomID != roomID {
+		t.Fatalf("resolved room = %q, want %q", resolvedRoomID, roomID)
+	}
+	if got, want := memberIDs(members), []string{"@owner:creator.example.com", "@owner:member.example.com"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("fallback member order = %#v, want %#v", got, want)
+	}
+}
+
+func TestSortByOwnerThenJoinOrderMatchesExactFullMXID(t *testing.T) {
+	members := []dirextalkdomain.MemberRecord{
+		{UserID: "@owner:member.example.com", Role: "owner", JoinedAt: 10},
+		{UserID: "@alice:example.com", Role: "member", JoinedAt: 20},
+		{UserID: "@owner:creator.example.com", Role: "member", JoinedAt: 30},
+	}
+	SortByOwnerThenJoinOrder(members, " @owner:creator.example.com ")
+	if got, want := memberIDs(members), []string{"@owner:creator.example.com", "@owner:member.example.com", "@alice:example.com"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("creator member order = %#v, want %#v", got, want)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	roomserverAPI "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 type Config struct {
@@ -51,6 +52,8 @@ func (m *Module) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEven
 		return nil
 	}
 	switch event.Type() {
+	case spec.MRoomCreate:
+		return m.projectRoomCreate(ctx, event)
 	case "m.room.message":
 		return m.projectMessage(ctx, event)
 	case "m.reaction":

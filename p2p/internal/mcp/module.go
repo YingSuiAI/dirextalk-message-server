@@ -73,6 +73,7 @@ type Config struct {
 	Identity              func() Identity
 	MessageReader         func() dirextalkmcp.MessageReader
 	ProfileResolver       func() ProfileResolver
+	ResolveRoomOwner      func(context.Context, string) (string, error)
 	BeginAccountOperation func(context.Context) (context.Context, func())
 	AccountDeprovisioned  func() bool
 	AgentRoomName         string

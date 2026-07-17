@@ -2,6 +2,7 @@ package productpolicy
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -16,6 +17,8 @@ type stateQuerier struct {
 	state          map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent
 	events         map[string]*types.HeaderedEvent
 	pendingInvites map[string]bool
+	senderUsers    map[spec.SenderID]*spec.UserID
+	senderQueryErr error
 }
 
 func (q stateQuerier) QueryCurrentState(ctx context.Context, req *api.QueryCurrentStateRequest, res *api.QueryCurrentStateResponse) error {
@@ -66,6 +69,13 @@ func (q stateQuerier) QueryEventsByID(ctx context.Context, req *api.QueryEventsB
 		}
 	}
 	return nil
+}
+
+func (q stateQuerier) QueryUserIDForSender(_ context.Context, _ spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
+	if q.senderQueryErr != nil {
+		return nil, q.senderQueryErr
+	}
+	return q.senderUsers[senderID], nil
 }
 
 func TestValidateClientEventRejectsChannelCommentWhenCommentsDisabled(t *testing.T) {
@@ -169,6 +179,100 @@ func TestValidateClientEventAllowsChannelPostFromOwner(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("expected channel owner to create channel_post, got %v", err)
+	}
+}
+
+func TestValidateClientEventRejectsSpoofedCreateContentOwner(t *testing.T) {
+	roomID := "!channel:example.com"
+	memberID := "@member:example.com"
+	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, "@actual-owner:example.com", spec.MRoomCreate, "", map[string]any{
+			"creator": memberID,
+			"type":    DirextalkRoomTypeChannel,
+		}),
+		{EventType: spec.MRoomMember, StateKey: memberID}: stateEvent(t, roomID, memberID, spec.MRoomMember, memberID, map[string]any{
+			"membership": spec.Join,
+		}),
+	}}
+
+	err := ValidateClientEvent(context.Background(), querier, ClientEventRequest{
+		RoomID: roomID, SenderMXID: memberID, EventType: "m.room.message",
+		Content: map[string]any{"msgtype": "m.text", "body": "spoofed", "p2p_kind": "channel_post"},
+	})
+	if err == nil {
+		t.Fatal("spoofed m.room.create content.creator granted owner policy")
+	}
+}
+
+func TestValidateClientEventAllowsResolvedPseudoCreateSenderOwner(t *testing.T) {
+	roomID := "!channel:example.com"
+	ownerID := "@owner:example.com"
+	pseudoSender := spec.SenderIDFromPseudoIDKey(ed25519.NewKeyFromSeed(make([]byte, 32)))
+	resolvedOwner, err := spec.NewUserID(ownerID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	querier := stateQuerier{
+		state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+			{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, string(pseudoSender), spec.MRoomCreate, "", map[string]any{
+				"creator": "@spoofed:example.com",
+				"type":    DirextalkRoomTypeChannel,
+			}),
+			{EventType: spec.MRoomMember, StateKey: ownerID}: stateEvent(t, roomID, ownerID, spec.MRoomMember, ownerID, map[string]any{
+				"membership": spec.Join,
+			}),
+		},
+		senderUsers: map[spec.SenderID]*spec.UserID{pseudoSender: resolvedOwner},
+	}
+
+	err = ValidateClientEvent(context.Background(), querier, ClientEventRequest{
+		RoomID: roomID, SenderMXID: ownerID, EventType: "m.room.message",
+		Content: map[string]any{"msgtype": "m.text", "body": "post", "p2p_kind": "channel_post"},
+	})
+	if err != nil {
+		t.Fatalf("resolved pseudo create sender did not receive owner policy: %v", err)
+	}
+}
+
+func TestValidateClientEventCanonicalizesOwnerRoleToCreateSender(t *testing.T) {
+	const (
+		roomID  = "!channel:example.com"
+		creator = "@creator:example.com"
+		member  = "@member:example.com"
+	)
+	for _, tc := range []struct {
+		name         string
+		senderMXID   string
+		declaredRole string
+		wantAllowed  bool
+	}{
+		{name: "member policy cannot promote non creator", senderMXID: member, declaredRole: "owner"},
+		{name: "member policy cannot demote creator", senderMXID: creator, declaredRole: "member", wantAllowed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+				{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, creator, spec.MRoomCreate, "", map[string]any{
+					"type": DirextalkRoomTypeChannel,
+				}),
+				{EventType: DirextalkMemberPolicyEventType, StateKey: UserStateKey(tc.senderMXID)}: stateEvent(t, roomID, creator, DirextalkMemberPolicyEventType, UserStateKey(tc.senderMXID), map[string]any{
+					"role": tc.declaredRole,
+				}),
+				{EventType: spec.MRoomMember, StateKey: tc.senderMXID}: stateEvent(t, roomID, tc.senderMXID, spec.MRoomMember, tc.senderMXID, map[string]any{
+					"membership": spec.Join,
+				}),
+			}}
+
+			err := ValidateClientEvent(context.Background(), querier, ClientEventRequest{
+				RoomID: roomID, SenderMXID: tc.senderMXID, EventType: "m.room.message",
+				Content: map[string]any{"msgtype": "m.text", "body": "post", "p2p_kind": "channel_post"},
+			})
+			if tc.wantAllowed && err != nil {
+				t.Fatalf("create sender lost owner policy: %v", err)
+			}
+			if !tc.wantAllowed && err == nil {
+				t.Fatal("non-creator member policy role granted owner privileges")
+			}
+		})
 	}
 }
 

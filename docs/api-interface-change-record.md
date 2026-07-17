@@ -16,6 +16,18 @@ Replay-only recovery works for active and terminal persisted jobs. A known key b
 
 V1 release actions remain registered for existing clients. V2 exposes no discovery plan or rollback operation to ProductCore clients, while the updater internally verifies the canonical formal-release assets before accepting a central-selected target.
 
+## 2026-07-17 Group And Channel Member Ordering
+
+When the durable conversation projection contains the room creator's Matrix ID, `groups.members` and `channels.members` now place only that exact full MXID first and return only that member with `role: "owner"`. Other personal-node identities such as `@owner:another.example` remain ordinary members even though they share the `owner` localpart.
+
+Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
+
+The creator projection is assigned only from the authoritative `m.room.create` sender when that raw sender is already a validated full MXID. Binding an existing `room_id`, the current node identity, later room-profile event senders, and the non-authoritative legacy `content.creator` field do not infer or replace the creator. Member reads lazily resolve current create-event sender IDs through the roomserver, persist the resolved MXID, and clear stale projected creators when current create state cannot identify one; unresolved rooms use the join-order fallback.
+
+Matrix product-write policy uses the same create-sender authority for the privileged owner role. A member-policy `role` value cannot promote a non-creator to owner or demote the confirmed creator; member-policy mute state remains authoritative.
+
+The `dirextalk_room_members_list` MCP tool applies the same rule once, after merging product projections with Matrix room-state members: exact creator first, then ascending `joined_at`, missing timestamps last, and full MXID as the tie-breaker.
+
 ## 2026-07-16 Native Agent Room And Post References
 
 Successful non-stream `agent.chat` responses and realtime Native Agent stream `done` payloads may now include additive `references[]`. The server derives these references only from full, successful built-in Dirextalk tool results produced during that run; it does not parse the model's final Markdown or accept third-party MCP/runtime output as a navigation contract.

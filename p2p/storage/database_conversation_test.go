@@ -56,6 +56,7 @@ func TestConversationStoreUpsertListAndGet(t *testing.T) {
 	}
 
 	direct.Title = "Alice Renamed"
+	direct.CreatedByMXID = "@profile-writer:example.com"
 	direct.UpdatedAt = 200
 	if err = store.UpsertConversation(ctx, direct); err != nil {
 		t.Fatal(err)
@@ -64,8 +65,22 @@ func TestConversationStoreUpsertListAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].Title != "Alice Renamed" {
+	if len(list) != 1 || list[0].Title != "Alice Renamed" || list[0].CreatedByMXID != "@alice:example.com" {
 		t.Fatalf("expected one updated active conversation, got %#v", list)
+	}
+	if err = store.SetConversationCreator(ctx, direct.MatrixRoomID, "@authoritative:example.com"); err != nil {
+		t.Fatal(err)
+	}
+	byRoom, ok, err = store.GetConversationByRoomID(ctx, direct.MatrixRoomID)
+	if err != nil || !ok || byRoom.CreatedByMXID != "@authoritative:example.com" {
+		t.Fatalf("expected authoritative creator update, got %#v ok=%v err=%v", byRoom, ok, err)
+	}
+	if err = store.SetConversationCreator(ctx, direct.MatrixRoomID, ""); err != nil {
+		t.Fatal(err)
+	}
+	byRoom, ok, err = store.GetConversationByRoomID(ctx, direct.MatrixRoomID)
+	if err != nil || !ok || byRoom.CreatedByMXID != "" {
+		t.Fatalf("expected authoritative creator clear, got %#v ok=%v err=%v", byRoom, ok, err)
 	}
 
 	activityOnly := conversationRecord{

@@ -17,6 +17,7 @@ func TestMemoryStoreConversationMergeConflictAndOrder(t *testing.T) {
 		ConversationID:  "conv_direct",
 		MatrixRoomID:    "!direct:example.com",
 		Kind:            conversationKindDirect,
+		CreatedByMXID:   "@creator:example.com",
 		Title:           "Original",
 		AvatarURL:       "mxc://example/avatar",
 		LastEventID:     "$old",
@@ -33,6 +34,7 @@ func TestMemoryStoreConversationMergeConflictAndOrder(t *testing.T) {
 		ConversationID:  original.ConversationID,
 		MatrixRoomID:    original.MatrixRoomID,
 		Kind:            original.Kind,
+		CreatedByMXID:   "@profile-writer:example.com",
 		Lifecycle:       dirextalkdomain.ConversationLifecycleActive,
 		ProjectionState: dirextalkdomain.ConversationProjectionReady,
 		UpdatedAt:       30,
@@ -44,8 +46,22 @@ func TestMemoryStoreConversationMergeConflictAndOrder(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetConversationByID = (_, %v, %v), want (_, true, nil)", ok, err)
 	}
-	if got.CreatedAt != 10 || got.Title != "Original" || got.AvatarURL != original.AvatarURL || got.LastEventID != "$old" || got.LastMessage != "old" || got.LastActivityAt != 20 {
+	if got.CreatedAt != 10 || got.CreatedByMXID != original.CreatedByMXID || got.Title != "Original" || got.AvatarURL != original.AvatarURL || got.LastEventID != "$old" || got.LastMessage != "old" || got.LastActivityAt != 20 {
 		t.Fatalf("conversation merge lost existing non-empty fields: %#v", got)
+	}
+	if err := store.SetConversationCreator(ctx, original.MatrixRoomID, "@authoritative:example.com"); err != nil {
+		t.Fatalf("SetConversationCreator: %v", err)
+	}
+	got, ok, err = store.GetConversationByID(ctx, original.ConversationID)
+	if err != nil || !ok || got.CreatedByMXID != "@authoritative:example.com" {
+		t.Fatalf("authoritative creator update = (%#v, %v, %v)", got, ok, err)
+	}
+	if err := store.SetConversationCreator(ctx, original.MatrixRoomID, ""); err != nil {
+		t.Fatalf("clear authoritative creator: %v", err)
+	}
+	got, ok, err = store.GetConversationByID(ctx, original.ConversationID)
+	if err != nil || !ok || got.CreatedByMXID != "" {
+		t.Fatalf("authoritative creator clear = (%#v, %v, %v)", got, ok, err)
 	}
 
 	err = store.UpsertConversation(ctx, conversationRecord{

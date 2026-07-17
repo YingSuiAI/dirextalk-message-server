@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
@@ -21,6 +23,8 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	role := dirextalkmcp.TrimString(params["role"])
 	name := roomID
 	knownRoom := false
+	roomOwnerMXID := ""
+	resolveRoomOwner := false
 	if channel, ok, err := m.channels.ByIDOrRoom(ctx, channelID, roomID); err != nil {
 		return nil, internalError(err)
 	} else if ok {
@@ -41,6 +45,10 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 		return nil, internalError(err)
 	} else if ok {
 		knownRoom = true
+		if record.Kind == dirextalkdomain.ConversationKindGroup || record.Kind == dirextalkdomain.ConversationKindChannel {
+			roomOwnerMXID = record.CreatedByMXID
+			resolveRoomOwner = m.config.ResolveRoomOwner != nil
+		}
 		view, viewErr := m.conversations.View(ctx, record)
 		if viewErr != nil {
 			return nil, internalError(viewErr)
@@ -54,6 +62,13 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	}
 	if mcpErr := m.requireRoomAllowed(roomID); mcpErr != nil {
 		return nil, mcpErr
+	}
+	if resolveRoomOwner {
+		resolvedOwner, resolveErr := m.config.ResolveRoomOwner(ctx, roomID)
+		if resolveErr != nil {
+			return nil, internalError(resolveErr)
+		}
+		roomOwnerMXID = resolvedOwner
 	}
 	if m.members == nil {
 		return nil, internalError(errors.New("member store is not configured"))
@@ -82,6 +97,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 			name = fallback(directName, name)
 		}
 	}
+	summaries = canonicalizeAndSortMemberSummaries(summaries, roomOwnerMXID)
 	summaries = filterMemberSummaries(summaries, status, role)
 	summaries = m.enrichMemberSummariesWithProfiles(ctx, summaries)
 	limit := dirextalkmcp.Limit(params)
@@ -94,6 +110,54 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 		"members": summaries,
 		"count":   len(summaries),
 	}, nil
+}
+
+func canonicalizeAndSortMemberSummaries(members []dirextalkmcp.MemberSummary, ownerMXID string) []dirextalkmcp.MemberSummary {
+	ownerMXID = strings.TrimSpace(ownerMXID)
+	if ownerMXID != "" {
+		for index := range members {
+			userID := memberSummaryMXID(members[index])
+			if userID == ownerMXID {
+				members[index].Role = "owner"
+			} else {
+				members[index].Role = "member"
+			}
+		}
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		leftID := memberSummaryMXID(members[i])
+		rightID := memberSummaryMXID(members[j])
+		if ownerMXID != "" {
+			leftOwner := leftID == ownerMXID
+			rightOwner := rightID == ownerMXID
+			if leftOwner != rightOwner {
+				return leftOwner
+			}
+		}
+		leftJoined, leftHasJoined := memberSummaryJoinTime(members[i])
+		rightJoined, rightHasJoined := memberSummaryJoinTime(members[j])
+		if leftHasJoined != rightHasJoined {
+			return leftHasJoined
+		}
+		if leftHasJoined && !leftJoined.Equal(rightJoined) {
+			return leftJoined.Before(rightJoined)
+		}
+		return leftID < rightID
+	})
+	return members
+}
+
+func memberSummaryMXID(member dirextalkmcp.MemberSummary) string {
+	return strings.TrimSpace(fallback(member.UserMXID, member.UserID))
+}
+
+func memberSummaryJoinTime(member dirextalkmcp.MemberSummary) (time.Time, bool) {
+	joinedAt := strings.TrimSpace(member.JoinedAt)
+	if joinedAt == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, joinedAt)
+	return parsed, err == nil
 }
 
 func (m *Module) matrixRoomMembers(ctx context.Context, roomID string) ([]dirextalkdomain.MemberRecord, error) {

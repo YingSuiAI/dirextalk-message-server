@@ -35,7 +35,7 @@ func mergeMemoryConversationUpdate(existing, incoming conversationRecord) conver
 	if incoming.LastActivityAt <= 0 {
 		incoming.LastActivityAt = existing.LastActivityAt
 	}
-	if incoming.CreatedByMXID == "" {
+	if existing.CreatedByMXID != "" {
 		incoming.CreatedByMXID = existing.CreatedByMXID
 	}
 	if incoming.PeerMXID == "" {
@@ -48,6 +48,20 @@ func mergeMemoryConversationUpdate(existing, incoming conversationRecord) conver
 		incoming.AvatarURL = existing.AvatarURL
 	}
 	return incoming
+}
+
+func (s *MemoryStore) SetConversationCreator(_ context.Context, matrixRoomID, creatorMXID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, record := range s.conversations {
+		if record.MatrixRoomID != matrixRoomID {
+			continue
+		}
+		record.CreatedByMXID = creatorMXID
+		s.conversations[id] = record
+		return nil
+	}
+	return fmt.Errorf("conversation not found for room %s", matrixRoomID)
 }
 
 func (s *MemoryStore) GetConversationByID(ctx context.Context, conversationID string) (conversationRecord, bool, error) {
