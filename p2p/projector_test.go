@@ -249,7 +249,8 @@ func TestProjectRoomCreateLeavesUnresolvableCreatorEmpty(t *testing.T) {
 	ctx := context.Background()
 	service := NewService(Config{ServerName: "example.com"})
 	event := trustedStateEvent(t, "!pseudonymous-group:example.com", "$pseudonymous-sender", "m.room.create", "", map[string]any{
-		"type": DirextalkRoomTypeGroup,
+		"type":    DirextalkRoomTypeGroup,
+		"creator": "@spoofed:example.com",
 	})
 	if err := service.ProjectRoomEvent(ctx, event); err != nil {
 		t.Fatal(err)

@@ -526,6 +526,18 @@ func mustPolicyTransportEvent(
 	prevEvents, authEvents []any,
 ) *types.HeaderedEvent {
 	t.Helper()
+	return mustPolicyTransportEventVersion(t, gomatrixserverlib.RoomVersionV10, roomID, senderID, eventType, stateKey, content, depth, prevEvents, authEvents)
+}
+
+func mustPolicyTransportEventVersion(
+	t *testing.T,
+	roomVersion gomatrixserverlib.RoomVersion,
+	roomID, senderID, eventType, stateKey string,
+	content map[string]any,
+	depth int64,
+	prevEvents, authEvents []any,
+) *types.HeaderedEvent {
+	t.Helper()
 	if prevEvents == nil {
 		prevEvents = []any{}
 	}
@@ -533,7 +545,7 @@ func mustPolicyTransportEvent(
 		authEvents = []any{}
 	}
 	stateKeyCopy := stateKey
-	builder := gomatrixserverlib.MustGetRoomVersion(gomatrixserverlib.RoomVersionV10).NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
+	builder := gomatrixserverlib.MustGetRoomVersion(roomVersion).NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
 		SenderID: senderID, RoomID: roomID, Type: eventType, StateKey: &stateKeyCopy, Depth: depth, PrevEvents: prevEvents,
 	})
 	builder.AuthEvents = authEvents
@@ -613,6 +625,102 @@ func TestDendriteTransportGetRoomChannelRequiresChannelRoomType(t *testing.T) {
 	}
 }
 
+func TestDendriteTransportReadRoomCreatorUsesCreateSenderAuthority(t *testing.T) {
+	const roomID = "!creator:test"
+	pseudoSender := spec.SenderIDFromPseudoIDKey(ed25519.NewKeyFromSeed(make([]byte, 32)))
+	resolvedCreator, err := spec.NewUserID("@resolved:test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name        string
+		event       *types.HeaderedEvent
+		senderUsers map[spec.SenderID]*spec.UserID
+		wantCreator string
+		wantQueries int
+	}{
+		{
+			name: "pseudo sender resolves through roomserver",
+			event: mustPolicyTransportEventVersion(t, gomatrixserverlib.RoomVersionPseudoIDs, roomID, string(pseudoSender), spec.MRoomCreate, "", map[string]any{
+				"creator": "@spoofed:test",
+			}, 1, nil, nil),
+			senderUsers: map[spec.SenderID]*spec.UserID{pseudoSender: resolvedCreator},
+			wantCreator: "@resolved:test",
+			wantQueries: 1,
+		},
+		{
+			name: "raw full mxid is validated fallback",
+			event: mustPolicyTransportEvent(t, roomID, "@raw:test", spec.MRoomCreate, "", map[string]any{
+				"creator": "@spoofed:test",
+			}, 1, nil, nil),
+			wantCreator: "@raw:test",
+			wantQueries: 1,
+		},
+		{
+			name: "non-authoritative legacy creator is ignored",
+			event: mustPolicyTransportEventVersion(t, gomatrixserverlib.RoomVersionPseudoIDs, roomID, string(pseudoSender), spec.MRoomCreate, "", map[string]any{
+				"creator": "@spoofed:test",
+			}, 1, nil, nil),
+			wantQueries: 1,
+		},
+		{name: "missing create state"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := []*types.HeaderedEvent(nil)
+			if tc.event != nil {
+				state = []*types.HeaderedEvent{tc.event}
+			}
+			rsAPI := &policyTransportRoomserver{roomID: roomID, state: state, senderUsers: tc.senderUsers}
+			transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+
+			creator, err := transport.ReadRoomCreator(context.Background(), roomID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if creator != tc.wantCreator || len(rsAPI.senderQueries) != tc.wantQueries {
+				t.Fatalf("ReadRoomCreator() = %q queries=%#v, want %q queries=%d", creator, rsAPI.senderQueries, tc.wantCreator, tc.wantQueries)
+			}
+		})
+	}
+}
+
+func TestDendriteTransportListRoomMembersResolvesPseudoStateKeys(t *testing.T) {
+	const roomID = "!members:test"
+	pseudoSender := spec.SenderIDFromPseudoIDKey(ed25519.NewKeyFromSeed(make([]byte, 32)))
+	resolvedMember, err := spec.NewUserID("@member:test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membership := mustPolicyTransportEventVersion(t, gomatrixserverlib.RoomVersionPseudoIDs, roomID, string(pseudoSender), spec.MRoomMember, string(pseudoSender), map[string]any{
+		"membership": "join",
+	}, 2, nil, nil)
+
+	for _, tc := range []struct {
+		name        string
+		senderUsers map[spec.SenderID]*spec.UserID
+		wantMembers int
+	}{
+		{name: "resolved", senderUsers: map[spec.SenderID]*spec.UserID{pseudoSender: resolvedMember}, wantMembers: 1},
+		{name: "unresolved is skipped"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rsAPI := &policyTransportRoomserver{roomID: roomID, state: []*types.HeaderedEvent{membership}, senderUsers: tc.senderUsers}
+			transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+			members, err := transport.ListRoomMembers(context.Background(), roomID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(members) != tc.wantMembers {
+				t.Fatalf("ListRoomMembers() = %#v, want %d members", members, tc.wantMembers)
+			}
+			if tc.wantMembers == 1 && (members[0].UserID != resolvedMember.String() || members[0].Domain != "test") {
+				t.Fatalf("resolved pseudo member = %#v", members[0])
+			}
+		})
+	}
+}
+
 type policyTransportRoomserver struct {
 	roomserverAPI.ClientRoomserverAPI
 	roomID                string
@@ -640,6 +748,9 @@ type policyTransportRoomserver struct {
 	createOnlyPurge       bool
 	createOnlyPurgeCalls  int
 	beforeCreateOnlyPurge func()
+	senderUsers           map[spec.SenderID]*spec.UserID
+	senderQueryErr        error
+	senderQueries         []spec.SenderID
 }
 
 func (r *policyTransportRoomserver) QueryLatestEventsAndState(_ context.Context, _ *roomserverAPI.QueryLatestEventsAndStateRequest, res *roomserverAPI.QueryLatestEventsAndStateResponse) error {
@@ -661,6 +772,14 @@ func (r *policyTransportRoomserver) QueryCurrentState(ctx context.Context, req *
 		}
 	}
 	for _, tuple := range req.StateTuples {
+		if req.AllowWildcards && tuple.StateKey == "*" {
+			for _, event := range r.state {
+				if event.Type() == tuple.EventType && event.StateKey() != nil {
+					res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: event.Type(), StateKey: *event.StateKey()}] = event
+				}
+			}
+			continue
+		}
 		for _, event := range r.state {
 			if event.Type() == tuple.EventType && event.StateKey() != nil && *event.StateKey() == tuple.StateKey {
 				res.StateEvents[tuple] = event
@@ -668,6 +787,14 @@ func (r *policyTransportRoomserver) QueryCurrentState(ctx context.Context, req *
 		}
 	}
 	return nil
+}
+
+func (r *policyTransportRoomserver) QueryUserIDForSender(_ context.Context, _ spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
+	r.senderQueries = append(r.senderQueries, senderID)
+	if r.senderQueryErr != nil {
+		return nil, r.senderQueryErr
+	}
+	return r.senderUsers[senderID], nil
 }
 
 func (r *policyTransportRoomserver) QueryMembershipForUser(ctx context.Context, req *roomserverAPI.QueryMembershipForUserRequest, res *roomserverAPI.QueryMembershipForUserResponse) error {

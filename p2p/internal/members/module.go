@@ -131,13 +131,22 @@ func (m *Module) List(ctx context.Context, raw map[string]any) (any, *actionbase
 	if m.store == nil {
 		return nil, actionbase.InternalError(errors.New("member store is not configured"))
 	}
-	members, err := m.store.ListMembers(ctx, params.String("room_id"), params.String("channel_id"))
+	roomID := params.String("room_id")
+	channelID := params.String("channel_id")
+	var err error
+	if m.config.ResolveTarget != nil {
+		roomID, channelID, err = m.config.ResolveTarget(ctx, raw)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+	}
+	members, err := m.store.ListMembers(ctx, roomID, channelID)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
 	ownerMXID := ""
-	if roomID := singleMemberRoomID(params.String("room_id"), members); roomID != "" && m.config.ResolveRoomOwner != nil {
-		ownerMXID, err = m.config.ResolveRoomOwner(ctx, roomID)
+	if ownerRoomID := singleMemberRoomID(roomID, members); ownerRoomID != "" && m.config.ResolveRoomOwner != nil {
+		ownerMXID, err = m.config.ResolveRoomOwner(ctx, ownerRoomID)
 		if err != nil {
 			return nil, actionbase.InternalError(err)
 		}

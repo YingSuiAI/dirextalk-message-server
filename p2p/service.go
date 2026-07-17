@@ -700,20 +700,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 	})
 	service.membersModule = membersmodule.New(service.store, membersmodule.Config{
-		ResolveTarget:        service.memberTarget,
-		NewMember:            service.memberRecordFor,
-		LookupMember:         service.lookupMember,
-		SaveMember:           service.saveMember,
-		SaveMemberGeneration: service.saveMemberIfState,
-		PublishPolicy:        service.publishMemberPolicyState,
-		Conversation:         service.conversationModule,
-		ResolveRoomOwner: func(ctx context.Context, roomID string) (string, error) {
-			record, ok, err := service.conversationModule.GetRecord(ctx, "", roomID)
-			if err != nil || !ok {
-				return "", err
-			}
-			return record.CreatedByMXID, nil
-		},
+		ResolveTarget:            service.memberTarget,
+		NewMember:                service.memberRecordFor,
+		LookupMember:             service.lookupMember,
+		SaveMember:               service.saveMember,
+		SaveMemberGeneration:     service.saveMemberIfState,
+		PublishPolicy:            service.publishMemberPolicyState,
+		Conversation:             service.conversationModule,
+		ResolveRoomOwner:         service.resolveRoomOwner,
 		OwnerMXID:                service.memberOwnerMXID,
 		KickMember:               service.kickMember,
 		LeaveMember:              service.leaveMember,
@@ -801,6 +795,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			defer service.mu.Unlock()
 			return service.matrixProfiles
 		},
+		ResolveRoomOwner:      service.resolveRoomOwner,
 		BeginAccountOperation: service.beginAccountOperation,
 		AccountDeprovisioned:  service.accountIsDeprovisioned,
 		AgentRoomName:         agentRoomName,
@@ -844,6 +839,43 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		}
 	}
 	return service
+}
+
+func (s *Service) resolveRoomOwner(ctx context.Context, roomID string) (string, error) {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" || s.conversationModule == nil {
+		return "", nil
+	}
+	record, ok, err := s.conversationModule.GetRecord(ctx, "", roomID)
+	if err != nil || !ok {
+		return "", err
+	}
+	if record.Kind != dirextalkdomain.ConversationKindGroup && record.Kind != dirextalkdomain.ConversationKindChannel {
+		return "", nil
+	}
+	if s.transport == nil {
+		return strings.TrimSpace(record.CreatedByMXID), nil
+	}
+	reader, ok := s.transport.(RoomCreatorReader)
+	if !ok {
+		if strings.TrimSpace(record.CreatedByMXID) != "" {
+			if err := s.conversationModule.SetCreator(ctx, roomID, ""); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
+	}
+	creatorMXID, err := reader.ReadRoomCreator(ctx, roomID)
+	if err != nil {
+		return "", err
+	}
+	creatorMXID = strings.TrimSpace(creatorMXID)
+	if strings.TrimSpace(record.CreatedByMXID) != creatorMXID {
+		if err := s.conversationModule.SetCreator(ctx, roomID, creatorMXID); err != nil {
+			return "", err
+		}
+	}
+	return creatorMXID, nil
 }
 
 func normalizeAgentConfig(cfg agentConfig) agentConfig {

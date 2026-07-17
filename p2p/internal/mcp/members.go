@@ -24,6 +24,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	name := roomID
 	knownRoom := false
 	roomOwnerMXID := ""
+	resolveRoomOwner := false
 	if channel, ok, err := m.channels.ByIDOrRoom(ctx, channelID, roomID); err != nil {
 		return nil, internalError(err)
 	} else if ok {
@@ -46,6 +47,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 		knownRoom = true
 		if record.Kind == dirextalkdomain.ConversationKindGroup || record.Kind == dirextalkdomain.ConversationKindChannel {
 			roomOwnerMXID = record.CreatedByMXID
+			resolveRoomOwner = m.config.ResolveRoomOwner != nil
 		}
 		view, viewErr := m.conversations.View(ctx, record)
 		if viewErr != nil {
@@ -60,6 +62,13 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	}
 	if mcpErr := m.requireRoomAllowed(roomID); mcpErr != nil {
 		return nil, mcpErr
+	}
+	if resolveRoomOwner {
+		resolvedOwner, resolveErr := m.config.ResolveRoomOwner(ctx, roomID)
+		if resolveErr != nil {
+			return nil, internalError(resolveErr)
+		}
+		roomOwnerMXID = resolvedOwner
 	}
 	if m.members == nil {
 		return nil, internalError(errors.New("member store is not configured"))

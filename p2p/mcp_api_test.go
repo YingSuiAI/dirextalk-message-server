@@ -677,12 +677,16 @@ func TestMCPRoomMembersListGloballySortsMixedGroupAndChannelSources(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			transport := &recordingTransport{roomMembers: []memberRecord{
+			matrixTransport := &recordingTransport{roomMembers: []memberRecord{
 				{RoomID: tc.roomID, UserID: "@a-matrix:matrix.example", Membership: "join", Role: "member", JoinedAt: 500},
 				{RoomID: tc.roomID, UserID: "@fake-owner:matrix.example", Membership: "join", Role: "owner", JoinedAt: 1500},
 				{RoomID: tc.roomID, UserID: "@a-tie:matrix.example", Membership: "join", Role: "member", JoinedAt: 2000},
 				{RoomID: tc.roomID, UserID: "@missing-time:matrix.example", Membership: "join", Role: "member"},
 			}}
+			transport := &roomCreatorReadingTransport{
+				recordingTransport: matrixTransport,
+				creators:           map[string]string{tc.roomID: "@actual-creator:creator.example"},
+			}
 			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 			if err := tc.prepare(ctx, service); err != nil {
 				t.Fatal(err)
@@ -807,7 +811,11 @@ func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T)
 }
 
 func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
+	transport := &roomCreatorReadingTransport{
+		recordingTransport: &recordingTransport{},
+		creators:           map[string]string{"!blocked:example.com": "@actual-creator:example.com"},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
 		"room_id": "!blocked:example.com",
 		"name":    "Blocked Group",
@@ -821,6 +829,9 @@ func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
 	})
 	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
 		t.Fatalf("expected blocked room member list to fail, got %#v", apiErr)
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("blocked room resolved or persisted creator before authorization: %#v", transport.reads)
 	}
 }
 

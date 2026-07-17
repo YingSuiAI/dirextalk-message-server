@@ -56,6 +56,13 @@ func TestMemoryStoreConversationMergeConflictAndOrder(t *testing.T) {
 	if err != nil || !ok || got.CreatedByMXID != "@authoritative:example.com" {
 		t.Fatalf("authoritative creator update = (%#v, %v, %v)", got, ok, err)
 	}
+	if err := store.SetConversationCreator(ctx, original.MatrixRoomID, ""); err != nil {
+		t.Fatalf("clear authoritative creator: %v", err)
+	}
+	got, ok, err = store.GetConversationByID(ctx, original.ConversationID)
+	if err != nil || !ok || got.CreatedByMXID != "" {
+		t.Fatalf("authoritative creator clear = (%#v, %v, %v)", got, ok, err)
+	}
 
 	err = store.UpsertConversation(ctx, conversationRecord{
 		ConversationID: "conv_group",

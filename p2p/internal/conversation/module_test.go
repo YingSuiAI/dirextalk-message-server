@@ -194,6 +194,12 @@ func TestSaveDeleteAndOperationUseConversationStore(t *testing.T) {
 	if store.creatorRoomID != roomID || store.creatorMXID != "@creator:example.com" {
 		t.Fatalf("SetCreator() = (%q, %q), want normalized room and creator", store.creatorRoomID, store.creatorMXID)
 	}
+	if err := module.SetCreator(ctx, roomID, "  "); err != nil {
+		t.Fatalf("SetCreator(clear) error = %v", err)
+	}
+	if store.creatorRoomID != roomID || store.creatorMXID != "" {
+		t.Fatalf("SetCreator(clear) = (%q, %q), want room and empty creator", store.creatorRoomID, store.creatorMXID)
+	}
 
 	stored := store.upserted
 	store.byRoom[roomID] = stored

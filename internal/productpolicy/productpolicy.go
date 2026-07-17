@@ -46,6 +46,10 @@ type CurrentStateQuerier interface {
 	QueryMembershipForUser(ctx context.Context, req *api.QueryMembershipForUserRequest, res *api.QueryMembershipForUserResponse) error
 }
 
+type userIDForSenderQuerier interface {
+	QueryUserIDForSender(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error)
+}
+
 type RedactionQuerier interface {
 	CurrentStateQuerier
 	QueryEventsByID(ctx context.Context, req *api.QueryEventsByIDRequest, res *api.QueryEventsByIDResponse) error
@@ -344,16 +348,14 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 		JoinPolicy:      "invite",
 		SenderRole:      "member",
 	}
-	createContent, err := eventContent(res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}])
+	createEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}]
+	createContent, err := eventContent(createEvent)
 	if err != nil {
 		return roomPolicy{}, err
 	}
 	if roomType := stringValue(createContent["type"]); isDirextalkRoomType(roomType) {
 		policy.Product = true
 		policy.RoomType = roomType
-		if stringValue(createContent["creator"]) == senderMXID {
-			policy.SenderRole = "owner"
-		}
 	}
 
 	if event := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkRoomProfileEventType, StateKey: ""}]; event != nil {
@@ -373,6 +375,13 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 	if !policy.Product {
 		return policy, nil
 	}
+	creatorMXID, err := authoritativeCreateSenderMXID(ctx, querier, roomID, createEvent)
+	if err != nil {
+		return roomPolicy{}, err
+	}
+	if creatorMXID == senderMXID {
+		policy.SenderRole = "owner"
+	}
 
 	memberPolicyEvent := res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkMemberPolicyEventType, StateKey: UserStateKey(senderMXID)}]
 	if memberPolicyEvent == nil {
@@ -381,9 +390,6 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 	memberPolicy, err := eventContent(memberPolicyEvent)
 	if err != nil {
 		return roomPolicy{Product: true}, err
-	}
-	if role := stringValue(memberPolicy["role"]); role != "" {
-		policy.SenderRole = role
 	}
 	if boolValue(memberPolicy["muted"]) {
 		policy.SenderMuted = true
@@ -408,6 +414,29 @@ func resolveRoom(ctx context.Context, querier CurrentStateQuerier, roomID, sende
 		}
 	}
 	return policy, nil
+}
+
+func authoritativeCreateSenderMXID(ctx context.Context, querier CurrentStateQuerier, roomID string, event *types.HeaderedEvent) (string, error) {
+	if event == nil {
+		return "", nil
+	}
+	senderID := event.SenderID()
+	if userID, err := spec.NewUserID(strings.TrimSpace(string(senderID)), true); err == nil && userID != nil {
+		return userID.String(), nil
+	}
+	resolver, ok := querier.(userIDForSenderQuerier)
+	if !ok || strings.TrimSpace(string(senderID)) == "" {
+		return "", nil
+	}
+	validRoomID, err := spec.NewRoomID(strings.TrimSpace(roomID))
+	if err != nil {
+		return "", err
+	}
+	userID, err := resolver.QueryUserIDForSender(ctx, *validRoomID, senderID)
+	if err != nil || userID == nil {
+		return "", err
+	}
+	return userID.String(), nil
 }
 
 func directPeerJoined(ctx context.Context, querier CurrentStateQuerier, roomID, senderMXID string) (bool, error) {

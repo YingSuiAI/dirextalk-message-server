@@ -75,6 +75,13 @@ func TestConversationStoreUpsertListAndGet(t *testing.T) {
 	if err != nil || !ok || byRoom.CreatedByMXID != "@authoritative:example.com" {
 		t.Fatalf("expected authoritative creator update, got %#v ok=%v err=%v", byRoom, ok, err)
 	}
+	if err = store.SetConversationCreator(ctx, direct.MatrixRoomID, ""); err != nil {
+		t.Fatal(err)
+	}
+	byRoom, ok, err = store.GetConversationByRoomID(ctx, direct.MatrixRoomID)
+	if err != nil || !ok || byRoom.CreatedByMXID != "" {
+		t.Fatalf("expected authoritative creator clear, got %#v ok=%v err=%v", byRoom, ok, err)
+	}
 
 	activityOnly := conversationRecord{
 		ConversationID:  direct.ConversationID,
