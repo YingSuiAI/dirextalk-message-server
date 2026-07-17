@@ -420,6 +420,38 @@ func TestReleaseV2ApplyFailsClosedWhenUpdaterIsNotReady(t *testing.T) {
 	}
 }
 
+func TestReleaseV2ApplyFailsClosedOutsideActiveUpgradeReplay(t *testing.T) {
+	for name, status := range map[string]releasecontrol.DirectStatus{
+		"maintenance": {
+			Available: true, UpdaterReady: false, CurrentVersion: "v1.0.3", DesiredState: "maintenance",
+			ActiveJob: &releasecontrol.ActiveJob{JobID: "job_active", Status: "pulling", TargetVersion: "v1.0.4"},
+		},
+		"unavailable": {
+			Available: false, UpdaterReady: false, CurrentVersion: "v1.0.3", DesiredState: "upgrading",
+			ActiveJob: &releasecontrol.ActiveJob{JobID: "job_active", Status: "pulling", TargetVersion: "v1.0.4"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
+				AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2",
+			}}
+			controller := &recordingReleaseController{directStatus: status}
+			service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+			mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
+
+			response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
+				"target_version": "v1.0.4", "idempotency_key": "6ea20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+			})
+			if response.Code != http.StatusServiceUnavailable || releaseResponseCode(t, response) != updaterUnavailableCode {
+				t.Fatalf("expected updater unavailable, got %d %s", response.Code, response.Body.String())
+			}
+			if central.calls != 0 || controller.directApplyRequest.TargetVersion != "" {
+				t.Fatalf("non-replayable status must block before central/updater apply: central=%d request=%#v", central.calls, controller.directApplyRequest)
+			}
+		})
+	}
+}
+
 func TestReleaseV2ApplyReplaysActiveDirectJobAfterResponseLoss(t *testing.T) {
 	key := "7ea20813-c5d9-4f6d-b4f0-cdf8cfc75c6e"
 	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
