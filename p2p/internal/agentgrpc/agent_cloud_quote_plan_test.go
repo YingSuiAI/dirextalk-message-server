@@ -84,6 +84,68 @@ func TestAgentCloudPlanningBindsOwnerAndAcceptsServerOwnedWorkerRelease(t *testi
 	}
 }
 
+func TestAgentCloudPlanningMapsV2ServiceOperationsAndRejectsUsageDrift(t *testing.T) {
+	now := time.Date(2026, time.July, 18, 8, 0, 0, 0, time.UTC)
+	server := startRuntimeServer(t)
+	usage := cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PrivateEndpointHours: 720, PrivateEndpointDataMiB: 96}
+	quote := planningQuoteProtoForScopes(now, planningServiceOperationScopes(true), usage)
+	server.cloud.createQuote = func(request *agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error) {
+		if request.GetUsage().GetPrivateEndpointHours() != 720 || request.GetUsage().GetPrivateEndpointDataMib() != 96 {
+			t.Fatalf("v2 usage was not forwarded: %#v", request.GetUsage())
+		}
+		for _, scope := range request.GetScopes() {
+			operations := scope.GetServiceOperations()
+			if scope.GetSchemaVersion() != cloudmodule.AgentCloudQuoteScopeSchemaV2 || operations == nil || len(operations.GetPrivateEndpoints()) != 1 ||
+				operations.GetPrivateEndpoints()[0].GetService() != agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3 ||
+				operations.GetPrivateEndpoints()[0].GetSecurityGroupSource() != agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_WORKER_DEDICATED {
+				t.Fatalf("v2 scope was not forwarded exactly: %#v", scope)
+			}
+		}
+		return &agentv1.CreateCloudQuoteResponse{Quote: quote}, nil
+	}
+	server.cloud.createPlan = func(request *agentv1.CreateCloudPlanRequest) (*agentv1.CreateCloudPlanResponse, error) {
+		return &agentv1.CreateCloudPlanResponse{Plan: planningPlanProto(now, quote.GetCandidates()[1])}, nil
+	}
+	server.cloud.getQuote = func(*agentv1.GetCloudQuoteRequest) (*agentv1.GetCloudQuoteResponse, error) {
+		return &agentv1.GetCloudQuoteResponse{Quote: quote}, nil
+	}
+	runner := newTestRunner(t, server, Config{})
+
+	created, err := runner.CreateAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteCreateRequest{
+		IdempotencyKey: "019f6a80-1234-7abc-8def-012345678913", Scopes: planningServiceOperationScopes(false), Usage: usage,
+	})
+	if err != nil || created.Usage.PrivateEndpointHours != 720 || created.Candidates[0].Scope.SchemaVersion != cloudmodule.AgentCloudQuoteScopeSchemaV2 ||
+		len(created.Candidates[0].Scope.ServiceOperations.PrivateEndpoints) != 1 {
+		t.Fatalf("v2 quote mapping=%#v err=%v", created, err)
+	}
+	plan, err := runner.CreateAgentCloudPlan(t.Context(), cloudmodule.AgentCloudPlanCreateRequest{
+		IdempotencyKey: "019f6a80-1234-7abc-8def-012345678915", QuoteID: testQuoteID,
+		CandidateProfile: "recommended", CurrentScope: created.Candidates[1].Scope,
+	})
+	if err != nil || plan.SchemaVersion != cloudmodule.AgentCloudPlanSchemaV2 || len(plan.ServiceOperations.PrivateEndpoints) != 1 {
+		t.Fatalf("v2 plan mapping=%#v err=%v", plan, err)
+	}
+
+	quote.Usage.PrivateEndpointDataMib++
+	if _, _, err := runner.GetAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteRequest{QuoteID: testQuoteID}); !errors.Is(err, cloudmodule.ErrAgentCloudControlInvalidResponse) {
+		t.Fatalf("usage drift was accepted: %v", err)
+	}
+
+	wire, ok := agentCloudQuoteScopeToProto(planningServiceOperationScopes(true)[0], "owner-from-config", true)
+	if !ok {
+		t.Fatal("valid v2 scope did not marshal")
+	}
+	wire.SchemaVersion = cloudmodule.AgentCloudQuoteScopeSchemaV1
+	if _, ok := mapAgentCloudQuoteScope(wire, "owner-from-config"); ok {
+		t.Fatal("v1 wire schema with service operations was accepted")
+	}
+	wrongPlanSchema := planningPlanProto(now, quote.GetCandidates()[1])
+	wrongPlanSchema.SchemaVersion = cloudmodule.AgentCloudQuoteScopeSchemaV2
+	if _, err := runner.mapAgentCloudPlan(wrongPlanSchema, ""); !errors.Is(err, cloudmodule.ErrAgentCloudControlInvalidResponse) {
+		t.Fatalf("plan accepted a quote-scope schema: %v", err)
+	}
+}
+
 func TestAgentCloudResourceMappingPreservesAbsentDataVolumeScope(t *testing.T) {
 	t.Parallel()
 	resource := planningQuoteScopes(true)[0].Resource
@@ -139,6 +201,7 @@ func planningQuoteScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
 			resource.WorkerImageDigest = "sha256:" + strings.Repeat("4", 64)
 		}
 		result = append(result, cloudmodule.AgentCloudQuoteScope{
+			SchemaVersion:    cloudmodule.AgentCloudQuoteScopeSchemaV1,
 			ConnectionID:     "019f6a80-1234-7abc-8def-012345678902",
 			Recipe:           cloudmodule.AgentCloudRecipeBinding{RecipeID: "recipe-openclaw-0001", Digest: "sha256:" + strings.Repeat("1", 64), Maturity: "experimental"},
 			Resource:         resource,
@@ -151,8 +214,25 @@ func planningQuoteScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
 	return result
 }
 
+func planningServiceOperationScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
+	result := planningQuoteScopes(workerBound)
+	for index := range result {
+		result[index].SchemaVersion = cloudmodule.AgentCloudQuoteScopeSchemaV2
+		result[index].ServiceOperations = cloudmodule.AgentCloudServiceOperationScope{
+			PrivateEndpoints: []cloudmodule.AgentCloudPrivateEndpointOperation{{
+				OperationKey: "endpoint-s3", Service: "s3", SecurityGroupSource: "worker_dedicated",
+				PrivateDNSEnabled: true, MonthlyHours: 720, DataMiBPerMonth: 96,
+			}},
+		}
+	}
+	return result
+}
+
 func planningQuoteProto(now time.Time) *agentv1.CloudQuote {
-	scopes := planningQuoteScopes(true)
+	return planningQuoteProtoForScopes(now, planningQuoteScopes(true), cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIPv4Hours: 730})
+}
+
+func planningQuoteProtoForScopes(now time.Time, scopes []cloudmodule.AgentCloudQuoteScope, usage cloudmodule.AgentCloudUsageEstimate) *agentv1.CloudQuote {
 	candidates := make([]*agentv1.CloudQuoteCandidate, 0, len(scopes))
 	for index, scope := range scopes {
 		remote, _ := agentCloudQuoteScopeToProto(scope, "owner-from-config", true)
@@ -170,7 +250,7 @@ func planningQuoteProto(now time.Time) *agentv1.CloudQuote {
 	}
 	return &agentv1.CloudQuote{
 		QuoteId: testQuoteID, QuotedAt: timestamppb.New(now), ValidUntil: timestamppb.New(now.Add(15 * time.Minute)), Currency: "USD",
-		Candidates: candidates, Usage: &agentv1.CloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIpv4Hours: 730},
+		Candidates: candidates, Usage: agentCloudUsageToProto(usage),
 		Assumptions: []string{"On-Demand pricing"}, Exclusions: []string{"tax"}, Digest: "sha256:" + strings.Repeat("8", 64),
 	}
 }
@@ -179,6 +259,7 @@ func planningPlanProto(now time.Time, selected *agentv1.CloudQuoteCandidate) *ag
 	scope := selected.GetScope()
 	return &agentv1.CloudPlan{
 		PlanId: testPlanID, OwnerId: "owner-from-config", ConnectionId: scope.GetConnectionId(), Recipe: scope.GetRecipe(),
+		SchemaVersion: agentCloudPlanSchemaForQuoteScope(scope.GetSchemaVersion()), ServiceOperations: scope.GetServiceOperations(),
 		QuoteId: testQuoteID, QuoteDigest: "sha256:" + strings.Repeat("8", 64), QuoteScopeDigest: selected.GetScopeDigest(),
 		CandidateProfile: selected.GetCandidateProfile(), QuoteValidUntil: timestamppb.New(now.Add(15 * time.Minute)),
 		Resource: scope.GetResource(), Network: scope.GetNetwork(), SecretScope: scope.GetSecretScope(), IntegrationScope: scope.GetIntegrationScope(),

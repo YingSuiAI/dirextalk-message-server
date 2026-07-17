@@ -623,9 +623,10 @@ func TestAgentPlanGetHydratesExistingProductCoreQuoteShape(t *testing.T) {
 func readyAgentPlan(now time.Time) AgentCloudPlan {
 	return AgentCloudPlan{
 		PlanID: "019f6a80-1234-7abc-8def-012345678901", OwnerID: "dirextalk-project:example.com",
-		ConnectionID: "019f6a80-1234-7abc-8def-012345678902",
-		Recipe:       AgentCloudRecipeBinding{RecipeID: "recipe-openclaw-0001", Digest: "sha256:" + repeatAgentHex("1"), Maturity: "experimental"},
-		QuoteID:      "019f6a80-1234-7abc-8def-012345678903", QuoteDigest: "sha256:" + repeatAgentHex("2"),
+		SchemaVersion: AgentCloudPlanSchemaV1,
+		ConnectionID:  "019f6a80-1234-7abc-8def-012345678902",
+		Recipe:        AgentCloudRecipeBinding{RecipeID: "recipe-openclaw-0001", Digest: "sha256:" + repeatAgentHex("1"), Maturity: "experimental"},
+		QuoteID:       "019f6a80-1234-7abc-8def-012345678903", QuoteDigest: "sha256:" + repeatAgentHex("2"),
 		QuoteScopeDigest: "sha256:" + repeatAgentHex("3"), CandidateProfile: "economic", QuoteValidUntil: now.Add(10 * time.Minute),
 		Resource: AgentCloudResourceScope{
 			Region: "ap-northeast-1", AvailabilityZones: []string{"ap-northeast-1a"}, InstanceType: "t3.large", InstanceCount: 1,
@@ -650,6 +651,7 @@ func readyAgentPlan(now time.Time) AgentCloudPlan {
 
 func quoteForAgentPlan(plan AgentCloudPlan, now time.Time) AgentCloudQuote {
 	profiles := []string{"economic", "recommended", "performance"}
+	scopeSchema := agentCloudQuoteScopeSchemaForPlan(plan.SchemaVersion)
 	candidates := make([]AgentCloudQuoteCandidate, 0, len(profiles))
 	for index, profile := range profiles {
 		resource := plan.Resource
@@ -662,7 +664,7 @@ func quoteForAgentPlan(plan AgentCloudPlan, now time.Time) AgentCloudQuote {
 		micros := uint64((index + 1) * 1_000_000)
 		candidates = append(candidates, AgentCloudQuoteCandidate{
 			CandidateProfile: profile,
-			Scope:            AgentCloudQuoteScope{ConnectionID: plan.ConnectionID, Recipe: plan.Recipe, Resource: resource, Network: plan.Network, SecretScope: plan.SecretScope, IntegrationScope: plan.IntegrationScope, Retention: plan.Retention},
+			Scope:            AgentCloudQuoteScope{SchemaVersion: scopeSchema, ConnectionID: plan.ConnectionID, Recipe: plan.Recipe, Resource: resource, Network: plan.Network, SecretScope: plan.SecretScope, IntegrationScope: plan.IntegrationScope, Retention: plan.Retention, ServiceOperations: plan.ServiceOperations},
 			ScopeDigest:      "sha256:" + repeatAgentHex(string(rune('3'+index))), OfferedAvailabilityZones: append([]string(nil), resource.AvailabilityZones...),
 			CostItems:            []AgentCloudCostItem{{Category: "public_ipv4", Description: "Public IPv4", SourceID: "aws-price-list", HourlyEstimateMicros: 5_000, MonthlyEstimateMicros: 3_650_000}},
 			HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros,

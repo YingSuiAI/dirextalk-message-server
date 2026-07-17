@@ -298,6 +298,10 @@ func (runner *Runner) mapAgentCloudPlan(remote *agentv1.CloudPlan, expectedPlanI
 		!agentCloudDigestPattern.MatchString(remote.GetPlanHash()) || remote.GetRecipe() == nil || remote.GetResource() == nil || remote.GetNetwork() == nil || remote.GetRetention() == nil {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
+	requiresServiceOperations, knownSchema := cloudmodule.AgentCloudServiceOperationsRequired(remote.GetSchemaVersion())
+	if !validAgentCloudPlanSchema(remote.GetSchemaVersion()) || !knownSchema || requiresServiceOperations != (remote.GetServiceOperations() != nil) {
+		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
 	quoteValidUntil, err := exactAgentCloudTimestamp(remote.GetQuoteValidUntil())
 	if err != nil {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
@@ -341,14 +345,23 @@ func (runner *Runner) mapAgentCloudPlan(remote *agentv1.CloudPlan, expectedPlanI
 		}
 		integrations = append(integrations, cloudmodule.AgentCloudIntegrationScope{Kind: value.GetKind(), Name: value.GetName(), Scopes: append([]string(nil), value.GetScopes()...)})
 	}
-	return cloudmodule.AgentCloudPlan{
+	serviceOperations, ok := mapAgentCloudServiceOperations(remote.GetServiceOperations())
+	if !ok {
+		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
+	result := cloudmodule.AgentCloudPlan{
 		PlanID: remote.GetPlanId(), OwnerID: remote.GetOwnerId(), ConnectionID: remote.GetConnectionId(),
-		Recipe:  cloudmodule.AgentCloudRecipeBinding{RecipeID: recipe.GetRecipeId(), Digest: recipe.GetDigest(), Maturity: recipe.GetMaturity()},
-		QuoteID: remote.GetQuoteId(), QuoteDigest: remote.GetQuoteDigest(), QuoteScopeDigest: remote.GetQuoteScopeDigest(),
+		SchemaVersion: remote.GetSchemaVersion(),
+		Recipe:        cloudmodule.AgentCloudRecipeBinding{RecipeID: recipe.GetRecipeId(), Digest: recipe.GetDigest(), Maturity: recipe.GetMaturity()},
+		QuoteID:       remote.GetQuoteId(), QuoteDigest: remote.GetQuoteDigest(), QuoteScopeDigest: remote.GetQuoteScopeDigest(),
 		CandidateProfile: candidate, QuoteValidUntil: quoteValidUntil, Resource: resource, Network: network,
-		SecretScope: secrets, IntegrationScope: integrations, Retention: retention, Status: planStatus,
+		SecretScope: secrets, IntegrationScope: integrations, Retention: retention, ServiceOperations: serviceOperations, Status: planStatus,
 		PlanHash: remote.GetPlanHash(), Revision: remote.GetRevision(),
-	}, nil
+	}
+	if !validAgentCloudPlanDomain(result) {
+		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
+	return result, nil
 }
 
 func (runner *Runner) mapAgentCloudConnection(remote *agentv1.CloudConnection, expectedID, expectedRegion string) (cloudmodule.AgentCloudConnection, error) {
@@ -630,12 +643,13 @@ func sameExpectedPlanRequest(plan cloudmodule.AgentCloudPlan, planID string, rev
 // must have a different hash after the single revision increment.
 func sameAgentCloudPlanApprovalScope(left, right cloudmodule.AgentCloudPlan) bool {
 	return left.PlanID == right.PlanID && left.OwnerID == right.OwnerID && left.ConnectionID == right.ConnectionID &&
+		left.SchemaVersion == right.SchemaVersion &&
 		left.QuoteID == right.QuoteID && left.QuoteDigest == right.QuoteDigest &&
 		left.QuoteScopeDigest == right.QuoteScopeDigest && left.CandidateProfile == right.CandidateProfile &&
 		left.Recipe == right.Recipe && left.QuoteValidUntil.Equal(right.QuoteValidUntil) &&
 		reflect.DeepEqual(left.Resource, right.Resource) && reflect.DeepEqual(left.Network, right.Network) &&
 		reflect.DeepEqual(left.SecretScope, right.SecretScope) && reflect.DeepEqual(left.IntegrationScope, right.IntegrationScope) &&
-		left.Retention == right.Retention
+		left.Retention == right.Retention && sameAgentCloudServiceOperations(left.ServiceOperations, right.ServiceOperations)
 }
 
 func validAgentCloudConnectionARNs(value *agentv1.CloudConnection) bool {
@@ -656,7 +670,7 @@ func validAgentCloudConnectionARNs(value *agentv1.CloudConnection) bool {
 }
 
 func validAgentCloudPlanDomain(value cloudmodule.AgentCloudPlan) bool {
-	if !validUUID(value.PlanID) || !validUUID(value.ConnectionID) || !validUUID(value.QuoteID) || !agentCloudIdentifierPattern.MatchString(value.OwnerID) ||
+	if !validUUID(value.PlanID) || !validUUID(value.ConnectionID) || !validUUID(value.QuoteID) || !validAgentCloudPlanSchema(value.SchemaVersion) || !agentCloudIdentifierPattern.MatchString(value.OwnerID) ||
 		!agentCloudIdentifierPattern.MatchString(value.Recipe.RecipeID) || !agentCloudDigestPattern.MatchString(value.Recipe.Digest) ||
 		(value.Recipe.Maturity != "experimental" && value.Recipe.Maturity != "managed") || !agentCloudDigestPattern.MatchString(value.QuoteDigest) ||
 		!agentCloudDigestPattern.MatchString(value.QuoteScopeDigest) || !agentCloudDigestPattern.MatchString(value.PlanHash) || value.Revision <= 0 ||
@@ -675,6 +689,9 @@ func validAgentCloudPlanDomain(value cloudmodule.AgentCloudPlan) bool {
 		return false
 	}
 	if _, ok := agentCloudRetentionToProto(value.Retention); !ok {
+		return false
+	}
+	if err := cloudmodule.ValidateAgentCloudServiceOperations(value.SchemaVersion, value.ServiceOperations, value.Resource, value.Network, value.Retention); err != nil {
 		return false
 	}
 	for _, secret := range value.SecretScope {

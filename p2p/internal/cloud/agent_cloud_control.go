@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	agentCloudApprovalSchema        = "dirextalk.agent.cloud.approval/v1"
+	agentCloudApprovalSchema        = AgentCloudApprovalSchemaV1
 	agentCloudHashAlgorithm         = "deterministic-cbor-sha256"
 	agentCloudConnectionMode        = "agent_foundation_v1"
 	agentCloudReadyForConfirmation  = "ready_for_confirmation"
@@ -35,30 +35,31 @@ var (
 )
 
 type agentCloudApprovalV1 struct {
-	SchemaVersion    string                     `json:"schema_version"`
-	HashAlgorithm    string                     `json:"hash_algorithm"`
-	ApprovalID       string                     `json:"approval_id"`
-	AgentInstanceID  string                     `json:"agent_instance_id"`
-	OwnerID          string                     `json:"owner_id"`
-	PlanID           string                     `json:"plan_id"`
-	PlanRevision     int64                      `json:"plan_revision"`
-	PlanHash         string                     `json:"plan_hash"`
-	ConnectionID     string                     `json:"connection_id"`
-	RecipeDigest     string                     `json:"recipe_digest"`
-	QuoteID          string                     `json:"quote_id"`
-	QuoteDigest      string                     `json:"quote_digest"`
-	QuoteScopeDigest string                     `json:"quote_scope_digest"`
-	QuoteCandidateID string                     `json:"quote_candidate_id"`
-	QuoteValidUntil  time.Time                  `json:"quote_valid_until"`
-	ResourceScope    agentCloudResourceScopeV1  `json:"resource_scope"`
-	NetworkScope     agentCloudNetworkScopeV1   `json:"network_scope"`
-	SecretScope      []agentCloudSecretScopeV1  `json:"secret_scope,omitempty"`
-	IntegrationScope []agentCloudIntegrationV1  `json:"integration_scope,omitempty"`
-	RetentionScope   agentCloudRetentionScopeV1 `json:"retention_scope"`
-	ChallengeID      string                     `json:"challenge_id"`
-	SignerKeyID      string                     `json:"signer_key_id"`
-	ExpiresAt        time.Time                  `json:"expires_at"`
-	Signature        string                     `json:"signature,omitempty"`
+	SchemaVersion     string                             `json:"schema_version"`
+	HashAlgorithm     string                             `json:"hash_algorithm"`
+	ApprovalID        string                             `json:"approval_id"`
+	AgentInstanceID   string                             `json:"agent_instance_id"`
+	OwnerID           string                             `json:"owner_id"`
+	PlanID            string                             `json:"plan_id"`
+	PlanRevision      int64                              `json:"plan_revision"`
+	PlanHash          string                             `json:"plan_hash"`
+	ConnectionID      string                             `json:"connection_id"`
+	RecipeDigest      string                             `json:"recipe_digest"`
+	QuoteID           string                             `json:"quote_id"`
+	QuoteDigest       string                             `json:"quote_digest"`
+	QuoteScopeDigest  string                             `json:"quote_scope_digest"`
+	QuoteCandidateID  string                             `json:"quote_candidate_id"`
+	QuoteValidUntil   time.Time                          `json:"quote_valid_until"`
+	ResourceScope     agentCloudResourceScopeV1          `json:"resource_scope"`
+	NetworkScope      agentCloudNetworkScopeV1           `json:"network_scope"`
+	SecretScope       []agentCloudSecretScopeV1          `json:"secret_scope,omitempty"`
+	IntegrationScope  []agentCloudIntegrationV1          `json:"integration_scope,omitempty"`
+	RetentionScope    agentCloudRetentionScopeV1         `json:"retention_scope"`
+	ServiceOperations *agentCloudServiceOperationScopeV1 `json:"service_operations,omitempty"`
+	ChallengeID       string                             `json:"challenge_id"`
+	SignerKeyID       string                             `json:"signer_key_id"`
+	ExpiresAt         time.Time                          `json:"expires_at"`
+	Signature         string                             `json:"signature,omitempty"`
 }
 
 type agentCloudResourceScopeV1 struct {
@@ -129,6 +130,28 @@ type agentCloudRetentionScopeV1 struct {
 	AutoDestroy        bool   `json:"auto_destroy"`
 	GracePeriodSeconds uint32 `json:"grace_period_seconds"`
 	MaxLifetimeSeconds uint64 `json:"max_lifetime_seconds"`
+}
+
+type agentCloudServiceOperationScopeV1 struct {
+	PrivateEndpoints []agentCloudPrivateEndpointOperationV1 `json:"private_endpoints,omitempty"`
+	Snapshots        []agentCloudSnapshotOperationV1        `json:"snapshots,omitempty"`
+}
+
+type agentCloudPrivateEndpointOperationV1 struct {
+	OperationKey        string `json:"operation_key"`
+	Service             string `json:"service"`
+	SecurityGroupSource string `json:"security_group_source"`
+	PrivateDNSEnabled   bool   `json:"private_dns_enabled"`
+	MonthlyHours        uint32 `json:"monthly_hours"`
+	DataMiBPerMonth     uint64 `json:"data_mib_per_month"`
+}
+
+type agentCloudSnapshotOperationV1 struct {
+	OperationKey           string `json:"operation_key"`
+	SourceVolumeSlotID     string `json:"source_volume_slot_id"`
+	SourceVolumeSpecDigest string `json:"source_volume_spec_digest"`
+	Disposition            string `json:"disposition"`
+	MaxRetentionSeconds    uint64 `json:"max_retention_seconds"`
 }
 
 func (m *Module) prepareAgentPlanConfirmation(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
@@ -313,7 +336,7 @@ func agentCandidateID(tier string) string {
 }
 
 func agentCloudPlanView(plan AgentCloudPlan) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"plan_id": plan.PlanID, "cloud_connection_id": plan.ConnectionID, "status": plan.Status,
 		"recipe_id": plan.Recipe.RecipeID, "recipe_digest": plan.Recipe.Digest, "recipe_maturity": plan.Recipe.Maturity,
 		"quote_id": plan.QuoteID, "quote_digest": plan.QuoteDigest, "quote_scope_digest": plan.QuoteScopeDigest,
@@ -322,6 +345,10 @@ func agentCloudPlanView(plan AgentCloudPlan) map[string]any {
 		"secret_scope": secretScopeFromAgent(plan.SecretScope), "integration_scope": integrationScopeFromAgent(plan.IntegrationScope),
 		"retention_scope": retentionScopeFromAgent(plan.Retention), "plan_hash": plan.PlanHash, "revision": plan.Revision,
 	}
+	if plan.SchemaVersion == AgentCloudPlanSchemaV2 {
+		result["service_operations"] = serviceOperationScopeFromAgent(plan.ServiceOperations)
+	}
+	return result
 }
 
 func agentCloudPlanViewWithQuote(plan AgentCloudPlan, quote AgentCloudQuote) (map[string]any, bool) {
@@ -335,10 +362,11 @@ func agentCloudPlanViewWithQuote(plan AgentCloudPlan, quote AgentCloudQuote) (ma
 		}
 		leftResource, rightResource := candidate.Scope.Resource, plan.Resource
 		leftResource.CandidateProfile, rightResource.CandidateProfile = "", ""
-		matched = candidate.ScopeDigest == plan.QuoteScopeDigest && candidate.Scope.ConnectionID == plan.ConnectionID &&
+		matched = candidate.ScopeDigest == plan.QuoteScopeDigest && candidate.Scope.SchemaVersion == agentCloudQuoteScopeSchemaForPlan(plan.SchemaVersion) && candidate.Scope.ConnectionID == plan.ConnectionID &&
 			candidate.Scope.Recipe == plan.Recipe && reflect.DeepEqual(leftResource, rightResource) &&
 			sameAgentCloudNetworkScope(candidate.Scope.Network, plan.Network) && reflect.DeepEqual(candidate.Scope.SecretScope, plan.SecretScope) &&
-			reflect.DeepEqual(candidate.Scope.IntegrationScope, plan.IntegrationScope) && candidate.Scope.Retention == plan.Retention
+			reflect.DeepEqual(candidate.Scope.IntegrationScope, plan.IntegrationScope) && candidate.Scope.Retention == plan.Retention &&
+			reflect.DeepEqual(candidate.Scope.ServiceOperations, NormalizeAgentCloudServiceOperations(plan.ServiceOperations))
 		break
 	}
 	if !matched {
@@ -363,6 +391,7 @@ func agentCloudQuoteView(quote AgentCloudQuote) (QuoteView, bool) {
 		UnincludedItems: append([]string(nil), quote.Exclusions...),
 	}
 	seen := make(map[string]struct{}, len(quote.Candidates))
+	var usageScope *AgentCloudQuoteScope
 	for _, candidate := range quote.Candidates {
 		resource := candidate.Scope.Resource
 		tier := agentCandidateTier(candidate.CandidateProfile)
@@ -377,6 +406,15 @@ func agentCloudQuoteView(quote AgentCloudQuote) (QuoteView, bool) {
 		if result.ConnectionID == "" {
 			result.ConnectionID, result.Region = candidate.Scope.ConnectionID, resource.Region
 		} else if result.ConnectionID != candidate.Scope.ConnectionID || result.Region != resource.Region {
+			return QuoteView{}, false
+		}
+		if usageScope == nil {
+			copy := candidate.Scope
+			usageScope = &copy
+		} else if candidate.Scope.SchemaVersion != usageScope.SchemaVersion || !reflect.DeepEqual(candidate.Scope.ServiceOperations, usageScope.ServiceOperations) {
+			return QuoteView{}, false
+		}
+		if err := ValidateAgentCloudServiceOperationUsage(candidate.Scope.SchemaVersion, candidate.Scope.ServiceOperations, candidate.Scope.Resource, candidate.Scope.Network, candidate.Scope.Retention, quote.Usage); err != nil {
 			return QuoteView{}, false
 		}
 		costItems := make([]QuoteCostItemView, 0, len(candidate.CostItems))
@@ -398,6 +436,23 @@ func agentCloudQuoteView(quote AgentCloudQuote) (QuoteView, bool) {
 			EstimatedDiskGiB: uint32(resource.DiskGiB), AvailabilityZones: append([]string(nil), candidate.OfferedAvailabilityZones...),
 			WorkerImageID: resource.WorkerImageID, WorkerImageDigest: resource.WorkerImageDigest, CostItems: costItems,
 		})
+	}
+	if usageScope == nil {
+		return QuoteView{}, false
+	}
+	if usageScope.SchemaVersion != AgentCloudQuoteScopeSchemaV1 && usageScope.SchemaVersion != AgentCloudQuoteScopeSchemaV2 {
+		return QuoteView{}, false
+	}
+	if required, known := AgentCloudServiceOperationsRequired(usageScope.SchemaVersion); !known {
+		return QuoteView{}, false
+	} else if required {
+		result.Usage = &QuoteUsageView{
+			RuntimeHoursPerMonth: quote.Usage.RuntimeHoursPerMonth, PublicIPv4Hours: quote.Usage.PublicIPv4Hours,
+			LogIngestMiB: quote.Usage.LogIngestMiB, LogStoredMiBMonths: quote.Usage.LogStoredMiBMonths,
+			SnapshotGiBMonths: quote.Usage.SnapshotGiBMonths, EntryHours: quote.Usage.EntryHours,
+			InternetEgressMiB: quote.Usage.InternetEgressMiB, PrivateEndpointHours: quote.Usage.PrivateEndpointHours,
+			PrivateEndpointDataMiB: quote.Usage.PrivateEndpointDataMiB,
+		}
 	}
 	return result, result.ConnectionID != "" && result.Region != ""
 }
@@ -429,8 +484,14 @@ func agentCandidateTier(candidateID string) string {
 }
 
 func agentApprovalFromChallenge(plan AgentCloudPlan, challenge AgentCloudChallenge) agentCloudApprovalV1 {
+	approvalSchema := agentCloudApprovalSchemaForPlan(plan.SchemaVersion)
+	var serviceOperations *agentCloudServiceOperationScopeV1
+	if approvalSchema == AgentCloudApprovalSchemaV2 {
+		value := serviceOperationScopeFromAgent(plan.ServiceOperations)
+		serviceOperations = &value
+	}
 	return agentCloudApprovalV1{
-		SchemaVersion: agentCloudApprovalSchema, HashAlgorithm: agentCloudHashAlgorithm,
+		SchemaVersion: approvalSchema, HashAlgorithm: agentCloudHashAlgorithm,
 		ApprovalID: challenge.ApprovalID, AgentInstanceID: challenge.AgentInstanceID, OwnerID: challenge.OwnerID,
 		PlanID: plan.PlanID, PlanRevision: plan.Revision, PlanHash: plan.PlanHash, ConnectionID: plan.ConnectionID,
 		RecipeDigest: plan.Recipe.Digest, QuoteID: plan.QuoteID, QuoteDigest: plan.QuoteDigest,
@@ -438,7 +499,8 @@ func agentApprovalFromChallenge(plan AgentCloudPlan, challenge AgentCloudChallen
 		QuoteValidUntil: plan.QuoteValidUntil.UTC(), ResourceScope: resourceScopeFromAgent(plan.Resource),
 		NetworkScope: networkScopeFromAgent(plan.Network), SecretScope: secretScopeFromAgent(plan.SecretScope),
 		IntegrationScope: integrationScopeFromAgent(plan.IntegrationScope), RetentionScope: retentionScopeFromAgent(plan.Retention),
-		ChallengeID: challenge.ChallengeID, SignerKeyID: challenge.SignerKeyID, ExpiresAt: challenge.ExpiresAt.UTC(),
+		ServiceOperations: serviceOperations,
+		ChallengeID:       challenge.ChallengeID, SignerKeyID: challenge.SignerKeyID, ExpiresAt: challenge.ExpiresAt.UTC(),
 	}
 }
 
@@ -503,6 +565,74 @@ func retentionScopeFromAgent(value AgentCloudRetentionScope) agentCloudRetention
 	return agentCloudRetentionScopeV1{Class: value.Class, AutoDestroy: value.AutoDestroy, GracePeriodSeconds: value.GracePeriodSeconds, MaxLifetimeSeconds: value.MaxLifetimeSeconds}
 }
 
+func serviceOperationScopeFromAgent(value AgentCloudServiceOperationScope) agentCloudServiceOperationScopeV1 {
+	normalized := NormalizeAgentCloudServiceOperations(value)
+	result := agentCloudServiceOperationScopeV1{
+		PrivateEndpoints: make([]agentCloudPrivateEndpointOperationV1, 0, len(normalized.PrivateEndpoints)),
+		Snapshots:        make([]agentCloudSnapshotOperationV1, 0, len(normalized.Snapshots)),
+	}
+	for _, endpoint := range normalized.PrivateEndpoints {
+		result.PrivateEndpoints = append(result.PrivateEndpoints, agentCloudPrivateEndpointOperationV1{
+			OperationKey: endpoint.OperationKey, Service: endpoint.Service, SecurityGroupSource: endpoint.SecurityGroupSource,
+			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth,
+		})
+	}
+	for _, snapshot := range normalized.Snapshots {
+		result.Snapshots = append(result.Snapshots, agentCloudSnapshotOperationV1{
+			OperationKey: snapshot.OperationKey, SourceVolumeSlotID: snapshot.SourceVolumeSlotID,
+			SourceVolumeSpecDigest: snapshot.SourceVolumeSpecDigest, Disposition: snapshot.Disposition,
+			MaxRetentionSeconds: snapshot.MaxRetentionSeconds,
+		})
+	}
+	return result
+}
+
+func serviceOperationScopeToAgent(value *agentCloudServiceOperationScopeV1) AgentCloudServiceOperationScope {
+	if value == nil {
+		return AgentCloudServiceOperationScope{}
+	}
+	result := AgentCloudServiceOperationScope{
+		PrivateEndpoints: make([]AgentCloudPrivateEndpointOperation, 0, len(value.PrivateEndpoints)),
+		Snapshots:        make([]AgentCloudSnapshotOperation, 0, len(value.Snapshots)),
+	}
+	for _, endpoint := range value.PrivateEndpoints {
+		result.PrivateEndpoints = append(result.PrivateEndpoints, AgentCloudPrivateEndpointOperation{
+			OperationKey: endpoint.OperationKey, Service: endpoint.Service, SecurityGroupSource: endpoint.SecurityGroupSource,
+			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth,
+		})
+	}
+	for _, snapshot := range value.Snapshots {
+		result.Snapshots = append(result.Snapshots, AgentCloudSnapshotOperation{
+			OperationKey: snapshot.OperationKey, SourceVolumeSlotID: snapshot.SourceVolumeSlotID,
+			SourceVolumeSpecDigest: snapshot.SourceVolumeSpecDigest, Disposition: snapshot.Disposition,
+			MaxRetentionSeconds: snapshot.MaxRetentionSeconds,
+		})
+	}
+	return NormalizeAgentCloudServiceOperations(result)
+}
+
+func agentCloudApprovalSchemaForPlan(schemaVersion string) string {
+	switch schemaVersion {
+	case AgentCloudPlanSchemaV1:
+		return AgentCloudApprovalSchemaV1
+	case AgentCloudPlanSchemaV2:
+		return AgentCloudApprovalSchemaV2
+	default:
+		return ""
+	}
+}
+
+func agentCloudQuoteScopeSchemaForPlan(schemaVersion string) string {
+	switch schemaVersion {
+	case AgentCloudPlanSchemaV1:
+		return AgentCloudQuoteScopeSchemaV1
+	case AgentCloudPlanSchemaV2:
+		return AgentCloudQuoteScopeSchemaV2
+	default:
+		return ""
+	}
+}
+
 func decodeAgentCloudApproval(raw any, now time.Time) (agentCloudApprovalV1, AgentCloudApprovalSignature, error) {
 	encoded, err := json.Marshal(raw)
 	if err != nil || len(encoded) > 64*1024 {
@@ -518,7 +648,9 @@ func decodeAgentCloudApproval(raw any, now time.Time) (agentCloudApprovalV1, Age
 		return agentCloudApprovalV1{}, AgentCloudApprovalSignature{}, ErrAgentCloudControlInvalid
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(approval.Signature)
-	if err != nil || len(signature) != ed25519.SignatureSize || approval.SchemaVersion != agentCloudApprovalSchema || approval.HashAlgorithm != agentCloudHashAlgorithm ||
+	requiresServiceOperations, knownSchema := AgentCloudServiceOperationsRequired(approval.SchemaVersion)
+	if err != nil || len(signature) != ed25519.SignatureSize || !knownSchema || (approval.SchemaVersion != AgentCloudApprovalSchemaV1 && approval.SchemaVersion != AgentCloudApprovalSchemaV2) || approval.HashAlgorithm != agentCloudHashAlgorithm ||
+		(requiresServiceOperations != (approval.ServiceOperations != nil)) ||
 		!canonicalUUID(approval.ApprovalID) || !canonicalUUID(approval.PlanID) || approval.PlanRevision <= 0 || !namedSHA256Pattern.MatchString(approval.PlanHash) ||
 		!canonicalUUID(approval.ConnectionID) || !namedSHA256Pattern.MatchString(approval.RecipeDigest) || !canonicalUUID(approval.QuoteID) ||
 		!namedSHA256Pattern.MatchString(approval.QuoteDigest) || !namedSHA256Pattern.MatchString(approval.QuoteScopeDigest) ||
@@ -549,10 +681,18 @@ func validateReadableAgentCloudPlan(plan AgentCloudPlan) error {
 		!readableAgentCloudPlanStatus(plan.Status) {
 		return ErrAgentCloudControlInvalidResponse
 	}
+	if err := ValidateAgentCloudServiceOperations(plan.SchemaVersion, plan.ServiceOperations, plan.Resource, plan.Network, plan.Retention); err != nil {
+		return ErrAgentCloudControlInvalidResponse
+	}
 	probe := agentCloudApprovalV1{
+		SchemaVersion: agentCloudApprovalSchemaForPlan(plan.SchemaVersion),
 		ResourceScope: resourceScopeFromAgent(plan.Resource), NetworkScope: networkScopeFromAgent(plan.Network),
 		SecretScope: secretScopeFromAgent(plan.SecretScope), IntegrationScope: integrationScopeFromAgent(plan.IntegrationScope),
 		RetentionScope: retentionScopeFromAgent(plan.Retention),
+	}
+	if plan.SchemaVersion == AgentCloudPlanSchemaV2 {
+		operations := serviceOperationScopeFromAgent(plan.ServiceOperations)
+		probe.ServiceOperations = &operations
 	}
 	return validateAgentApprovalScopes(probe)
 }
@@ -582,11 +722,13 @@ func validateApprovedAgentPlan(approved, prior AgentCloudPlan, now time.Time) er
 	if validateAgentCloudPlan(approved, now) != nil || approved.Status != AgentCloudPlanStatusApproved || approved.Revision != prior.Revision+1 ||
 		approved.PlanHash == prior.PlanHash ||
 		approved.PlanID != prior.PlanID || approved.OwnerID != prior.OwnerID || approved.ConnectionID != prior.ConnectionID ||
+		approved.SchemaVersion != prior.SchemaVersion ||
 		approved.Recipe != prior.Recipe || approved.QuoteID != prior.QuoteID || approved.QuoteDigest != prior.QuoteDigest ||
 		approved.QuoteScopeDigest != prior.QuoteScopeDigest || approved.CandidateProfile != prior.CandidateProfile ||
 		!approved.QuoteValidUntil.Equal(prior.QuoteValidUntil) || !reflect.DeepEqual(approved.Resource, prior.Resource) ||
 		!reflect.DeepEqual(approved.Network, prior.Network) || !reflect.DeepEqual(approved.SecretScope, prior.SecretScope) ||
-		!reflect.DeepEqual(approved.IntegrationScope, prior.IntegrationScope) || approved.Retention != prior.Retention {
+		!reflect.DeepEqual(approved.IntegrationScope, prior.IntegrationScope) || approved.Retention != prior.Retention ||
+		!reflect.DeepEqual(approved.ServiceOperations, prior.ServiceOperations) {
 		return ErrAgentCloudControlInvalidResponse
 	}
 	return nil
@@ -597,12 +739,13 @@ func agentApprovalMatchesPlan(approval agentCloudApprovalV1, plan AgentCloudPlan
 	if approved {
 		revisionMatches = approval.PlanRevision+1 == plan.Revision
 	}
-	return revisionMatches && approval.OwnerID == plan.OwnerID && approval.PlanID == plan.PlanID && approval.ConnectionID == plan.ConnectionID &&
+	return revisionMatches && approval.SchemaVersion == agentCloudApprovalSchemaForPlan(plan.SchemaVersion) && approval.OwnerID == plan.OwnerID && approval.PlanID == plan.PlanID && approval.ConnectionID == plan.ConnectionID &&
 		approval.RecipeDigest == plan.Recipe.Digest && approval.QuoteID == plan.QuoteID && approval.QuoteDigest == plan.QuoteDigest &&
 		approval.QuoteScopeDigest == plan.QuoteScopeDigest && approval.QuoteCandidateID == plan.CandidateProfile &&
 		approval.QuoteValidUntil.Equal(plan.QuoteValidUntil) && reflect.DeepEqual(approval.ResourceScope, resourceScopeFromAgent(plan.Resource)) &&
 		reflect.DeepEqual(approval.NetworkScope, networkScopeFromAgent(plan.Network)) && reflect.DeepEqual(approval.SecretScope, secretScopeFromAgent(plan.SecretScope)) &&
-		reflect.DeepEqual(approval.IntegrationScope, integrationScopeFromAgent(plan.IntegrationScope)) && approval.RetentionScope == retentionScopeFromAgent(plan.Retention)
+		reflect.DeepEqual(approval.IntegrationScope, integrationScopeFromAgent(plan.IntegrationScope)) && approval.RetentionScope == retentionScopeFromAgent(plan.Retention) &&
+		reflect.DeepEqual(serviceOperationScopeToAgent(approval.ServiceOperations), NormalizeAgentCloudServiceOperations(plan.ServiceOperations))
 }
 
 func validateAgentApprovalScopes(value agentCloudApprovalV1) error {
@@ -636,6 +779,20 @@ func validateAgentApprovalScopes(value agentCloudApprovalV1) error {
 		return ErrAgentCloudControlInvalidResponse
 	}
 	if !validAgentApprovalVolumes(r.VolumeScopes, value.RetentionScope.Class) {
+		return ErrAgentCloudControlInvalidResponse
+	}
+	resource := AgentCloudResourceScope{VolumeScopes: make([]AgentCloudVolumeScope, 0, len(r.VolumeScopes))}
+	for _, volume := range r.VolumeScopes {
+		resource.VolumeScopes = append(resource.VolumeScopes, AgentCloudVolumeScope{
+			SlotID: volume.SlotID, SizeGiB: volume.SizeGiB, VolumeType: volume.VolumeType, IOPS: volume.IOPS,
+			ThroughputMiBPS: volume.ThroughputMiBPS, Encrypted: volume.Encrypted, KMSKeyID: volume.KMSKeyID,
+			DeviceName: volume.DeviceName, MountPath: volume.MountPath, ReadOnly: volume.ReadOnly,
+			Persistent: volume.Persistent, Disposition: volume.Disposition,
+		})
+	}
+	network := AgentCloudNetworkScope{SecurityGroupID: value.NetworkScope.SecurityGroupID, SecurityGroupMode: value.NetworkScope.SecurityGroupMode}
+	retention := AgentCloudRetentionScope{Class: value.RetentionScope.Class, AutoDestroy: value.RetentionScope.AutoDestroy, GracePeriodSeconds: value.RetentionScope.GracePeriodSeconds, MaxLifetimeSeconds: value.RetentionScope.MaxLifetimeSeconds}
+	if err := ValidateAgentCloudServiceOperations(value.SchemaVersion, serviceOperationScopeToAgent(value.ServiceOperations), resource, network, retention); err != nil {
 		return ErrAgentCloudControlInvalidResponse
 	}
 	return nil

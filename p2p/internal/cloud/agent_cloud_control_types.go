@@ -21,6 +21,12 @@ const (
 	AgentCloudGoalOutcomePending                = "pending"
 	AgentCloudGoalRetentionEphemeralAutoDestroy = "ephemeral_auto_destroy"
 	AgentCloudGoalPlanningResearchQueued        = "research_queued"
+	AgentCloudPlanSchemaV1                      = "dirextalk.agent.cloud.plan/v1"
+	AgentCloudPlanSchemaV2                      = "dirextalk.agent.cloud.plan/v2"
+	AgentCloudQuoteScopeSchemaV1                = "dirextalk.agent.cloud.quote-scope/v1"
+	AgentCloudQuoteScopeSchemaV2                = "dirextalk.agent.cloud.quote-scope/v2"
+	AgentCloudApprovalSchemaV1                  = "dirextalk.agent.cloud.approval/v1"
+	AgentCloudApprovalSchemaV2                  = "dirextalk.agent.cloud.approval/v2"
 )
 
 // AgentCloudControlClient is intentionally narrower than the Agent gRPC
@@ -101,19 +107,41 @@ type AgentCloudPlanCreateRequest struct {
 }
 
 type AgentCloudQuoteScope struct {
-	ConnectionID     string
-	Recipe           AgentCloudRecipeBinding
-	Resource         AgentCloudResourceScope
-	Network          AgentCloudNetworkScope
-	SecretScope      []AgentCloudSecretScope
-	IntegrationScope []AgentCloudIntegrationScope
-	Retention        AgentCloudRetentionScope
+	SchemaVersion     string
+	ConnectionID      string
+	Recipe            AgentCloudRecipeBinding
+	Resource          AgentCloudResourceScope
+	Network           AgentCloudNetworkScope
+	SecretScope       []AgentCloudSecretScope
+	IntegrationScope  []AgentCloudIntegrationScope
+	Retention         AgentCloudRetentionScope
+	ServiceOperations AgentCloudServiceOperationScope
 }
 
 type AgentCloudUsageEstimate struct {
-	RuntimeHoursPerMonth, PublicIPv4Hours, EntryHours uint32
-	LogIngestMiB, LogStoredMiBMonths                  uint64
-	SnapshotGiBMonths, InternetEgressMiB              uint64
+	RuntimeHoursPerMonth, PublicIPv4Hours, EntryHours, PrivateEndpointHours uint32
+	LogIngestMiB, LogStoredMiBMonths, SnapshotGiBMonths                     uint64
+	InternetEgressMiB, PrivateEndpointDataMiB                               uint64
+}
+
+// AgentCloudServiceOperationScope is an approval-visible template for the
+// Agent-owned provider work that a Plan may perform after device confirmation.
+// It deliberately carries no provider resource IDs or execution state.
+type AgentCloudServiceOperationScope struct {
+	PrivateEndpoints []AgentCloudPrivateEndpointOperation
+	Snapshots        []AgentCloudSnapshotOperation
+}
+
+type AgentCloudPrivateEndpointOperation struct {
+	OperationKey, Service, SecurityGroupSource string
+	PrivateDNSEnabled                          bool
+	MonthlyHours                               uint32
+	DataMiBPerMonth                            uint64
+}
+
+type AgentCloudSnapshotOperation struct {
+	OperationKey, SourceVolumeSlotID, SourceVolumeSpecDigest, Disposition string
+	MaxRetentionSeconds                                                   uint64
 }
 
 type AgentCloudSpotQualification struct {
@@ -154,6 +182,7 @@ type AgentCloudQuote struct {
 
 type AgentCloudPlan struct {
 	PlanID, OwnerID, ConnectionID          string
+	SchemaVersion                          string
 	Recipe                                 AgentCloudRecipeBinding
 	QuoteID, QuoteDigest, QuoteScopeDigest string
 	CandidateProfile                       string
@@ -163,6 +192,7 @@ type AgentCloudPlan struct {
 	SecretScope                            []AgentCloudSecretScope
 	IntegrationScope                       []AgentCloudIntegrationScope
 	Retention                              AgentCloudRetentionScope
+	ServiceOperations                      AgentCloudServiceOperationScope
 	Status, PlanHash                       string
 	Revision                               int64
 }

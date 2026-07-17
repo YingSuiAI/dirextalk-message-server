@@ -169,6 +169,22 @@ type QuoteView struct {
 	Candidates      []QuoteCandidateView `json:"candidates"`
 	IncludedItems   []string             `json:"included_items,omitempty"`
 	UnincludedItems []string             `json:"unincluded_items,omitempty"`
+	Usage           *QuoteUsageView      `json:"usage,omitempty"`
+}
+
+// QuoteUsageView is present only for the v2 service-operation quote contract.
+// It contains aggregate, approval-visible pricing assumptions rather than
+// provider resource identifiers or execution state.
+type QuoteUsageView struct {
+	RuntimeHoursPerMonth   uint32 `json:"runtime_hours_per_month"`
+	PublicIPv4Hours        uint32 `json:"public_ipv4_hours"`
+	LogIngestMiB           uint64 `json:"log_ingest_mib"`
+	LogStoredMiBMonths     uint64 `json:"log_stored_mib_months"`
+	SnapshotGiBMonths      uint64 `json:"snapshot_gib_months"`
+	EntryHours             uint32 `json:"entry_hours"`
+	InternetEgressMiB      uint64 `json:"internet_egress_mib"`
+	PrivateEndpointHours   uint32 `json:"private_endpoint_hours"`
+	PrivateEndpointDataMiB uint64 `json:"private_endpoint_data_mib"`
 }
 
 // QuoteCandidateView contains only the cost and capacity facts needed to

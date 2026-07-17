@@ -33,9 +33,20 @@ func (runner *Runner) CreateAgentCloudQuote(ctx context.Context, request cloudmo
 	}
 	scopes := make([]*agentv1.CloudQuoteScope, 0, len(request.Scopes))
 	seen := make(map[string]struct{}, len(request.Scopes))
+	var usageScope *cloudmodule.AgentCloudQuoteScope
 	for _, value := range request.Scopes {
 		converted, ok := agentCloudQuoteScopeToProto(value, runner.ownerID, true)
 		if !ok {
+			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalid
+		}
+		if usageScope == nil {
+			copy := value
+			copy.ServiceOperations = cloudmodule.NormalizeAgentCloudServiceOperations(value.ServiceOperations)
+			usageScope = &copy
+		} else if !sameAgentCloudQuoteServiceOperationIdentity(*usageScope, value) {
+			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalid
+		}
+		if err := cloudmodule.ValidateAgentCloudServiceOperationUsage(value.SchemaVersion, value.ServiceOperations, value.Resource, value.Network, value.Retention, request.Usage); err != nil {
 			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalid
 		}
 		profile, _ := agentCloudCandidate(converted.GetResource().GetCandidateProfile())
@@ -49,6 +60,9 @@ func (runner *Runner) CreateAgentCloudQuote(ctx context.Context, request cloudmo
 		if _, exists := seen[required]; !exists {
 			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalid
 		}
+	}
+	if usageScope == nil {
+		return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalid
 	}
 	spot, ok := agentCloudSpotToProto(request.SpotQualification)
 	if !ok {
@@ -124,10 +138,11 @@ func (runner *Runner) CreateAgentCloudPlan(ctx context.Context, request cloudmod
 	}
 	value, mapErr := runner.mapAgentCloudPlan(response.GetPlan(), "")
 	if mapErr != nil || value.QuoteID != request.QuoteID || value.CandidateProfile != request.CandidateProfile ||
+		value.SchemaVersion != agentCloudPlanSchemaForQuoteScope(request.CurrentScope.SchemaVersion) ||
 		!reflect.DeepEqual(value.Resource, request.CurrentScope.Resource) || value.ConnectionID != request.CurrentScope.ConnectionID ||
 		value.Recipe != request.CurrentScope.Recipe || !sameAgentCloudNetwork(value.Network, request.CurrentScope.Network) ||
 		!reflect.DeepEqual(value.SecretScope, request.CurrentScope.SecretScope) || !reflect.DeepEqual(value.IntegrationScope, request.CurrentScope.IntegrationScope) ||
-		value.Retention != request.CurrentScope.Retention {
+		value.Retention != request.CurrentScope.Retention || !sameAgentCloudServiceOperations(value.ServiceOperations, request.CurrentScope.ServiceOperations) {
 		return cloudmodule.AgentCloudPlan{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
 	return value, nil
@@ -148,6 +163,7 @@ func (runner *Runner) mapAgentCloudQuote(remote *agentv1.CloudQuote, expectedQuo
 	candidates := make([]cloudmodule.AgentCloudQuoteCandidate, 0, 3)
 	seen := make(map[string]struct{}, 3)
 	hasSpot := false
+	var usageScope *cloudmodule.AgentCloudQuoteScope
 	for _, value := range remote.GetCandidates() {
 		profile, ok := agentCloudCandidate(value.GetCandidateProfile())
 		if !ok || value.GetScope() == nil || value.GetScope().GetResource().GetCandidateProfile() != value.GetCandidateProfile() ||
@@ -163,6 +179,15 @@ func (runner *Runner) mapAgentCloudQuote(remote *agentv1.CloudQuote, expectedQuo
 		scope, ok := mapAgentCloudQuoteScope(value.GetScope(), runner.ownerID)
 		if !ok || scope.Resource.CandidateProfile != profile || !validOfferedZones(scope.Resource.Region, value.GetOfferedAvailabilityZones()) ||
 			!zonesIntersect(scope.Resource.AvailabilityZones, value.GetOfferedAvailabilityZones()) {
+			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+		}
+		if usageScope == nil {
+			copy := scope
+			usageScope = &copy
+		} else if !sameAgentCloudQuoteServiceOperationIdentity(*usageScope, scope) {
+			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+		}
+		if err := cloudmodule.ValidateAgentCloudServiceOperationUsage(scope.SchemaVersion, scope.ServiceOperations, scope.Resource, scope.Network, scope.Retention, usage); err != nil {
 			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 		}
 		quotas := make([]cloudmodule.AgentCloudQuotaEvidence, 0, len(value.GetQuotas()))
@@ -187,6 +212,9 @@ func (runner *Runner) mapAgentCloudQuote(remote *agentv1.CloudQuote, expectedQuo
 			return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 		}
 	}
+	if usageScope == nil {
+		return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
 	spot, ok := mapAgentCloudSpot(remote.GetSpotEvidence())
 	if !ok || hasSpot != (spot != nil) {
 		return cloudmodule.AgentCloudQuote{}, cloudmodule.ErrAgentCloudControlInvalidResponse
@@ -196,7 +224,7 @@ func (runner *Runner) mapAgentCloudQuote(remote *agentv1.CloudQuote, expectedQuo
 
 func agentCloudQuoteScopeToProto(value cloudmodule.AgentCloudQuoteScope, owner string, allowUnboundWorker bool) (*agentv1.CloudQuoteScope, bool) {
 	if !agentCloudIdentifierPattern.MatchString(owner) || !validUUID(value.ConnectionID) || !agentCloudIdentifierPattern.MatchString(value.Recipe.RecipeID) ||
-		!agentCloudDigestPattern.MatchString(value.Recipe.Digest) || (value.Recipe.Maturity != "experimental" && value.Recipe.Maturity != "managed") {
+		!agentCloudDigestPattern.MatchString(value.Recipe.Digest) || (value.Recipe.Maturity != "experimental" && value.Recipe.Maturity != "managed") || !validAgentCloudQuoteScopeSchema(value.SchemaVersion) {
 		return nil, false
 	}
 	resource, ok := agentCloudResourceToProto(value.Resource, allowUnboundWorker)
@@ -214,6 +242,13 @@ func agentCloudQuoteScopeToProto(value cloudmodule.AgentCloudQuoteScope, owner s
 	if !validAgentCloudVolumeRetention(value.Resource.VolumeScopes, value.Retention) {
 		return nil, false
 	}
+	if err := cloudmodule.ValidateAgentCloudServiceOperations(value.SchemaVersion, value.ServiceOperations, value.Resource, value.Network, value.Retention); err != nil {
+		return nil, false
+	}
+	serviceOperations, ok := agentCloudServiceOperationsToProto(value.ServiceOperations, value.SchemaVersion)
+	if !ok {
+		return nil, false
+	}
 	secrets := make([]*agentv1.CloudSecretScope, 0, len(value.SecretScope))
 	for _, secret := range value.SecretScope {
 		if !agentCloudSecretRefPattern.MatchString(secret.SecretRef) || !validAgentCloudText(secret.Purpose, 256) || (secret.Delivery != "file" && secret.Delivery != "environment") {
@@ -228,13 +263,17 @@ func agentCloudQuoteScopeToProto(value cloudmodule.AgentCloudQuoteScope, owner s
 		}
 		integrations = append(integrations, &agentv1.CloudIntegrationScope{Kind: integration.Kind, Name: integration.Name, Scopes: append([]string(nil), integration.Scopes...)})
 	}
-	return &agentv1.CloudQuoteScope{OwnerId: owner, ConnectionId: value.ConnectionID, Recipe: &agentv1.CloudRecipeBinding{RecipeId: value.Recipe.RecipeID, Digest: value.Recipe.Digest, Maturity: value.Recipe.Maturity}, Resource: resource, Network: network, SecretScope: secrets, IntegrationScope: integrations, Retention: retention}, true
+	return &agentv1.CloudQuoteScope{OwnerId: owner, ConnectionId: value.ConnectionID, Recipe: &agentv1.CloudRecipeBinding{RecipeId: value.Recipe.RecipeID, Digest: value.Recipe.Digest, Maturity: value.Recipe.Maturity}, Resource: resource, Network: network, SecretScope: secrets, IntegrationScope: integrations, Retention: retention, SchemaVersion: value.SchemaVersion, ServiceOperations: serviceOperations}, true
 }
 
 func mapAgentCloudQuoteScope(value *agentv1.CloudQuoteScope, expectedOwner string) (cloudmodule.AgentCloudQuoteScope, bool) {
 	if value == nil || value.GetOwnerId() != expectedOwner || !validUUID(value.GetConnectionId()) || value.GetRecipe() == nil ||
 		!agentCloudIdentifierPattern.MatchString(value.GetRecipe().GetRecipeId()) || !agentCloudDigestPattern.MatchString(value.GetRecipe().GetDigest()) ||
 		(value.GetRecipe().GetMaturity() != "experimental" && value.GetRecipe().GetMaturity() != "managed") {
+		return cloudmodule.AgentCloudQuoteScope{}, false
+	}
+	requiresServiceOperations, knownSchema := cloudmodule.AgentCloudServiceOperationsRequired(value.GetSchemaVersion())
+	if !validAgentCloudQuoteScopeSchema(value.GetSchemaVersion()) || !knownSchema || requiresServiceOperations != (value.GetServiceOperations() != nil) {
 		return cloudmodule.AgentCloudQuoteScope{}, false
 	}
 	resource, ok := mapAgentCloudResource(value.GetResource())
@@ -265,7 +304,153 @@ func mapAgentCloudQuoteScope(value *agentv1.CloudQuoteScope, expectedOwner strin
 		}
 		integrations = append(integrations, cloudmodule.AgentCloudIntegrationScope{Kind: integration.GetKind(), Name: integration.GetName(), Scopes: append([]string(nil), integration.GetScopes()...)})
 	}
-	return cloudmodule.AgentCloudQuoteScope{ConnectionID: value.GetConnectionId(), Recipe: cloudmodule.AgentCloudRecipeBinding{RecipeID: value.GetRecipe().GetRecipeId(), Digest: value.GetRecipe().GetDigest(), Maturity: value.GetRecipe().GetMaturity()}, Resource: resource, Network: network, SecretScope: secrets, IntegrationScope: integrations, Retention: retention}, true
+	serviceOperations, ok := mapAgentCloudServiceOperations(value.GetServiceOperations())
+	if !ok {
+		return cloudmodule.AgentCloudQuoteScope{}, false
+	}
+	result := cloudmodule.AgentCloudQuoteScope{SchemaVersion: value.GetSchemaVersion(), ConnectionID: value.GetConnectionId(), Recipe: cloudmodule.AgentCloudRecipeBinding{RecipeID: value.GetRecipe().GetRecipeId(), Digest: value.GetRecipe().GetDigest(), Maturity: value.GetRecipe().GetMaturity()}, Resource: resource, Network: network, SecretScope: secrets, IntegrationScope: integrations, Retention: retention, ServiceOperations: serviceOperations}
+	if err := cloudmodule.ValidateAgentCloudServiceOperations(result.SchemaVersion, result.ServiceOperations, result.Resource, result.Network, result.Retention); err != nil {
+		return cloudmodule.AgentCloudQuoteScope{}, false
+	}
+	return result, true
+}
+
+func agentCloudServiceOperationsToProto(value cloudmodule.AgentCloudServiceOperationScope, schemaVersion string) (*agentv1.CloudServiceOperationScope, bool) {
+	required, known := cloudmodule.AgentCloudServiceOperationsRequired(schemaVersion)
+	if !known {
+		return nil, false
+	}
+	if !required {
+		return nil, len(value.PrivateEndpoints) == 0 && len(value.Snapshots) == 0
+	}
+	if len(value.PrivateEndpoints) == 0 && len(value.Snapshots) == 0 {
+		return nil, false
+	}
+	normalized := cloudmodule.NormalizeAgentCloudServiceOperations(value)
+	result := &agentv1.CloudServiceOperationScope{
+		PrivateEndpoints: make([]*agentv1.CloudPrivateEndpointOperation, 0, len(normalized.PrivateEndpoints)),
+		Snapshots:        make([]*agentv1.CloudSnapshotOperation, 0, len(normalized.Snapshots)),
+	}
+	for _, endpoint := range normalized.PrivateEndpoints {
+		service := agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_UNSPECIFIED
+		if endpoint.Service == "s3" {
+			service = agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3
+		} else {
+			return nil, false
+		}
+		securityGroupSource := agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_UNSPECIFIED
+		switch endpoint.SecurityGroupSource {
+		case "plan_existing":
+			securityGroupSource = agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_PLAN_EXISTING
+		case "worker_dedicated":
+			securityGroupSource = agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_WORKER_DEDICATED
+		default:
+			return nil, false
+		}
+		result.PrivateEndpoints = append(result.PrivateEndpoints, &agentv1.CloudPrivateEndpointOperation{
+			OperationKey: endpoint.OperationKey, Service: service, SecurityGroupSource: securityGroupSource,
+			PrivateDnsEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMibPerMonth: endpoint.DataMiBPerMonth,
+		})
+	}
+	for _, snapshot := range normalized.Snapshots {
+		disposition := agentv1.CloudSnapshotOperationDisposition_CLOUD_SNAPSHOT_OPERATION_DISPOSITION_UNSPECIFIED
+		switch snapshot.Disposition {
+		case "delete_with_deployment":
+			disposition = agentv1.CloudSnapshotOperationDisposition_CLOUD_SNAPSHOT_OPERATION_DISPOSITION_DELETE_WITH_DEPLOYMENT
+		case "retain_with_managed_service":
+			disposition = agentv1.CloudSnapshotOperationDisposition_CLOUD_SNAPSHOT_OPERATION_DISPOSITION_RETAIN_WITH_MANAGED_SERVICE
+		default:
+			return nil, false
+		}
+		result.Snapshots = append(result.Snapshots, &agentv1.CloudSnapshotOperation{
+			OperationKey: snapshot.OperationKey, SourceVolumeSlotId: snapshot.SourceVolumeSlotID,
+			SourceVolumeSpecDigest: snapshot.SourceVolumeSpecDigest, Disposition: disposition,
+			MaxRetentionSeconds: snapshot.MaxRetentionSeconds,
+		})
+	}
+	return result, true
+}
+
+func mapAgentCloudServiceOperations(value *agentv1.CloudServiceOperationScope) (cloudmodule.AgentCloudServiceOperationScope, bool) {
+	if value == nil {
+		return cloudmodule.AgentCloudServiceOperationScope{}, true
+	}
+	result := cloudmodule.AgentCloudServiceOperationScope{
+		PrivateEndpoints: make([]cloudmodule.AgentCloudPrivateEndpointOperation, 0, len(value.GetPrivateEndpoints())),
+		Snapshots:        make([]cloudmodule.AgentCloudSnapshotOperation, 0, len(value.GetSnapshots())),
+	}
+	for _, endpoint := range value.GetPrivateEndpoints() {
+		if endpoint == nil {
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		service := ""
+		switch endpoint.GetService() {
+		case agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3:
+			service = "s3"
+		default:
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		securityGroupSource := ""
+		switch endpoint.GetSecurityGroupSource() {
+		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_PLAN_EXISTING:
+			securityGroupSource = "plan_existing"
+		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_WORKER_DEDICATED:
+			securityGroupSource = "worker_dedicated"
+		default:
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		result.PrivateEndpoints = append(result.PrivateEndpoints, cloudmodule.AgentCloudPrivateEndpointOperation{
+			OperationKey: endpoint.GetOperationKey(), Service: service, SecurityGroupSource: securityGroupSource,
+			PrivateDNSEnabled: endpoint.GetPrivateDnsEnabled(), MonthlyHours: endpoint.GetMonthlyHours(), DataMiBPerMonth: endpoint.GetDataMibPerMonth(),
+		})
+	}
+	for _, snapshot := range value.GetSnapshots() {
+		if snapshot == nil {
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		disposition := ""
+		switch snapshot.GetDisposition() {
+		case agentv1.CloudSnapshotOperationDisposition_CLOUD_SNAPSHOT_OPERATION_DISPOSITION_DELETE_WITH_DEPLOYMENT:
+			disposition = "delete_with_deployment"
+		case agentv1.CloudSnapshotOperationDisposition_CLOUD_SNAPSHOT_OPERATION_DISPOSITION_RETAIN_WITH_MANAGED_SERVICE:
+			disposition = "retain_with_managed_service"
+		default:
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		result.Snapshots = append(result.Snapshots, cloudmodule.AgentCloudSnapshotOperation{
+			OperationKey: snapshot.GetOperationKey(), SourceVolumeSlotID: snapshot.GetSourceVolumeSlotId(),
+			SourceVolumeSpecDigest: snapshot.GetSourceVolumeSpecDigest(), Disposition: disposition,
+			MaxRetentionSeconds: snapshot.GetMaxRetentionSeconds(),
+		})
+	}
+	return cloudmodule.NormalizeAgentCloudServiceOperations(result), true
+}
+
+func agentCloudPlanSchemaForQuoteScope(schemaVersion string) string {
+	switch schemaVersion {
+	case cloudmodule.AgentCloudQuoteScopeSchemaV1:
+		return cloudmodule.AgentCloudPlanSchemaV1
+	case cloudmodule.AgentCloudQuoteScopeSchemaV2:
+		return cloudmodule.AgentCloudPlanSchemaV2
+	default:
+		return ""
+	}
+}
+
+func validAgentCloudQuoteScopeSchema(value string) bool {
+	return value == cloudmodule.AgentCloudQuoteScopeSchemaV1 || value == cloudmodule.AgentCloudQuoteScopeSchemaV2
+}
+
+func validAgentCloudPlanSchema(value string) bool {
+	return value == cloudmodule.AgentCloudPlanSchemaV1 || value == cloudmodule.AgentCloudPlanSchemaV2
+}
+
+func sameAgentCloudServiceOperations(left, right cloudmodule.AgentCloudServiceOperationScope) bool {
+	return reflect.DeepEqual(cloudmodule.NormalizeAgentCloudServiceOperations(left), cloudmodule.NormalizeAgentCloudServiceOperations(right))
+}
+
+func sameAgentCloudQuoteServiceOperationIdentity(left, right cloudmodule.AgentCloudQuoteScope) bool {
+	return left.SchemaVersion == right.SchemaVersion && sameAgentCloudServiceOperations(left.ServiceOperations, right.ServiceOperations)
 }
 
 func agentCloudResourceToProto(value cloudmodule.AgentCloudResourceScope, allowUnboundWorker bool) (*agentv1.CloudResourceScope, bool) {
@@ -357,20 +542,18 @@ func agentCloudCandidateToProto(value string) (agentv1.CloudCandidateProfile, bo
 }
 
 func validAgentCloudUsage(value cloudmodule.AgentCloudUsageEstimate) bool {
-	const maximum = uint64(1 << 50)
-	return value.RuntimeHoursPerMonth > 0 && value.RuntimeHoursPerMonth <= 744 && value.PublicIPv4Hours <= 744 && value.EntryHours <= 744 &&
-		value.LogIngestMiB <= maximum && value.LogStoredMiBMonths <= maximum && value.SnapshotGiBMonths <= maximum && value.InternetEgressMiB <= maximum
+	return cloudmodule.ValidAgentCloudUsageEstimate(value)
 }
 
 func agentCloudUsageToProto(value cloudmodule.AgentCloudUsageEstimate) *agentv1.CloudUsageEstimate {
-	return &agentv1.CloudUsageEstimate{RuntimeHoursPerMonth: value.RuntimeHoursPerMonth, PublicIpv4Hours: value.PublicIPv4Hours, LogIngestMib: value.LogIngestMiB, LogStoredMibMonths: value.LogStoredMiBMonths, SnapshotGibMonths: value.SnapshotGiBMonths, EntryHours: value.EntryHours, InternetEgressMib: value.InternetEgressMiB}
+	return &agentv1.CloudUsageEstimate{RuntimeHoursPerMonth: value.RuntimeHoursPerMonth, PublicIpv4Hours: value.PublicIPv4Hours, LogIngestMib: value.LogIngestMiB, LogStoredMibMonths: value.LogStoredMiBMonths, SnapshotGibMonths: value.SnapshotGiBMonths, EntryHours: value.EntryHours, InternetEgressMib: value.InternetEgressMiB, PrivateEndpointHours: value.PrivateEndpointHours, PrivateEndpointDataMib: value.PrivateEndpointDataMiB}
 }
 
 func mapAgentCloudUsage(value *agentv1.CloudUsageEstimate) cloudmodule.AgentCloudUsageEstimate {
 	if value == nil {
 		return cloudmodule.AgentCloudUsageEstimate{}
 	}
-	return cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: value.GetRuntimeHoursPerMonth(), PublicIPv4Hours: value.GetPublicIpv4Hours(), LogIngestMiB: value.GetLogIngestMib(), LogStoredMiBMonths: value.GetLogStoredMibMonths(), SnapshotGiBMonths: value.GetSnapshotGibMonths(), EntryHours: value.GetEntryHours(), InternetEgressMiB: value.GetInternetEgressMib()}
+	return cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: value.GetRuntimeHoursPerMonth(), PublicIPv4Hours: value.GetPublicIpv4Hours(), LogIngestMiB: value.GetLogIngestMib(), LogStoredMiBMonths: value.GetLogStoredMibMonths(), SnapshotGiBMonths: value.GetSnapshotGibMonths(), EntryHours: value.GetEntryHours(), InternetEgressMiB: value.GetInternetEgressMib(), PrivateEndpointHours: value.GetPrivateEndpointHours(), PrivateEndpointDataMiB: value.GetPrivateEndpointDataMib()}
 }
 
 func agentCloudSpotToProto(value *cloudmodule.AgentCloudSpotQualification) (*agentv1.CloudSpotQualification, bool) {
@@ -439,10 +622,10 @@ func sameAgentCloudQuoteRequest(value cloudmodule.AgentCloudQuote, request cloud
 		actualResource, expectedResource := candidate.Scope.Resource, scope.Resource
 		actualResource.WorkerImageID, actualResource.WorkerImageDigest = "", ""
 		expectedResource.WorkerImageID, expectedResource.WorkerImageDigest = "", ""
-		if candidate.Scope.ConnectionID != scope.ConnectionID || candidate.Scope.Recipe != scope.Recipe ||
+		if candidate.Scope.SchemaVersion != scope.SchemaVersion || candidate.Scope.ConnectionID != scope.ConnectionID || candidate.Scope.Recipe != scope.Recipe ||
 			!reflect.DeepEqual(actualResource, expectedResource) || !sameAgentCloudNetwork(candidate.Scope.Network, scope.Network) ||
 			!reflect.DeepEqual(candidate.Scope.SecretScope, scope.SecretScope) || !reflect.DeepEqual(candidate.Scope.IntegrationScope, scope.IntegrationScope) ||
-			candidate.Scope.Retention != scope.Retention {
+			candidate.Scope.Retention != scope.Retention || !sameAgentCloudServiceOperations(candidate.Scope.ServiceOperations, scope.ServiceOperations) {
 			return false
 		}
 		delete(expected, candidate.CandidateProfile)
