@@ -1,5 +1,28 @@
 # Dirextalk Message Server release notes
 
+## v1.0.4
+
+This release adds the owner-only HTTP `release.v2.status` and
+`release.v2.apply` flow for centrally selected direct upgrades. The updater
+still verifies the canonical release index, exact source image digest,
+declared upgrade edge, schema compatibility, and client range before creating
+a job. Replay-only recovery rotates a job ticket without consulting mutable
+central metadata or creating a second job.
+
+Native Agent prompts now include the server-authoritative current user identity
+and successful chats may return deterministic room and channel-post navigation
+references derived only from successful built-in Dirextalk tool results. Group,
+channel, MCP, and Matrix write-policy owner handling now uses the authoritative
+`m.room.create` sender and exact full Matrix ID, with deterministic join-order
+fallback for unresolved legacy rooms.
+
+The release also includes the durable, strict-input foundation for the legacy
+Matrix Agent gateway. Production activation remains deliberately unavailable
+until the exclusive-consumer cutover and completion projection gates are
+implemented. Server schema version 2 and the supported client-version range
+remain unchanged; PostgreSQL storage adds the internal v38 invocation
+reservation migration.
+
 ## v1.0.3
 
 This release makes group joins, contact-request decisions, and channel join
