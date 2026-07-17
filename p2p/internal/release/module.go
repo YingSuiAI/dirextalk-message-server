@@ -228,14 +228,20 @@ func (m *Module) applyV2(ctx context.Context, params map[string]any) (any, *acti
 	if err != nil || !validDirectUpdaterStatus(updaterStatus, buildInfo.Version) {
 		return nil, unavailableError()
 	}
-	// A job that has already been accepted must remain recoverable if the
-	// initial HTTP response was lost. The updater, not ProductCore, binds the
-	// idempotency key to that job and will reject a different key atomically.
-	// Do not re-read the mutable central record or require the old target to be
-	// newer here: the central target may advance, or the new image may already
-	// be running while the original job is still health-checking.
-	if directApplyReplaysActiveJob(updaterStatus, request.TargetVersion) {
-		return directApplyTicket(ctx, controller, request)
+	// Recover an accepted request through the updater's atomic replay-only
+	// authority before applying any mutable central/current-version gates. A
+	// replay miss is the only result that may continue toward new-job creation;
+	// the replay endpoint itself can never create a job, so an updater state
+	// transition between these calls cannot bypass the gates below.
+	replayTicket, replayErr := controller.ReplayDirect(ctx, releasecontrol.DirectReplayRequest{
+		TargetVersion: request.TargetVersion, IdempotencyKey: request.IdempotencyKey,
+	})
+	if replayErr == nil {
+		return directTicketMap(replayTicket)
+	}
+	if replayControllerErr, ok := releasecontrol.AsControllerError(replayErr); !ok ||
+		replayControllerErr.Status != http.StatusNotFound || replayControllerErr.Code != releasecontrol.DirectReplayNotFoundCode {
+		return nil, controllerError(replayErr)
 	}
 	if !updaterStatus.UpdaterReady {
 		return nil, unavailableError()
@@ -262,6 +268,7 @@ func (m *Module) applyV2(ctx context.Context, params map[string]any) (any, *acti
 	if err != nil || comparison <= 0 {
 		return nil, actionbase.CodedError(http.StatusConflict, releaseTargetNotNewer, "target_version must be newer than the running server")
 	}
+	request.ClientVersion = clientVersion
 	return directApplyTicket(ctx, controller, request)
 }
 
@@ -269,6 +276,15 @@ func directApplyTicket(ctx context.Context, controller releasecontrol.DirectCont
 	ticket, err := controller.ApplyDirect(ctx, request)
 	if err != nil {
 		return nil, controllerError(err)
+	}
+	return directTicketMap(ticket)
+}
+
+func directTicketMap(ticket releasecontrol.JobTicket) (any, *actionbase.Error) {
+	if !releasecontrol.ValidJobStatus(ticket.Status) {
+		return nil, controllerError(&releasecontrol.ControllerError{
+			Status: http.StatusBadGateway, Code: "updater_response_invalid", Message: "updater returned an invalid job status",
+		})
 	}
 	return map[string]any{
 		"job_id": ticket.JobID, "job_token": ticket.JobToken,
@@ -397,7 +413,7 @@ func directStatusMap(status releasecontrol.DirectStatus, currentVersion, clientV
 }
 
 func validDirectUpdaterStatus(status releasecontrol.DirectStatus, currentVersion string) bool {
-	if !status.Available {
+	if status.DirectContractVersion != releasecontrol.DirectReleaseContractVersion || !status.Available {
 		return false
 	}
 	updaterVersion, err := releasecontrol.CanonicalStableVersion("current_version", status.CurrentVersion)
@@ -405,18 +421,6 @@ func validDirectUpdaterStatus(status releasecontrol.DirectStatus, currentVersion
 		return false
 	}
 	return normalizedDesiredState(status.DesiredState) != "unknown"
-}
-
-// directApplyReplaysActiveJob recognizes only the public shape of an active
-// direct job. The updater remains the authority for the hidden idempotency key
-// and returns operation_in_progress for a different key. Requiring the target
-// to match prevents an active job from becoming a bypass for a new target.
-func directApplyReplaysActiveJob(status releasecontrol.DirectStatus, targetVersion string) bool {
-	if status.UpdaterReady || status.ActiveJob == nil || normalizedDesiredState(status.DesiredState) != string(releasecontrol.DesiredStateUpgrading) {
-		return false
-	}
-	activeTarget, err := releasecontrol.CanonicalStableVersion("active_job.target_version", status.ActiveJob.TargetVersion)
-	return err == nil && activeTarget == targetVersion
 }
 
 func normalizedDesiredState(value string) string {
@@ -429,7 +433,7 @@ func normalizedDesiredState(value string) string {
 }
 
 func directActiveJobMap(job *releasecontrol.ActiveJob) any {
-	if job == nil || !strings.HasPrefix(job.JobID, "job_") || len(job.JobID) > 128 || !knownJobStatus(job.Status) {
+	if job == nil || !strings.HasPrefix(job.JobID, "job_") || len(job.JobID) > 128 || !releasecontrol.ValidJobStatus(job.Status) {
 		return nil
 	}
 	result := map[string]any{
@@ -444,15 +448,6 @@ func directActiveJobMap(job *releasecontrol.ActiveJob) any {
 		result["target_version"] = version
 	}
 	return result
-}
-
-func knownJobStatus(value string) bool {
-	switch value {
-	case "queued", "validating", "backing_up", "pulling", "stopping", "migrating", "starting", "health_check", "rolling_back", "restarting", "succeeded", "failed", "rolled_back":
-		return true
-	default:
-		return false
-	}
 }
 
 func statusMap(status releasecontrol.UpdaterStatus, schemaVersion, schemaCompatVersion int, client dirextalkdomain.ClientBuild, deviceID string) map[string]any {

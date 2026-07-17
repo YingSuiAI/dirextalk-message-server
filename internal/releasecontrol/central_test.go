@@ -101,6 +101,25 @@ func TestCentralVersionSourceNeverFollowsRedirectsFromInjectedClient(t *testing.
 	}
 }
 
+func TestCentralVersionSourceRejectsOversizedAndTrailingResponses(t *testing.T) {
+	valid := `{"code":0,"data":{"appId":"1","channelId":"server","version":"v1.0.3","preVersion":"v1.0.0"}}`
+	for name, body := range map[string]string{
+		"oversized": strings.Repeat("x", maxCentralVersionResponseBytes+1),
+		"trailing":  valid + ` {"code":0}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &http.Client{Transport: centralRoundTripper(func(*http.Request) (*http.Response, error) {
+				return centralHTTPResponse(http.StatusOK, body), nil
+			})}
+			_, err := NewCentralVersionSource(CentralVersionSourceConfig{HTTPClient: client}).CurrentServerVersion(context.Background())
+			centralErr, ok := AsCentralVersionError(err)
+			if !ok || centralErr.Code != CentralVersionInvalidCode {
+				t.Fatalf("unexpected response error: %#v", err)
+			}
+		})
+	}
+}
+
 func TestCanonicalStableVersionAndComparison(t *testing.T) {
 	for _, value := range []string{"v1.0.0", "v1.2.3"} {
 		if _, err := CanonicalStableVersion("version", value); err != nil {
