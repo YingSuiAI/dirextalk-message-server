@@ -706,13 +706,20 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 	})
 	service.membersModule = membersmodule.New(service.store, membersmodule.Config{
-		ResolveTarget:            service.memberTarget,
-		NewMember:                service.memberRecordFor,
-		LookupMember:             service.lookupMember,
-		SaveMember:               service.saveMember,
-		SaveMemberGeneration:     service.saveMemberIfState,
-		PublishPolicy:            service.publishMemberPolicyState,
-		Conversation:             service.conversationModule,
+		ResolveTarget:        service.memberTarget,
+		NewMember:            service.memberRecordFor,
+		LookupMember:         service.lookupMember,
+		SaveMember:           service.saveMember,
+		SaveMemberGeneration: service.saveMemberIfState,
+		PublishPolicy:        service.publishMemberPolicyState,
+		Conversation:         service.conversationModule,
+		ResolveRoomOwner: func(ctx context.Context, roomID string) (string, error) {
+			record, ok, err := service.conversationModule.GetRecord(ctx, "", roomID)
+			if err != nil || !ok {
+				return "", err
+			}
+			return record.CreatedByMXID, nil
+		},
 		OwnerMXID:                service.memberOwnerMXID,
 		KickMember:               service.kickMember,
 		LeaveMember:              service.leaveMember,

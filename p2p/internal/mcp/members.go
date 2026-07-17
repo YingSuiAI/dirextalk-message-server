@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
+	membersmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/members"
 )
 
 func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (any, *dirextalkmcp.Error) {
@@ -21,6 +23,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	role := dirextalkmcp.TrimString(params["role"])
 	name := roomID
 	knownRoom := false
+	roomOwnerMXID := ""
 	if channel, ok, err := m.channels.ByIDOrRoom(ctx, channelID, roomID); err != nil {
 		return nil, internalError(err)
 	} else if ok {
@@ -41,6 +44,9 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 		return nil, internalError(err)
 	} else if ok {
 		knownRoom = true
+		if record.Kind == dirextalkdomain.ConversationKindGroup || record.Kind == dirextalkdomain.ConversationKindChannel {
+			roomOwnerMXID = record.CreatedByMXID
+		}
 		view, viewErr := m.conversations.View(ctx, record)
 		if viewErr != nil {
 			return nil, internalError(viewErr)
@@ -62,6 +68,8 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	if err != nil {
 		return nil, internalError(err)
 	}
+	membersmodule.CanonicalizeOwnerRoles(members, roomOwnerMXID)
+	membersmodule.SortByOwnerThenJoinOrder(members, roomOwnerMXID)
 	summaries := make([]dirextalkmcp.MemberSummary, 0, len(members))
 	for _, member := range members {
 		if dirextalkdomain.MemberHidden(member.Membership) {
@@ -72,6 +80,8 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	if matrixMembers, matrixErr := m.matrixRoomMembers(ctx, roomID); matrixErr != nil && len(summaries) == 0 {
 		return nil, internalError(matrixErr)
 	} else if matrixErr == nil {
+		membersmodule.CanonicalizeOwnerRoles(matrixMembers, roomOwnerMXID)
+		membersmodule.SortByOwnerThenJoinOrder(matrixMembers, roomOwnerMXID)
 		summaries = mergeMemberSummaries(summaries, matrixMembers)
 	}
 	if len(summaries) == 0 {
@@ -82,6 +92,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 			name = fallback(directName, name)
 		}
 	}
+	summaries = canonicalizeSummaryOwner(summaries, roomOwnerMXID)
 	summaries = filterMemberSummaries(summaries, status, role)
 	summaries = m.enrichMemberSummariesWithProfiles(ctx, summaries)
 	limit := dirextalkmcp.Limit(params)
@@ -94,6 +105,27 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 		"members": summaries,
 		"count":   len(summaries),
 	}, nil
+}
+
+func canonicalizeSummaryOwner(members []dirextalkmcp.MemberSummary, ownerMXID string) []dirextalkmcp.MemberSummary {
+	ownerMXID = strings.TrimSpace(ownerMXID)
+	if ownerMXID == "" {
+		return members
+	}
+	for index := range members {
+		userID := strings.TrimSpace(fallback(members[index].UserMXID, members[index].UserID))
+		if userID == ownerMXID {
+			members[index].Role = "owner"
+		} else {
+			members[index].Role = "member"
+		}
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		leftID := strings.TrimSpace(fallback(members[i].UserMXID, members[i].UserID))
+		rightID := strings.TrimSpace(fallback(members[j].UserMXID, members[j].UserID))
+		return leftID == ownerMXID && rightID != ownerMXID
+	})
+	return members
 }
 
 func (m *Module) matrixRoomMembers(ctx context.Context, roomID string) ([]dirextalkdomain.MemberRecord, error) {
