@@ -15,15 +15,26 @@ import (
 )
 
 type recordingReleaseController struct {
-	statusRequest releasecontrol.StatusRequest
-	applyRequest  releasecontrol.ApplyRequest
-	desiredStates []releasecontrol.DesiredState
-	desiredErrors map[releasecontrol.DesiredState]error
-	status        releasecontrol.UpdaterStatus
-	ticket        releasecontrol.JobTicket
-	statusErr     error
-	applyErr      error
-	desiredErr    error
+	statusRequest      releasecontrol.StatusRequest
+	applyRequest       releasecontrol.ApplyRequest
+	directApplyRequest releasecontrol.DirectApplyRequest
+	desiredStates      []releasecontrol.DesiredState
+	desiredErrors      map[releasecontrol.DesiredState]error
+	status             releasecontrol.UpdaterStatus
+	directStatus       releasecontrol.DirectStatus
+	ticket             releasecontrol.JobTicket
+	directTicket       releasecontrol.JobTicket
+	statusErr          error
+	directStatusErr    error
+	applyErr           error
+	directApplyErr     error
+	desiredErr         error
+}
+
+type recordingCentralVersionSource struct {
+	version releasecontrol.CentralServerVersion
+	err     error
+	calls   int
 }
 
 type blockingClientBuildStore struct {
@@ -77,12 +88,26 @@ func (c *recordingReleaseController) Apply(_ context.Context, request releasecon
 	return c.ticket, c.applyErr
 }
 
+func (c *recordingReleaseController) StatusDirect(_ context.Context) (releasecontrol.DirectStatus, error) {
+	return c.directStatus, c.directStatusErr
+}
+
+func (c *recordingReleaseController) ApplyDirect(_ context.Context, request releasecontrol.DirectApplyRequest) (releasecontrol.JobTicket, error) {
+	c.directApplyRequest = request
+	return c.directTicket, c.directApplyErr
+}
+
 func (c *recordingReleaseController) SetDesiredState(_ context.Context, state releasecontrol.DesiredState) error {
 	c.desiredStates = append(c.desiredStates, state)
 	if c.desiredErrors != nil && c.desiredErrors[state] != nil {
 		return c.desiredErrors[state]
 	}
 	return c.desiredErr
+}
+
+func (s *recordingCentralVersionSource) CurrentServerVersion(context.Context) (releasecontrol.CentralServerVersion, error) {
+	s.calls++
+	return s.version, s.err
 }
 
 func TestReleaseActionsOwnerAuthTransportAndPersistence(t *testing.T) {
@@ -204,6 +229,205 @@ func TestReleaseStatusKeepsLocalCurrentAndClientVersionsAuthoritative(t *testing
 	if status["current_version"] != "v1.0.4" || status["client_version"] != "v2.3.4" {
 		t.Fatalf("updater echo replaced authoritative local versions: %#v", status)
 	}
+}
+
+func TestReleaseV2StatusIsOwnerHTTPOnlyAndContainsNoDiscoveryPlan(t *testing.T) {
+	controller := &recordingReleaseController{directStatus: releasecontrol.DirectStatus{
+		Available:      true,
+		UpdaterReady:   false,
+		CurrentVersion: "v1.0.3",
+		DesiredState:   "upgrading",
+		ActiveJob: &releasecontrol.ActiveJob{
+			JobID: "job_active", Status: "pulling", CurrentVersion: "v1.0.2", TargetVersion: "v1.0.3", ServiceAvailable: true,
+		},
+		Watchdog: releasecontrol.WatchdogStatus{Status: "suppressed"},
+	}}
+	service := NewService(Config{ServerName: "example.com", ReleaseController: controller})
+	router := newP2PTestRouter(service)
+	releaseRoute(t, router, service.AccessToken(), "client.version.report", map[string]any{"client_version": "v1.0.2"})
+
+	status := releaseRoute(t, router, service.AccessToken(), "release.v2.status", nil)
+	if status["current_version"] != "v1.0.3" || status["client_version"] != "v1.0.2" || status["available"] != false || status["updater_available"] != true || status["updater_ready"] != false || status["desired_state"] != "upgrading" {
+		t.Fatalf("unexpected release v2 status: %#v", status)
+	}
+	if _, exists := status["release_available"]; exists {
+		t.Fatalf("release v2 status must not expose discovery fields: %#v", status)
+	}
+	if _, exists := status["operations"]; exists {
+		t.Fatalf("release v2 status must not expose executable plans: %#v", status)
+	}
+	job, ok := status["active_job"].(map[string]any)
+	if !ok || job["job_id"] != "job_active" || job["status"] != "pulling" || job["target_version"] != "v1.0.3" {
+		t.Fatalf("unexpected sanitized active job: %#v", status["active_job"])
+	}
+	invalidStatus := releaseRouteRaw(t, router, service.AccessToken(), "release.v2.status", map[string]any{"release": "github"})
+	if invalidStatus.Code != http.StatusBadRequest || releaseResponseCode(t, invalidStatus) != "release_v2_status_invalid_params" {
+		t.Fatalf("release.v2.status must reject parameters: %d %s", invalidStatus.Code, invalidStatus.Body.String())
+	}
+
+	for _, action := range []string{"release.v2.status", "release.v2.apply"} {
+		for _, token := range []string{"", service.AgentToken()} {
+			response := releaseRouteRaw(t, router, token, action, map[string]any{})
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("%s token=%q expected 401, got %d body=%s", action, token, response.Code, response.Body.String())
+			}
+		}
+	}
+	identity, authorized := service.authorizeProductAction(service.AccessToken(), "release.v2.status")
+	if !authorized {
+		t.Fatal("expected current owner session")
+	}
+	frame := service.handleRealtimeWSRequest(context.Background(), realtimeWSTicket{Role: "owner", UserID: service.OwnerMXID(), DeviceID: identity.DeviceID, Generation: identity.Generation}, map[string]any{
+		"id": "release-v2-status", "action": "release.v2.status", "params": map[string]any{},
+	})
+	if frame["ok"] != false || frame["status"] != http.StatusBadRequest || frame["error"] != "action requires http" {
+		t.Fatalf("release.v2.status must remain HTTP-only: %#v", frame)
+	}
+}
+
+func TestReleaseV2ApplyRevalidatesCentralVersionAndCreatesDirectJob(t *testing.T) {
+	controller := &recordingReleaseController{
+		directStatus: releasecontrol.DirectStatus{
+			Available: true, UpdaterReady: true, CurrentVersion: "v1.0.3", DesiredState: "running",
+			Watchdog: releasecontrol.WatchdogStatus{Status: "healthy"},
+		},
+		directTicket: releasecontrol.JobTicket{JobID: "job_direct", JobToken: "job-secret", StatusURL: "/_dirextalk/updater/v1/jobs/job_direct", Status: "queued"},
+	}
+	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
+		AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2",
+	}}
+	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+	router := newP2PTestRouter(service)
+	releaseRoute(t, router, service.AccessToken(), "client.version.report", map[string]any{"client_version": "v1.0.2"})
+	apply := releaseRoute(t, router, service.AccessToken(), "release.v2.apply", map[string]any{
+		"target_version": "v1.0.4", "idempotency_key": "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+	})
+	if apply["job_id"] != "job_direct" || apply["job_token"] != "job-secret" || apply["status"] != "queued" {
+		t.Fatalf("unexpected direct apply response: %#v", apply)
+	}
+	if central.calls != 1 {
+		t.Fatalf("central version source calls = %d, want 1", central.calls)
+	}
+	if controller.directApplyRequest != (releasecontrol.DirectApplyRequest{
+		TargetVersion: "v1.0.4", IdempotencyKey: "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", Confirm: releasecontrol.ApplyConfirmation,
+	}) {
+		t.Fatalf("unexpected direct updater request: %#v", controller.directApplyRequest)
+	}
+	if controller.applyRequest.PlanToken != "" {
+		t.Fatalf("v2 apply must not use the legacy plan controller: %#v", controller.applyRequest)
+	}
+}
+
+func TestReleaseV2ApplyRejectsUnsafeParamsAndCompatibilityFailures(t *testing.T) {
+	validCentral := releasecontrol.CentralServerVersion{AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2"}
+	baseParams := map[string]any{
+		"target_version": "v1.0.4", "idempotency_key": "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+	}
+	newServiceAndRouter := func(central *recordingCentralVersionSource) (*Service, http.Handler, *recordingReleaseController) {
+		controller := &recordingReleaseController{directStatus: releasecontrol.DirectStatus{
+			Available: true, UpdaterReady: true, CurrentVersion: "v1.0.3", DesiredState: "running",
+		}}
+		service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+		mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
+		return service, newP2PTestRouter(service), controller
+	}
+
+	for _, key := range []string{"image", "digest", "url", "plan_token", "version", "shell", "compose_path", "service", "unknown"} {
+		t.Run("reject_"+key, func(t *testing.T) {
+			central := &recordingCentralVersionSource{version: validCentral}
+			service, router, controller := newServiceAndRouter(central)
+			params := cloneAnyMap(baseParams)
+			params[key] = "attacker-controlled"
+			response := releaseRouteRaw(t, router, service.AccessToken(), "release.v2.apply", params)
+			if response.Code != http.StatusBadRequest || releaseResponseCode(t, response) != "release_v2_apply_invalid_params" {
+				t.Fatalf("%s expected v2 invalid params, got %d %s", key, response.Code, response.Body.String())
+			}
+			if central.calls != 0 || controller.directApplyRequest.TargetVersion != "" {
+				t.Fatalf("invalid params must not reach dependencies: central=%d request=%#v", central.calls, controller.directApplyRequest)
+			}
+		})
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"noncanonical_target": func(params map[string]any) { params["target_version"] = "1.0.4" },
+		"uppercase_uuid":      func(params map[string]any) { params["idempotency_key"] = "31A20813-C5D9-4F6D-B4F0-CDF8CFC75C6E" },
+		"wrong_confirm":       func(params map[string]any) { params["confirm"] = "confirm" },
+		"nonstring_target":    func(params map[string]any) { params["target_version"] = 104 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			central := &recordingCentralVersionSource{version: validCentral}
+			service, router, controller := newServiceAndRouter(central)
+			params := cloneAnyMap(baseParams)
+			mutate(params)
+			response := releaseRouteRaw(t, router, service.AccessToken(), "release.v2.apply", params)
+			if response.Code != http.StatusBadRequest || releaseResponseCode(t, response) != "release_v2_apply_invalid_params" {
+				t.Fatalf("expected v2 invalid params, got %d %s", response.Code, response.Body.String())
+			}
+			if central.calls != 0 || controller.directApplyRequest.TargetVersion != "" {
+				t.Fatalf("invalid params must not reach dependencies: central=%d request=%#v", central.calls, controller.directApplyRequest)
+			}
+		})
+	}
+
+	for name, testCase := range map[string]struct {
+		central    releasecontrol.CentralServerVersion
+		client     string
+		target     string
+		wantStatus int
+		wantCode   string
+	}{
+		"central_target_changed": {central: validCentral, client: "v1.0.2", target: "v1.0.5", wantStatus: http.StatusConflict, wantCode: "release_target_mismatch"},
+		"client_too_old":         {central: releasecontrol.CentralServerVersion{AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.3"}, client: "v1.0.2", target: "v1.0.4", wantStatus: http.StatusConflict, wantCode: "client_version_incompatible"},
+		"central_invalid":        {central: releasecontrol.CentralServerVersion{AppID: "1", ChannelID: "google", Version: "v1.0.4", PreVersion: "v1.0.2"}, client: "v1.0.2", target: "v1.0.4", wantStatus: http.StatusBadGateway, wantCode: "central_version_invalid"},
+		"target_not_newer":       {central: releasecontrol.CentralServerVersion{AppID: "1", ChannelID: "server", Version: "v1.0.3", PreVersion: "v1.0.2"}, client: "v1.0.2", target: "v1.0.3", wantStatus: http.StatusConflict, wantCode: "release_target_not_newer"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			central := &recordingCentralVersionSource{version: testCase.central}
+			controller := &recordingReleaseController{directStatus: releasecontrol.DirectStatus{
+				Available: true, UpdaterReady: true, CurrentVersion: "v1.0.3", DesiredState: "running",
+			}}
+			service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+			mustReportClientVersion(t, service, map[string]any{"client_version": testCase.client})
+			params := cloneAnyMap(baseParams)
+			params["target_version"] = testCase.target
+			response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", params)
+			if response.Code != testCase.wantStatus || releaseResponseCode(t, response) != testCase.wantCode {
+				t.Fatalf("expected %d/%s, got %d %s", testCase.wantStatus, testCase.wantCode, response.Code, response.Body.String())
+			}
+			if controller.directApplyRequest.TargetVersion != "" {
+				t.Fatalf("rejected update reached direct updater: %#v", controller.directApplyRequest)
+			}
+		})
+	}
+}
+
+func TestReleaseV2ApplyFailsClosedWhenUpdaterIsNotReady(t *testing.T) {
+	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
+		AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2",
+	}}
+	controller := &recordingReleaseController{directStatus: releasecontrol.DirectStatus{
+		Available: true, UpdaterReady: false, CurrentVersion: "v1.0.3", DesiredState: "upgrading",
+	}}
+	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+	mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
+	response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
+		"target_version": "v1.0.4", "idempotency_key": "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+	})
+	if response.Code != http.StatusServiceUnavailable || releaseResponseCode(t, response) != updaterUnavailableCode {
+		t.Fatalf("expected updater unavailable, got %d %s", response.Code, response.Body.String())
+	}
+	if central.calls != 0 || controller.directApplyRequest.TargetVersion != "" {
+		t.Fatalf("unready updater must block before central/updater apply: central=%d request=%#v", central.calls, controller.directApplyRequest)
+	}
+}
+
+func releaseResponseCode(t *testing.T, response *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	code, _ := body["code"].(string)
+	return code
 }
 
 func TestClientVersionReportFollowsCurrentPortalDevice(t *testing.T) {

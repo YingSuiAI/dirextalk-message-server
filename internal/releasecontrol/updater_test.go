@@ -158,6 +158,94 @@ func TestUnixControllerMapsStructuredErrorWithoutEchoingSecrets(t *testing.T) {
 	}
 }
 
+func TestUnixControllerDirectStatusAndApplyUseOnlyV2Fields(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := shortUnixSocketPath(t)
+	tokenPath := filepath.Join(dir, "control-token")
+	if err := os.WriteFile(tokenPath, []byte("control-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	requests := make(chan struct {
+		path string
+		body map[string]any
+	}, 2)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(ControlTokenHeader) != "control-secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		requests <- struct {
+			path string
+			body map[string]any
+		}{path: r.URL.Path, body: body}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case ControlStatusPath:
+			_, _ = w.Write([]byte(`{"available":true,"updater_ready":true,"current_version":"v1.0.3","desired_state":"running","active_job":{"job_id":"job_active","status":"pulling","current_version":"v1.0.2","target_version":"v1.0.3","service_available":true,"plan_token":"must-not-forward"},"watchdog":{"status":"healthy","degraded":false}}`))
+		case ControlJobsPath:
+			_, _ = w.Write([]byte(`{"job_id":"job_test","job_token":"job-secret","status_url":"/_dirextalk/updater/v1/jobs/job_test","status":"queued"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	defer server.Close()
+
+	controller := NewUnixController(UnixControllerConfig{SocketPath: socketPath, ControlTokenPath: tokenPath})
+	direct, ok := controller.(DirectController)
+	if !ok {
+		t.Fatal("unix controller must implement DirectController")
+	}
+	status, err := direct.StatusDirect(context.Background())
+	if err != nil {
+		t.Fatalf("direct status: %v", err)
+	}
+	if !status.Available || !status.UpdaterReady || status.CurrentVersion != "v1.0.3" || status.ActiveJob == nil || status.ActiveJob.JobID != "job_active" {
+		t.Fatalf("unexpected direct status: %#v", status)
+	}
+	statusRaw, _ := json.Marshal(status)
+	if strings.Contains(string(statusRaw), "must-not-forward") || strings.Contains(string(statusRaw), "plan_token") {
+		t.Fatalf("unsafe direct-status fields entered message-server DTO: %s", statusRaw)
+	}
+	ticket, err := direct.ApplyDirect(context.Background(), DirectApplyRequest{
+		TargetVersion: "v1.0.4", IdempotencyKey: "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", Confirm: ApplyConfirmation,
+	})
+	if err != nil {
+		t.Fatalf("direct apply: %v", err)
+	}
+	if ticket.Status != "queued" || ticket.JobID != "job_test" {
+		t.Fatalf("unexpected direct ticket: %#v", ticket)
+	}
+	if _, err := direct.ApplyDirect(context.Background(), DirectApplyRequest{
+		TargetVersion: "v1.0.4", IdempotencyKey: "31A20813-C5D9-4F6D-B4F0-CDF8CFC75C6E", Confirm: ApplyConfirmation,
+	}); err == nil {
+		t.Fatal("direct apply accepted a noncanonical UUID")
+	}
+
+	statusRequest := <-requests
+	applyRequest := <-requests
+	if statusRequest.path != ControlStatusPath || len(statusRequest.body) != 0 {
+		t.Fatalf("direct status must send exactly an empty object: %#v", statusRequest)
+	}
+	if applyRequest.path != ControlJobsPath || applyRequest.body["target_version"] != "v1.0.4" || applyRequest.body["plan_token"] != nil || len(applyRequest.body) != 3 {
+		t.Fatalf("unexpected direct apply request: %#v", applyRequest)
+	}
+	if applyRequest.body["idempotency_key"] != "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e" || applyRequest.body["confirm"] != ApplyConfirmation {
+		t.Fatalf("unexpected direct apply request: %#v", applyRequest)
+	}
+}
+
 func shortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	file, err := os.CreateTemp("", "dtx-updater-*.sock")

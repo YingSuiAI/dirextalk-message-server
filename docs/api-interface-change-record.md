@@ -1,38 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-19
+Last updated: 2026-07-17
 
-## 2026-07-19 New-Device Unread Recovery Read Markers
+## 2026-07-17 Central Version Direct Upgrade Contract
 
-`sync.bootstrap` now includes additive metadata-only `read_markers`. The field is always an array, including when empty, and is ordered by `room_id` for a stable snapshot:
+`release.v2.status` and `release.v2.apply` are owner-token, HTTP-only ProductCore actions. They are not valid realtime `client.request` actions and `agent_token` is rejected. `release.v2.status` accepts no parameters and returns the local running `current_version`, current portal-device `client_version`, `available`, `updater_available`, `updater_ready`, `desired_state`, a token-free optional `active_job`, and sanitized `watchdog` status. It never performs GitHub release discovery, returns a release plan, or exposes an image, digest, command, path, plan token, or job bearer.
 
-```json
-{
-  "read_markers": [
-    {
-      "room_id": "!room:example.com",
-      "event_id": "$event",
-      "origin_server_ts": 1784426400000
-    }
-  ]
-}
-```
+`release.v2.apply` accepts exactly `target_version`, lowercase canonical UUID `idempotency_key`, and `confirm="apply_release_change"`. `target_version` is canonical stable `vX.Y.Z`; image, digest, URL, plan token, shell, Compose, service, and all unknown fields are rejected. Before creating a job, the server queries the fixed central `appId=1&channelId=server` record, requires HTTP success plus business `code=0`, `appId="1"`, `channelId="server"`, canonical `version`/`preVersion`, an exact target match, and current reported client version at least `preVersion`. The message server then sends only those three safe fields to the updater's Unix control interface. Failed central validation returns `central_version_invalid`; a temporary central failure returns `central_version_unavailable`; incompatible client and changed-target failures are structured and create no updater job.
 
-These records are recovery boundaries only. They do not contain message content, media metadata, senders, or timeline events. Clients continue to obtain unread counts, receipts, messages, media, and paginated history from Matrix Client-Server APIs.
-
-`sync.read_marker` and `channels.read_marker` now resolve `event_id` to the
-server-owned Matrix timeline position for the supplied `room_id` and advance
-the durable marker only when that topological position is newer. The optional
-request `origin_server_ts` is non-authoritative; the bootstrap record uses the
-resolved event timestamp. Equal, missing, invalid, or skewed timestamps
-therefore cannot pin or regress the boundary, while delayed and repeated
-requests remain successful no-ops. Resolution is bound to the authenticated
-owner MXID and uses the existing Matrix history-visibility and local-hidden
-event access checks. An event that is absent, belongs to another room, or is
-not visible to that owner is rejected with the same non-leaking validation
-error. The same monotonic tuple-CAS rule applies to the in-memory store and
-PostgreSQL, and durable markers remain available through `sync.bootstrap`
-after a server restart.
+V1 release actions remain registered for existing clients, but central direct upgrades use V2 and do not depend on GitHub discovery or rollback operations.
 
 ## 2026-07-16 Native Agent Room And Post References
 
