@@ -34,6 +34,7 @@ import (
 	releasemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/release"
 	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -805,6 +806,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Store:   nativeAgentConfigStore{service: service},
 		MCP:     service.mcpCapabilities,
 		Account: serviceAgentAccountPort{service: service},
+		CurrentUser: func() nativeagent.UserIdentity {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return nativeagent.UserIdentity{
+				UserID:      service.ownerMXID,
+				DisplayName: service.profile.DisplayName,
+			}
+		},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

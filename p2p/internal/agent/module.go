@@ -21,11 +21,12 @@ type Runner interface {
 
 // Config contains the runtime dependencies owned outside the Agent module.
 type Config struct {
-	Runner  Runner
-	DataDir string
-	Store   nativeagent.ConfigStore
-	MCP     *dirextalkmcp.Service
-	Account AccountPort
+	Runner      Runner
+	DataDir     string
+	Store       nativeagent.ConfigStore
+	MCP         *dirextalkmcp.Service
+	Account     AccountPort
+	CurrentUser func() nativeagent.UserIdentity
 }
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
@@ -38,9 +39,10 @@ func New(cfg Config) *Module {
 	runner := cfg.Runner
 	if runner == nil {
 		runner = runtimeRunner{runtime: nativeagent.New(nativeagent.Config{
-			DataDir: cfg.DataDir,
-			Store:   cfg.Store,
-			Tools:   Tools(cfg.MCP),
+			DataDir:     cfg.DataDir,
+			Store:       cfg.Store,
+			Tools:       Tools(cfg.MCP),
+			CurrentUser: cfg.CurrentUser,
 		})}
 	}
 	return &Module{runner: runner, account: cfg.Account}

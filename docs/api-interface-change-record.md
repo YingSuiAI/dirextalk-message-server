@@ -2,6 +2,10 @@
 
 Last updated: 2026-07-17
 
+## 2026-07-17 Native Agent Current User Context
+
+Native Agent now identifies itself to the model as `Ying`. Every `agent.chat` and realtime Native Agent stream rebuilds a server-provided current Dirextalk user block in the system prompt from the authoritative owner user ID and latest profile nickname. The prompt block uses `user_id` and `nickname` terminology, treats the ID as authoritative and the nickname as untrusted display-only metadata, and is inserted before configured or request-scoped system prompts. Clients cannot submit or override either identity, and no request or response schema changes.
+
 ## 2026-07-17 Central Version Direct Upgrade Contract
 
 `release.v2.status` and `release.v2.apply` are owner-token, HTTP-only ProductCore actions. They are not valid realtime `client.request` actions and `agent_token` is rejected. `release.v2.status` accepts no parameters and returns the local running `current_version`, current portal-device `client_version`, `available`, `updater_available`, `updater_ready`, `desired_state`, a token-free optional `active_job`, and sanitized `watchdog` status. It never performs GitHub release discovery, returns a release plan, or exposes an image, digest, command, path, plan token, or job bearer.

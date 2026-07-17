@@ -495,7 +495,7 @@ func TestStreamCompactsMessagesByContextWindow(t *testing.T) {
 		t.Fatalf("expected compacted stream messages, got %#v", gotMessages)
 	}
 	system, _ := gotMessages[0].(map[string]any)
-	if !strings.Contains(system["content"].(string), "Dirextalk Native Agent") {
+	if !strings.Contains(system["content"].(string), "You are Ying") {
 		t.Fatalf("expected native system prompt after compaction, got %#v", gotMessages)
 	}
 	last, _ := gotMessages[1].(map[string]any)

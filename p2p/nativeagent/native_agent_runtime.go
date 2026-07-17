@@ -17,10 +17,17 @@ const (
 )
 
 type Config struct {
-	DataDir    string
-	Store      ConfigStore
-	Tools      []Tool
-	HTTPClient *http.Client
+	DataDir     string
+	Store       ConfigStore
+	Tools       []Tool
+	HTTPClient  *http.Client
+	CurrentUser func() UserIdentity
+}
+
+// UserIdentity is the server-authoritative identity for the current Agent user.
+type UserIdentity struct {
+	UserID      string
+	DisplayName string
 }
 
 type ConfigStore interface {
@@ -34,10 +41,11 @@ type Event struct {
 }
 
 type Runtime struct {
-	store   ConfigStore
-	dataDir string
-	client  *http.Client
-	tools   []Tool
+	store       ConfigStore
+	dataDir     string
+	client      *http.Client
+	tools       []Tool
+	currentUser func() UserIdentity
 }
 
 func New(config Config) *Runtime {
@@ -53,10 +61,11 @@ func New(config Config) *Runtime {
 		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
 	}
 	return &Runtime{
-		store:   config.Store,
-		dataDir: filepath.Clean(dataDir),
-		client:  client,
-		tools:   append([]Tool{}, config.Tools...),
+		store:       config.Store,
+		dataDir:     filepath.Clean(dataDir),
+		client:      client,
+		tools:       append([]Tool{}, config.Tools...),
+		currentUser: config.CurrentUser,
 	}
 }
 
