@@ -1552,3 +1552,23 @@ golden. Success now means the Stack has read back the approved EC2 instance,
 ENIs, EBS volumes and deterministic Secrets Manager resources as absent and
 has removed their non-secret binding ledger. Access denial remains blocked and
 cannot become `verified_destroyed`.
+
+## 2026-07-17 — Agent Cloud Task milestone and event relay v1
+
+Remote `agent.chat` and `agent.chat.stream` now surface an additive
+`cloud_task` milestone only for an owner-scoped Cloud Dialogue response that
+has the same stable conversation ID, exactly one canonical task UUID, and no
+related Plan. Its fixed four-field shape is
+`{schema, task_id, conversation_id, state:"research_queued"}`; the Message
+Server never fabricates a Plan ID, deep link, lifecycle state, or approval.
+Ordinary remote Chat receives no milestone even if an Agent response contains
+task references.
+
+The durable Agent event relay additionally projects only
+`cloud.task.changed` (`cloud_task`) and `cloud.step.changed` (`cloud_step`)
+beside the existing Plan event. Each accepted v1 summary is strict and
+de-secreted: schema version, owner/task/(step) IDs, fixed execution/outcome/
+stage/error enums, optional canonical verified related Plan ID, matching
+revision, and UTC update time. Unknown fields, raw Worker material and invalid
+values fail before cursor advancement; only the reviewed fields plus the source
+Agent instance UUID reach ProductCore.

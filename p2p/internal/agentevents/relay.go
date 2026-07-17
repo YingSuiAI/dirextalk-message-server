@@ -29,7 +29,9 @@ var (
 
 	projectableEvents = map[string]projectableEvent{
 		// Add another event only together with its exact de-secreted schema.
-		"cloud.plan.changed": {aggregateType: "cloud_plan"},
+		"cloud.plan.changed": {aggregateType: "cloud_plan", decode: decodeSafePlanSummary},
+		"cloud.task.changed": {aggregateType: "cloud_task", decode: decodeSafeCloudTaskSummary},
+		"cloud.step.changed": {aggregateType: "cloud_step", decode: decodeSafeCloudStepSummary},
 	}
 )
 
@@ -185,7 +187,10 @@ func (relay *Relay) validate() error {
 
 type projectableEvent struct {
 	aggregateType string
+	decode        summaryDecoder
 }
+
+type summaryDecoder func(Source, Event) (map[string]any, string, error)
 
 func prepareProjection(source Source, event Event) (*Projection, error) {
 	if !validEventMetadata(event) {
@@ -198,7 +203,7 @@ func prepareProjection(source Source, event Event) (*Projection, error) {
 	if event.AggregateType != spec.aggregateType {
 		return nil, ErrInvalidEvent
 	}
-	payload, owner, err := decodeSafePlanSummary(source, event)
+	payload, owner, err := spec.decode(source, event)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +311,161 @@ func decodeSafePlanSummary(source Source, event Event) (map[string]any, string, 
 		"secret_reference_count":   summary.SecretReferenceCount,
 		"source_agent_instance_id": source.AgentInstanceID,
 	}, summary.OwnerID, nil
+}
+
+const cloudTaskEventSummarySchemaV1 = 1
+
+type cloudTaskEventSummary struct {
+	SchemaVersion   int    `json:"schema_version"`
+	TaskID          string `json:"task_id"`
+	OwnerID         string `json:"owner_id"`
+	ExecutionStatus string `json:"execution_status"`
+	OutcomeStatus   string `json:"outcome_status"`
+	CurrentStage    string `json:"current_stage"`
+	RelatedPlanID   string `json:"related_plan_id,omitempty"`
+	ErrorCode       string `json:"error_code,omitempty"`
+	Revision        int64  `json:"revision"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type cloudStepEventSummary struct {
+	SchemaVersion   int    `json:"schema_version"`
+	TaskID          string `json:"task_id"`
+	StepID          string `json:"step_id"`
+	OwnerID         string `json:"owner_id"`
+	ExecutionStatus string `json:"execution_status"`
+	OutcomeStatus   string `json:"outcome_status"`
+	CurrentStage    string `json:"current_stage"`
+	RelatedPlanID   string `json:"related_plan_id,omitempty"`
+	ErrorCode       string `json:"error_code,omitempty"`
+	Revision        int64  `json:"revision"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+var (
+	validCloudTaskExecutionStatuses = map[string]struct{}{
+		"draft": {}, "planning": {}, "awaiting_approval": {}, "queued": {},
+		"running": {}, "waiting_user": {}, "verifying": {}, "finished": {},
+	}
+	validCloudTaskOutcomeStatuses = map[string]struct{}{
+		"pending": {}, "succeeded": {}, "failed": {}, "canceled": {},
+		"timed_out": {}, "interrupted": {},
+	}
+	validCloudTaskStages = map[string]struct{}{
+		"research": {}, "recipe": {}, "quote": {}, "waiting_user": {},
+		"ready_for_confirmation": {}, "finished": {},
+	}
+	validCloudTaskErrorCodes = map[string]struct{}{
+		"": {}, "task_failed": {}, "task_canceled": {}, "task_timed_out": {}, "task_interrupted": {},
+	}
+)
+
+func decodeSafeCloudTaskSummary(source Source, event Event) (map[string]any, string, error) {
+	var summary cloudTaskEventSummary
+	if err := decodeExactSummaryJSON(event.SummaryJSON, &summary); err != nil {
+		return nil, "", err
+	}
+	updatedAt, err := validateCloudTaskSummary(
+		summary.SchemaVersion, summary.TaskID, summary.OwnerID, summary.ExecutionStatus, summary.OutcomeStatus,
+		summary.CurrentStage, summary.RelatedPlanID, summary.ErrorCode, summary.Revision, summary.UpdatedAt, event,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	if summary.TaskID != event.AggregateID {
+		return nil, "", ErrInvalidEvent
+	}
+	payload := map[string]any{
+		"schema_version":           cloudTaskEventSummarySchemaV1,
+		"task_id":                  summary.TaskID,
+		"owner_id":                 summary.OwnerID,
+		"execution_status":         summary.ExecutionStatus,
+		"outcome_status":           summary.OutcomeStatus,
+		"current_stage":            summary.CurrentStage,
+		"revision":                 summary.Revision,
+		"updated_at":               updatedAt.UTC().Format(time.RFC3339Nano),
+		"source_agent_instance_id": source.AgentInstanceID,
+	}
+	if summary.RelatedPlanID != "" {
+		payload["related_plan_id"] = summary.RelatedPlanID
+	}
+	if summary.ErrorCode != "" {
+		payload["error_code"] = summary.ErrorCode
+	}
+	return payload, summary.OwnerID, nil
+}
+
+func decodeSafeCloudStepSummary(source Source, event Event) (map[string]any, string, error) {
+	var summary cloudStepEventSummary
+	if err := decodeExactSummaryJSON(event.SummaryJSON, &summary); err != nil {
+		return nil, "", err
+	}
+	updatedAt, err := validateCloudTaskSummary(
+		summary.SchemaVersion, summary.TaskID, summary.OwnerID, summary.ExecutionStatus, summary.OutcomeStatus,
+		summary.CurrentStage, summary.RelatedPlanID, summary.ErrorCode, summary.Revision, summary.UpdatedAt, event,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	if !canonicalUUID(summary.StepID) || summary.StepID != event.AggregateID {
+		return nil, "", ErrInvalidEvent
+	}
+	payload := map[string]any{
+		"schema_version":           cloudTaskEventSummarySchemaV1,
+		"task_id":                  summary.TaskID,
+		"step_id":                  summary.StepID,
+		"owner_id":                 summary.OwnerID,
+		"execution_status":         summary.ExecutionStatus,
+		"outcome_status":           summary.OutcomeStatus,
+		"current_stage":            summary.CurrentStage,
+		"revision":                 summary.Revision,
+		"updated_at":               updatedAt.UTC().Format(time.RFC3339Nano),
+		"source_agent_instance_id": source.AgentInstanceID,
+	}
+	if summary.RelatedPlanID != "" {
+		payload["related_plan_id"] = summary.RelatedPlanID
+	}
+	if summary.ErrorCode != "" {
+		payload["error_code"] = summary.ErrorCode
+	}
+	return payload, summary.OwnerID, nil
+}
+
+func decodeExactSummaryJSON(encoded []byte, destination any) error {
+	if len(encoded) == 0 || len(encoded) > maximumSummaryBytes {
+		return ErrInvalidEvent
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		if strings.Contains(err.Error(), "unknown field") {
+			return ErrUnsafeEvent
+		}
+		return ErrInvalidEvent
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return ErrInvalidEvent
+	}
+	return nil
+}
+
+func validateCloudTaskSummary(schemaVersion int, taskID, ownerID, executionStatus, outcomeStatus, currentStage, relatedPlanID, errorCode string, revision int64, updatedAtRaw string, event Event) (time.Time, error) {
+	updatedAt, err := time.Parse(time.RFC3339Nano, updatedAtRaw)
+	_, executionValid := validCloudTaskExecutionStatuses[executionStatus]
+	_, outcomeValid := validCloudTaskOutcomeStatuses[outcomeStatus]
+	_, stageValid := validCloudTaskStages[currentStage]
+	_, errorCodeValid := validCloudTaskErrorCodes[errorCode]
+	if schemaVersion != cloudTaskEventSummarySchemaV1 || !canonicalUUID(taskID) ||
+		!validSummaryIdentifier(ownerID, 3, 256) || !executionValid || !outcomeValid || !stageValid || !errorCodeValid ||
+		revision != event.Revision || revision < 1 || err != nil || updatedAt.Unix() <= 0 ||
+		!strings.HasSuffix(updatedAtRaw, "Z") || updatedAt.Location() != time.UTC || updatedAt.After(time.Now().UTC().Add(10*time.Minute)) {
+		return time.Time{}, ErrInvalidEvent
+	}
+	if relatedPlanID != "" && !canonicalUUID(relatedPlanID) {
+		return time.Time{}, ErrInvalidEvent
+	}
+	return updatedAt.UTC(), nil
 }
 
 func validSummaryIdentifier(value string, minimum, maximum int) bool {

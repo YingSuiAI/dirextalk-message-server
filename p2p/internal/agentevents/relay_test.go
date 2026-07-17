@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,96 @@ func TestPrepareProjectionPublishesOnlyReviewedPlanFieldsAndSourceEpoch(t *testi
 	}
 }
 
+func TestPrepareProjectionPublishesOnlyReviewedCloudTaskAndStepFields(t *testing.T) {
+	source := Source{AgentInstanceID: uuid.NewString(), CallerID: "dirextalk-project:example.com"}
+	for name, event := range map[string]Event{
+		"task": projectableCloudTaskEvent(1, 1, source.CallerID),
+		"step": projectableCloudStepEvent(2, 1, source.CallerID),
+	} {
+		t.Run(name, func(t *testing.T) {
+			projection, err := prepareProjection(source, event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if projection == nil || projection.Type != event.EventType || projection.Payload["source_agent_instance_id"] != source.AgentInstanceID {
+				t.Fatalf("projection = %#v", projection)
+			}
+			if projection.Payload["schema_version"] != cloudTaskEventSummarySchemaV1 || projection.Payload["revision"] != event.Revision {
+				t.Fatalf("schema/revision drifted: %#v", projection.Payload)
+			}
+			if _, present := projection.Payload["related_plan_id"]; present {
+				t.Fatalf("empty plan binding was projected: %#v", projection.Payload)
+			}
+			for _, forbidden := range []string{"goal", "connection_id", "step_name", "checkpoint_ref", "result_ref", "worker_id", "actor"} {
+				if _, present := projection.Payload[forbidden]; present {
+					t.Fatalf("unreviewed field %q reached ProductCore: %#v", forbidden, projection.Payload)
+				}
+			}
+			wantKeys := map[string]struct{}{
+				"schema_version": {}, "task_id": {}, "owner_id": {}, "execution_status": {}, "outcome_status": {},
+				"current_stage": {}, "revision": {}, "updated_at": {}, "source_agent_instance_id": {},
+			}
+			if name == "step" {
+				wantKeys["step_id"] = struct{}{}
+			}
+			gotKeys := map[string]struct{}{}
+			for key := range projection.Payload {
+				gotKeys[key] = struct{}{}
+			}
+			if !reflect.DeepEqual(gotKeys, wantKeys) {
+				t.Fatalf("projected keys = %#v, want %#v", gotKeys, wantKeys)
+			}
+		})
+	}
+}
+
+func TestCloudTaskAndStepProjectionRejectUnknownAndInvalidSummaryFields(t *testing.T) {
+	source := Source{AgentInstanceID: uuid.NewString(), CallerID: "dirextalk-project:example.com"}
+	for name, test := range map[string]struct {
+		event  Event
+		mutate func(map[string]any)
+		want   error
+	}{
+		"task unknown secret field": {
+			event:  projectableCloudTaskEvent(1, 1, source.CallerID),
+			mutate: func(summary map[string]any) { summary["api_key"] = "not-a-real-key" }, want: ErrUnsafeEvent,
+		},
+		"step unknown worker field": {
+			event:  projectableCloudStepEvent(1, 1, source.CallerID),
+			mutate: func(summary map[string]any) { summary["worker_id"] = "worker-1" }, want: ErrUnsafeEvent,
+		},
+		"task invalid stage": {
+			event:  projectableCloudTaskEvent(1, 1, source.CallerID),
+			mutate: func(summary map[string]any) { summary["current_stage"] = "arbitrary_agent_text" }, want: ErrInvalidEvent,
+		},
+		"step invalid error code": {
+			event:  projectableCloudStepEvent(1, 1, source.CallerID),
+			mutate: func(summary map[string]any) { summary["error_code"] = "unreviewed_error" }, want: ErrInvalidEvent,
+		},
+		"task invalid related plan": {
+			event:  projectableCloudTaskEvent(1, 1, source.CallerID),
+			mutate: func(summary map[string]any) { summary["related_plan_id"] = "not-a-uuid" }, want: ErrInvalidEvent,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var summary map[string]any
+			if err := json.Unmarshal(test.event.SummaryJSON, &summary); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(summary)
+			encoded, err := json.Marshal(summary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.event.SummaryJSON = encoded
+			projection, err := prepareProjection(source, test.event)
+			if projection != nil || !errors.Is(err, test.want) {
+				t.Fatalf("projection/error = %#v / %v, want %v", projection, err, test.want)
+			}
+		})
+	}
+}
+
 func TestRelayCancelsStreamWhenProjectionValidationFails(t *testing.T) {
 	source := Source{AgentInstanceID: uuid.NewString(), CallerID: "dirextalk-project:example.com"}
 	event := projectablePlanEvent(1, 1, source.CallerID)
@@ -134,6 +225,38 @@ func projectablePlanEvent(seq, revision int64, owner string) Event {
 		Seq: seq, EventID: uuid.NewString(), EventType: "cloud.plan.changed", AggregateType: "cloud_plan",
 		AggregateID: id, Revision: revision, OccurredAt: time.Now().UTC(),
 		SummaryJSON: summary,
+	}
+}
+
+func projectableCloudTaskEvent(seq, revision int64, owner string) Event {
+	id := uuid.NewString()
+	summary, err := json.Marshal(cloudTaskEventSummary{
+		SchemaVersion: cloudTaskEventSummarySchemaV1, TaskID: id, OwnerID: owner,
+		ExecutionStatus: "planning", OutcomeStatus: "pending", CurrentStage: "research",
+		Revision: revision, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return Event{
+		Seq: seq, EventID: uuid.NewString(), EventType: "cloud.task.changed", AggregateType: "cloud_task",
+		AggregateID: id, Revision: revision, OccurredAt: time.Now().UTC(), SummaryJSON: summary,
+	}
+}
+
+func projectableCloudStepEvent(seq, revision int64, owner string) Event {
+	stepID, taskID := uuid.NewString(), uuid.NewString()
+	summary, err := json.Marshal(cloudStepEventSummary{
+		SchemaVersion: cloudTaskEventSummarySchemaV1, TaskID: taskID, StepID: stepID, OwnerID: owner,
+		ExecutionStatus: "running", OutcomeStatus: "pending", CurrentStage: "recipe",
+		Revision: revision, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return Event{
+		Seq: seq, EventID: uuid.NewString(), EventType: "cloud.step.changed", AggregateType: "cloud_step",
+		AggregateID: stepID, Revision: revision, OccurredAt: time.Now().UTC(), SummaryJSON: summary,
 	}
 }
 

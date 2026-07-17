@@ -29,11 +29,13 @@ import (
 )
 
 const (
-	defaultUnaryTimeout    = 90 * time.Second
-	defaultStreamTimeout   = 10 * time.Minute
-	defaultMaxMessageBytes = 4 << 20
-	maximumSecretFileBytes = 4096
-	authorizationScheme    = "DTX-Service-Key"
+	defaultUnaryTimeout     = 90 * time.Second
+	defaultStreamTimeout    = 10 * time.Minute
+	defaultMaxMessageBytes  = 4 << 20
+	maximumSecretFileBytes  = 4096
+	authorizationScheme     = "DTX-Service-Key"
+	cloudTaskSchema         = "dirextalk.cloud-agent-task/v1"
+	cloudTaskResearchQueued = "research_queued"
 )
 
 var serviceKeyIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -156,7 +158,7 @@ func (runner *Runner) Invoke(ctx context.Context, action string, params map[stri
 	if err != nil {
 		return nil, sanitizeRPCError(callContext, err)
 	}
-	return mapChatResponse(response)
+	return mapChatResponse(response, cloudDialogueConversationID(request))
 }
 
 // Stream maps agent.chat.stream to RuntimeService.StreamChat and preserves
@@ -196,7 +198,7 @@ func (runner *Runner) Stream(ctx context.Context, action string, params map[stri
 		if terminal != nil {
 			return errInvalidStreamSequence
 		}
-		event, mapErr := mapStreamResponse(response)
+		event, mapErr := mapStreamResponse(response, cloudDialogueConversationID(request))
 		if mapErr != nil {
 			return mapErr
 		}
@@ -388,7 +390,7 @@ func (runner *Runner) resolveCloudDialogueScope(ctx context.Context, connectionI
 	return &agentv1.CloudDialogueScopeV1{CloudConnectionId: connectionID}, nil
 }
 
-func mapChatResponse(response *agentv1.ChatResponse) (map[string]any, error) {
+func mapChatResponse(response *agentv1.ChatResponse, cloudDialogueConversationID string) (map[string]any, error) {
 	if response == nil || response.GetMessage() == nil {
 		return nil, errors.New("agent service returned an invalid response")
 	}
@@ -402,16 +404,20 @@ func mapChatResponse(response *agentv1.ChatResponse) (map[string]any, error) {
 			"tool_name": step.GetToolName(), "is_error": step.GetIsError(),
 		})
 	}
-	return map[string]any{
+	result := map[string]any{
 		"ok": true, "native": true, "framework": "eino", "text": response.GetMessage().GetContent(),
 		"message_id": response.GetMessage().GetMessageId(), "conversation_id": response.GetConversationId(),
 		"conversation_revision": response.GetConversationRevision(), "steps": steps,
 		"related_task_ids": append([]string(nil), response.GetRelatedTaskIds()...),
 		"related_plan_ids": append([]string(nil), response.GetRelatedPlanIds()...),
-	}, nil
+	}
+	if milestone := cloudTaskMilestone(response, cloudDialogueConversationID); milestone != nil {
+		result["cloud_task"] = milestone
+	}
+	return result, nil
 }
 
-func mapStreamResponse(response *agentv1.StreamChatResponse) (nativeagent.Event, error) {
+func mapStreamResponse(response *agentv1.StreamChatResponse, cloudDialogueConversationID string) (nativeagent.Event, error) {
 	if response == nil {
 		return nativeagent.Event{}, errors.New("agent service returned an invalid stream response")
 	}
@@ -433,13 +439,42 @@ func mapStreamResponse(response *agentv1.StreamChatResponse) (nativeagent.Event,
 		if event.Done == nil {
 			break
 		}
-		data, err := mapChatResponse(event.Done.GetResponse())
+		data, err := mapChatResponse(event.Done.GetResponse(), cloudDialogueConversationID)
 		if err != nil {
 			return nativeagent.Event{}, err
 		}
 		return nativeagent.Event{Event: "done", Data: data}, nil
 	}
 	return nativeagent.Event{}, errors.New("agent service returned an invalid stream response")
+}
+
+func cloudDialogueConversationID(request interface {
+	GetCloudDialogueScope() *agentv1.CloudDialogueScopeV1
+	GetConversationId() string
+}) string {
+	if request == nil || request.GetCloudDialogueScope() == nil {
+		return ""
+	}
+	return request.GetConversationId()
+}
+
+func cloudTaskMilestone(response *agentv1.ChatResponse, expectedConversationID string) map[string]any {
+	if response == nil || expectedConversationID == "" || response.GetConversationId() != expectedConversationID ||
+		len(response.GetRelatedTaskIds()) != 1 || len(response.GetRelatedPlanIds()) != 0 {
+		return nil
+	}
+	taskID := response.GetRelatedTaskIds()[0]
+	if !validUUID(taskID) {
+		return nil
+	}
+	// This is only a durable-task submission milestone. It deliberately does
+	// not infer a Plan, link, lifecycle status, or any broader Cloud authority.
+	return map[string]any{
+		"schema":          cloudTaskSchema,
+		"task_id":         taskID,
+		"conversation_id": expectedConversationID,
+		"state":           cloudTaskResearchQueued,
+	}
 }
 
 func runtimeStepKind(kind agentv1.RuntimeStepKind) string {

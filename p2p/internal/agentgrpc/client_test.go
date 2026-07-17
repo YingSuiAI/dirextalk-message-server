@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ const testServiceKey = "svc_message.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
 
 const modelProfileCanary = "model-profile-api-key-canary"
 const cloudDialogueConnectionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const cloudDialogueTaskID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 func TestRunnerChatUsesTLS13MountedAuthenticationAndBoundOwner(t *testing.T) {
 	t.Parallel()
@@ -85,6 +87,9 @@ func TestRunnerChatUsesTLS13MountedAuthenticationAndBoundOwner(t *testing.T) {
 	}
 	if result["text"] != "world" || result["conversation_id"] != "conversation-1" || result["conversation_revision"] != int64(8) {
 		t.Fatalf("unexpected response mapping: %#v", result)
+	}
+	if _, present := result["cloud_task"]; present {
+		t.Fatalf("ordinary chat fabricated Cloud task milestone: %#v", result)
 	}
 	steps, ok := result["steps"].([]map[string]any)
 	if !ok || len(steps) != 1 || steps[0]["kind"] != "tool_call" || steps[0]["tool_name"] != "lookup" {
@@ -195,12 +200,14 @@ func TestRunnerCloudDialogueValidatesOwnedConnectionAndForwardsOnlyTypedScope(t 
 	runner := newTestRunner(t, server, Config{UnaryTimeout: time.Second, StreamTimeout: time.Second})
 	idempotencyKey := uuid.NewString()
 	params := map[string]any{
-		"prompt": "research official documentation", "conversation_id": "cloud-conversation",
+		"prompt": "research official documentation", "conversation_id": "conversation-1",
 		"idempotency_key": idempotencyKey, "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID,
 	}
-	if _, err := runner.Invoke(context.Background(), "agent.chat", params); err != nil {
+	result, err := runner.Invoke(context.Background(), "agent.chat", params)
+	if err != nil {
 		t.Fatal(err)
 	}
+	assertCloudTaskMilestone(t, result)
 	if _, err := runner.Invoke(context.Background(), "agent.chat", params); err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +236,57 @@ func TestRunnerCloudDialogueValidatesOwnedConnectionAndForwardsOnlyTypedScope(t 
 	server.service.mu.Unlock()
 	if streamRequest.GetCloudDialogueScope().GetCloudConnectionId() != cloudDialogueConnectionID || len(events) != 3 {
 		t.Fatalf("stream Cloud Dialogue scope/events = %#v / %#v", streamRequest, events)
+	}
+	assertCloudTaskMilestone(t, events[2].Data)
+}
+
+func TestMapChatResponseCloudTaskMilestoneFailsClosed(t *testing.T) {
+	t.Parallel()
+	valid := chatResponse()
+	valid.RelatedPlanIds = nil
+	for name, test := range map[string]struct {
+		response             *agentv1.ChatResponse
+		expectedConversation string
+		wantMilestone        bool
+	}{
+		"valid scoped task":    {response: valid, expectedConversation: "conversation-1", wantMilestone: true},
+		"ordinary response":    {response: valid, expectedConversation: "", wantMilestone: false},
+		"conversation drift":   {response: valid, expectedConversation: "different", wantMilestone: false},
+		"invalid task ID":      {response: &agentv1.ChatResponse{ConversationId: "conversation-1", Message: valid.Message, RelatedTaskIds: []string{"task-1"}}, expectedConversation: "conversation-1", wantMilestone: false},
+		"multiple task IDs":    {response: &agentv1.ChatResponse{ConversationId: "conversation-1", Message: valid.Message, RelatedTaskIds: []string{cloudDialogueTaskID, uuid.NewString()}}, expectedConversation: "conversation-1", wantMilestone: false},
+		"related plan present": {response: &agentv1.ChatResponse{ConversationId: "conversation-1", Message: valid.Message, RelatedTaskIds: []string{cloudDialogueTaskID}, RelatedPlanIds: []string{uuid.NewString()}}, expectedConversation: "conversation-1", wantMilestone: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mapped, err := mapChatResponse(test.response, test.expectedConversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, present := mapped["cloud_task"]
+			if present != test.wantMilestone {
+				t.Fatalf("cloud task presence = %v, want %v: %#v", present, test.wantMilestone, mapped)
+			}
+			if test.wantMilestone {
+				assertCloudTaskMilestone(t, mapped)
+			}
+		})
+	}
+}
+
+func assertCloudTaskMilestone(t *testing.T, value map[string]any) {
+	t.Helper()
+	milestone, ok := value["cloud_task"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloud task milestone = %#v", value["cloud_task"])
+	}
+	want := map[string]any{
+		"schema": cloudTaskSchema, "task_id": cloudDialogueTaskID,
+		"conversation_id": "conversation-1", "state": cloudTaskResearchQueued,
+	}
+	if !reflect.DeepEqual(milestone, want) {
+		t.Fatalf("cloud task milestone = %#v, want %#v", milestone, want)
+	}
+	if _, present := milestone["plan_id"]; present {
+		t.Fatalf("cloud task milestone fabricated plan id: %#v", milestone)
 	}
 }
 
@@ -409,7 +467,7 @@ func chatResponse() *agentv1.ChatResponse {
 		Message:              &agentv1.RuntimeAssistantMessage{MessageId: "message-1", Content: "world"},
 		ConversationRevision: 8,
 		Steps:                []*agentv1.RuntimeStepSummary{{Kind: agentv1.RuntimeStepKind_RUNTIME_STEP_KIND_TOOL_CALL, ToolCallId: "call-1", ToolName: "lookup"}},
-		RelatedTaskIds:       []string{"task-1"}, RelatedPlanIds: []string{"plan-1"},
+		RelatedTaskIds:       []string{cloudDialogueTaskID},
 	}
 }
 
