@@ -134,6 +134,27 @@ func TestProductHandlerPublicAndWSTicketDispatch(t *testing.T) {
 	}
 }
 
+func TestFoundationLifecycleActionsRequireOwnerHTTPAndNoStore(t *testing.T) {
+	for _, action := range []string{
+		serviceapi.CloudConnectionFoundationConfirmationPrepareAction,
+		serviceapi.CloudConnectionFoundationApproveAction,
+		serviceapi.CloudConnectionFoundationOperationGetAction,
+	} {
+		t.Run(action, func(t *testing.T) {
+			port := &productPortStub{actions: map[string]bool{action: true}, handleResult: map[string]any{"ok": true}}
+			unauthorized := serveProduct(t, port, `{"action":"`+action+`"}`, "")
+			if unauthorized.Code != http.StatusUnauthorized || port.authorizeCalls != 1 || unauthorized.Header().Get("Cache-Control") != "no-store" || unauthorized.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("unauthorized contract changed: status=%d auth=%d headers=%v", unauthorized.Code, port.authorizeCalls, unauthorized.Header())
+			}
+			port.authorized = true
+			authorized := serveProduct(t, port, `{"action":"`+action+`"}`, "owner-token")
+			if authorized.Code != http.StatusOK || port.handledAction != action || authorized.Header().Get("Cache-Control") != "no-store" || authorized.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("authorized contract changed: status=%d handled=%q headers=%v", authorized.Code, port.handledAction, authorized.Header())
+			}
+		})
+	}
+}
+
 func TestProductHandlerRejectsInvalidRequestsInContractOrder(t *testing.T) {
 	tooLarge := `{"action":"profile.get","params":{"value":"` + strings.Repeat("x", 1024*1024) + `"}}`
 	tests := []struct {

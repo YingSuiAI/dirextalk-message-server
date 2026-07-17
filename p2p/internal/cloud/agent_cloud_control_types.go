@@ -40,6 +40,16 @@ type AgentCloudControlClient interface {
 	GetAgentCloudDestroyOperation(context.Context, AgentCloudDestroyOperationRequest) (AgentCloudDestroyOperation, bool, error)
 }
 
+// AgentCloudFoundationClient is an optional, protocol-neutral capability for
+// the independent Agent-owned Foundation lifecycle. Message Server only
+// forwards owner-bound approval data and reads public operation state; it has
+// no bootstrap-secret or provider capability on this surface.
+type AgentCloudFoundationClient interface {
+	CreateAgentAWSFoundationChallenge(context.Context, AgentCloudFoundationChallengeRequest) (AgentCloudFoundationChallenge, error)
+	ApproveAgentAWSFoundation(context.Context, AgentCloudFoundationApproveRequest) (AgentCloudFoundationOperation, error)
+	GetAgentAWSFoundationOperation(context.Context, AgentCloudFoundationOperationRequest) (AgentCloudFoundationOperation, bool, error)
+}
+
 type AgentCloudGoalCreateRequest struct {
 	IdempotencyKey, ConnectionID, Goal, RecipeID, RetentionPolicy string
 }
@@ -268,6 +278,62 @@ type AgentCloudConnection struct {
 	ControlRoleARN, FoundationStackID, Status string
 	Revision, CredentialGeneration            int64
 	CreatedAt, UpdatedAt                      time.Time
+}
+
+type AgentCloudFoundationChallengeRequest struct {
+	IdempotencyKey, Action, ConnectionID, BootstrapSessionID, SignerKeyID string
+	ExpectedBootstrapRevision                                             int64
+}
+
+type AgentCloudFoundationReleaseEnvironment struct {
+	PrivateSubnetCIDR string `json:"private_subnet_cidr"`
+	ZeroIngress       bool   `json:"zero_ingress"`
+	ArtifactBucket    string `json:"artifact_bucket"`
+	KMSAlias          string `json:"kms_alias"`
+	BucketVersioned   bool   `json:"bucket_versioned"`
+	BucketSSEKMS      bool   `json:"bucket_sse_kms"`
+}
+
+type AgentCloudFoundationScope struct {
+	SchemaVersion                string                                 `json:"schema_version"`
+	AgentInstanceID              string                                 `json:"agent_instance_id"`
+	OwnerID                      string                                 `json:"owner_id"`
+	Action                       string                                 `json:"action"`
+	ConnectionID                 string                                 `json:"connection_id"`
+	ExpectedConnectionRevision   int64                                  `json:"expected_connection_revision"`
+	AccountID                    string                                 `json:"account_id"`
+	Region                       string                                 `json:"region"`
+	BootstrapSessionID           string                                 `json:"bootstrap_session_id"`
+	ExpectedBootstrapRevision    int64                                  `json:"expected_bootstrap_revision"`
+	ExpectedCredentialGeneration int64                                  `json:"expected_credential_generation"`
+	FoundationTemplateDigest     string                                 `json:"foundation_template_digest"`
+	ReaperImageURI               string                                 `json:"reaper_image_uri"`
+	ReleaseEnvironment           AgentCloudFoundationReleaseEnvironment `json:"release_environment"`
+	IdentityObservedAt           time.Time                              `json:"identity_observed_at"`
+	IdentityExpiresAt            time.Time                              `json:"identity_expires_at"`
+}
+
+type AgentCloudFoundationChallenge struct {
+	OperationID, ChallengeID, ApprovalID, SignerKeyID, ScopeDigest string
+	Scope                                                          AgentCloudFoundationScope
+	ExpiresAt                                                      time.Time
+	SigningPayloadCBOR                                             []byte
+	Revision                                                       int64
+}
+
+type AgentCloudFoundationApproveRequest struct {
+	IdempotencyKey, ExpectedOperationID, ExpectedAction, ExpectedConnectionID, ExpectedScopeDigest string
+	ExpectedRevision                                                                               int64
+	Approval                                                                                       AgentCloudApprovalSignature
+}
+
+type AgentCloudFoundationOperationRequest struct{ OperationID string }
+
+type AgentCloudFoundationOperation struct {
+	OperationID, OwnerID, ConnectionID, Action, ApprovalID string
+	ScopeDigest, Status, ErrorCode, BlockedReason          string
+	Revision                                               int64
+	CreatedAt, UpdatedAt                                   time.Time
 }
 
 type AgentCloudDeploymentDestroyChallengeRequest struct {

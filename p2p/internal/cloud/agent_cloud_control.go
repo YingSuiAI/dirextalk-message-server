@@ -62,24 +62,24 @@ type agentCloudApprovalV1 struct {
 }
 
 type agentCloudResourceScopeV1 struct {
-	Region                string   `json:"region"`
-	AvailabilityZones     []string `json:"availability_zones"`
-	InstanceType          string   `json:"instance_type"`
-	InstanceCount         uint32   `json:"instance_count"`
-	Architecture          string   `json:"architecture"`
-	VCPU                  uint32   `json:"vcpu"`
-	MemoryMiB             uint64   `json:"memory_mib"`
-	GPUType               string   `json:"gpu_type,omitempty"`
-	GPUCount              uint32   `json:"gpu_count,omitempty"`
-	GPUMemoryMiB          uint64   `json:"gpu_memory_mib,omitempty"`
-	DiskGiB               uint64   `json:"disk_gib"`
-	VolumeType            string   `json:"volume_type"`
-	VolumeIOPS            uint32   `json:"volume_iops,omitempty"`
-	VolumeThroughputMiBPS uint32   `json:"volume_throughput_mibps,omitempty"`
-	VolumeEncrypted       bool     `json:"volume_encrypted"`
-	PurchaseOption        string   `json:"purchase_option"`
-	WorkerImageID         string   `json:"worker_image_id"`
-	WorkerImageDigest     string   `json:"worker_image_digest"`
+	Region                string                    `json:"region"`
+	AvailabilityZones     []string                  `json:"availability_zones"`
+	InstanceType          string                    `json:"instance_type"`
+	InstanceCount         uint32                    `json:"instance_count"`
+	Architecture          string                    `json:"architecture"`
+	VCPU                  uint32                    `json:"vcpu"`
+	MemoryMiB             uint64                    `json:"memory_mib"`
+	GPUType               string                    `json:"gpu_type,omitempty"`
+	GPUCount              uint32                    `json:"gpu_count,omitempty"`
+	GPUMemoryMiB          uint64                    `json:"gpu_memory_mib,omitempty"`
+	DiskGiB               uint64                    `json:"disk_gib"`
+	VolumeType            string                    `json:"volume_type"`
+	VolumeIOPS            uint32                    `json:"volume_iops,omitempty"`
+	VolumeThroughputMiBPS uint32                    `json:"volume_throughput_mibps,omitempty"`
+	VolumeEncrypted       bool                      `json:"volume_encrypted"`
+	PurchaseOption        string                    `json:"purchase_option"`
+	WorkerImageID         string                    `json:"worker_image_id"`
+	WorkerImageDigest     string                    `json:"worker_image_digest"`
 	VolumeScopes          []agentCloudVolumeScopeV1 `json:"volume_scopes,omitempty"`
 }
 
@@ -701,7 +701,7 @@ func validateReadableAgentCloudConnection(value AgentCloudConnection, connection
 
 func readableAgentCloudConnectionStatus(status string) bool {
 	switch status {
-	case "establishing", "active", "degraded", "teardown_blocked", "destroyed":
+	case "establishing", "active", "degraded", "tearing_down", "teardown_blocked", "destroyed":
 		return true
 	default:
 		return false

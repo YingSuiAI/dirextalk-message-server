@@ -53,8 +53,26 @@ type IdentityPreviewClient interface {
 }
 
 func (m *Module) previewConnectionIdentity(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
-	if err := only(params, "bootstrap_id", "expected_revision", "session_id", "expected_session_revision"); err != nil {
+	if err := only(params, "bootstrap_id", "expected_revision", "lifecycle_action", "cloud_connection_id", "expected_connection_revision", "session_id", "expected_session_revision"); err != nil {
 		return nil, err
+	}
+	values := actionbase.Params(params)
+	_, hasBootstrapID := params["bootstrap_id"]
+	_, hasExpectedRevision := params["expected_revision"]
+	_, hasLifecycleAction := params["lifecycle_action"]
+	_, hasConnectionID := params["cloud_connection_id"]
+	_, hasConnectionRevision := params["expected_connection_revision"]
+	action := values.String("lifecycle_action")
+	rolePlanShape := hasBootstrapID || hasExpectedRevision
+	connectionShape := hasConnectionID || hasConnectionRevision
+	if (!hasLifecycleAction && (!hasBootstrapID || !hasExpectedRevision || connectionShape)) ||
+		(hasLifecycleAction && action == "establish" && (!hasBootstrapID || !hasExpectedRevision || connectionShape)) ||
+		(hasLifecycleAction && action != "establish" && (rolePlanShape || !hasConnectionID || !hasConnectionRevision)) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdentityPreviewInvalidCode, "cloud connection identity preview request is invalid")
+	}
+	if hasLifecycleAction && action != "establish" {
+		return m.previewAgentFoundationIdentity(ctx, action, values.String("cloud_connection_id"),
+			values.Int64("expected_connection_revision"), values.String("session_id"), values.Int64("expected_session_revision"))
 	}
 	if m == nil || m.store == nil || m.cfg.IdentityPreviewClient == nil {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudIdentityPreviewUnavailableCode, "cloud connection identity preview is unavailable")
@@ -63,7 +81,6 @@ func (m *Module) previewConnectionIdentity(ctx context.Context, params map[strin
 	if !ok {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudIdentityPreviewUnavailableCode, "cloud connection identity preview is unavailable")
 	}
-	values := actionbase.Params(params)
 	bootstrapID := values.String("bootstrap_id")
 	expectedRevision := values.Int64("expected_revision")
 	sessionID := values.String("session_id")
@@ -94,7 +111,7 @@ func (m *Module) previewConnectionIdentity(ctx context.Context, params map[strin
 	if err != nil {
 		return nil, identityPreviewError(err)
 	}
-	if validateIdentityPreviewEvidence(evidence, sessionID, expectedSessionRevision, rolePlan.CloudConnectionID, rolePlan.Region, now) != nil {
+	if validateIdentityPreviewEvidence(evidence, sessionID, expectedSessionRevision, rolePlan.CloudConnectionID, "", rolePlan.Region, now) != nil {
 		return nil, actionbase.CodedError(http.StatusBadGateway, cloudIdentityPreviewUpstreamCode, "cloud connection identity preview returned an invalid response")
 	}
 	// Re-read after the network call. A concurrent role-plan revision or expiry
@@ -103,7 +120,7 @@ func (m *Module) previewConnectionIdentity(ctx context.Context, params map[strin
 	if _, err = store.LoadCloudConnectionCredentialBootstrap(ctx, load); err != nil {
 		return nil, connectionCredentialBootstrapStoreError(err)
 	}
-	return map[string]any{
+	result := map[string]any{
 		"identity": map[string]any{
 			"account_id": evidence.AccountID, "principal_arn": evidence.PrincipalARN,
 			"principal_id": evidence.PrincipalID, "region": evidence.Region, "root_identity": evidence.RootIdentity,
@@ -111,6 +128,54 @@ func (m *Module) previewConnectionIdentity(ctx context.Context, params map[strin
 		"cloud_connection_id": rolePlan.CloudConnectionID, "bootstrap_session_id": evidence.BootstrapSessionID,
 		"session_revision": evidence.SessionRevision, "verification_status": "identity_verified",
 		"observed_at": evidence.ObservedAt, "expires_at": evidence.ExpiresAt,
+	}
+	if hasLifecycleAction {
+		result["lifecycle_action"] = "establish"
+		result["connection_revision"] = int64(0)
+	}
+	return result, nil
+}
+
+func (m *Module) previewAgentFoundationIdentity(
+	ctx context.Context,
+	action, connectionID string,
+	expectedConnectionRevision int64,
+	sessionID string,
+	expectedSessionRevision int64,
+) (any, *actionbase.Error) {
+	if m == nil || m.cfg.IdentityPreviewClient == nil || m.cfg.AgentCloudControlClient == nil {
+		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudIdentityPreviewUnavailableCode, "cloud connection identity preview is unavailable")
+	}
+	if !validAgentFoundationExistingConnectionAction(action) || !canonicalUUID(connectionID) || expectedConnectionRevision <= 0 ||
+		!canonicalUUID(sessionID) || expectedSessionRevision <= 0 {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdentityPreviewInvalidCode, "cloud connection identity preview request is invalid")
+	}
+	connection, apiErr := m.loadAgentFoundationConnection(ctx, action, connectionID, expectedConnectionRevision)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	now := m.now().UTC()
+	evidence, err := m.cfg.IdentityPreviewClient.PreviewAgentAWSIdentity(ctx, IdentityPreviewRequest{
+		BootstrapSessionID: sessionID, ExpectedSessionRevision: expectedSessionRevision,
+		TargetID: connection.ConnectionID, Region: connection.Region,
+	})
+	if err != nil {
+		return nil, identityPreviewError(err)
+	}
+	if validateIdentityPreviewEvidence(evidence, sessionID, expectedSessionRevision, connection.ConnectionID, connection.AccountID, connection.Region, now) != nil {
+		return nil, actionbase.CodedError(http.StatusBadGateway, cloudIdentityPreviewUpstreamCode, "cloud connection identity preview returned an invalid response")
+	}
+	if _, apiErr = m.loadAgentFoundationConnection(ctx, action, connectionID, expectedConnectionRevision); apiErr != nil {
+		return nil, apiErr
+	}
+	return map[string]any{
+		"identity": map[string]any{
+			"account_id": evidence.AccountID, "principal_arn": evidence.PrincipalARN,
+			"principal_id": evidence.PrincipalID, "region": evidence.Region, "root_identity": evidence.RootIdentity,
+		},
+		"lifecycle_action": action, "cloud_connection_id": connection.ConnectionID, "connection_revision": connection.Revision,
+		"bootstrap_session_id": evidence.BootstrapSessionID, "session_revision": evidence.SessionRevision,
+		"verification_status": "identity_verified", "observed_at": evidence.ObservedAt, "expires_at": evidence.ExpiresAt,
 	}, nil
 }
 
@@ -129,11 +194,11 @@ func identityPreviewError(err error) *actionbase.Error {
 	}
 }
 
-func validateIdentityPreviewEvidence(value IdentityPreviewEvidence, sessionID string, sessionRevision int64, targetID, region string, now time.Time) error {
+func validateIdentityPreviewEvidence(value IdentityPreviewEvidence, sessionID string, sessionRevision int64, targetID, accountID, region string, now time.Time) error {
 	if value.BootstrapSessionID != sessionID || value.SessionRevision != sessionRevision || value.SessionRevision <= 0 ||
 		!agentSecretIdentifierPattern.MatchString(value.OwnerID) || value.TargetID != targetID || value.Region != region ||
 		!awsAccountIDPattern.MatchString(value.AccountID) || !awsPrincipalIDPattern.MatchString(value.PrincipalID) ||
-		!cloudRegionPattern.MatchString(value.Region) {
+		!cloudRegionPattern.MatchString(value.Region) || (accountID != "" && value.AccountID != accountID) {
 		return ErrIdentityPreviewInvalidResponse
 	}
 	for _, field := range []string{value.OwnerID, value.TargetID, value.AccountID, value.PrincipalARN, value.PrincipalID, value.Region} {

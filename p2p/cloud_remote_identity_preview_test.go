@@ -94,6 +94,15 @@ func TestRemoteIdentityPreviewBindsDurableRolePlanAndDoesNotCreateConnection(t *
 		result["expires_at"] != now.Add(5*time.Minute).Format(time.RFC3339Nano) {
 		t.Fatalf("identity preview result=%#v", result)
 	}
+	foundationParams := map[string]any{
+		"bootstrap_id": rolePlan["bootstrap_id"], "expected_revision": rolePlan["revision"], "lifecycle_action": "establish",
+		"session_id": sessionID, "expected_session_revision": 2,
+	}
+	foundation := cloudCommand(t, router, service, "cloud.connections.identity.preview", foundationParams)
+	if foundation["lifecycle_action"] != "establish" || foundation["connection_revision"] != float64(0) ||
+		client.request.TargetID != connectionID || client.request.Region != "ap-northeast-1" {
+		t.Fatalf("Foundation establish preview request=%#v result=%#v", client.request, foundation)
+	}
 	connections := cloudCommand(t, router, service, "cloud.connections.list", map[string]any{})["connections"].([]any)
 	if len(connections) != 0 {
 		t.Fatalf("identity preview created an active connection: %#v", connections)

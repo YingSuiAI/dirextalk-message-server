@@ -176,6 +176,17 @@ func TestRemoteAgentSecretBootstrapUsesDurableRolePlanAndDedicatedOwnerOnlyUploa
 		strings.Contains(response, "upload_url") || !strings.Contains(response, `"status":"uploaded"`) {
 		t.Fatalf("unsafe upload response: %s", response)
 	}
+
+	foundationParams := map[string]any{
+		"bootstrap_id": rolePlan["bootstrap_id"], "expected_revision": rolePlan["revision"],
+		"lifecycle_action": "establish", "idempotency_key": uuid.NewString(),
+	}
+	foundationSession := cloudCommand(t, router, service, "cloud.connections.credential_bootstrap.create", foundationParams)["session"].(map[string]any)
+	if client.created.Purpose != cloudmodule.AgentSecretBootstrapPurposeAWSFoundationEstablish ||
+		client.created.TargetID != rolePlan["cloud_connection_id"] ||
+		foundationSession["purpose"] != cloudmodule.AgentSecretBootstrapPurposeAWSFoundationEstablish {
+		t.Fatalf("Foundation establish bootstrap request=%#v response=%#v", client.created, foundationSession)
+	}
 }
 
 func sameProductBytes(left, right []byte) bool {

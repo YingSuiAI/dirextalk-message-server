@@ -390,6 +390,19 @@ directly to the Connection Stack. A success receipt proves only that the fixed
 Connection Stack creation request was accepted; it neither activates the
 Connection nor creates EC2 or starts Worker billing.
 
+The request above remains the compatible `aws_connection` establish path.
+Independent Foundation establishment adds only
+`"lifecycle_action":"establish"` to that owner-scoped Role Plan shape and
+creates an `aws_foundation_establish` session. Existing-Connection Foundation
+actions use the strictly separate shape
+`{lifecycle_action,cloud_connection_id,expected_connection_revision,
+idempotency_key}` where `lifecycle_action` is `upgrade`, `teardown`, or
+`remediate_destroy_blocked`. Message Server reads the exact owner-scoped Agent
+Connection before and after session creation; account, Region, and bootstrap
+target are never accepted from the client. Identity preview uses the matching
+shape with `session_id` and `expected_session_revision` in place of
+`idempotency_key`. Mixed shapes fail closed.
+
 `cloud.connections.registration.complete` accepts exactly:
 
 ```json

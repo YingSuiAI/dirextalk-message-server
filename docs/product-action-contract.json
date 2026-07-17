@@ -163,6 +163,21 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.connections.foundation.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.foundation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.foundation.operations.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.plans.confirmation.prepare",
       "auth": "owner",
       "transport": "http_only"

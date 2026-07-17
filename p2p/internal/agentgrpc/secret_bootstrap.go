@@ -23,7 +23,7 @@ func (runner *Runner) CreateAgentSecretBootstrap(ctx context.Context, request cl
 	if runner == nil || runner.secrets == nil {
 		return cloudmodule.AgentSecretBootstrapSession{}, cloudmodule.ErrAgentSecretBootstrapUnavailable
 	}
-	if !validUUID(request.IdempotencyKey) || request.Purpose != cloudmodule.AgentSecretBootstrapPurposeAWSConnection ||
+	if !validUUID(request.IdempotencyKey) || !cloudmodule.ValidAgentSecretBootstrapPurpose(request.Purpose) ||
 		!validAgentSecretIdentifier(request.TargetID) {
 		return cloudmodule.AgentSecretBootstrapSession{}, cloudmodule.ErrAgentSecretBootstrapInvalid
 	}
@@ -88,7 +88,7 @@ func (runner *Runner) UploadAgentEncryptedSecret(ctx context.Context, request cl
 		response.GetSession().GetSessionId() != request.SessionID {
 		return cloudmodule.AgentSecretBootstrapSession{}, cloudmodule.ErrAgentSecretBootstrapInvalidResponse
 	}
-	session, err := runner.mapAgentSecretBootstrapSession(response.GetSession(), cloudmodule.AgentSecretBootstrapPurposeAWSConnection, "")
+	session, err := runner.mapAgentSecretBootstrapSession(response.GetSession(), "", "")
 	if err != nil || session.Status != "uploaded" || session.Revision <= request.ExpectedRevision {
 		return cloudmodule.AgentSecretBootstrapSession{}, cloudmodule.ErrAgentSecretBootstrapInvalidResponse
 	}
@@ -97,7 +97,7 @@ func (runner *Runner) UploadAgentEncryptedSecret(ctx context.Context, request cl
 
 func (runner *Runner) mapAgentSecretBootstrapSession(remote *agentv1.SecretBootstrapSession, expectedPurpose, expectedTarget string) (cloudmodule.AgentSecretBootstrapSession, error) {
 	if remote == nil || !validUUID(remote.GetSessionId()) || remote.GetOwnerId() != runner.ownerID ||
-		remote.GetPurpose() != expectedPurpose || !validAgentSecretIdentifier(remote.GetAgentInstanceId()) ||
+		!cloudmodule.ValidAgentSecretBootstrapPurpose(remote.GetPurpose()) || (expectedPurpose != "" && remote.GetPurpose() != expectedPurpose) || !validAgentSecretIdentifier(remote.GetAgentInstanceId()) ||
 		!validAgentSecretIdentifier(remote.GetTargetId()) || (expectedTarget != "" && remote.GetTargetId() != expectedTarget) ||
 		remote.GetSessionSchemaVersion() != cloudmodule.AgentSecretBootstrapSessionSchemaV1 ||
 		remote.GetEnvelopeSchemaVersion() != cloudmodule.AgentSecretBootstrapEnvelopeSchemaV1 ||

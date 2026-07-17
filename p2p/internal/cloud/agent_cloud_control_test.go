@@ -14,45 +14,54 @@ import (
 )
 
 type agentControlModuleClient struct {
-	goalResult              AgentCloudGoalResult
-	goalErr                 error
-	goalRequest             AgentCloudGoalCreateRequest
-	goalCalls               int
-	plan                    AgentCloudPlan
-	listedPlans             []AgentCloudPlan
-	planFound               bool
-	getPlanErr              error
-	challenge               AgentCloudChallenge
-	challengeErr            error
-	challengeRequest        AgentCloudChallengeRequest
-	approveRequest          AgentCloudApproveRequest
-	approveErr              error
-	approveToApproved       bool
-	establishRequest        AgentCloudEstablishRequest
-	establishConnection     AgentCloudConnection
-	establishErr            error
-	recoveredConnection     AgentCloudConnection
-	listedConnections       []AgentCloudConnection
-	recoveredFound          bool
-	recoveredErr            error
-	getPlanCalls            int
-	challengeCalls          int
-	approveCalls            int
-	establishCalls          int
-	getConnectionCalls      int
-	listConnectionCalls     int
-	destroyChallenge        AgentCloudDeploymentDestroyChallenge
-	destroyChallengeRequest AgentCloudDeploymentDestroyChallengeRequest
-	destroyChallengeErr     error
-	destroyApproveResult    AgentCloudDeploymentDestroyResult
-	destroyApproveRequest   AgentCloudDeploymentDestroyApproveRequest
-	destroyApproveErr       error
-	destroyOperation        AgentCloudDestroyOperation
-	destroyOperationFound   bool
-	destroyOperationErr     error
-	destroyChallengeCalls   int
-	destroyApproveCalls     int
-	destroyOperationCalls   int
+	goalResult                 AgentCloudGoalResult
+	goalErr                    error
+	goalRequest                AgentCloudGoalCreateRequest
+	goalCalls                  int
+	plan                       AgentCloudPlan
+	listedPlans                []AgentCloudPlan
+	planFound                  bool
+	getPlanErr                 error
+	challenge                  AgentCloudChallenge
+	challengeErr               error
+	challengeRequest           AgentCloudChallengeRequest
+	approveRequest             AgentCloudApproveRequest
+	approveErr                 error
+	approveToApproved          bool
+	establishRequest           AgentCloudEstablishRequest
+	establishConnection        AgentCloudConnection
+	establishErr               error
+	recoveredConnection        AgentCloudConnection
+	listedConnections          []AgentCloudConnection
+	recoveredFound             bool
+	recoveredErr               error
+	getPlanCalls               int
+	challengeCalls             int
+	approveCalls               int
+	establishCalls             int
+	getConnectionCalls         int
+	listConnectionCalls        int
+	destroyChallenge           AgentCloudDeploymentDestroyChallenge
+	destroyChallengeRequest    AgentCloudDeploymentDestroyChallengeRequest
+	destroyChallengeErr        error
+	destroyApproveResult       AgentCloudDeploymentDestroyResult
+	destroyApproveRequest      AgentCloudDeploymentDestroyApproveRequest
+	destroyApproveErr          error
+	destroyOperation           AgentCloudDestroyOperation
+	destroyOperationFound      bool
+	destroyOperationErr        error
+	destroyChallengeCalls      int
+	destroyApproveCalls        int
+	destroyOperationCalls      int
+	foundationChallenge        AgentCloudFoundationChallenge
+	foundationChallengeRequest AgentCloudFoundationChallengeRequest
+	foundationChallengeErr     error
+	foundationApproveOperation AgentCloudFoundationOperation
+	foundationApproveRequest   AgentCloudFoundationApproveRequest
+	foundationApproveErr       error
+	foundationOperation        AgentCloudFoundationOperation
+	foundationOperationFound   bool
+	foundationOperationErr     error
 }
 
 func (client *agentControlModuleClient) CreateAgentCloudGoal(_ context.Context, request AgentCloudGoalCreateRequest) (AgentCloudGoalResult, error) {
@@ -121,6 +130,23 @@ func (client *agentControlModuleClient) EstablishAgentAWSConnection(_ context.Co
 	client.establishCalls++
 	client.establishRequest = request
 	return client.establishConnection, client.establishErr
+}
+
+func (client *agentControlModuleClient) CreateAgentAWSFoundationChallenge(_ context.Context, request AgentCloudFoundationChallengeRequest) (AgentCloudFoundationChallenge, error) {
+	client.foundationChallengeRequest = request
+	return client.foundationChallenge, client.foundationChallengeErr
+}
+
+func (client *agentControlModuleClient) ApproveAgentAWSFoundation(_ context.Context, request AgentCloudFoundationApproveRequest) (AgentCloudFoundationOperation, error) {
+	client.foundationApproveRequest = request
+	return client.foundationApproveOperation, client.foundationApproveErr
+}
+
+func (client *agentControlModuleClient) GetAgentAWSFoundationOperation(_ context.Context, request AgentCloudFoundationOperationRequest) (AgentCloudFoundationOperation, bool, error) {
+	if request.OperationID != client.foundationOperation.OperationID {
+		return AgentCloudFoundationOperation{}, false, ErrAgentCloudControlInvalid
+	}
+	return client.foundationOperation, client.foundationOperationFound, client.foundationOperationErr
 }
 
 func (client *agentControlModuleClient) GetAgentCloudConnection(_ context.Context, request AgentCloudConnectionRequest) (AgentCloudConnection, bool, error) {

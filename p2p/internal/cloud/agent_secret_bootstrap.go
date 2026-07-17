@@ -14,11 +14,15 @@ import (
 )
 
 const (
-	AgentSecretBootstrapPurposeAWSConnection = "aws_connection"
-	AgentSecretBootstrapSessionSchemaV1      = "dirextalk.agent.secret-bootstrap.session/v1"
-	AgentSecretBootstrapEnvelopeSchemaV1     = "dirextalk.agent.secret-bootstrap.envelope/v1"
-	AgentSecretBootstrapUploadPath           = "/_p2p/cloud/secret-bootstrap/upload"
-	AgentSecretBootstrapMaxCiphertextBytes   = 1024*1024 + 16
+	AgentSecretBootstrapPurposeAWSConnection                 = "aws_connection"
+	AgentSecretBootstrapPurposeAWSFoundationEstablish        = "aws_foundation_establish"
+	AgentSecretBootstrapPurposeAWSFoundationUpgrade          = "aws_foundation_upgrade"
+	AgentSecretBootstrapPurposeAWSFoundationTeardown         = "aws_foundation_teardown"
+	AgentSecretBootstrapPurposeAWSFoundationRemediateBlocked = "aws_foundation_remediate_destroy_blocked"
+	AgentSecretBootstrapSessionSchemaV1                      = "dirextalk.agent.secret-bootstrap.session/v1"
+	AgentSecretBootstrapEnvelopeSchemaV1                     = "dirextalk.agent.secret-bootstrap.envelope/v1"
+	AgentSecretBootstrapUploadPath                           = "/_p2p/cloud/secret-bootstrap/upload"
+	AgentSecretBootstrapMaxCiphertextBytes                   = 1024*1024 + 16
 )
 
 var (
@@ -72,6 +76,32 @@ type SecretBootstrapClient interface {
 	UploadAgentEncryptedSecret(context.Context, UploadAgentEncryptedSecretRequest) (AgentSecretBootstrapSession, error)
 }
 
+func ValidAgentSecretBootstrapPurpose(value string) bool {
+	switch value {
+	case AgentSecretBootstrapPurposeAWSConnection,
+		AgentSecretBootstrapPurposeAWSFoundationEstablish,
+		AgentSecretBootstrapPurposeAWSFoundationUpgrade,
+		AgentSecretBootstrapPurposeAWSFoundationTeardown,
+		AgentSecretBootstrapPurposeAWSFoundationRemediateBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func agentFoundationBootstrapPurpose(action string) (string, bool) {
+	switch action {
+	case "upgrade":
+		return AgentSecretBootstrapPurposeAWSFoundationUpgrade, true
+	case "teardown":
+		return AgentSecretBootstrapPurposeAWSFoundationTeardown, true
+	case "remediate_destroy_blocked":
+		return AgentSecretBootstrapPurposeAWSFoundationRemediateBlocked, true
+	default:
+		return "", false
+	}
+}
+
 func (m *Module) createAgentConnectionCredentialBootstrap(
 	ctx context.Context,
 	store ConnectionCredentialBootstrapStore,
@@ -79,20 +109,40 @@ func (m *Module) createAgentConnectionCredentialBootstrap(
 	rolePlan ConnectionRolePlan,
 	idempotencyKey string,
 ) (any, *actionbase.Error) {
+	return m.createAgentRolePlanCredentialBootstrap(ctx, store, load, rolePlan, idempotencyKey, AgentSecretBootstrapPurposeAWSConnection)
+}
+
+func (m *Module) createAgentFoundationEstablishCredentialBootstrap(
+	ctx context.Context,
+	store ConnectionCredentialBootstrapStore,
+	load LoadConnectionCredentialBootstrapRequest,
+	rolePlan ConnectionRolePlan,
+	idempotencyKey string,
+) (any, *actionbase.Error) {
+	return m.createAgentRolePlanCredentialBootstrap(ctx, store, load, rolePlan, idempotencyKey, AgentSecretBootstrapPurposeAWSFoundationEstablish)
+}
+
+func (m *Module) createAgentRolePlanCredentialBootstrap(
+	ctx context.Context,
+	store ConnectionCredentialBootstrapStore,
+	load LoadConnectionCredentialBootstrapRequest,
+	rolePlan ConnectionRolePlan,
+	idempotencyKey, purpose string,
+) (any, *actionbase.Error) {
 	if rolePlan.Provider != "aws" || !rolePlan.AllowRootCredentialBootstrap ||
 		!cloudIdentifierPattern.MatchString(rolePlan.CloudConnectionID) || ContainsSensitiveGoalMaterial(rolePlan.CloudConnectionID) {
 		return nil, actionbase.CodedError(http.StatusConflict, cloudConnectionBootstrapConflictCode, "cloud connection role plan is incompatible with credential bootstrap")
 	}
 	session, err := m.cfg.SecretBootstrapClient.CreateAgentSecretBootstrap(ctx, CreateAgentSecretBootstrapRequest{
 		IdempotencyKey: idempotencyKey,
-		Purpose:        AgentSecretBootstrapPurposeAWSConnection,
+		Purpose:        purpose,
 		TargetID:       rolePlan.CloudConnectionID,
 	})
 	if err != nil {
 		return nil, agentSecretBootstrapError(err)
 	}
 	defer wipeBytes(session.UploadToken)
-	if validateAgentSecretBootstrapSession(session) != nil || session.Purpose != AgentSecretBootstrapPurposeAWSConnection || session.TargetID != rolePlan.CloudConnectionID {
+	if validateAgentSecretBootstrapSession(session) != nil || session.Purpose != purpose || session.TargetID != rolePlan.CloudConnectionID {
 		return nil, actionbase.CodedError(http.StatusBadGateway, cloudSecretBootstrapUpstreamCode, "cloud secret bootstrap service returned an invalid response")
 	}
 	includeUploadCapability := false
@@ -114,6 +164,57 @@ func (m *Module) createAgentConnectionCredentialBootstrap(
 	load.Now = m.now().UTC().UnixMilli()
 	if _, err = store.LoadCloudConnectionCredentialBootstrap(ctx, load); err != nil {
 		return nil, connectionCredentialBootstrapStoreError(err)
+	}
+	return map[string]any{"session": agentSecretBootstrapSessionView(session, includeUploadCapability)}, nil
+}
+
+func (m *Module) createAgentFoundationCredentialBootstrap(
+	ctx context.Context,
+	action, connectionID string,
+	expectedConnectionRevision int64,
+	idempotencyKey string,
+) (any, *actionbase.Error) {
+	if m == nil || m.cfg.SecretBootstrapClient == nil || m.cfg.AgentCloudControlClient == nil {
+		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionCredentialBootstrapUnavailableCode, "cloud connection credential bootstrap is not configured")
+	}
+	purpose, ok := agentFoundationBootstrapPurpose(action)
+	if !ok || !canonicalUUID(connectionID) || expectedConnectionRevision <= 0 || !canonicalUUID(idempotencyKey) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionCredentialBootstrapInvalidCode, "cloud connection credential bootstrap request is invalid")
+	}
+	connection, apiErr := m.loadAgentFoundationConnection(ctx, action, connectionID, expectedConnectionRevision)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	session, err := m.cfg.SecretBootstrapClient.CreateAgentSecretBootstrap(ctx, CreateAgentSecretBootstrapRequest{
+		IdempotencyKey: idempotencyKey,
+		Purpose:        purpose,
+		TargetID:       connection.ConnectionID,
+	})
+	if err != nil {
+		return nil, agentSecretBootstrapError(err)
+	}
+	defer wipeBytes(session.UploadToken)
+	if validateAgentSecretBootstrapSession(session) != nil || session.Purpose != purpose || session.TargetID != connection.ConnectionID {
+		return nil, actionbase.CodedError(http.StatusBadGateway, cloudSecretBootstrapUpstreamCode, "cloud secret bootstrap service returned an invalid response")
+	}
+	includeUploadCapability := false
+	switch session.Status {
+	case "awaiting_upload":
+		includeUploadCapability = len(session.UploadToken) == 32
+		if !includeUploadCapability {
+			return nil, actionbase.CodedError(http.StatusBadGateway, cloudSecretBootstrapUpstreamCode, "cloud secret bootstrap service returned an invalid response")
+		}
+	case "uploaded":
+		if len(session.UploadToken) != 0 {
+			return nil, actionbase.CodedError(http.StatusBadGateway, cloudSecretBootstrapUpstreamCode, "cloud secret bootstrap service returned an invalid response")
+		}
+	default:
+		return nil, actionbase.CodedError(http.StatusBadGateway, cloudSecretBootstrapUpstreamCode, "cloud secret bootstrap service returned an invalid response")
+	}
+	// Fence the one-time upload capability against a concurrent Connection
+	// transition after the Agent call.
+	if _, apiErr = m.loadAgentFoundationConnection(ctx, action, connectionID, expectedConnectionRevision); apiErr != nil {
+		return nil, apiErr
 	}
 	return map[string]any{"session": agentSecretBootstrapSessionView(session, includeUploadCapability)}, nil
 }

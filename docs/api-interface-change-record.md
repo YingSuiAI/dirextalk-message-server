@@ -2,6 +2,45 @@
 
 Last updated: 2026-07-17
 
+## 2026-07-17 Agent-owned AWS Foundation lifecycle façade
+
+Three additive owner HTTP-only ProductCore actions expose the independent
+Agent's device-approved Foundation lifecycle:
+`cloud.connections.foundation.confirmation.prepare`,
+`cloud.connections.foundation.approve`, and
+`cloud.connections.foundation.operations.get`. All three responses are
+`no-store`; WebSocket and Agent tokens cannot call them.
+
+Prepare returns the complete Agent-authored signing scope and exact CBOR bytes.
+The scope binds owner, Connection and bootstrap revisions, action, observed AWS
+identity, Foundation template digest, and the fixed private release environment.
+Approve forwards only this bound device approval and reconciles an ambiguous
+response through the exact owner-scoped operation ID. Get exposes only the
+public operation status/read-back. Message Server neither persists nor
+decrypts bootstrap credentials and has no AWS provider capability.
+
+The existing credential and identity actions gain strictly disjoint Foundation
+request shapes. Establish derives its target and Region from the existing
+owner-scoped Role Plan and accepts `bootstrap_id`, `expected_revision`,
+`lifecycle_action=establish`, plus `idempotency_key` for session creation (or
+`session_id` and `expected_session_revision` for identity preview). Upgrade,
+teardown, and destroy-blocked remediation instead accept the closed
+`lifecycle_action`, `cloud_connection_id`, and
+`expected_connection_revision`; Message Server reads that exact owner-scoped
+Agent Connection before and after the remote call and derives target, account,
+and Region from it. Mixing either lifecycle shape with the other shape is
+rejected. The original Role Plan request without `lifecycle_action` remains
+compatible and continues to create only an `aws_connection` session; it cannot
+be replayed as a Foundation lifecycle session.
+
+Connection read-back additionally recognizes `tearing_down` as the pending
+state created atomically by teardown approval. It remains visible to clients
+but is not treated as an active Connection and cannot start another lifecycle
+bootstrap. Operation read-back also recognizes terminal
+`failed_terminal`/`fresh_bootstrap_required`: clients must upload fresh admin
+credentials and create a new approval rather than retrying the consumed or
+expired authorization.
+
 ## 2026-07-17 Agent Deployment health summary
 
 The owner-readable `cloud.deployments.list/get` ProductCore projection gains an

@@ -56,6 +56,9 @@ type cloudTestService struct {
 	createDestroy         func(*agentv1.CreateCloudDeploymentDestroyChallengeRequest) (*agentv1.CreateCloudDeploymentDestroyChallengeResponse, error)
 	approveDestroy        func(*agentv1.ApproveCloudDeploymentDestroyRequest) (*agentv1.ApproveCloudDeploymentDestroyResponse, error)
 	getDestroy            func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error)
+	createFoundation      func(*agentv1.CreateAwsFoundationOperationChallengeRequest) (*agentv1.CreateAwsFoundationOperationChallengeResponse, error)
+	approveFoundation     func(*agentv1.ApproveAwsFoundationOperationRequest) (*agentv1.ApproveAwsFoundationOperationResponse, error)
+	getFoundation         func(*agentv1.GetAwsFoundationOperationRequest) (*agentv1.GetAwsFoundationOperationResponse, error)
 }
 
 func (service *cloudTestService) CreateCloudGoal(_ context.Context, request *agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error) {
@@ -156,6 +159,36 @@ func (service *cloudTestService) EstablishAwsConnection(_ context.Context, reque
 		return callback(request)
 	}
 	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) CreateAwsFoundationOperationChallenge(_ context.Context, request *agentv1.CreateAwsFoundationOperationChallengeRequest) (*agentv1.CreateAwsFoundationOperationChallengeResponse, error) {
+	service.mu.Lock()
+	callback := service.createFoundation
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) ApproveAwsFoundationOperation(_ context.Context, request *agentv1.ApproveAwsFoundationOperationRequest) (*agentv1.ApproveAwsFoundationOperationResponse, error) {
+	service.mu.Lock()
+	callback := service.approveFoundation
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) GetAwsFoundationOperation(_ context.Context, request *agentv1.GetAwsFoundationOperationRequest) (*agentv1.GetAwsFoundationOperationResponse, error) {
+	service.mu.Lock()
+	callback := service.getFoundation
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
 }
 
 func (service *cloudTestService) GetCloudConnection(_ context.Context, request *agentv1.GetCloudConnectionRequest) (*agentv1.GetCloudConnectionResponse, error) {
@@ -458,7 +491,7 @@ func TestCloudDeploymentReaderRejectsMalformedHealthWithoutLeakingRemoteDetails(
 	valid := &agentv1.CloudHealthSummary{
 		Status: agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_HEALTHY, Revision: 2,
 		ObservedAt: timestamppb.New(time.Unix(3, 0)), NextDueAt: timestamppb.New(time.Unix(4, 0)), ProbeCount: 1,
-		ProbeCounts: []*agentv1.CloudHealthProbeCount{{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_READINESS, Count: 1}},
+		ProbeCounts:            []*agentv1.CloudHealthProbeCount{{Kind: agentv1.CloudHealthProbeKind_CLOUD_HEALTH_PROBE_KIND_READINESS, Count: 1}},
 		ExternalEvidenceDigest: "sha256:" + strings.Repeat("b", 64),
 		EvidenceType:           agentv1.CloudHealthEvidenceType_CLOUD_HEALTH_EVIDENCE_TYPE_INDEPENDENT_EXTERNAL,
 	}
@@ -466,7 +499,9 @@ func TestCloudDeploymentReaderRejectsMalformedHealthWithoutLeakingRemoteDetails(
 		name   string
 		mutate func(*agentv1.CloudHealthSummary)
 	}{
-		{name: "unspecified status", mutate: func(value *agentv1.CloudHealthSummary) { value.Status = agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNSPECIFIED }},
+		{name: "unspecified status", mutate: func(value *agentv1.CloudHealthSummary) {
+			value.Status = agentv1.CloudHealthStatus_CLOUD_HEALTH_STATUS_UNSPECIFIED
+		}},
 		{name: "duplicate probe kind", mutate: func(value *agentv1.CloudHealthSummary) {
 			value.ProbeCount = 2
 			value.ProbeCounts = append(value.ProbeCounts, proto.Clone(value.ProbeCounts[0]).(*agentv1.CloudHealthProbeCount))

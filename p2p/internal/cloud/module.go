@@ -38,6 +38,9 @@ const (
 	actionConnectionsCredentialBootstrapCreate          = "cloud.connections.credential_bootstrap.create"
 	actionConnectionsIdentityPreview                    = "cloud.connections.identity.preview"
 	actionConnectionsRegistrationComplete               = "cloud.connections.registration.complete"
+	actionConnectionsFoundationConfirmationPrepare      = "cloud.connections.foundation.confirmation.prepare"
+	actionConnectionsFoundationApprove                  = "cloud.connections.foundation.approve"
+	actionConnectionsFoundationOperationsGet            = "cloud.connections.foundation.operations.get"
 	actionPlansConfirmationPrepare                      = "cloud.plans.confirmation.prepare"
 	actionPlansApprove                                  = "cloud.plans.approve"
 	actionDeploymentsRecipeExecutionConfirmationPrepare = "cloud.deployments.recipe_execution.confirmation.prepare"
@@ -157,6 +160,9 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 		actionConnectionsCredentialBootstrapCreate:          m.createConnectionCredentialBootstrap,
 		actionConnectionsIdentityPreview:                    m.previewConnectionIdentity,
 		actionConnectionsRegistrationComplete:               m.completeConnectionRegistration,
+		actionConnectionsFoundationConfirmationPrepare:      m.prepareAgentFoundationConfirmation,
+		actionConnectionsFoundationApprove:                  m.approveAgentFoundation,
+		actionConnectionsFoundationOperationsGet:            m.getAgentFoundationOperation,
 		actionPlansConfirmationPrepare:                      m.preparePlanConfirmation,
 		actionPlansApprove:                                  m.approvePlan,
 		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,

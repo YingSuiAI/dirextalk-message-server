@@ -29,8 +29,27 @@ var (
 )
 
 func (m *Module) createConnectionCredentialBootstrap(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
-	if err := only(params, "bootstrap_id", "expected_revision", "idempotency_key"); err != nil {
+	if err := only(params, "bootstrap_id", "expected_revision", "lifecycle_action", "cloud_connection_id", "expected_connection_revision", "idempotency_key"); err != nil {
 		return nil, err
+	}
+	values := actionbase.Params(params)
+	_, hasBootstrapID := params["bootstrap_id"]
+	_, hasExpectedRevision := params["expected_revision"]
+	_, hasLifecycleAction := params["lifecycle_action"]
+	_, hasConnectionID := params["cloud_connection_id"]
+	_, hasConnectionRevision := params["expected_connection_revision"]
+	idempotencyKey := values.String("idempotency_key")
+	action := values.String("lifecycle_action")
+	rolePlanShape := hasBootstrapID || hasExpectedRevision
+	connectionShape := hasConnectionID || hasConnectionRevision
+	if (!hasLifecycleAction && (!hasBootstrapID || !hasExpectedRevision || connectionShape)) ||
+		(hasLifecycleAction && action == "establish" && (!hasBootstrapID || !hasExpectedRevision || connectionShape)) ||
+		(hasLifecycleAction && action != "establish" && (rolePlanShape || !hasConnectionID || !hasConnectionRevision)) {
+		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionCredentialBootstrapInvalidCode, "cloud connection credential bootstrap request is invalid")
+	}
+	if hasLifecycleAction && action != "establish" {
+		return m.createAgentFoundationCredentialBootstrap(ctx, action, values.String("cloud_connection_id"),
+			values.Int64("expected_connection_revision"), idempotencyKey)
 	}
 	if m == nil || m.store == nil || (m.cfg.CredentialBootstrapClient == nil && m.cfg.SecretBootstrapClient == nil) {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionCredentialBootstrapUnavailableCode, "cloud connection credential bootstrap is not configured")
@@ -39,10 +58,8 @@ func (m *Module) createConnectionCredentialBootstrap(ctx context.Context, params
 	if !ok {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionCredentialBootstrapUnavailableCode, "cloud connection credential bootstrap is not configured")
 	}
-	values := actionbase.Params(params)
 	bootstrapID := values.String("bootstrap_id")
 	expectedRevision := values.Int64("expected_revision")
-	idempotencyKey := values.String("idempotency_key")
 	parsedID, idErr := uuid.Parse(idempotencyKey)
 	if !cloudIdentifierPattern.MatchString(bootstrapID) || expectedRevision <= 0 || idErr != nil || parsedID.String() != idempotencyKey || ContainsSensitiveGoalMaterial(idempotencyKey) {
 		return nil, actionbase.CodedError(http.StatusBadRequest, cloudConnectionCredentialBootstrapInvalidCode, "cloud connection credential bootstrap request is invalid")
@@ -58,7 +75,13 @@ func (m *Module) createConnectionCredentialBootstrap(ctx context.Context, params
 		return nil, connectionCredentialBootstrapStoreError(err)
 	}
 	if m.cfg.SecretBootstrapClient != nil {
+		if hasLifecycleAction {
+			return m.createAgentFoundationEstablishCredentialBootstrap(ctx, store, load, rolePlan, idempotencyKey)
+		}
 		return m.createAgentConnectionCredentialBootstrap(ctx, store, load, rolePlan, idempotencyKey)
+	}
+	if hasLifecycleAction {
+		return nil, actionbase.CodedError(http.StatusServiceUnavailable, cloudConnectionCredentialBootstrapUnavailableCode, "cloud connection credential bootstrap is not configured")
 	}
 	request, err := connectionCredentialBootstrapRequest(idempotencyKey, rolePlan)
 	if err != nil {
