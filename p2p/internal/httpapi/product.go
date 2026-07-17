@@ -104,6 +104,8 @@ func sensitiveCloudHTTPAction(action string) bool {
 		serviceapi.CloudConnectionFoundationOperationGetAction,
 		serviceapi.CloudPlanConfirmationPrepareAction,
 		serviceapi.CloudPlanApproveAction,
+		serviceapi.CloudDeploymentPairingPayloadRetrieveAction,
+		serviceapi.CloudDeploymentPairingResumeAction,
 		serviceapi.CloudDeploymentDestroyPlanAction,
 		serviceapi.CloudDeploymentDestroyApproveAction:
 		return true

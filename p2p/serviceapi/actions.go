@@ -15,6 +15,8 @@ const (
 	CloudConnectionFoundationOperationGetAction        = "cloud.connections.foundation.operations.get"
 	CloudPlanConfirmationPrepareAction                 = "cloud.plans.confirmation.prepare"
 	CloudPlanApproveAction                             = "cloud.plans.approve"
+	CloudDeploymentPairingPayloadRetrieveAction        = "cloud.deployments.pairing.payload.retrieve"
+	CloudDeploymentPairingResumeAction                 = "cloud.deployments.pairing.resume"
 	CloudDeploymentDestroyPlanAction                   = "cloud.deployments.destroy.plan"
 	CloudDeploymentDestroyApproveAction                = "cloud.deployments.destroy.approve"
 )
@@ -85,7 +87,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "cloud.deployments.recipe_execution.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.deployments.recipe_execution.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.secrets.bootstrap.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
-	{Name: "cloud.deployments.pairing.resume", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentPairingPayloadRetrieveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentPairingResumeAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.jobs.cancel.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "cloud.jobs.cancel.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: CloudDeploymentDestroyPlanAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

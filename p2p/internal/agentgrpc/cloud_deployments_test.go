@@ -62,6 +62,50 @@ type cloudTestService struct {
 	createManaged         func(*agentv1.CreateCloudManagedAcceptanceChallengeRequest) (*agentv1.CreateCloudManagedAcceptanceChallengeResponse, error)
 	approveManaged        func(*agentv1.ApproveCloudManagedAcceptanceRequest) (*agentv1.ApproveCloudManagedAcceptanceResponse, error)
 	getManaged            func(*agentv1.GetCloudManagedAcceptanceOperationRequest) (*agentv1.GetCloudManagedAcceptanceOperationResponse, error)
+	getPairing            func(*agentv1.GetCloudPairingRequest) (*agentv1.GetCloudPairingResponse, error)
+	retrievePairing       func(*agentv1.RetrieveCloudPairingPayloadRequest) (*agentv1.RetrieveCloudPairingPayloadResponse, error)
+	createPairingResume   func(*agentv1.CreateCloudPairingResumeChallengeRequest) (*agentv1.CreateCloudPairingResumeChallengeResponse, error)
+	approvePairingResume  func(*agentv1.ApproveCloudPairingResumeRequest) (*agentv1.ApproveCloudPairingResumeResponse, error)
+}
+
+func (service *cloudTestService) GetCloudPairing(_ context.Context, request *agentv1.GetCloudPairingRequest) (*agentv1.GetCloudPairingResponse, error) {
+	service.mu.Lock()
+	callback := service.getPairing
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
+}
+
+func (service *cloudTestService) RetrieveCloudPairingPayload(_ context.Context, request *agentv1.RetrieveCloudPairingPayloadRequest) (*agentv1.RetrieveCloudPairingPayloadResponse, error) {
+	service.mu.Lock()
+	callback := service.retrievePairing
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) CreateCloudPairingResumeChallenge(_ context.Context, request *agentv1.CreateCloudPairingResumeChallengeRequest) (*agentv1.CreateCloudPairingResumeChallengeResponse, error) {
+	service.mu.Lock()
+	callback := service.createPairingResume
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
+}
+
+func (service *cloudTestService) ApproveCloudPairingResume(_ context.Context, request *agentv1.ApproveCloudPairingResumeRequest) (*agentv1.ApproveCloudPairingResumeResponse, error) {
+	service.mu.Lock()
+	callback := service.approvePairingResume
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.Unavailable, "not configured")
 }
 
 func (service *cloudTestService) CreateCloudGoal(_ context.Context, request *agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error) {

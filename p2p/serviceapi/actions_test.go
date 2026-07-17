@@ -9,8 +9,8 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	first := ActionSpecs()
 	second := ActionSpecs()
 
-	if len(first) != 191 {
-		t.Fatalf("ActionSpecs() returned %d actions, want 191", len(first))
+	if len(first) != 192 {
+		t.Fatalf("ActionSpecs() returned %d actions, want 192", len(first))
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("ActionSpecs() did not preserve action order")
@@ -22,6 +22,18 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	}
 	if got := ActionSpecs()[0].Name; got != "portal.bootstrap" {
 		t.Fatalf("mutating returned specs changed registry: first action = %q", got)
+	}
+}
+
+func TestCloudPairingActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		CloudDeploymentPairingPayloadRetrieveAction,
+		CloudDeploymentPairingResumeAction,
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
 	}
 }
 

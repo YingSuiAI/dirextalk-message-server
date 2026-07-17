@@ -1,5 +1,23 @@
 # API Interface Change Record
 
+## 2026-07-17: owner-only on-demand encrypted deployment pairing payload
+
+- Added `cloud.deployments.pairing.payload.retrieve` as an owner-authenticated,
+  HTTP-only ProductCore action. The request binds one canonical Agent
+  deployment to a caller-generated one-time X25519 public key and UUID
+  idempotency key. Message Server resolves the current owner-bound pairing ID
+  and revision from Agent rather than accepting either from the client.
+- The response contains only the Agent's authenticated ciphertext envelope and
+  minimal pairing status metadata, including the exact pre-mutation payload
+  scope revision needed to validate the authenticated data. `payload_digest`
+  is the deterministic envelope-and-AAD binding digest, never a digest of the
+  pairing plaintext. Message Server does not persist, publish, enqueue,
+  project, or send the envelope over realtime WS/Matrix paths.
+- Every response path, including authentication and action errors, uses
+  `Cache-Control: no-store` and `Pragma: no-cache`. The existing
+  `cloud.deployments.pairing.resume` public request and response shape remains
+  unchanged.
+
 Last updated: 2026-07-17
 
 ## 2026-07-17 Agent-owned AWS Foundation lifecycle façade

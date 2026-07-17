@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 )
 
 func TestModulePairingResumeUsesDeviceChallengeAndExistingWorkload(t *testing.T) {
@@ -20,7 +21,7 @@ func TestModulePairingResumeUsesDeviceChallengeAndExistingWorkload(t *testing.T)
 	store := &pairingResumeModuleStore{prepared: PreparePairingResumeResult{Confirmation: PairingResumeConfirmation{Deployment: Deployment{DeploymentID: target.DeploymentID, Execution: "waiting_user", Revision: 7}, Job: Job{JobID: target.JobID, Execution: "waiting_user", Revision: 3}, Approval: approval}, Created: true}}
 	published := 0
 	m := New(store, Config{OwnerMXID: func() string { return "@owner:example.com" }, Now: func() time.Time { return now }, NewID: func(kind string) string { return kind + "-generated" }, Publish: func(context.Context, string, string, map[string]any) error { published++; return nil }})
-	result, apiErr := m.Handlers()[actionDeploymentsPairingResume](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "idempotency_key": "11111111-1111-4111-8111-111111111111"})
+	result, apiErr := m.Handlers()[serviceapi.CloudDeploymentPairingResumeAction](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "idempotency_key": "11111111-1111-4111-8111-111111111111"})
 	if apiErr != nil || result == nil || store.prepare.ExpectedRevision != 7 || published != 0 {
 		t.Fatalf("prepare=%#v request=%#v published=%d err=%v", result, store.prepare, published, apiErr)
 	}
@@ -30,12 +31,12 @@ func TestModulePairingResumeUsesDeviceChallengeAndExistingWorkload(t *testing.T)
 		t.Fatal(err)
 	}
 	store.approved = ApprovePairingResumeResult{Deployment: Deployment{DeploymentID: target.DeploymentID, Execution: "queued", Revision: 8}, Job: Job{JobID: target.JobID, Execution: "queued", Revision: 4}, Created: true}
-	result, apiErr = m.Handlers()[actionDeploymentsPairingResume](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "approval": signed, "idempotency_key": "22222222-2222-4222-8222-222222222222"})
+	result, apiErr = m.Handlers()[serviceapi.CloudDeploymentPairingResumeAction](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "approval": signed, "idempotency_key": "22222222-2222-4222-8222-222222222222"})
 	if apiErr != nil || result == nil || store.approve.Approval.Intent != cloudcontracts.PairingResumeIntent || published != 2 {
 		t.Fatalf("approve=%#v request=%#v published=%d err=%v", result, store.approve, published, apiErr)
 	}
-	if _, apiErr = m.Handlers()[actionDeploymentsPairingResume](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "pairing_url": "https://secret.invalid", "idempotency_key": "33333333-3333-4333-8333-333333333333"}); apiErr == nil {
-		t.Fatal("pairing resume accepted pairing material")
+	if _, apiErr = m.Handlers()[serviceapi.CloudDeploymentPairingResumeAction](t.Context(), map[string]any{"deployment_id": target.DeploymentID, "expected_revision": float64(7), "pairing_url": "https://secret.invalid", "idempotency_key": "33333333-3333-4333-8333-333333333333"}); apiErr == nil || apiErr.Code != cloudInvalidParamsCode {
+		t.Fatalf("pairing resume accepted an unknown pairing-material field: %#v", apiErr)
 	}
 }
 

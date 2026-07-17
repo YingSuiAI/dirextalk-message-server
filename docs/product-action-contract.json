@@ -203,6 +203,11 @@
       "transport": "http_only"
     },
     {
+      "name": "cloud.deployments.pairing.payload.retrieve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "cloud.deployments.pairing.resume",
       "auth": "owner",
       "transport": "http_only"

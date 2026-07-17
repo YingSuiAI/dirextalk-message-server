@@ -17,6 +17,7 @@ import (
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	cloudcontracts "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloudorchestrator"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	"github.com/google/uuid"
 )
 
@@ -46,7 +47,6 @@ const (
 	actionDeploymentsRecipeExecutionConfirmationPrepare = "cloud.deployments.recipe_execution.confirmation.prepare"
 	actionDeploymentsRecipeExecutionApprove             = "cloud.deployments.recipe_execution.approve"
 	actionSecretsBootstrapPlan                          = "cloud.secrets.bootstrap.plan"
-	actionDeploymentsPairingResume                      = "cloud.deployments.pairing.resume"
 	actionServicesOperationPlan                         = "cloud.services.operation.plan"
 	actionServicesOperationApprove                      = "cloud.services.operation.approve"
 	actionServicesDestroyPlan                           = "cloud.services.destroy.plan"
@@ -153,51 +153,52 @@ func New(store Store, cfg Config) *Module {
 
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
-		actionBootstrap:                                     m.bootstrap,
-		actionConnectionsList:                               m.connectionsList,
-		actionConnectionsGet:                                m.connectionsGet,
-		actionPlansList:                                     m.plansList,
-		actionPlansGet:                                      m.plansGet,
-		actionDeploymentsList:                               m.deploymentsList,
-		actionDeploymentsGet:                                m.deploymentsGet,
-		actionServicesList:                                  m.servicesList,
-		actionServicesGet:                                   m.servicesGet,
-		actionRecipesList:                                   m.recipesList,
-		actionRecipesGet:                                    m.recipesGet,
-		actionEventsList:                                    m.eventsList,
-		actionGoalsCreate:                                   m.createGoal,
-		actionConnectionsRolePlan:                           m.createConnectionRolePlan,
-		actionConnectionsCredentialBootstrapCreate:          m.createConnectionCredentialBootstrap,
-		actionConnectionsIdentityPreview:                    m.previewConnectionIdentity,
-		actionConnectionsRegistrationComplete:               m.completeConnectionRegistration,
-		actionConnectionsFoundationConfirmationPrepare:      m.prepareAgentFoundationConfirmation,
-		actionConnectionsFoundationApprove:                  m.approveAgentFoundation,
-		actionConnectionsFoundationOperationsGet:            m.getAgentFoundationOperation,
-		actionPlansConfirmationPrepare:                      m.preparePlanConfirmation,
-		actionPlansApprove:                                  m.approvePlan,
-		actionDeploymentsRecipeExecutionConfirmationPrepare: m.prepareRecipeExecutionConfirmation,
-		actionDeploymentsRecipeExecutionApprove:             m.approveRecipeExecution,
-		actionSecretsBootstrapPlan:                          m.prepareServiceSecretBootstrap,
-		actionDeploymentsPairingResume:                      m.resumeDeploymentPairing,
-		actionDeploymentsDestroyPlan:                        m.prepareDeploymentDestroy,
-		actionDeploymentsDestroyApprove:                     m.approveDeploymentDestroy,
-		actionJobsCancelPlan:                                m.prepareJobCancel,
-		actionJobsCancelApprove:                             m.approveJobCancel,
-		actionServicesOperationPlan:                         m.prepareServiceOperation,
-		actionServicesOperationApprove:                      m.approveServiceOperation,
-		actionServicesDestroyPlan:                           m.prepareServiceDestroy,
-		actionServicesDestroyApprove:                        m.approveServiceDestroy,
-		actionServicesRestorePlan:                           m.createServiceRestorePlan,
-		actionServicesRestoreConfirmationPrepare:            m.prepareServiceRestore,
-		actionServicesRestoreApprove:                        m.approveServiceRestore,
-		actionServicesManagementPlan:                        m.prepareServiceManagementAcceptance,
-		actionServicesManagementApprove:                     m.approveServiceManagementAcceptance,
-		actionServicesManagedPreparationPrepare:             m.prepareManagedPreparation,
-		actionServicesManagedPreparationApprove:             m.approveManagedPreparation,
-		actionServicesManagedPreparationGet:                 m.getManagedPreparation,
-		actionServicesRootHelperKeyPrepare:                  m.prepareRootHelperKey,
-		actionServicesRootHelperKeyApprove:                  m.approveRootHelperKey,
-		actionServicesRootHelperKeyGet:                      m.getRootHelperKey,
+		actionBootstrap:                                        m.bootstrap,
+		actionConnectionsList:                                  m.connectionsList,
+		actionConnectionsGet:                                   m.connectionsGet,
+		actionPlansList:                                        m.plansList,
+		actionPlansGet:                                         m.plansGet,
+		actionDeploymentsList:                                  m.deploymentsList,
+		actionDeploymentsGet:                                   m.deploymentsGet,
+		actionServicesList:                                     m.servicesList,
+		actionServicesGet:                                      m.servicesGet,
+		actionRecipesList:                                      m.recipesList,
+		actionRecipesGet:                                       m.recipesGet,
+		actionEventsList:                                       m.eventsList,
+		actionGoalsCreate:                                      m.createGoal,
+		actionConnectionsRolePlan:                              m.createConnectionRolePlan,
+		actionConnectionsCredentialBootstrapCreate:             m.createConnectionCredentialBootstrap,
+		actionConnectionsIdentityPreview:                       m.previewConnectionIdentity,
+		actionConnectionsRegistrationComplete:                  m.completeConnectionRegistration,
+		actionConnectionsFoundationConfirmationPrepare:         m.prepareAgentFoundationConfirmation,
+		actionConnectionsFoundationApprove:                     m.approveAgentFoundation,
+		actionConnectionsFoundationOperationsGet:               m.getAgentFoundationOperation,
+		actionPlansConfirmationPrepare:                         m.preparePlanConfirmation,
+		actionPlansApprove:                                     m.approvePlan,
+		actionDeploymentsRecipeExecutionConfirmationPrepare:    m.prepareRecipeExecutionConfirmation,
+		actionDeploymentsRecipeExecutionApprove:                m.approveRecipeExecution,
+		actionSecretsBootstrapPlan:                             m.prepareServiceSecretBootstrap,
+		serviceapi.CloudDeploymentPairingPayloadRetrieveAction: m.retrieveDeploymentPairingPayload,
+		serviceapi.CloudDeploymentPairingResumeAction:          m.resumeDeploymentPairing,
+		actionDeploymentsDestroyPlan:                           m.prepareDeploymentDestroy,
+		actionDeploymentsDestroyApprove:                        m.approveDeploymentDestroy,
+		actionJobsCancelPlan:                                   m.prepareJobCancel,
+		actionJobsCancelApprove:                                m.approveJobCancel,
+		actionServicesOperationPlan:                            m.prepareServiceOperation,
+		actionServicesOperationApprove:                         m.approveServiceOperation,
+		actionServicesDestroyPlan:                              m.prepareServiceDestroy,
+		actionServicesDestroyApprove:                           m.approveServiceDestroy,
+		actionServicesRestorePlan:                              m.createServiceRestorePlan,
+		actionServicesRestoreConfirmationPrepare:               m.prepareServiceRestore,
+		actionServicesRestoreApprove:                           m.approveServiceRestore,
+		actionServicesManagementPlan:                           m.prepareServiceManagementAcceptance,
+		actionServicesManagementApprove:                        m.approveServiceManagementAcceptance,
+		actionServicesManagedPreparationPrepare:                m.prepareManagedPreparation,
+		actionServicesManagedPreparationApprove:                m.approveManagedPreparation,
+		actionServicesManagedPreparationGet:                    m.getManagedPreparation,
+		actionServicesRootHelperKeyPrepare:                     m.prepareRootHelperKey,
+		actionServicesRootHelperKeyApprove:                     m.approveRootHelperKey,
+		actionServicesRootHelperKeyGet:                         m.getRootHelperKey,
 	}
 }
 
@@ -209,25 +210,37 @@ func (m *Module) resumeDeploymentPairing(ctx context.Context, params map[string]
 	if err := only(params, "deployment_id", "expected_revision", "approval", "idempotency_key"); err != nil {
 		return nil, err
 	}
-	if m == nil || m.store == nil {
-		return nil, unavailableError()
-	}
-	store, ok := m.store.(PairingResumeStore)
-	if !ok {
-		return nil, unavailableError()
-	}
 	v := actionbase.Params(params)
 	deploymentID, key := v.String("deployment_id"), v.String("idempotency_key")
 	revision := v.Int64("expected_revision")
 	if !cloudIdentifierPattern.MatchString(deploymentID) || revision <= 0 || ContainsSensitiveGoalMaterial(key) {
 		return nil, actionbase.CodedError(http.StatusBadRequest, cloudPairingResumeInvalidCode, "cloud pairing resume is invalid")
 	}
-	if _, err := uuid.Parse(key); err != nil {
+	parsedKey, err := uuid.Parse(key)
+	if err != nil {
 		return nil, actionbase.CodedError(http.StatusBadRequest, cloudIdempotencyInvalidCode, "idempotency_key must be a UUID")
 	}
 	owner := m.ownerMXID()
 	if owner == "" {
 		return nil, actionbase.InternalError(context.Canceled)
+	}
+	if canonicalUUID(deploymentID) {
+		var agentApproval *cloudcontracts.PairingResumeApprovalV1
+		if value, approving := params["approval"]; approving {
+			approval, decodeErr := decodePairingResumeApprovalV1(value)
+			if decodeErr != nil || approval.Signature == "" {
+				return nil, actionbase.CodedError(http.StatusBadRequest, cloudPairingResumeInvalidCode, "cloud pairing resume approval is invalid")
+			}
+			agentApproval = &approval
+		}
+		return m.resumeAgentDeploymentPairing(ctx, deploymentID, parsedKey.String(), revision, agentApproval)
+	}
+	if m == nil || m.store == nil {
+		return nil, unavailableError()
+	}
+	store, ok := m.store.(PairingResumeStore)
+	if !ok {
+		return nil, unavailableError()
 	}
 	now := m.now().UTC().Truncate(time.Second)
 	if _, approving := params["approval"]; !approving {

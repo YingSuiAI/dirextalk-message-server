@@ -155,6 +155,40 @@ func TestFoundationLifecycleActionsRequireOwnerHTTPAndNoStore(t *testing.T) {
 	}
 }
 
+func TestDeploymentPairingActionsRequireOwnerHTTPAndNoStore(t *testing.T) {
+	for _, action := range []string{
+		serviceapi.CloudDeploymentPairingPayloadRetrieveAction,
+		serviceapi.CloudDeploymentPairingResumeAction,
+	} {
+		t.Run(action, func(t *testing.T) {
+			port := &productPortStub{actions: map[string]bool{action: true}, handleResult: map[string]any{"ok": true}}
+
+			unauthorized := serveProduct(t, port, `{"action":"`+action+`"}`, "")
+			if unauthorized.Code != http.StatusUnauthorized || port.authorizeCalls != 1 ||
+				unauthorized.Header().Get("Cache-Control") != "no-store" ||
+				unauthorized.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("unauthorized pairing contract changed: status=%d auth=%d headers=%v", unauthorized.Code, port.authorizeCalls, unauthorized.Header())
+			}
+
+			port.authorized = true
+			succeeded := serveProduct(t, port, `{"action":"`+action+`"}`, "owner-token")
+			if succeeded.Code != http.StatusOK || port.handledAction != action ||
+				succeeded.Header().Get("Cache-Control") != "no-store" ||
+				succeeded.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("successful pairing contract changed: status=%d handled=%q headers=%v", succeeded.Code, port.handledAction, succeeded.Header())
+			}
+
+			port.handleErr = actionbase.CodedError(http.StatusConflict, "cloud_pairing_conflict", "pairing conflicts with current state")
+			failed := serveProduct(t, port, `{"action":"`+action+`"}`, "owner-token")
+			if failed.Code != http.StatusConflict ||
+				failed.Header().Get("Cache-Control") != "no-store" ||
+				failed.Header().Get("Pragma") != "no-cache" {
+				t.Fatalf("failed pairing contract changed: status=%d headers=%v", failed.Code, failed.Header())
+			}
+		})
+	}
+}
+
 func TestProductHandlerRejectsInvalidRequestsInContractOrder(t *testing.T) {
 	tooLarge := `{"action":"profile.get","params":{"value":"` + strings.Repeat("x", 1024*1024) + `"}}`
 	tests := []struct {
