@@ -124,6 +124,33 @@ func TestAgentCloudDeploymentDestroyAdapterRejectsScopeSubstitutionAndSanitizesU
 	}
 }
 
+func TestAgentCloudDeploymentDestroyAdapterValidatesRetryAndFreshApprovalState(t *testing.T) {
+	server := startRuntimeServer(t)
+	runner := newTestRunner(t, server, Config{UnaryTimeout: time.Second})
+	now := time.Date(2026, time.July, 17, 8, 0, 0, 0, time.UTC)
+	operation := remoteAgentDestroyOperation(now, agentv1.CloudDestroyOperationStatus_CLOUD_DESTROY_OPERATION_STATUS_DESTROYING)
+	operation.AutomaticAttempts = 2
+	operation.ErrorCode = "provider_readback_blocked"
+	operation.NextAttemptAt = timestamppb.New(now.Add(11 * time.Second))
+	server.cloud.getDestroy = func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error) {
+		return &agentv1.GetCloudDestroyOperationResponse{Operation: operation}, nil
+	}
+
+	recovered, found, err := runner.GetAgentCloudDestroyOperation(t.Context(), cloudmodule.AgentCloudDestroyOperationRequest{OperationID: operation.GetOperationId()})
+	if err != nil || !found || recovered.AutomaticAttempts != 2 || recovered.NextAttemptAt == nil || recovered.RequiresNewApproval {
+		t.Fatalf("retry operation found=%v value=%#v err=%v", found, recovered, err)
+	}
+
+	blocked := remoteAgentDestroyOperation(now, agentv1.CloudDestroyOperationStatus_CLOUD_DESTROY_OPERATION_STATUS_DESTROY_BLOCKED)
+	blocked.RequiresNewApproval = false
+	server.cloud.getDestroy = func(*agentv1.GetCloudDestroyOperationRequest) (*agentv1.GetCloudDestroyOperationResponse, error) {
+		return &agentv1.GetCloudDestroyOperationResponse{Operation: blocked}, nil
+	}
+	if _, found, err := runner.GetAgentCloudDestroyOperation(t.Context(), cloudmodule.AgentCloudDestroyOperationRequest{OperationID: blocked.GetOperationId()}); found || err != cloudmodule.ErrAgentCloudControlInvalidResponse {
+		t.Fatalf("blocked operation without fresh approval requirement found=%v err=%v", found, err)
+	}
+}
+
 func remoteAgentDestroyChallenge(now time.Time) *agentv1.CloudDeploymentDestroyChallenge {
 	resourceIDs := []string{
 		"10000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000002",
@@ -164,9 +191,20 @@ func remoteAgentDestroyChallenge(now time.Time) *agentv1.CloudDeploymentDestroyC
 }
 
 func remoteAgentDestroyOperation(now time.Time, operationStatus agentv1.CloudDestroyOperationStatus) *agentv1.CloudDestroyOperation {
-	return &agentv1.CloudDestroyOperation{
+	operation := &agentv1.CloudDestroyOperation{
 		OperationId: "55555555-5555-4555-8555-555555555555", OwnerId: "owner-from-config", DeploymentId: testDeploymentID1,
 		ApprovalId: "66666666-6666-4666-8666-666666666666", ScopeDigest: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
 		Status: operationStatus, Revision: 2, CreatedAt: timestamppb.New(now), UpdatedAt: timestamppb.New(now.Add(time.Second)),
 	}
+	if operationStatus == agentv1.CloudDestroyOperationStatus_CLOUD_DESTROY_OPERATION_STATUS_DESTROYING ||
+		operationStatus == agentv1.CloudDestroyOperationStatus_CLOUD_DESTROY_OPERATION_STATUS_VERIFIED_DESTROYED {
+		operation.AutomaticAttempts = 1
+	}
+	if operationStatus == agentv1.CloudDestroyOperationStatus_CLOUD_DESTROY_OPERATION_STATUS_DESTROY_BLOCKED {
+		operation.AutomaticAttempts = 3
+		operation.RequiresNewApproval = true
+		operation.ErrorCode = "provider_readback_blocked_retry_exhausted"
+		operation.BlockedReason = "provider read-back did not confirm absence; a fresh device approval is required"
+	}
+	return operation
 }

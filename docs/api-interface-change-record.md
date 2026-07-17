@@ -80,6 +80,11 @@ temporarily accompany an older Deployment projection while that projection is
 refreshed. Both actions are non-cacheable and remain unavailable to Agent/MCP
 tokens and websocket mutation.
 
+The Agent may automatically retry the exact approved resource graph at most
+three times with durable exponential backoff. A terminal `destroy_blocked`
+operation is never polled again: its read-back sets `requires_new_approval`, so
+remediation must create a new current-scope challenge and device signature.
+
 ## 2026-07-16 Agent Approval-v1 and AWS Connection establishment
 
 When the independent Agent backend is enabled, root credential onboarding now

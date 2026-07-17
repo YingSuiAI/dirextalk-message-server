@@ -280,11 +280,16 @@ func validAgentDestroyOperation(operation AgentCloudDestroyOperation, approval a
 		return false
 	}
 	switch operation.Status {
-	case "awaiting_approval", "approved", "destroying", "verified_destroyed":
-		return operation.ErrorCode == "" && operation.BlockedReason == ""
+	case "awaiting_approval", "approved":
+		return operation.ErrorCode == "" && operation.BlockedReason == "" && operation.AutomaticAttempts == 0 && operation.NextAttemptAt == nil && !operation.RequiresNewApproval
+	case "destroying":
+		return operation.AutomaticAttempts > 0 && operation.AutomaticAttempts <= 3 && operation.BlockedReason == "" && !operation.RequiresNewApproval &&
+			((operation.NextAttemptAt == nil && operation.ErrorCode == "") || (operation.NextAttemptAt != nil && operation.NextAttemptAt.After(operation.UpdatedAt) && cloudKeyIDPattern.MatchString(operation.ErrorCode)))
+	case "verified_destroyed":
+		return operation.AutomaticAttempts > 0 && operation.AutomaticAttempts <= 3 && operation.ErrorCode == "" && operation.BlockedReason == "" && operation.NextAttemptAt == nil && !operation.RequiresNewApproval
 	case "destroy_blocked":
 		return cloudKeyIDPattern.MatchString(operation.ErrorCode) && validAgentDestroyText(operation.BlockedReason, 512) &&
-			!ContainsSensitiveGoalMaterial(operation.BlockedReason)
+			!ContainsSensitiveGoalMaterial(operation.BlockedReason) && operation.AutomaticAttempts > 0 && operation.AutomaticAttempts <= 3 && operation.NextAttemptAt == nil && operation.RequiresNewApproval
 	default:
 		return false
 	}

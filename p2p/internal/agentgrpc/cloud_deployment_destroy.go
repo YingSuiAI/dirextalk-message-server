@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"sort"
+	"time"
 
 	agentv1 "github.com/YingSuiAI/dirextalk-agent/api/gen/dirextalk/agent/v1"
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
@@ -234,17 +235,36 @@ func (runner *Runner) mapAgentDestroyOperation(remote *agentv1.CloudDestroyOpera
 	if !ok {
 		return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
-	if statusName == "destroy_blocked" {
-		if !agentCloudIdentifierPattern.MatchString(remote.GetErrorCode()) || !validAgentCloudText(remote.GetBlockedReason(), 512) ||
-			cloudmodule.ContainsSensitiveGoalMaterial(remote.GetBlockedReason()) {
+	var nextAttemptAt *time.Time
+	if remote.GetNextAttemptAt() != nil {
+		parsed, parseErr := exactAgentCloudTimestamp(remote.GetNextAttemptAt())
+		if parseErr != nil || !parsed.After(updatedAt) {
 			return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 		}
-	} else if remote.GetErrorCode() != "" || remote.GetBlockedReason() != "" {
+		nextAttemptAt = &parsed
+	}
+	if remote.GetAutomaticAttempts() < 0 || remote.GetAutomaticAttempts() > 3 {
+		return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
+	if statusName == "destroy_blocked" {
+		if !agentCloudIdentifierPattern.MatchString(remote.GetErrorCode()) || !validAgentCloudText(remote.GetBlockedReason(), 512) ||
+			cloudmodule.ContainsSensitiveGoalMaterial(remote.GetBlockedReason()) || !remote.GetRequiresNewApproval() || nextAttemptAt != nil || remote.GetAutomaticAttempts() < 1 {
+			return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+		}
+	} else if statusName == "destroying" {
+		if remote.GetRequiresNewApproval() || remote.GetAutomaticAttempts() < 1 || remote.GetBlockedReason() != "" ||
+			(nextAttemptAt == nil && remote.GetErrorCode() != "") || (nextAttemptAt != nil && !agentCloudIdentifierPattern.MatchString(remote.GetErrorCode())) {
+			return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+		}
+	} else if remote.GetErrorCode() != "" || remote.GetBlockedReason() != "" || nextAttemptAt != nil || remote.GetRequiresNewApproval() ||
+		((statusName == "awaiting_approval" || statusName == "approved") && remote.GetAutomaticAttempts() != 0) ||
+		(statusName == "verified_destroyed" && remote.GetAutomaticAttempts() < 1) {
 		return cloudmodule.AgentCloudDestroyOperation{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
 	return cloudmodule.AgentCloudDestroyOperation{
 		OperationID: remote.GetOperationId(), OwnerID: remote.GetOwnerId(), DeploymentID: remote.GetDeploymentId(), ApprovalID: remote.GetApprovalId(),
 		ScopeDigest: remote.GetScopeDigest(), Status: statusName, ErrorCode: remote.GetErrorCode(), BlockedReason: remote.GetBlockedReason(),
+		AutomaticAttempts: remote.GetAutomaticAttempts(), NextAttemptAt: nextAttemptAt, RequiresNewApproval: remote.GetRequiresNewApproval(),
 		Revision: remote.GetRevision(), CreatedAt: createdAt, UpdatedAt: updatedAt,
 	}, nil
 }

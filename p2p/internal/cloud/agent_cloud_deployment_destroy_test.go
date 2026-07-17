@@ -237,6 +237,10 @@ func validAgentDestroyOperationFixture(now time.Time, status string) AgentCloudD
 	if status == "destroy_blocked" {
 		operation.ErrorCode = "cloud_destroy_access_denied"
 		operation.BlockedReason = "AWS denied destruction; resources remain tracked and may still incur charges."
+		operation.AutomaticAttempts = 3
+		operation.RequiresNewApproval = true
+	} else if status == "destroying" || status == "verified_destroyed" {
+		operation.AutomaticAttempts = 1
 	}
 	return operation
 }

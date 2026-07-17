@@ -400,6 +400,9 @@ type AgentCloudDestroyOperationRequest struct{ OperationID string }
 type AgentCloudDestroyOperation struct {
 	OperationID, OwnerID, DeploymentID, ApprovalID string
 	ScopeDigest, Status, ErrorCode, BlockedReason  string
+	AutomaticAttempts                              int32
+	NextAttemptAt                                  *time.Time
+	RequiresNewApproval                            bool
 	Revision                                       int64
 	CreatedAt, UpdatedAt                           time.Time
 }
