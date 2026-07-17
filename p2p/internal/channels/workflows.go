@@ -50,7 +50,11 @@ func (m *Module) Create(ctx context.Context, raw map[string]any) (any, *actionba
 		}
 	}
 	channel.RoomID = roomID
-	if err := m.Save(ctx, channel); err != nil {
+	creatorMXID := ""
+	if m.config.OwnerMXID != nil {
+		creatorMXID = m.config.OwnerMXID()
+	}
+	if err := m.saveWithCreator(ctx, channel, creatorMXID); err != nil {
 		return nil, actionbase.InternalError(err)
 	}
 	if m.config.SaveOwnerMember == nil {

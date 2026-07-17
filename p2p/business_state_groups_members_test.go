@@ -3,8 +3,10 @@ package p2p
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -16,6 +18,12 @@ func TestGroupsAndChannelsExposeOwnerMember(t *testing.T) {
 	bootstrapService(t, service)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"room_id": "!group:example.com", "name": "Group"})
 	ch := mustHandle[channel](t, service, "channels.create", map[string]any{"channel_id": "ch", "room_id": "!channel:example.com", "name": "Channel"})
+	for _, roomID := range []string{group.RoomID, ch.RoomID} {
+		conversation, ok, err := service.conversationModule.GetRecord(context.Background(), "", roomID)
+		if err != nil || !ok || conversation.CreatedByMXID != "@owner:example.com" {
+			t.Fatalf("created conversation owner for %s = (%#v, %v, %v)", roomID, conversation, ok, err)
+		}
+	}
 
 	groupMembers := mustHandle[map[string]any](t, service, "groups.members", map[string]any{"room_id": group.RoomID})
 	if got, ok := groupMembers["members"].([]memberRecord); !ok || len(got) != 1 || got[0].UserID != "@owner:example.com" {
@@ -24,6 +32,67 @@ func TestGroupsAndChannelsExposeOwnerMember(t *testing.T) {
 	channelMembers := mustHandle[map[string]any](t, service, "channels.members", map[string]any{"channel_id": ch.ChannelID, "room_id": ch.RoomID})
 	if got, ok := channelMembers["members"].([]memberRecord); !ok || len(got) != 1 || got[0].UserID != "@owner:example.com" {
 		t.Fatalf("expected owner channel member, got %#v", channelMembers)
+	}
+}
+
+func TestGroupAndChannelMemberListsUseExactConversationCreator(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "reader.example.com"})
+	tests := []struct {
+		name      string
+		action    string
+		roomID    string
+		channelID string
+		kind      dirextalkdomain.ConversationKind
+		params    map[string]any
+	}{
+		{
+			name:   "group",
+			action: "groups.members",
+			roomID: "!group:creator.example.com",
+			kind:   dirextalkdomain.ConversationKindGroup,
+			params: map[string]any{"room_id": "!group:creator.example.com"},
+		},
+		{
+			name:      "channel",
+			action:    "channels.members",
+			roomID:    "!channel:creator.example.com",
+			channelID: "creator_channel",
+			kind:      dirextalkdomain.ConversationKindChannel,
+			params:    map[string]any{"channel_id": "creator_channel"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
+				MatrixRoomID:  tt.roomID,
+				Kind:          tt.kind,
+				CreatedByMXID: "@owner:creator.example.com",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, member := range []memberRecord{
+				{RoomID: tt.roomID, ChannelID: tt.channelID, UserID: "@owner:member.example.com", Membership: "join", Role: "owner", JoinedAt: 10},
+				{RoomID: tt.roomID, ChannelID: tt.channelID, UserID: "@alice:example.com", Membership: "join", Role: "member", JoinedAt: 20},
+				{RoomID: tt.roomID, ChannelID: tt.channelID, UserID: "@owner:creator.example.com", Membership: "join", Role: "member", JoinedAt: 30},
+			} {
+				if err := service.store.UpsertMember(ctx, member); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			result := mustHandle[map[string]any](t, service, tt.action, tt.params)
+			members := result["members"].([]memberRecord)
+			if len(members) != 3 {
+				t.Fatalf("member count = %d, want 3: %#v", len(members), members)
+			}
+			if got, want := []string{members[0].UserID, members[1].UserID, members[2].UserID}, []string{"@owner:creator.example.com", "@owner:member.example.com", "@alice:example.com"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("member order = %#v, want %#v", got, want)
+			}
+			if members[0].Role != "owner" || members[1].Role != "member" {
+				t.Fatalf("creator roles were not canonicalized by exact MXID: %#v", members)
+			}
+		})
 	}
 }
 

@@ -54,10 +54,10 @@ func TestMemoryStoreMembersPreserveLegacyVisibilityCountsAndOrder(t *testing.T) 
 	if len(listed) != 4 {
 		t.Fatalf("ListMembers length = %d, want 4 legacy raw members", len(listed))
 	}
-	if listed[0].UserID != "@owner:example.com" {
-		t.Fatalf("first member = %q, want owner first", listed[0].UserID)
+	if listed[0].UserID != "@left:example.com" {
+		t.Fatalf("first member = %q, want earliest joined_at first", listed[0].UserID)
 	}
-	if listed[1].UserID != "@left:example.com" {
+	if listed[1].UserID != "@pending:example.com" {
 		t.Fatalf("ListMembers must retain hidden records for legacy internal consumers: %#v", listed)
 	}
 

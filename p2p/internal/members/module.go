@@ -62,6 +62,7 @@ type Config struct {
 	SaveMemberGeneration     func(context.Context, dirextalkdomain.MemberRecord, string, string) (bool, error)
 	PublishPolicy            func(context.Context, dirextalkdomain.MemberRecord) *actionbase.Error
 	Conversation             ConversationPort
+	ResolveRoomOwner         func(context.Context, string) (string, error)
 	OwnerMXID                func() string
 	KickMember               func(context.Context, string, string, string, string) *actionbase.Error
 	LeaveMember              func(context.Context, string, string) *actionbase.Error
@@ -134,6 +135,13 @@ func (m *Module) List(ctx context.Context, raw map[string]any) (any, *actionbase
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
+	ownerMXID := ""
+	if roomID := singleMemberRoomID(params.String("room_id"), members); roomID != "" && m.config.ResolveRoomOwner != nil {
+		ownerMXID, err = m.config.ResolveRoomOwner(ctx, roomID)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+	}
 
 	visible := make([]dirextalkdomain.MemberRecord, 0, len(members))
 	for _, member := range members {
@@ -142,13 +150,32 @@ func (m *Module) List(ctx context.Context, raw map[string]any) (any, *actionbase
 		}
 	}
 	status := params.FirstString("status", "membership")
-	return map[string]any{"members": filter(visible, status, params.String("role"))}, nil
+	return map[string]any{"members": filter(visible, status, params.String("role"), ownerMXID)}, nil
 }
 
-func filter(members []dirextalkdomain.MemberRecord, status, role string) []dirextalkdomain.MemberRecord {
+func singleMemberRoomID(requestedRoomID string, members []dirextalkdomain.MemberRecord) string {
+	roomID := strings.TrimSpace(requestedRoomID)
+	for _, member := range members {
+		memberRoomID := strings.TrimSpace(member.RoomID)
+		if memberRoomID == "" {
+			continue
+		}
+		if roomID == "" {
+			roomID = memberRoomID
+			continue
+		}
+		if memberRoomID != roomID {
+			return ""
+		}
+	}
+	return roomID
+}
+
+func filter(members []dirextalkdomain.MemberRecord, status, role, ownerMXID string) []dirextalkdomain.MemberRecord {
+	ownerMXID = strings.TrimSpace(ownerMXID)
 	normalized := make([]dirextalkdomain.MemberRecord, 0, len(members))
 	for _, member := range members {
-		member.Role = dirextalkdomain.NormalizeProductMemberRole(member.Role)
+		member.Role = canonicalMemberRole(member, ownerMXID)
 		if status != "" && !strings.EqualFold(member.Membership, status) {
 			continue
 		}
@@ -157,18 +184,47 @@ func filter(members []dirextalkdomain.MemberRecord, status, role string) []direx
 		}
 		normalized = append(normalized, member)
 	}
-	SortByJoinOrder(normalized)
+	SortByOwnerThenJoinOrder(normalized, ownerMXID)
 	return normalized
+}
+
+// CanonicalizeOwnerRoles applies one authoritative room creator to a member
+// slice. When the creator is unknown, stored roles retain their normalized
+// compatibility semantics.
+func CanonicalizeOwnerRoles(members []dirextalkdomain.MemberRecord, ownerMXID string) {
+	ownerMXID = strings.TrimSpace(ownerMXID)
+	for index := range members {
+		members[index].Role = canonicalMemberRole(members[index], ownerMXID)
+	}
+}
+
+func canonicalMemberRole(member dirextalkdomain.MemberRecord, ownerMXID string) string {
+	if ownerMXID == "" {
+		return dirextalkdomain.NormalizeProductMemberRole(member.Role)
+	}
+	if strings.TrimSpace(member.UserID) == ownerMXID {
+		return "owner"
+	}
+	return "member"
 }
 
 // SortByJoinOrder applies the stable public member ordering in place.
 func SortByJoinOrder(members []dirextalkdomain.MemberRecord) {
+	SortByOwnerThenJoinOrder(members, "")
+}
+
+// SortByOwnerThenJoinOrder pins one exact Matrix owner identity before applying
+// the stable join order. An empty owner preserves the pure join-order fallback.
+func SortByOwnerThenJoinOrder(members []dirextalkdomain.MemberRecord, ownerMXID string) {
+	ownerMXID = strings.TrimSpace(ownerMXID)
 	sort.SliceStable(members, func(i, j int) bool {
 		left, right := members[i], members[j]
-		leftOwner := strings.EqualFold(left.Role, "owner")
-		rightOwner := strings.EqualFold(right.Role, "owner")
-		if leftOwner != rightOwner {
-			return leftOwner
+		if ownerMXID != "" {
+			leftOwner := strings.TrimSpace(left.UserID) == ownerMXID
+			rightOwner := strings.TrimSpace(right.UserID) == ownerMXID
+			if leftOwner != rightOwner {
+				return leftOwner
+			}
 		}
 		if left.JoinedAt != right.JoinedAt {
 			if left.JoinedAt == 0 {

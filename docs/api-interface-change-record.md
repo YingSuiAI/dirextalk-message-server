@@ -16,6 +16,14 @@ Replay-only recovery works for active and terminal persisted jobs. A known key b
 
 V1 release actions remain registered for existing clients. V2 exposes no discovery plan or rollback operation to ProductCore clients, while the updater internally verifies the canonical formal-release assets before accepting a central-selected target.
 
+## 2026-07-17 Group And Channel Member Ordering
+
+When the durable conversation projection contains the room creator's Matrix ID, `groups.members` and `channels.members` now place only that exact full MXID first and return only that member with `role: "owner"`. Other personal-node identities such as `@owner:another.example` remain ordinary members even though they share the `owner` localpart.
+
+Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
+
+New local group/channel creation persists the creator MXID into the conversation projection immediately, before the asynchronous Matrix state projector catches up. The `dirextalk_room_members_list` MCP tool applies the same exact-creator role and ordering rule.
+
 ## 2026-07-16 Native Agent Room And Post References
 
 Successful non-stream `agent.chat` responses and realtime Native Agent stream `done` payloads may now include additive `references[]`. The server derives these references only from full, successful built-in Dirextalk tool results produced during that run; it does not parse the model's final Markdown or accept third-party MCP/runtime output as a navigation contract.
