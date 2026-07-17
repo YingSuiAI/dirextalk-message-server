@@ -194,17 +194,19 @@ func TestRelayCancelsStreamWhenProjectionValidationFails(t *testing.T) {
 func TestRelayIgnoresOtherOwnerAndNonProjectableFactsWhileAdvancingCursor(t *testing.T) {
 	source := Source{AgentInstanceID: uuid.NewString(), CallerID: "dirextalk-project:example.com"}
 	otherOwner := projectablePlanEvent(1, 1, "dirextalk-project:other.example")
+	otherOwnerTask := projectableCloudTaskEvent(2, 1, "dirextalk-project:other.example")
+	otherOwnerStep := projectableCloudStepEvent(3, 1, "dirextalk-project:other.example")
 	nonCloud := Event{
-		Seq: 2, EventID: uuid.NewString(), EventType: "agent.task.changed", AggregateType: "task",
+		Seq: 4, EventID: uuid.NewString(), EventType: "agent.task.changed", AggregateType: "task",
 		AggregateID: uuid.NewString(), Revision: 1, SummaryJSON: []byte(`{"revision":1}`), OccurredAt: time.Now().UTC(),
 	}
 	store := &memoryProjectionStore{}
-	relay := New(&recordingClient{streams: []EventStream{&sliceStream{events: []Event{otherOwner, nonCloud}, terminal: io.EOF}}}, store, source, Config{})
+	relay := New(&recordingClient{streams: []EventStream{&sliceStream{events: []Event{otherOwner, otherOwnerTask, otherOwnerStep, nonCloud}, terminal: io.EOF}}}, store, source, Config{})
 
 	if err := relay.consumeConnection(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("consume error = %v", err)
 	}
-	if store.cursor != 2 || len(store.projected) != 0 {
+	if store.cursor != 4 || len(store.projected) != 0 {
 		t.Fatalf("ignored events cursor=%d projected=%#v", store.cursor, store.projected)
 	}
 }
