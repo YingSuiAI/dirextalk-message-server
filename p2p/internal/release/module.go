@@ -209,7 +209,7 @@ func (m *Module) applyV2(ctx context.Context, params map[string]any) (any, *acti
 	}
 	buildInfo := internal.CurrentBuildInfo()
 	updaterStatus, err := controller.StatusDirect(ctx)
-	if err != nil || !validDirectUpdaterStatus(updaterStatus, buildInfo.Version) || !updaterStatus.UpdaterReady {
+	if err != nil || !directApplyReadyOrReplayable(updaterStatus, buildInfo.Version) {
 		return nil, unavailableError()
 	}
 	central, err := m.centralSource.CurrentServerVersion(ctx)
@@ -373,6 +373,22 @@ func validDirectUpdaterStatus(status releasecontrol.DirectStatus, currentVersion
 		return false
 	}
 	return normalizedDesiredState(status.DesiredState) != "unknown"
+}
+
+// directApplyReadyOrReplayable only permits a direct apply when the updater is
+// ready for a new job, or when it is actively upgrading and can atomically
+// replay an existing idempotency key. The status response deliberately does
+// not disclose the active key, so it cannot prove a caller is replaying; the
+// direct updater remains the authority that binds the key and target to the
+// existing job and rejects every other key while that job is active.
+func directApplyReadyOrReplayable(status releasecontrol.DirectStatus, currentVersion string) bool {
+	if !validDirectUpdaterStatus(status, currentVersion) {
+		return false
+	}
+	if status.UpdaterReady {
+		return true
+	}
+	return status.ActiveJob != nil && normalizedDesiredState(status.DesiredState) == string(releasecontrol.DesiredStateUpgrading)
 }
 
 func normalizedDesiredState(value string) string {

@@ -420,6 +420,66 @@ func TestReleaseV2ApplyFailsClosedWhenUpdaterIsNotReady(t *testing.T) {
 	}
 }
 
+func TestReleaseV2ApplyReplaysActiveDirectJobAfterResponseLoss(t *testing.T) {
+	key := "7ea20813-c5d9-4f6d-b4f0-cdf8cfc75c6e"
+	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
+		AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2",
+	}}
+	controller := &recordingReleaseController{
+		directStatus: releasecontrol.DirectStatus{
+			Available: true, UpdaterReady: false, CurrentVersion: "v1.0.3", DesiredState: "upgrading",
+			ActiveJob: &releasecontrol.ActiveJob{JobID: "job_direct", Status: "pulling", CurrentVersion: "v1.0.3", TargetVersion: "v1.0.4"},
+		},
+		directTicket: releasecontrol.JobTicket{JobID: "job_direct", JobToken: "replacement-ticket", StatusURL: "/_dirextalk/updater/v1/jobs/job_direct", Status: "pulling"},
+	}
+	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+	mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
+
+	response := releaseRoute(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
+		"target_version": "v1.0.4", "idempotency_key": key, "confirm": releasecontrol.ApplyConfirmation,
+	})
+	if response["job_id"] != "job_direct" || response["job_token"] != "replacement-ticket" || response["status"] != "pulling" {
+		t.Fatalf("active-job replay did not return a replacement ticket: %#v", response)
+	}
+	if central.calls != 1 {
+		t.Fatalf("active-job replay skipped central validation: %d", central.calls)
+	}
+	if controller.directApplyRequest != (releasecontrol.DirectApplyRequest{
+		TargetVersion: "v1.0.4", IdempotencyKey: key, Confirm: releasecontrol.ApplyConfirmation,
+	}) {
+		t.Fatalf("active-job replay did not reach the direct updater: %#v", controller.directApplyRequest)
+	}
+}
+
+func TestReleaseV2ApplyKeepsActiveJobKeyGateInUpdater(t *testing.T) {
+	key := "8ea20813-c5d9-4f6d-b4f0-cdf8cfc75c6e"
+	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
+		AppID: "1", ChannelID: "server", Version: "v1.0.4", PreVersion: "v1.0.2",
+	}}
+	controller := &recordingReleaseController{
+		directStatus: releasecontrol.DirectStatus{
+			Available: true, UpdaterReady: false, CurrentVersion: "v1.0.3", DesiredState: "upgrading",
+			ActiveJob: &releasecontrol.ActiveJob{JobID: "job_direct", Status: "pulling", CurrentVersion: "v1.0.3", TargetVersion: "v1.0.4"},
+		},
+		directApplyErr: &releasecontrol.ControllerError{Status: http.StatusConflict, Code: "operation_in_progress"},
+	}
+	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
+	mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
+
+	response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
+		"target_version": "v1.0.4", "idempotency_key": key, "confirm": releasecontrol.ApplyConfirmation,
+	})
+	if response.Code != http.StatusConflict || releaseResponseCode(t, response) != "operation_in_progress" {
+		t.Fatalf("new key must be rejected by the active updater job: %d %s", response.Code, response.Body.String())
+	}
+	if central.calls != 1 {
+		t.Fatalf("new-key attempt skipped central validation: %d", central.calls)
+	}
+	if controller.directApplyRequest.IdempotencyKey != key {
+		t.Fatalf("new-key attempt did not reach updater key gate: %#v", controller.directApplyRequest)
+	}
+}
+
 func releaseResponseCode(t *testing.T, response *httptest.ResponseRecorder) string {
 	t.Helper()
 	var body map[string]any
