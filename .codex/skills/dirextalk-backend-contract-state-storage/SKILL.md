@@ -12,7 +12,7 @@ Read the relevant generated/action contract, `docs/agent-mcp-current-contract.md
 - Product requests use the existing `{action, params}` envelope through HTTP or owner realtime WS. After `server.ready`, logged-in non-MCP actions may use WS `client.request`; when WS is not ready, use the same envelope through HTTP immediately. Retry a lost WS response over HTTP only for safe repeated actions, never for a WS business error.
 - `GET /_p2p/ws` accepts a short-lived single-use owner ticket. Owner bearer tokens protect HTTP ProductCore calls. `agent_token` is limited to `agent.matrix_session.create` and `POST /mcp`.
 - `POST /mcp` is bearer-authenticated Streamable HTTP JSON-RPC (`initialize`, `tools/list`, `tools/call`), not a ProductCore action. Keep fixed `mcp.*` body actions removed and never forward the inbound bearer token.
-- `release.v1.apply` and `portal.account.delete` remain owner HTTP-only destructive commands. Release compatibility and operations come from the host updater, not local SemVer guesses.
+- `release.v1.apply`, `release.v2.apply`, and `portal.account.delete` remain owner HTTP-only destructive commands. V2 target and client compatibility come from the validated middle-platform server record; host operations and immutable image pinning remain updater-owned.
 - When a field, auth rule, route, or transport changes, update the generated contract/focused docs, server tests, and affected consumers together.
 
 ## Reuse Matrix

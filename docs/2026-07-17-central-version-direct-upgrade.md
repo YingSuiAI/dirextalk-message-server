@@ -36,7 +36,7 @@
 
 - 中台保持现有两个 GET；`url` 是字符串，且 iOS 当前 URL 为空。iOS 更新按钮在 URL 有效前不可执行。
 - `preVersion` 在移动端表示最低服务端版本，在 `server` 记录表示最低客户端版本。
-- 中台只选择目标版本，不是镜像或兼容性信任根。Updater 只接受 release index checksum 与 manifest digest 校验通过、且 manifest/attestation 资产集合完整的正式目标，并固定不可变镜像 digest。
+- 中台记录是目标版本与最低客户端版本的权威来源。Updater 将固定版本镜像标签解析并持久化为不可变 registry digest；升级不再依赖 GitHub Release manifest、index、checksum 或 attestation 资产。
 - 直传模式只允许 release manifest 明确声明且 retained-data harness 已证明的单跳升级边；不存在被证明的源 digest/版本边时拒绝升级。
 - 已持久化 job 的恢复不是新升级：已知同 target/key 的 active 或 terminal job 由 replay-only 接口轮换 replacement ticket，不再依赖中台仍停留在旧 target。未知 key 绝不在 replay 路径创建任务；不同 target 拒绝。
 

@@ -136,6 +136,17 @@ func decodeCentralServerVersion(data []byte) (CentralServerVersion, error) {
 	}, nil
 }
 
+func ensureJSONEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
 // CanonicalStableVersion rejects whitespace, prereleases, and build metadata.
 // It is stricter than the historical client-report normalizer because central
 // records and direct updater targets are unambiguous release identifiers.
