@@ -13,15 +13,29 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
 
-func TestGroupsAndChannelsExposeOwnerMember(t *testing.T) {
+func TestGroupsAndChannelsDoNotInferCreatorFromNodeOwner(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{"room_id": "!group:example.com", "name": "Group"})
 	ch := mustHandle[channel](t, service, "channels.create", map[string]any{"channel_id": "ch", "room_id": "!channel:example.com", "name": "Channel"})
-	for _, roomID := range []string{group.RoomID, ch.RoomID} {
-		conversation, ok, err := service.conversationModule.GetRecord(context.Background(), "", roomID)
-		if err != nil || !ok || conversation.CreatedByMXID != "@owner:example.com" {
-			t.Fatalf("created conversation owner for %s = (%#v, %v, %v)", roomID, conversation, ok, err)
+	for _, target := range []struct {
+		roomID  string
+		profile map[string]any
+	}{
+		{roomID: group.RoomID, profile: map[string]any{"room_type": DirextalkRoomTypeGroup, "name": "Updated Group"}},
+		{roomID: ch.RoomID, profile: map[string]any{"room_type": DirextalkRoomTypeChannel, "channel_id": ch.ChannelID, "name": "Updated Channel"}},
+	} {
+		conversation, ok, err := service.conversationModule.GetRecord(context.Background(), "", target.roomID)
+		if err != nil || !ok || conversation.CreatedByMXID != "" {
+			t.Fatalf("bound existing room must not infer creator for %s: (%#v, %v, %v)", target.roomID, conversation, ok, err)
+		}
+		profile := trustedStateEvent(t, target.roomID, "@profile-writer:remote.example", DirextalkRoomProfileEventType, "", target.profile)
+		if err := service.ProjectRoomEvent(context.Background(), profile); err != nil {
+			t.Fatal(err)
+		}
+		conversation, ok, err = service.conversationModule.GetRecord(context.Background(), "", target.roomID)
+		if err != nil || !ok || conversation.CreatedByMXID != "" {
+			t.Fatalf("later profile sender must not become creator for %s: (%#v, %v, %v)", target.roomID, conversation, ok, err)
 		}
 	}
 

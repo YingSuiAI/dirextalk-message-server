@@ -92,10 +92,6 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 
 // Save persists the channel before refreshing its conversation projection.
 func (m *Module) Save(ctx context.Context, channel Channel) error {
-	return m.saveWithCreator(ctx, channel, "")
-}
-
-func (m *Module) saveWithCreator(ctx context.Context, channel Channel, creatorMXID string) error {
 	if m.store == nil {
 		return errors.New("channel store is not configured")
 	}
@@ -105,9 +101,7 @@ func (m *Module) saveWithCreator(ctx context.Context, channel Channel, creatorMX
 	if m.conversation == nil {
 		return errors.New("channel conversation port is not configured")
 	}
-	conversation := dirextalkdomain.ConversationFromChannel(channel)
-	conversation.CreatedByMXID = creatorMXID
-	return m.conversation.Save(ctx, conversation)
+	return m.conversation.Save(ctx, dirextalkdomain.ConversationFromChannel(channel))
 }
 
 // Delete removes the durable channel. Channel dissolution historically leaves

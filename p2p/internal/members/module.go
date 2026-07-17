@@ -188,16 +188,6 @@ func filter(members []dirextalkdomain.MemberRecord, status, role, ownerMXID stri
 	return normalized
 }
 
-// CanonicalizeOwnerRoles applies one authoritative room creator to a member
-// slice. When the creator is unknown, stored roles retain their normalized
-// compatibility semantics.
-func CanonicalizeOwnerRoles(members []dirextalkdomain.MemberRecord, ownerMXID string) {
-	ownerMXID = strings.TrimSpace(ownerMXID)
-	for index := range members {
-		members[index].Role = canonicalMemberRole(members[index], ownerMXID)
-	}
-}
-
 func canonicalMemberRole(member dirextalkdomain.MemberRecord, ownerMXID string) string {
 	if ownerMXID == "" {
 		return dirextalkdomain.NormalizeProductMemberRole(member.Role)

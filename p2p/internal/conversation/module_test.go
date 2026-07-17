@@ -15,6 +15,8 @@ type moduleStore struct {
 	listErr       error
 	getErr        error
 	upserted      dirextalkdomain.ConversationRecord
+	creatorRoomID string
+	creatorMXID   string
 	deletedRoomID string
 	getIDs        []string
 	getRoomIDs    []string
@@ -22,6 +24,12 @@ type moduleStore struct {
 
 func (s *moduleStore) UpsertConversation(_ context.Context, record dirextalkdomain.ConversationRecord) error {
 	s.upserted = record
+	return nil
+}
+
+func (s *moduleStore) SetConversationCreator(_ context.Context, roomID, creatorMXID string) error {
+	s.creatorRoomID = roomID
+	s.creatorMXID = creatorMXID
 	return nil
 }
 
@@ -179,6 +187,12 @@ func TestSaveDeleteAndOperationUseConversationStore(t *testing.T) {
 	}
 	if store.upserted.ConversationID == "" || store.upserted.Lifecycle != dirextalkdomain.ConversationLifecycleActive || store.upserted.ProjectionState != dirextalkdomain.ConversationProjectionReady {
 		t.Fatalf("Save() record = %#v, want normalized record", store.upserted)
+	}
+	if err := module.SetCreator(ctx, "  "+roomID+"  ", "  @creator:example.com  "); err != nil {
+		t.Fatalf("SetCreator() error = %v", err)
+	}
+	if store.creatorRoomID != roomID || store.creatorMXID != "@creator:example.com" {
+		t.Fatalf("SetCreator() = (%q, %q), want normalized room and creator", store.creatorRoomID, store.creatorMXID)
 	}
 
 	stored := store.upserted
