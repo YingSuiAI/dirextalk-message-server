@@ -202,14 +202,42 @@ func (m *Module) applyV2(ctx context.Context, params map[string]any) (any, *acti
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	// An HTTP owner token is authorized before the action handler runs. Keep the
+	// portal-session gate through the updater mutation so a request captured for
+	// an old device cannot create a job after portal.auth rotates the current
+	// device/generation. This also gives client-version compatibility a clear
+	// linearization point with client.version.report and portal session changes.
+	if m.cfg.SessionLocker != nil {
+		m.cfg.SessionLocker.Lock()
+		defer m.cfg.SessionLocker.Unlock()
+	}
+	identity, ok := m.state.Session(ctx)
+	if !ok {
+		return nil, staleSessionError()
+	}
 	snapshot := m.state.Snapshot()
+	if identity.DeviceID != snapshot.DeviceID || identity.Generation != snapshot.Generation {
+		return nil, staleSessionError()
+	}
 	controller, ok := snapshot.Controller.(releasecontrol.DirectController)
 	if !ok {
 		return nil, unavailableError()
 	}
 	buildInfo := internal.CurrentBuildInfo()
 	updaterStatus, err := controller.StatusDirect(ctx)
-	if err != nil || !directApplyReadyOrReplayable(updaterStatus, buildInfo.Version) {
+	if err != nil || !validDirectUpdaterStatus(updaterStatus, buildInfo.Version) {
+		return nil, unavailableError()
+	}
+	// A job that has already been accepted must remain recoverable if the
+	// initial HTTP response was lost. The updater, not ProductCore, binds the
+	// idempotency key to that job and will reject a different key atomically.
+	// Do not re-read the mutable central record or require the old target to be
+	// newer here: the central target may advance, or the new image may already
+	// be running while the original job is still health-checking.
+	if directApplyReplaysActiveJob(updaterStatus, request.TargetVersion) {
+		return directApplyTicket(ctx, controller, request)
+	}
+	if !updaterStatus.UpdaterReady {
 		return nil, unavailableError()
 	}
 	central, err := m.centralSource.CurrentServerVersion(ctx)
@@ -234,6 +262,10 @@ func (m *Module) applyV2(ctx context.Context, params map[string]any) (any, *acti
 	if err != nil || comparison <= 0 {
 		return nil, actionbase.CodedError(http.StatusConflict, releaseTargetNotNewer, "target_version must be newer than the running server")
 	}
+	return directApplyTicket(ctx, controller, request)
+}
+
+func directApplyTicket(ctx context.Context, controller releasecontrol.DirectController, request releasecontrol.DirectApplyRequest) (any, *actionbase.Error) {
 	ticket, err := controller.ApplyDirect(ctx, request)
 	if err != nil {
 		return nil, controllerError(err)
@@ -375,20 +407,16 @@ func validDirectUpdaterStatus(status releasecontrol.DirectStatus, currentVersion
 	return normalizedDesiredState(status.DesiredState) != "unknown"
 }
 
-// directApplyReadyOrReplayable only permits a direct apply when the updater is
-// ready for a new job, or when it is actively upgrading and can atomically
-// replay an existing idempotency key. The status response deliberately does
-// not disclose the active key, so it cannot prove a caller is replaying; the
-// direct updater remains the authority that binds the key and target to the
-// existing job and rejects every other key while that job is active.
-func directApplyReadyOrReplayable(status releasecontrol.DirectStatus, currentVersion string) bool {
-	if !validDirectUpdaterStatus(status, currentVersion) {
+// directApplyReplaysActiveJob recognizes only the public shape of an active
+// direct job. The updater remains the authority for the hidden idempotency key
+// and returns operation_in_progress for a different key. Requiring the target
+// to match prevents an active job from becoming a bypass for a new target.
+func directApplyReplaysActiveJob(status releasecontrol.DirectStatus, targetVersion string) bool {
+	if status.UpdaterReady || status.ActiveJob == nil || normalizedDesiredState(status.DesiredState) != string(releasecontrol.DesiredStateUpgrading) {
 		return false
 	}
-	if status.UpdaterReady {
-		return true
-	}
-	return status.ActiveJob != nil && normalizedDesiredState(status.DesiredState) == string(releasecontrol.DesiredStateUpgrading)
+	activeTarget, err := releasecontrol.CanonicalStableVersion("active_job.target_version", status.ActiveJob.TargetVersion)
+	return err == nil && activeTarget == targetVersion
 }
 
 func normalizedDesiredState(value string) string {

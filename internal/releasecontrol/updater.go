@@ -187,7 +187,15 @@ func NewUnixController(config UnixControllerConfig) Controller {
 	}
 	return &unixController{
 		controlTokenPath: filepath.Clean(controlTokenPath),
-		client:           &http.Client{Transport: transport, Timeout: timeout},
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+			// The control token is a request header. Never follow a response
+			// from the Unix peer to another URL where that header could escape.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 

@@ -55,12 +55,20 @@ func NewCentralVersionSource(config CentralVersionSourceConfig) CentralVersionSo
 	if client == nil {
 		client = &http.Client{
 			Timeout: 10 * time.Second,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
 		}
 	}
-	return &centralVersionSource{client: client}
+	// Clone instead of mutating a caller-owned client, but always make the
+	// fixed central endpoint non-redirecting. A custom transport is useful for
+	// tests and controlled deployments; it must not turn a central redirect into
+	// an arbitrary follow-on request. Client.Timeout covers reading the body too.
+	cloned := *client
+	if cloned.Timeout <= 0 {
+		cloned.Timeout = 10 * time.Second
+	}
+	cloned.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &centralVersionSource{client: &cloned}
 }
 
 func (s *centralVersionSource) CurrentServerVersion(ctx context.Context) (CentralServerVersion, error) {

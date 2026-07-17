@@ -25,12 +25,20 @@
 - [x] 对每个仓库运行适用测试、`git diff --check`，提交并推送分支。
 - [x] 检查远端 CI 结果并记录最终状态。
 
+## 2026-07-17 复审加固
+
+- [x] Message server：为 `release.v2.apply` 增加当前 portal-device/generation 校验，并在整个升级变更期间串行化会话切换，避免旧 HTTP 请求在换设备后利用旧客户端版本创建任务。
+- [x] Message server：active job 的同目标幂等重放直接交由 updater 校验 key；中央版本已变更或新镜像仍在 health check 时，客户端仍可取回 replacement ticket。不同目标不会绕过单任务限制。
+- [x] Message server：覆盖旧会话拒绝、中央记录漂移、当前镜像已启动但 job 未终态、不同目标拦截和不同 key 的 updater 拦截。
+- [ ] Updater/Deployer：修复新安装的 `pin-initial-latest` 使用硬编码 `dirextalk-p2p` Compose project，而 deployer 配置 `dirextalk-message-server` 的部署阻断；此项属于已合并上游 main，不能由本 message-server PR 解决。
+
 ## 已知发布约束
 
 - 中台保持现有两个 GET；`url` 是字符串，且 iOS 当前 URL 为空。iOS 更新按钮在 URL 有效前不可执行。
 - `preVersion` 在移动端表示最低服务端版本，在 `server` 记录表示最低客户端版本。
 - 版本直传模式信任中台与镜像 tag；任务内仍固定拉取后解析出的 digest、禁止降级，并在失败时自动恢复。
 - 该模式仅支持单跳更新；发布方必须确保受支持的历史服务端可直接迁移到目标镜像。
+- 同一 active job 的恢复不是新升级：只要 `target_version` 与 updater 的 active target 相同，message-server 将请求交给 updater 的幂等键绑定逻辑，不再要求中央记录仍停留在旧 target，也不再要求 target 高于刚启动的新镜像。不同 key 或不同 target 仍由 updater/状态门拒绝。
 
 ## 已执行验证
 

@@ -158,6 +158,48 @@ func TestUnixControllerMapsStructuredErrorWithoutEchoingSecrets(t *testing.T) {
 	}
 }
 
+func TestUnixControllerDoesNotFollowControlRedirects(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := shortUnixSocketPath(t)
+	tokenPath := filepath.Join(dir, "control-token")
+	if err := os.WriteFile(tokenPath, []byte("control-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	calls := 0
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.Header.Get(ControlTokenHeader) != "control-secret" {
+			t.Fatal("missing control token on initial request")
+		}
+		if calls > 1 {
+			t.Fatal("control client followed a redirect")
+		}
+		w.Header().Set("Location", "http://unexpected.example/_dirextalk/updater/v1/control/status")
+		w.WriteHeader(http.StatusFound)
+	})}
+	go func() { _ = server.Serve(listener) }()
+	defer server.Close()
+
+	controller := NewUnixController(UnixControllerConfig{SocketPath: socketPath, ControlTokenPath: tokenPath})
+	direct, ok := controller.(DirectController)
+	if !ok {
+		t.Fatal("unix controller must implement DirectController")
+	}
+	_, err = direct.StatusDirect(context.Background())
+	controllerErr, ok := AsControllerError(err)
+	if !ok || controllerErr.Status != http.StatusFound {
+		t.Fatalf("unexpected redirect error: %#v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("redirect calls = %d, want 1", calls)
+	}
+}
+
 func TestUnixControllerDirectStatusAndApplyUseOnlyV2Fields(t *testing.T) {
 	dir := t.TempDir()
 	socketPath := shortUnixSocketPath(t)

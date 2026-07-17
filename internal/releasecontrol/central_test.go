@@ -80,6 +80,27 @@ func TestCentralVersionSourceMapsTransportFailureWithoutLeakingDetails(t *testin
 	}
 }
 
+func TestCentralVersionSourceNeverFollowsRedirectsFromInjectedClient(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: centralRoundTripper(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls > 1 {
+			t.Fatal("central version source followed a redirect")
+		}
+		response := centralHTTPResponse(http.StatusFound, "redirect")
+		response.Header.Set("Location", "https://unexpected.example/version")
+		return response, nil
+	})}
+	_, err := NewCentralVersionSource(CentralVersionSourceConfig{HTTPClient: client}).CurrentServerVersion(context.Background())
+	centralErr, ok := AsCentralVersionError(err)
+	if !ok || centralErr.Code != CentralVersionUnavailableCode {
+		t.Fatalf("unexpected redirect result: %#v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("redirect calls = %d, want 1", calls)
+	}
+}
+
 func TestCanonicalStableVersionAndComparison(t *testing.T) {
 	for _, value := range []string{"v1.0.0", "v1.2.3"} {
 		if _, err := CanonicalStableVersion("version", value); err != nil {
