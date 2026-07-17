@@ -6,6 +6,12 @@ It is based on Element Dendrite, but this repository is maintained as a Dirextal
 
 [中文说明](README_zh.md)
 
+## Architecture
+
+Each user owns a private Dirextalk service node. Personal nodes federate messages directly, while the Dirextalk Platform is limited to activation, distribution, and authorized public-discovery metadata.
+
+![Dirextalk platform architecture](docs/assets/dirextalk-platform-architecture.png)
+
 ## Runtime
 
 - Production entry point: `cmd/dirextalk-message-server`

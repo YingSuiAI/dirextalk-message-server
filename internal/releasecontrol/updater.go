@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -23,9 +25,13 @@ const (
 	ControlTokenHeader             = "X-Dirextalk-Control-Token"
 	ControlStatusPath              = "/_dirextalk/updater/v1/control/status"
 	ControlJobsPath                = "/_dirextalk/updater/v1/control/jobs"
+	ControlJobsReplayPath          = "/_dirextalk/updater/v1/control/jobs/replay"
 	ControlDesiredStatePath        = "/_dirextalk/updater/v1/control/desired-state"
 	ApplyConfirmation              = "apply_release_change"
+	DirectReleaseContractVersion   = 2
+	DirectReplayNotFoundCode       = "idempotency_not_found"
 	maxUpdaterResponseBytes        = 256 * 1024
+	defaultUpdaterControlTimeout   = 45 * time.Second
 )
 
 var controllerErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -79,22 +85,72 @@ type WatchdogStatus struct {
 	ErrorCode      string `json:"error_code,omitempty"`
 }
 
+// ActiveJob is the public, token-free progress subset the updater returns to
+// message-server status callers. It deliberately has no plan, image, digest,
+// command, path, recovery point, or job bearer fields.
+type ActiveJob struct {
+	JobID            string `json:"job_id"`
+	Status           string `json:"status"`
+	CurrentVersion   string `json:"current_version,omitempty"`
+	TargetVersion    string `json:"target_version,omitempty"`
+	ServiceAvailable bool   `json:"service_available"`
+}
+
+// DirectStatus is the small v2 updater control response. It intentionally
+// excludes release discovery, plans, and operations; central version lookup is
+// performed by the message server at apply time instead.
+type DirectStatus struct {
+	DirectContractVersion int            `json:"direct_contract_version"`
+	Available             bool           `json:"available"`
+	UpdaterReady          bool           `json:"updater_ready"`
+	CurrentVersion        string         `json:"current_version"`
+	DesiredState          string         `json:"desired_state"`
+	ActiveJob             *ActiveJob     `json:"active_job,omitempty"`
+	Watchdog              WatchdogStatus `json:"watchdog"`
+}
+
 type ApplyRequest struct {
 	PlanToken      string `json:"plan_token"`
 	IdempotencyKey string `json:"idempotency_key"`
 	Confirm        string `json:"confirm"`
 }
 
+// DirectApplyRequest is the v2 central-version upgrade command. The target is
+// a release identifier only; callers cannot select infrastructure details.
+type DirectApplyRequest struct {
+	TargetVersion  string `json:"target_version"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Confirm        string `json:"confirm"`
+	ClientVersion  string `json:"client_version"`
+}
+
+// DirectReplayRequest asks the updater only to recover an already-persisted
+// idempotency mapping. The replay endpoint must never create a new job.
+type DirectReplayRequest struct {
+	TargetVersion  string `json:"target_version"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
 type JobTicket struct {
 	JobID     string `json:"job_id"`
 	JobToken  string `json:"job_token"`
 	StatusURL string `json:"status_url"`
+	Status    string `json:"status,omitempty"`
 }
 
 type Controller interface {
 	Status(context.Context, StatusRequest) (UpdaterStatus, error)
 	Apply(context.Context, ApplyRequest) (JobTicket, error)
 	SetDesiredState(context.Context, DesiredState) error
+}
+
+// DirectController is implemented by current updaters. It is separate from
+// Controller so legacy v1 plan-token behavior remains source compatible while
+// v2 can fail closed when installed updater binaries have not been migrated.
+type DirectController interface {
+	StatusDirect(context.Context) (DirectStatus, error)
+	ReplayDirect(context.Context, DirectReplayRequest) (JobTicket, error)
+	ApplyDirect(context.Context, DirectApplyRequest) (JobTicket, error)
 }
 
 type ControllerError struct {
@@ -135,7 +191,11 @@ func NewUnixController(config UnixControllerConfig) Controller {
 	}
 	timeout := config.Timeout
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		// Direct job creation resolves a small formal-release index and proves
+		// the pinned source image/schema before the updater commits the job. Keep
+		// the local control deadline above that bounded preflight; status and
+		// replay calls still normally complete immediately on the Unix socket.
+		timeout = defaultUpdaterControlTimeout
 	}
 	dialer := &net.Dialer{Timeout: timeout}
 	transport := &http.Transport{
@@ -145,7 +205,15 @@ func NewUnixController(config UnixControllerConfig) Controller {
 	}
 	return &unixController{
 		controlTokenPath: filepath.Clean(controlTokenPath),
-		client:           &http.Client{Transport: transport, Timeout: timeout},
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+			// The control token is a request header. Never follow a response
+			// from the Unix peer to another URL where that header could escape.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -162,7 +230,54 @@ func (c *unixController) Apply(ctx context.Context, request ApplyRequest) (JobTi
 	if err := c.post(ctx, ControlJobsPath, request, &ticket); err != nil {
 		return JobTicket{}, err
 	}
-	if err := validateJobTicket(ticket); err != nil {
+	if err := validateJobTicket(ticket, false); err != nil {
+		return JobTicket{}, err
+	}
+	return ticket, nil
+}
+
+func (c *unixController) StatusDirect(ctx context.Context) (DirectStatus, error) {
+	var status DirectStatus
+	if err := c.post(ctx, ControlStatusPath, struct{}{}, &status); err != nil {
+		return DirectStatus{}, err
+	}
+	return status, nil
+}
+
+func (c *unixController) ApplyDirect(ctx context.Context, request DirectApplyRequest) (JobTicket, error) {
+	if _, err := CanonicalStableVersion("target_version", request.TargetVersion); err != nil {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	parsedID, err := uuid.Parse(request.IdempotencyKey)
+	if err != nil || parsedID.String() != request.IdempotencyKey || request.Confirm != ApplyConfirmation {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	if _, err := CanonicalStableVersion("client_version", request.ClientVersion); err != nil {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	var ticket JobTicket
+	if err := c.post(ctx, ControlJobsPath, request, &ticket); err != nil {
+		return JobTicket{}, err
+	}
+	if err := validateJobTicket(ticket, true); err != nil {
+		return JobTicket{}, err
+	}
+	return ticket, nil
+}
+
+func (c *unixController) ReplayDirect(ctx context.Context, request DirectReplayRequest) (JobTicket, error) {
+	if _, err := CanonicalStableVersion("target_version", request.TargetVersion); err != nil {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	parsedID, err := uuid.Parse(request.IdempotencyKey)
+	if err != nil || parsedID.String() != request.IdempotencyKey {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	var ticket JobTicket
+	if err := c.post(ctx, ControlJobsReplayPath, request, &ticket); err != nil {
+		return JobTicket{}, err
+	}
+	if err := validateJobTicket(ticket, true); err != nil {
 		return JobTicket{}, err
 	}
 	return ticket, nil
@@ -244,7 +359,7 @@ func validDesiredState(state DesiredState) bool {
 	}
 }
 
-func validateJobTicket(ticket JobTicket) error {
+func validateJobTicket(ticket JobTicket, requireStatus bool) error {
 	jobID := strings.TrimSpace(ticket.JobID)
 	if !updaterJobIDPattern.MatchString(jobID) || strings.TrimSpace(ticket.JobToken) == "" {
 		return &ControllerError{Status: http.StatusBadGateway, Code: "updater_response_invalid", Message: "updater returned an invalid job ticket"}
@@ -253,7 +368,20 @@ func validateJobTicket(ticket JobTicket) error {
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/_dirextalk/updater/v1/jobs/"+jobID {
 		return &ControllerError{Status: http.StatusBadGateway, Code: "updater_response_invalid", Message: "updater returned an invalid job status URL"}
 	}
+	if (requireStatus && !ValidJobStatus(ticket.Status)) || (!requireStatus && ticket.Status != "" && !ValidJobStatus(ticket.Status)) {
+		return &ControllerError{Status: http.StatusBadGateway, Code: "updater_response_invalid", Message: "updater returned an invalid job status"}
+	}
 	return nil
+}
+
+// ValidJobStatus is the bounded updater job-state contract exposed to clients.
+func ValidJobStatus(value string) bool {
+	switch value {
+	case "queued", "validating", "backing_up", "pulling", "stopping", "migrating", "starting", "health_check", "rolling_back", "restarting", "succeeded", "failed", "rolled_back":
+		return true
+	default:
+		return false
+	}
 }
 
 func AsControllerError(err error) (*ControllerError, bool) {

@@ -52,6 +52,7 @@ type Config struct {
 	NativeAgentRunner               NativeAgentRunner
 	NativeAgentDataDir              string
 	ReleaseController               releasecontrol.Controller
+	CentralVersionSource            releasecontrol.CentralVersionSource
 }
 
 const (
@@ -646,8 +647,9 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 	)
 	service.releaseModule = releasemodule.New(serviceReleasePort{service: service}, releasemodule.Config{
-		SessionLocker: &service.matrixSessionMu,
-		Now:           time.Now,
+		SessionLocker:        &service.matrixSessionMu,
+		Now:                  time.Now,
+		CentralVersionSource: cfg.CentralVersionSource,
 	})
 	service.profileModule = profilemodule.New(serviceProfilePort{service: service})
 	var joinDirectRoom contactsmodule.DirectRoomJoiner
