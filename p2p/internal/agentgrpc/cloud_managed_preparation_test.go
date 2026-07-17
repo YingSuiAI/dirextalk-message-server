@@ -100,6 +100,57 @@ func TestManagedPreparationAdapterMatchesAgentGoldenAndRejectsPayloadDrift(t *te
 	}
 }
 
+func TestManagedPreparationAdapterMapsV2BoundedSnapshotTerms(t *testing.T) {
+	now := time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC)
+	challenge := preparationOperationChallengeProto(t, now)
+	volume := challenge.GetScope().GetVolumes()[0]
+
+	// Frozen V1 scopes cannot silently gain a V2-only field.
+	volume.SnapshotOperationKey = "snapshot-data"
+	if _, err := mapManagedPreparationScope(challenge.GetScope()); !errors.Is(err, cloudmodule.ErrAgentCloudControlInvalidResponse) {
+		t.Fatalf("V1 scope with V2 term error=%v", err)
+	}
+	volume.SnapshotOperationKey = ""
+
+	challenge.SchemaVersion = cloudmodule.AgentCloudManagedPreparationChallengeSchemaV2
+	challenge.Scope.SchemaVersion = cloudmodule.AgentCloudManagedPreparationScopeSchemaV2
+	volume.SnapshotOperationKey = "snapshot-data"
+	volume.SnapshotSourceVolumeScopeDigest = preparationDigest("f")
+	volume.SnapshotMaxRetentionSeconds = 3600
+	scope, err := mapManagedPreparationScope(challenge.GetScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := canonicalManagedPreparationPayload(managedPreparationSigningPayload{
+		SchemaVersion: challenge.GetSchemaVersion(), PayloadVersion: cloudmodule.AgentCloudManagedPreparationSigningPayloadV2,
+		Intent: "MANAGED_PREPARATION", ChallengeID: challenge.GetChallengeId(), OperationID: challenge.GetOperationId(),
+		SignerKeyID: challenge.GetSignerKeyId(), Scope: scope, IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	const v2Golden = "f06f840eb29ec23a6485acca0872dbcb763c30058794ddcbed667ea929a4c2e4"
+	if got := hex.EncodeToString(sum[:]); got != v2Golden {
+		t.Fatalf("V2 payload digest=%s want=%s", got, v2Golden)
+	}
+	challenge.ScopeDigest = "sha256:" + hex.EncodeToString(sum[:])
+	challenge.SigningPayloadCbor = payload
+	mapped, err := mapManagedPreparationChallenge(challenge)
+	if err != nil || mapped.SchemaVersion != cloudmodule.AgentCloudManagedPreparationChallengeSchemaV2 ||
+		mapped.Scope.SchemaVersion != cloudmodule.AgentCloudManagedPreparationScopeSchemaV2 ||
+		mapped.Scope.Volumes[0].SnapshotOperationKey != "snapshot-data" ||
+		mapped.Scope.Volumes[0].SnapshotSourceVolumeScopeDigest != preparationDigest("f") ||
+		mapped.Scope.Volumes[0].SnapshotMaxRetentionSeconds != 3600 {
+		t.Fatalf("mapped=%#v err=%v", mapped, err)
+	}
+
+	volume.SnapshotMaxRetentionSeconds = 0
+	if _, err = mapManagedPreparationScope(challenge.GetScope()); !errors.Is(err, cloudmodule.ErrAgentCloudControlInvalidResponse) {
+		t.Fatalf("V2 scope without retention error=%v", err)
+	}
+}
+
 func TestManagedPreparationAdapterRequiresClosedStepsAndSucceededResult(t *testing.T) {
 	now := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
 	challenge := preparationOperationChallengeProto(t, now)
@@ -139,19 +190,20 @@ func TestManagedPreparationAdapterRequiresClosedStepsAndSucceededResult(t *testi
 
 func preparationOperationChallengeProto(t *testing.T, now time.Time) *agentv1.CloudManagedPreparationChallenge {
 	t.Helper()
-	operationID, sourceID := uuid.NewString(), uuid.NewString()
+	operationID, sourceID := "11111111-1111-4111-8111-111111111111", "88888888-8888-4888-8888-888888888888"
 	source := &agentv1.CloudManagedPreparationResourceFact{
 		ResourceId: sourceID, ProviderId: "vol-0123456789abcdef0", Revision: 2,
 		SpecDigest: preparationDigest("1"), TagDigest: preparationDigest("2"),
 	}
 	scopeProto := &agentv1.CloudManagedPreparationScope{
 		SchemaVersion: "dirextalk.agent.cloud.service-operation-scope/v1", Intent: "MANAGED_PREPARATION",
-		PreparationOperationId: operationID, OwnerId: "owner-test", AgentInstanceId: uuid.NewString(),
-		DeploymentId: uuid.NewString(), DeploymentRevision: 7, ConnectionId: uuid.NewString(), ConnectionRevision: 3,
-		PlanId: uuid.NewString(), PlanRevision: 4, PlanHash: preparationDigest("3"), RecipeId: "postgresql",
+		PreparationOperationId: operationID, OwnerId: "owner-test", AgentInstanceId: "22222222-2222-4222-8222-222222222222",
+		DeploymentId: "33333333-3333-4333-8333-333333333333", DeploymentRevision: 7,
+		ConnectionId: "55555555-5555-4555-8555-555555555555", ConnectionRevision: 3,
+		PlanId: "66666666-6666-4666-8666-666666666666", PlanRevision: 4, PlanHash: preparationDigest("3"), RecipeId: "postgresql",
 		RecipeDigest: preparationDigest("4"), RecipeRevision: 5,
 		Ec2: &agentv1.CloudManagedPreparationResourceFact{
-			ResourceId: uuid.NewString(), ProviderId: "i-0123456789abcdef0", Revision: 6,
+			ResourceId: "77777777-7777-4777-8777-777777777777", ProviderId: "i-0123456789abcdef0", Revision: 6,
 			SpecDigest: preparationDigest("5"), TagDigest: preparationDigest("6"),
 		},
 		SourceVolumes: []*agentv1.CloudManagedPreparationResourceFact{source},
@@ -175,7 +227,7 @@ func preparationOperationChallengeProto(t *testing.T, now time.Time) *agentv1.Cl
 	if err != nil {
 		t.Fatal(err)
 	}
-	challengeID := uuid.NewString()
+	challengeID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	payload, err := canonicalManagedPreparationPayload(managedPreparationSigningPayload{
 		SchemaVersion:  "dirextalk.agent.cloud.service-operation-challenge/v1",
 		PayloadVersion: "dirextalk.agent.cloud.service-operation-signing-payload/v1", Intent: "MANAGED_PREPARATION",

@@ -160,6 +160,74 @@ func TestManagedPreparationExactGetErrorRemainsUnavailable(t *testing.T) {
 	}
 }
 
+func TestManagedPreparationFacadeDispatchesV2BoundedSnapshotPayload(t *testing.T) {
+	now := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
+	serviceID, deploymentID, operationID := "service-managed-preparation", uuid.NewString(), uuid.NewString()
+	challenge := managedPreparationTestChallengeV2(t, now, deploymentID, operationID)
+	client := &managedPreparationModuleClient{
+		agentControlModuleClient: &agentControlModuleClient{}, challenge: challenge,
+	}
+	store := &managedAcceptanceProjectionStore{compatibility: ManagedAcceptanceCompatibility{
+		DeploymentID: deploymentID, DeploymentRevision: 7, SignerKeyID: challenge.SignerKeyID,
+	}, found: true}
+	module := New(store, Config{
+		OwnerMXID: func() string { return challenge.Scope.OwnerID }, Now: func() time.Time { return now },
+		AgentCloudControlClient: client,
+	})
+
+	prepared, apiErr := module.Handlers()[actionServicesManagedPreparationPrepare](t.Context(), map[string]any{
+		"service_id": serviceID, "expected_revision": int64(7), "cost_alert_amount_minor": int64(2500),
+		"idempotency_key": uuid.NewString(),
+	})
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	approval := prepared.(map[string]any)["confirmation"].(map[string]any)["approval"].(managedPreparationApprovalV1)
+	volume := approval.Scope.Volumes[0]
+	if approval.SchemaVersion != managedPreparationChallengeSchemaV2 || approval.Scope.SchemaVersion != managedPreparationScopeSchemaV2 ||
+		volume.SnapshotOperationKey != "snapshot-data" || volume.SnapshotSourceVolumeScopeDigest != managementDigest("f") ||
+		volume.SnapshotMaxRetentionSeconds != 3600 {
+		t.Fatalf("v2 approval=%#v", approval)
+	}
+	approval.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, 64))
+	decoded, _, err := decodeManagedPreparationApproval(approval)
+	if err != nil || decoded.SchemaVersion != managedPreparationChallengeSchemaV2 {
+		t.Fatalf("decoded=%#v err=%v", decoded, err)
+	}
+
+	// The V2-only terms are mandatory and cannot be smuggled into a frozen V1
+	// approval payload.
+	v1 := managedPreparationTestChallenge(t, now, deploymentID, uuid.NewString())
+	v1.Scope.Volumes[0].SnapshotOperationKey = "snapshot-data"
+	if validManagedPreparationScopeSchema(v1.Scope) {
+		t.Fatal("V1 scope accepted V2-only snapshot terms")
+	}
+	if _, err := managedPreparationApprovalSigningPayload(managedPreparationApprovalV1{
+		SchemaVersion: v1.SchemaVersion, Scope: v1.Scope,
+	}); err == nil {
+		t.Fatal("V1 signing payload accepted V2-only snapshot terms")
+	}
+	frozen := managedPreparationTestChallenge(t, now, deploymentID, uuid.NewString())
+	v1Approval := managedPreparationApprovalV1{
+		SchemaVersion: frozen.SchemaVersion, ChallengeID: frozen.ChallengeID, OperationID: frozen.OperationID,
+		SignerKeyID: frozen.SignerKeyID, Scope: frozen.Scope, ScopeDigest: frozen.ScopeDigest,
+		IssuedAt: frozen.IssuedAt, ExpiresAt: frozen.ExpiresAt, OperationRevision: frozen.Revision,
+		Signature: base64.RawURLEncoding.EncodeToString(make([]byte, 64)),
+	}
+	encoded, err := json.Marshal(v1Approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err = json.Unmarshal(encoded, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["scope"].(map[string]any)["volumes"].([]any)[0].(map[string]any)["snapshot_operation_key"] = ""
+	if _, _, err = decodeManagedPreparationApproval(raw); err == nil {
+		t.Fatal("V1 approval accepted an explicitly present V2 key")
+	}
+}
+
 func managedPreparationTestChallenge(t *testing.T, now time.Time, deploymentID, operationID string) AgentCloudManagedPreparationChallenge {
 	t.Helper()
 	scope := AgentCloudManagedPreparationScope{
@@ -203,6 +271,28 @@ func managedPreparationTestChallenge(t *testing.T, now time.Time, deploymentID, 
 		ScopeDigest: "sha256:" + hexString(sum[:]), Scope: scope, IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute),
 		SigningPayloadCBOR: payload, Revision: 1,
 	}
+}
+
+func managedPreparationTestChallengeV2(t *testing.T, now time.Time, deploymentID, operationID string) AgentCloudManagedPreparationChallenge {
+	t.Helper()
+	challenge := managedPreparationTestChallenge(t, now, deploymentID, operationID)
+	challenge.SchemaVersion = managedPreparationChallengeSchemaV2
+	challenge.Scope.SchemaVersion = managedPreparationScopeSchemaV2
+	challenge.Scope.Volumes[0].SnapshotOperationKey = "snapshot-data"
+	challenge.Scope.Volumes[0].SnapshotSourceVolumeScopeDigest = managementDigest("f")
+	challenge.Scope.Volumes[0].SnapshotMaxRetentionSeconds = 3600
+	payload, err := managedPreparationApprovalSigningPayload(managedPreparationApprovalV1{
+		SchemaVersion: challenge.SchemaVersion, ChallengeID: challenge.ChallengeID, OperationID: challenge.OperationID,
+		SignerKeyID: challenge.SignerKeyID, Scope: challenge.Scope, IssuedAt: challenge.IssuedAt,
+		ExpiresAt: challenge.ExpiresAt, OperationRevision: challenge.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	challenge.ScopeDigest = "sha256:" + hexString(sum[:])
+	challenge.SigningPayloadCBOR = payload
+	return challenge
 }
 
 func managedPreparationTestOperation(challenge AgentCloudManagedPreparationChallenge, now time.Time) AgentCloudManagedPreparationOperation {

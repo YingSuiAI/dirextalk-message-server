@@ -127,7 +127,11 @@ type managedPreparationSigningPayload struct {
 }
 
 func mapManagedPreparationChallenge(value *agentv1.CloudManagedPreparationChallenge) (cloudmodule.AgentCloudManagedPreparationChallenge, error) {
-	if value == nil || value.GetScope() == nil || value.GetSchemaVersion() != "dirextalk.agent.cloud.service-operation-challenge/v1" ||
+	if value == nil || value.GetScope() == nil {
+		return cloudmodule.AgentCloudManagedPreparationChallenge{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
+	payloadVersion, schemaOK := managedPreparationPayloadVersion(value.GetSchemaVersion(), value.GetScope().GetSchemaVersion())
+	if !schemaOK ||
 		!validUUID(value.GetChallengeId()) || !validUUID(value.GetOperationId()) ||
 		!agentFoundationKeyIDPattern.MatchString(value.GetSignerKeyId()) || !agentCloudDigestPattern.MatchString(value.GetScopeDigest()) ||
 		len(value.GetSigningPayloadCbor()) == 0 || len(value.GetSigningPayloadCbor()) > 64*1024 {
@@ -143,7 +147,7 @@ func mapManagedPreparationChallenge(value *agentv1.CloudManagedPreparationChalle
 		return cloudmodule.AgentCloudManagedPreparationChallenge{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 	}
 	payload, err := canonicalManagedPreparationPayload(managedPreparationSigningPayload{
-		SchemaVersion: value.GetSchemaVersion(), PayloadVersion: "dirextalk.agent.cloud.service-operation-signing-payload/v1",
+		SchemaVersion: value.GetSchemaVersion(), PayloadVersion: payloadVersion,
 		Intent: "MANAGED_PREPARATION", ChallengeID: value.GetChallengeId(), OperationID: value.GetOperationId(),
 		SignerKeyID: value.GetSignerKeyId(), Scope: scope, IssuedAt: issuedAt, ExpiresAt: expiresAt,
 	})
@@ -161,9 +165,23 @@ func mapManagedPreparationChallenge(value *agentv1.CloudManagedPreparationChalle
 	}, nil
 }
 
+func managedPreparationPayloadVersion(challengeSchema, scopeSchema string) (string, bool) {
+	switch {
+	case challengeSchema == cloudmodule.AgentCloudManagedPreparationChallengeSchemaV1 && scopeSchema == cloudmodule.AgentCloudManagedPreparationScopeSchemaV1:
+		return cloudmodule.AgentCloudManagedPreparationSigningPayloadV1, true
+	case challengeSchema == cloudmodule.AgentCloudManagedPreparationChallengeSchemaV2 && scopeSchema == cloudmodule.AgentCloudManagedPreparationScopeSchemaV2:
+		return cloudmodule.AgentCloudManagedPreparationSigningPayloadV2, true
+	default:
+		return "", false
+	}
+}
+
 func mapManagedPreparationScope(value *agentv1.CloudManagedPreparationScope) (cloudmodule.AgentCloudManagedPreparationScope, error) {
-	if value == nil || value.GetEc2() == nil || value.GetRestart() == nil ||
-		value.GetSchemaVersion() != "dirextalk.agent.cloud.service-operation-scope/v1" || value.GetIntent() != "MANAGED_PREPARATION" ||
+	if value == nil || value.GetEc2() == nil || value.GetRestart() == nil {
+		return cloudmodule.AgentCloudManagedPreparationScope{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+	}
+	isV2 := value.GetSchemaVersion() == cloudmodule.AgentCloudManagedPreparationScopeSchemaV2
+	if (value.GetSchemaVersion() != cloudmodule.AgentCloudManagedPreparationScopeSchemaV1 && !isV2) || value.GetIntent() != "MANAGED_PREPARATION" ||
 		!validUUID(value.GetPreparationOperationId()) || !agentCloudIdentifierPattern.MatchString(value.GetOwnerId()) ||
 		!validUUID(value.GetAgentInstanceId()) || !validUUID(value.GetDeploymentId()) || value.GetDeploymentRevision() <= 0 ||
 		!validUUID(value.GetConnectionId()) || value.GetConnectionRevision() <= 0 || !validUUID(value.GetPlanId()) ||
@@ -233,6 +251,17 @@ func mapManagedPreparationScope(value *agentv1.CloudManagedPreparationScope) (cl
 			usedSources[source.ResourceID] || usedDevices[item.GetDeviceName()] {
 			return cloudmodule.AgentCloudManagedPreparationScope{}, cloudmodule.ErrAgentCloudControlInvalidResponse
 		}
+		if isV2 {
+			if !agentCloudIdentifierPattern.MatchString(item.GetSnapshotOperationKey()) ||
+				!agentCloudDigestPattern.MatchString(item.GetSnapshotSourceVolumeScopeDigest()) ||
+				item.GetSnapshotMaxRetentionSeconds() == 0 ||
+				item.GetSnapshotMaxRetentionSeconds() > cloudmodule.AgentCloudManagedPreparationMaxSnapshotRetentionSeconds {
+				return cloudmodule.AgentCloudManagedPreparationScope{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+			}
+		} else if item.GetSnapshotOperationKey() != "" || item.GetSnapshotSourceVolumeScopeDigest() != "" ||
+			item.GetSnapshotMaxRetentionSeconds() != 0 {
+			return cloudmodule.AgentCloudManagedPreparationScope{}, cloudmodule.ErrAgentCloudControlInvalidResponse
+		}
 		usedSources[source.ResourceID], usedDevices[item.GetDeviceName()], previousSlot = true, true, item.GetSlotId()
 		volume := cloudmodule.AgentCloudManagedPreparationVolume{
 			SlotID: item.GetSlotId(), SourceVolume: source, SnapshotResourceID: item.GetSnapshotResourceId(),
@@ -240,7 +269,9 @@ func mapManagedPreparationScope(value *agentv1.CloudManagedPreparationScope) (cl
 			SizeGiB: item.GetSizeGib(), VolumeType: item.GetVolumeType(), IOPS: item.GetIops(),
 			ThroughputMiBPS: item.GetThroughputMibps(), KMSKeyID: item.GetKmsKeyId(), DeviceName: item.GetDeviceName(),
 			MountPath: item.GetMountPath(), ReadOnly: item.GetReadOnly(), Persistent: item.GetPersistent(),
-			Disposition: item.GetDisposition(),
+			Disposition: item.GetDisposition(), SnapshotOperationKey: item.GetSnapshotOperationKey(),
+			SnapshotSourceVolumeScopeDigest: item.GetSnapshotSourceVolumeScopeDigest(),
+			SnapshotMaxRetentionSeconds:     item.GetSnapshotMaxRetentionSeconds(),
 		}
 		sourceSpecDigest, digestErr := cloudmodule.ManagedPreparationVolumeSourceSpecDigest(volume)
 		if digestErr != nil || sourceSpecDigest != source.SpecDigest {

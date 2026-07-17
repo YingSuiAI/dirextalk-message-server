@@ -1648,6 +1648,19 @@ health/cost/stack digest, revision and observation time only on a succeeded
 operation. Message Server persists no preparation operation, Job, outbox or
 event and does not publish this façade through WebSocket or MCP.
 
+## 2026-07-18 — Managed preparation V2 bounded snapshot scope
+
+The same façade additionally accepts the paired Agent schemas
+`dirextalk.agent.cloud.service-operation-scope/v2`,
+`dirextalk.agent.cloud.service-operation-challenge/v2`, and
+`dirextalk.agent.cloud.service-operation-signing-payload/v2`. Every V2 volume
+binds its safe snapshot operation key, source-volume scope digest, and finite
+`snapshot_max_retention_seconds` (one second through 365 days) into the exact
+device-signing CBOR. Message Server rejects a mismatched schema pair, missing
+or out-of-range V2 term, and recomputes the V2 payload before exposing it or
+forwarding a signature. V1 remains accepted only with all three V2-only keys
+absent; its deterministic CBOR projection is unchanged.
+
 ## 2026-07-15 — Selectable private Recipe and scoped service secrets v1
 
 `cloud.goals.create` now accepts the optional pair `recipe_id` and

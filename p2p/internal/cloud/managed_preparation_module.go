@@ -52,7 +52,7 @@ func (m *Module) prepareManagedPreparation(ctx context.Context, params map[strin
 		return nil, managedPreparationInvalidResponseError()
 	}
 	approval := managedPreparationApprovalV1{
-		SchemaVersion: managedPreparationChallengeSchema, ChallengeID: challenge.ChallengeID, OperationID: challenge.OperationID,
+		SchemaVersion: challenge.SchemaVersion, ChallengeID: challenge.ChallengeID, OperationID: challenge.OperationID,
 		SignerKeyID: challenge.SignerKeyID, Scope: challenge.Scope, ScopeDigest: challenge.ScopeDigest,
 		IssuedAt: challenge.IssuedAt, ExpiresAt: challenge.ExpiresAt, OperationRevision: challenge.Revision,
 	}
@@ -169,13 +169,14 @@ func (m *Module) agentManagedPreparationClient() (AgentCloudManagedPreparationCl
 func validateManagedPreparationChallenge(value AgentCloudManagedPreparationChallenge, owner string, compatibility ManagedAcceptanceCompatibility, cost int64, now time.Time) error {
 	sum := sha256.Sum256(value.SigningPayloadCBOR)
 	scope := value.Scope
-	if value.SchemaVersion != managedPreparationChallengeSchema || value.Revision != 1 || !canonicalUUID(value.OperationID) || !canonicalUUID(value.ChallengeID) ||
+	if _, schemaOK := managedPreparationPayloadSchema(value.SchemaVersion, scope.SchemaVersion); !schemaOK ||
+		!validManagedPreparationScopeSchema(scope) || value.Revision != 1 || !canonicalUUID(value.OperationID) || !canonicalUUID(value.ChallengeID) ||
 		value.OperationID != scope.PreparationOperationID || value.SignerKeyID != compatibility.SignerKeyID ||
 		value.ScopeDigest != "sha256:"+hex.EncodeToString(sum[:]) || !agentFoundationDigestPattern.MatchString(value.ScopeDigest) ||
 		len(value.SigningPayloadCBOR) == 0 || len(value.SigningPayloadCBOR) > 64*1024 ||
 		value.IssuedAt.IsZero() || value.IssuedAt.Location() != time.UTC || value.ExpiresAt.Location() != time.UTC ||
 		!value.ExpiresAt.After(value.IssuedAt) || value.ExpiresAt.Sub(value.IssuedAt) > 5*time.Minute || !now.Before(value.ExpiresAt) ||
-		scope.SchemaVersion != managedPreparationScopeSchema || scope.Intent != managedPreparationIntent || scope.OwnerID != owner ||
+		scope.Intent != managedPreparationIntent || scope.OwnerID != owner ||
 		scope.DeploymentID != compatibility.DeploymentID || scope.DeploymentRevision != compatibility.DeploymentRevision ||
 		scope.CostAlertAmountMinor != cost {
 		return ErrAgentCloudControlInvalidResponse
@@ -262,7 +263,9 @@ func decodeManagedPreparationApproval(raw any) (managedPreparationApprovalV1, Ag
 	signature, err := base64.RawURLEncoding.DecodeString(approval.Signature)
 	payload, payloadErr := managedPreparationApprovalSigningPayload(approval)
 	payloadSum := sha256.Sum256(payload)
-	if approval.SchemaVersion != managedPreparationChallengeSchema || !canonicalUUID(approval.ChallengeID) ||
+	if _, schemaOK := managedPreparationPayloadSchema(approval.SchemaVersion, approval.Scope.SchemaVersion); !schemaOK ||
+		!v1ManagedPreparationApprovalOmitsV2Terms(encoded, approval) ||
+		!validManagedPreparationScopeSchema(approval.Scope) || !canonicalUUID(approval.ChallengeID) ||
 		!canonicalUUID(approval.OperationID) || approval.OperationID != approval.Scope.PreparationOperationID ||
 		!cloudKeyIDPattern.MatchString(approval.SignerKeyID) || approval.SignerKeyID == "" ||
 		!agentFoundationDigestPattern.MatchString(approval.ScopeDigest) ||
@@ -291,8 +294,12 @@ type managedPreparationApprovalSigningPayloadV1 struct {
 }
 
 func managedPreparationApprovalSigningPayload(value managedPreparationApprovalV1) ([]byte, error) {
+	payloadVersion, schemaOK := managedPreparationPayloadSchema(value.SchemaVersion, value.Scope.SchemaVersion)
+	if !schemaOK || !validManagedPreparationScopeSchema(value.Scope) {
+		return nil, ErrAgentCloudControlInvalid
+	}
 	document := managedPreparationApprovalSigningPayloadV1{
-		SchemaVersion: value.SchemaVersion, PayloadVersion: "dirextalk.agent.cloud.service-operation-signing-payload/v1",
+		SchemaVersion: value.SchemaVersion, PayloadVersion: payloadVersion,
 		Intent: managedPreparationIntent, ChallengeID: value.ChallengeID, OperationID: value.OperationID,
 		SignerKeyID: value.SignerKeyID, Scope: value.Scope, IssuedAt: value.IssuedAt.UTC(), ExpiresAt: value.ExpiresAt.UTC(),
 	}
@@ -315,6 +322,62 @@ func managedPreparationApprovalSigningPayload(value managedPreparationApprovalV1
 		return nil, err
 	}
 	return mode.Marshal(projected)
+}
+
+func managedPreparationPayloadSchema(challengeSchema, scopeSchema string) (string, bool) {
+	switch {
+	case challengeSchema == managedPreparationChallengeSchemaV1 && scopeSchema == managedPreparationScopeSchemaV1:
+		return managedPreparationSigningPayloadV1, true
+	case challengeSchema == managedPreparationChallengeSchemaV2 && scopeSchema == managedPreparationScopeSchemaV2:
+		return managedPreparationSigningPayloadV2, true
+	default:
+		return "", false
+	}
+}
+
+func validManagedPreparationScopeSchema(scope AgentCloudManagedPreparationScope) bool {
+	isV2 := scope.SchemaVersion == managedPreparationScopeSchemaV2
+	for _, volume := range scope.Volumes {
+		if isV2 {
+			if !managedPreparationSafeIdentifierPattern.MatchString(volume.SnapshotOperationKey) ||
+				!agentFoundationDigestPattern.MatchString(volume.SnapshotSourceVolumeScopeDigest) ||
+				volume.SnapshotMaxRetentionSeconds == 0 ||
+				volume.SnapshotMaxRetentionSeconds > managedPreparationMaxSnapshotRetentionSeconds {
+				return false
+			}
+			continue
+		}
+		if volume.SnapshotOperationKey != "" || volume.SnapshotSourceVolumeScopeDigest != "" ||
+			volume.SnapshotMaxRetentionSeconds != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// V1 is a frozen signing contract. A JSON client must not be able to smuggle
+// even zero-valued V2 keys into a V1 approval and have them silently omitted
+// while Message Server re-creates the V1 CBOR payload.
+func v1ManagedPreparationApprovalOmitsV2Terms(encoded []byte, approval managedPreparationApprovalV1) bool {
+	if approval.SchemaVersion != managedPreparationChallengeSchemaV1 || approval.Scope.SchemaVersion != managedPreparationScopeSchemaV1 {
+		return true
+	}
+	var document struct {
+		Scope struct {
+			Volumes []map[string]json.RawMessage `json:"volumes"`
+		} `json:"scope"`
+	}
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		return false
+	}
+	for _, volume := range document.Scope.Volumes {
+		for _, key := range []string{"snapshot_operation_key", "snapshot_source_volume_scope_digest", "snapshot_max_retention_seconds"} {
+			if _, present := volume[key]; present {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func normalizeManagedPreparationJSONNumbers(value any) (any, error) {

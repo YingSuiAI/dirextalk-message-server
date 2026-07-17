@@ -6,15 +6,36 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 )
 
 const (
-	managedPreparationChallengeSchema = "dirextalk.agent.cloud.service-operation-challenge/v1"
-	managedPreparationScopeSchema     = "dirextalk.agent.cloud.service-operation-scope/v1"
-	managedPreparationIntent          = "MANAGED_PREPARATION"
+	AgentCloudManagedPreparationChallengeSchemaV1           = "dirextalk.agent.cloud.service-operation-challenge/v1"
+	AgentCloudManagedPreparationScopeSchemaV1               = "dirextalk.agent.cloud.service-operation-scope/v1"
+	AgentCloudManagedPreparationSigningPayloadV1            = "dirextalk.agent.cloud.service-operation-signing-payload/v1"
+	AgentCloudManagedPreparationChallengeSchemaV2           = "dirextalk.agent.cloud.service-operation-challenge/v2"
+	AgentCloudManagedPreparationScopeSchemaV2               = "dirextalk.agent.cloud.service-operation-scope/v2"
+	AgentCloudManagedPreparationSigningPayloadV2            = "dirextalk.agent.cloud.service-operation-signing-payload/v2"
+	AgentCloudManagedPreparationMaxSnapshotRetentionSeconds = uint64(365 * 24 * 60 * 60)
+
+	managedPreparationIntent = "MANAGED_PREPARATION"
+
+	// These aliases retain the V1 fixtures' names while the facade dispatches
+	// by the received schema version.
+	managedPreparationChallengeSchemaV1           = AgentCloudManagedPreparationChallengeSchemaV1
+	managedPreparationScopeSchemaV1               = AgentCloudManagedPreparationScopeSchemaV1
+	managedPreparationSigningPayloadV1            = AgentCloudManagedPreparationSigningPayloadV1
+	managedPreparationChallengeSchemaV2           = AgentCloudManagedPreparationChallengeSchemaV2
+	managedPreparationScopeSchemaV2               = AgentCloudManagedPreparationScopeSchemaV2
+	managedPreparationSigningPayloadV2            = AgentCloudManagedPreparationSigningPayloadV2
+	managedPreparationMaxSnapshotRetentionSeconds = AgentCloudManagedPreparationMaxSnapshotRetentionSeconds
+	managedPreparationChallengeSchema             = managedPreparationChallengeSchemaV1
+	managedPreparationScopeSchema                 = managedPreparationScopeSchemaV1
 )
+
+var managedPreparationSafeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 var managedPreparationPhases = [...]string{
 	"restart", "backup", "restore_create", "restore_swap", "semantic_health", "finalize",
@@ -81,6 +102,11 @@ type AgentCloudManagedPreparationVolume struct {
 	ReadOnly                    bool                                     `json:"read_only"`
 	Persistent                  bool                                     `json:"persistent"`
 	Disposition                 string                                   `json:"disposition"`
+	// V2-only snapshot terms are omitted from the V1 JSON projection so its
+	// device-signing CBOR remains byte-for-byte frozen.
+	SnapshotOperationKey            string `json:"snapshot_operation_key,omitempty"`
+	SnapshotSourceVolumeScopeDigest string `json:"snapshot_source_volume_scope_digest,omitempty"`
+	SnapshotMaxRetentionSeconds     uint64 `json:"snapshot_max_retention_seconds,omitempty"`
 }
 
 // ManagedPreparationVolumeSourceSpecDigest reconstructs the Agent-owned
