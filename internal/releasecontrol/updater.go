@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -79,8 +81,39 @@ type WatchdogStatus struct {
 	ErrorCode      string `json:"error_code,omitempty"`
 }
 
+// ActiveJob is the public, token-free progress subset the updater returns to
+// message-server status callers. It deliberately has no plan, image, digest,
+// command, path, recovery point, or job bearer fields.
+type ActiveJob struct {
+	JobID            string `json:"job_id"`
+	Status           string `json:"status"`
+	CurrentVersion   string `json:"current_version,omitempty"`
+	TargetVersion    string `json:"target_version,omitempty"`
+	ServiceAvailable bool   `json:"service_available"`
+}
+
+// DirectStatus is the small v2 updater control response. It intentionally
+// excludes release discovery, plans, and operations; central version lookup is
+// performed by the message server at apply time instead.
+type DirectStatus struct {
+	Available      bool           `json:"available"`
+	UpdaterReady   bool           `json:"updater_ready"`
+	CurrentVersion string         `json:"current_version"`
+	DesiredState   string         `json:"desired_state"`
+	ActiveJob      *ActiveJob     `json:"active_job,omitempty"`
+	Watchdog       WatchdogStatus `json:"watchdog"`
+}
+
 type ApplyRequest struct {
 	PlanToken      string `json:"plan_token"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Confirm        string `json:"confirm"`
+}
+
+// DirectApplyRequest is the v2 central-version upgrade command. The target is
+// a release identifier only; callers cannot select infrastructure details.
+type DirectApplyRequest struct {
+	TargetVersion  string `json:"target_version"`
 	IdempotencyKey string `json:"idempotency_key"`
 	Confirm        string `json:"confirm"`
 }
@@ -89,12 +122,21 @@ type JobTicket struct {
 	JobID     string `json:"job_id"`
 	JobToken  string `json:"job_token"`
 	StatusURL string `json:"status_url"`
+	Status    string `json:"status,omitempty"`
 }
 
 type Controller interface {
 	Status(context.Context, StatusRequest) (UpdaterStatus, error)
 	Apply(context.Context, ApplyRequest) (JobTicket, error)
 	SetDesiredState(context.Context, DesiredState) error
+}
+
+// DirectController is implemented by current updaters. It is separate from
+// Controller so legacy v1 plan-token behavior remains source compatible while
+// v2 can fail closed when installed updater binaries have not been migrated.
+type DirectController interface {
+	StatusDirect(context.Context) (DirectStatus, error)
+	ApplyDirect(context.Context, DirectApplyRequest) (JobTicket, error)
 }
 
 type ControllerError struct {
@@ -158,6 +200,32 @@ func (c *unixController) Status(ctx context.Context, request StatusRequest) (Upd
 }
 
 func (c *unixController) Apply(ctx context.Context, request ApplyRequest) (JobTicket, error) {
+	var ticket JobTicket
+	if err := c.post(ctx, ControlJobsPath, request, &ticket); err != nil {
+		return JobTicket{}, err
+	}
+	if err := validateJobTicket(ticket); err != nil {
+		return JobTicket{}, err
+	}
+	return ticket, nil
+}
+
+func (c *unixController) StatusDirect(ctx context.Context) (DirectStatus, error) {
+	var status DirectStatus
+	if err := c.post(ctx, ControlStatusPath, struct{}{}, &status); err != nil {
+		return DirectStatus{}, err
+	}
+	return status, nil
+}
+
+func (c *unixController) ApplyDirect(ctx context.Context, request DirectApplyRequest) (JobTicket, error) {
+	if _, err := CanonicalStableVersion("target_version", request.TargetVersion); err != nil {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
+	parsedID, err := uuid.Parse(request.IdempotencyKey)
+	if err != nil || parsedID.String() != request.IdempotencyKey || request.Confirm != ApplyConfirmation {
+		return JobTicket{}, &ControllerError{Status: http.StatusBadRequest, Code: "updater_request_invalid", Message: "updater request is invalid"}
+	}
 	var ticket JobTicket
 	if err := c.post(ctx, ControlJobsPath, request, &ticket); err != nil {
 		return JobTicket{}, err
