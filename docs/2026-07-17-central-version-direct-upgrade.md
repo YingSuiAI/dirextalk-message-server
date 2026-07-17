@@ -16,7 +16,7 @@
 - [ ] Message server：新增 owner-only、HTTP-only `release.v2.apply`，仅接受目标版本和幂等参数，并复核中台 `server` 记录。
 - [ ] Updater：新增基于固定镜像仓库和 `target_version` 的直接单跳任务；拉取后固定实际 digest。
 - [ ] Updater：移除 GitHub discovery 活跃路径、公开 rollback 路由和 rollback operation，保留自动恢复与 restart。
-- [ ] Deployer：停止为新节点安装 discovery timer，并为已有节点提供幂等清理迁移。
+- [x] Deployer：停止为新节点安装 discovery timer，并为已有节点提供幂等清理迁移（`57fc7a9`；bundle、安装和 S3 migration tests 已通过）。
 
 ## 交付任务
 
