@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func SaveMatrixKey(matrixKeyPath string, data ed25519.PrivateKey) error {
 
 const certificateDuration = time.Hour * 24 * 365 * 10
 
-func generateTLSTemplate(dnsNames []string, bitSize int) (*rsa.PrivateKey, *x509.Certificate, error) {
+func generateTLSTemplate(serverName string, bitSize int) (*rsa.PrivateKey, *x509.Certificate, error) {
 	priv, err := rsa.GenerateKey(rand.Reader, bitSize)
 	if err != nil {
 		return nil, nil, err
@@ -87,7 +88,11 @@ func generateTLSTemplate(dnsNames []string, bitSize int) (*rsa.PrivateKey, *x509
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:              dnsNames,
+	}
+	if ip := net.ParseIP(serverName); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else if serverName != "" {
+		template.DNSNames = []string{serverName}
 	}
 	return priv, &template, nil
 }
@@ -116,7 +121,13 @@ func writePrivateKey(tlsKeyPath string, priv *rsa.PrivateKey) error {
 
 // NewTLSKey generates a new RSA TLS key and certificate and writes it to a file.
 func NewTLSKey(tlsKeyPath, tlsCertPath string, keySize int) error {
-	priv, template, err := generateTLSTemplate(nil, keySize)
+	return NewTLSKeyWithServerName("", tlsKeyPath, tlsCertPath, keySize)
+}
+
+// NewTLSKeyWithServerName generates a self-signed RSA TLS certificate with
+// the supplied DNS or IP subject alternative name.
+func NewTLSKeyWithServerName(serverName, tlsKeyPath, tlsCertPath string, keySize int) error {
+	priv, template, err := generateTLSTemplate(serverName, keySize)
 	if err != nil {
 		return err
 	}
@@ -134,7 +145,7 @@ func NewTLSKey(tlsKeyPath, tlsCertPath string, keySize int) error {
 }
 
 func NewTLSKeyWithAuthority(serverName, tlsKeyPath, tlsCertPath, authorityKeyPath, authorityCertPath string, keySize int) error {
-	priv, template, err := generateTLSTemplate([]string{serverName}, keySize)
+	priv, template, err := generateTLSTemplate(serverName, keySize)
 	if err != nil {
 		return err
 	}

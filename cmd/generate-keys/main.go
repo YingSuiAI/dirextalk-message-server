@@ -50,15 +50,8 @@ func main() {
 		if *tlsCertFile == "" || *tlsKeyFile == "" {
 			log.Fatal("Zero or both of --tls-key and --tls-cert must be supplied")
 		}
-		if *authorityCertFile == "" && *authorityKeyFile == "" {
-			if err := test.NewTLSKey(*tlsKeyFile, *tlsCertFile, *keySize); err != nil {
-				panic(err)
-			}
-		} else {
-			// generate the TLS cert/key based on the authority given.
-			if err := test.NewTLSKeyWithAuthority(*serverName, *tlsKeyFile, *tlsCertFile, *authorityKeyFile, *authorityCertFile, *keySize); err != nil {
-				panic(err)
-			}
+		if err := generateTLSKey(*serverName, *tlsKeyFile, *tlsCertFile, *authorityKeyFile, *authorityCertFile, *keySize); err != nil {
+			panic(err)
 		}
 		fmt.Printf("Created TLS cert file:    %s\n", *tlsCertFile)
 		fmt.Printf("Created TLS key file:     %s\n", *tlsKeyFile)
@@ -70,4 +63,12 @@ func main() {
 		}
 		fmt.Printf("Created private key file: %s\n", *privateKeyFile)
 	}
+}
+
+func generateTLSKey(serverName, tlsKeyPath, tlsCertPath, authorityKeyPath, authorityCertPath string, keySize int) error {
+	if authorityCertPath == "" && authorityKeyPath == "" {
+		return test.NewTLSKeyWithServerName(serverName, tlsKeyPath, tlsCertPath, keySize)
+	}
+	// Generate the TLS cert/key based on the authority given.
+	return test.NewTLSKeyWithAuthority(serverName, tlsKeyPath, tlsCertPath, authorityKeyPath, authorityCertPath, keySize)
 }
