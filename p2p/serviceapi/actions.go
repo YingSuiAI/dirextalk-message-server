@@ -63,6 +63,7 @@ var actionSpecs = []ActionSpec{
 	{Name: "conversations.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 
 	{Name: "cloud.bootstrap", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.cutover.preflight", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "cloud.connections.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "cloud.connections.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "cloud.plans.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},

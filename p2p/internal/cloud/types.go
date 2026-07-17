@@ -607,6 +607,14 @@ type Store interface {
 	ListCloudEvents(context.Context, int) ([]Event, error)
 }
 
+// LegacyCloudPrivateFootprintReader proves that no non-projection legacy Cloud
+// facts remain. It stays separate from Store so an older or narrower
+// implementation cannot accidentally satisfy the direct-cutover gate; callers
+// must fail closed when this read is unavailable.
+type LegacyCloudPrivateFootprintReader interface {
+	HasLegacyCloudPrivateFootprint(context.Context) (bool, error)
+}
+
 // DeploymentReader is the narrow read-only boundary that may be delegated to
 // the independent Agent service. It deliberately excludes every mutation so
 // enabling remote status queries cannot route approvals or lifecycle actions.

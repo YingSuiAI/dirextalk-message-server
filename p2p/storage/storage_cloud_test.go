@@ -45,6 +45,10 @@ func TestDatabaseStoreConnectionBootstrapPersistsRootTemplatePublishIntent(t *te
 		store.Close()
 		t.Fatal(err)
 	}
+	if hasFootprint, err := store.HasLegacyCloudPrivateFootprint(ctx); err != nil || !hasFootprint {
+		store.Close()
+		t.Fatalf("unprojected connection bootstrap must block cutover: hasFootprint=%v err=%v", hasFootprint, err)
+	}
 	var persistedJSON string
 	if err := store.DB().QueryRowContext(ctx, `SELECT connection_template_json FROM p2p_cloud_connection_bootstraps WHERE bootstrap_id = $1`, bootstrap.BootstrapID).Scan(&persistedJSON); err != nil {
 		store.Close()

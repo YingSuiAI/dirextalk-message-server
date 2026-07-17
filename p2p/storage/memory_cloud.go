@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
@@ -120,6 +121,20 @@ func (s *MemoryStore) CompleteCloudConnectionBootstrap(_ context.Context, reques
 	s.cloudEvents = append(s.cloudEvents, request.Event)
 	s.cloudOutbox[request.Outbox.OutboxID] = request.Outbox
 	return cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
+// HasLegacyCloudPrivateFootprint reports whether the in-memory compatibility
+// store retains a fact that is intentionally absent from public Cloud lists.
+// Production uses DatabaseStore's exhaustive durable-table check; this narrow
+// implementation covers every private fact the in-memory store can retain.
+func (s *MemoryStore) HasLegacyCloudPrivateFootprint(_ context.Context) (bool, error) {
+	if s == nil {
+		return false, errors.New("cloud memory storage is unavailable")
+	}
+	s.mu.RLock()
+	hasFootprint := len(s.cloudConnectionBootstraps) > 0 || len(s.cloudOutbox) > 0
+	s.mu.RUnlock()
+	return hasFootprint, nil
 }
 
 func (s *MemoryStore) ListCloudGoals(_ context.Context) ([]cloudmodule.Goal, error) {

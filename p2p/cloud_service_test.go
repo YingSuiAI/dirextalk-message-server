@@ -434,7 +434,7 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 	router := newP2PTestRouter(service)
 
 	for _, action := range []string{
-		"cloud.bootstrap", "cloud.connections.list", "cloud.connections.get", "cloud.plans.list", "cloud.plans.get",
+		"cloud.bootstrap", "cloud.cutover.preflight", "cloud.connections.list", "cloud.connections.get", "cloud.plans.list", "cloud.plans.get",
 		"cloud.deployments.list", "cloud.deployments.get", "cloud.services.list", "cloud.services.get",
 		"cloud.recipes.list", "cloud.recipes.get", "cloud.events.list",
 	} {
@@ -518,5 +518,44 @@ func TestCloudActionsAreOwnerScopedAndWritesAreHTTPOnly(t *testing.T) {
 		if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Pragma") != "no-cache" {
 			t.Fatalf("%s response must never be cacheable: %#v", action, recorder.Header())
 		}
+	}
+}
+
+func TestCloudCutoverPreflightIsOwnerOnlyAndReadOnly(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	router := newP2PTestRouter(service)
+
+	unauthorized := jsonRequest(t, "/_p2p/query", map[string]any{
+		"action": "cloud.cutover.preflight", "params": map[string]any{},
+	})
+	unauthorizedRec := httptest.NewRecorder()
+	router.ServeHTTP(unauthorizedRec, unauthorized)
+	if unauthorizedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized preflight status=%d body=%s", unauthorizedRec.Code, unauthorizedRec.Body.String())
+	}
+
+	request := jsonRequest(t, "/_p2p/query", map[string]any{
+		"action": "cloud.cutover.preflight", "params": map[string]any{},
+	})
+	request.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("owner preflight status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	payload := decodeJSONMap(t, recorder.Body.String())
+	if len(payload) != 4 || payload["ready"] != true || payload["blocked"] != false ||
+		payload["reason"] != "" || payload["count"] != float64(0) {
+		t.Fatalf("empty preflight payload=%#v", payload)
+	}
+
+	invalidParams := jsonRequest(t, "/_p2p/query", map[string]any{
+		"action": "cloud.cutover.preflight", "params": map[string]any{"legacy_id": "must_not_be_accepted"},
+	})
+	invalidParams.Header.Set("Authorization", "Bearer "+service.AccessToken())
+	invalidParamsRec := httptest.NewRecorder()
+	router.ServeHTTP(invalidParamsRec, invalidParams)
+	if invalidParamsRec.Code != http.StatusBadRequest {
+		t.Fatalf("preflight accepted params status=%d body=%s", invalidParamsRec.Code, invalidParamsRec.Body.String())
 	}
 }

@@ -83,6 +83,11 @@
       "transport": "http_and_ws_request"
     },
     {
+      "name": "cloud.cutover.preflight",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
       "name": "cloud.connections.list",
       "auth": "owner",
       "transport": "http_and_ws_request"

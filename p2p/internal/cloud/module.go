@@ -23,6 +23,7 @@ import (
 
 const (
 	actionBootstrap                                     = "cloud.bootstrap"
+	actionCutoverPreflight                              = "cloud.cutover.preflight"
 	actionConnectionsList                               = "cloud.connections.list"
 	actionConnectionsGet                                = "cloud.connections.get"
 	actionPlansList                                     = "cloud.plans.list"
@@ -154,6 +155,7 @@ func New(store Store, cfg Config) *Module {
 func (m *Module) Handlers() map[string]actionbase.Handler {
 	return map[string]actionbase.Handler{
 		actionBootstrap:                                        m.bootstrap,
+		actionCutoverPreflight:                                 m.cutoverPreflight,
 		actionConnectionsList:                                  m.connectionsList,
 		actionConnectionsGet:                                   m.connectionsGet,
 		actionPlansList:                                        m.plansList,

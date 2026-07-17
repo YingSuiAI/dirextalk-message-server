@@ -1,5 +1,32 @@
 # API Interface Change Record
 
+## 2026-07-18: fail-closed direct Cloud cutover preflight
+
+Added `cloud.cutover.preflight` as an owner-authenticated, read-only
+ProductCore action available through the existing HTTP/query and owner
+realtime request paths. It accepts no parameters and returns only the exact
+`{ready, blocked, reason, count}` status. It never returns Cloud resource IDs,
+credentials, event bodies, logs, or storage/provider error details.
+
+The Message Server checks every legacy local Cloud fact family exposed by the
+compatibility store before a future direct cutover: goals, plans, jobs,
+connections, deployments, services, recipes, alerts, and bounded legacy-event
+presence. It also makes an existence-only read over every private durable
+legacy Cloud table, including bootstrap, outbox, command, approval, lifecycle,
+and operational facts that may not have a public projection yet. Any
+Connection, Deployment, or Service is reported as
+`legacy_cloud_active_resources_present`; other retained data is
+`legacy_cloud_data_present`. A missing store, incomplete read, schema mismatch,
+or unknown read failure instead returns the redacted
+`legacy_cloud_read_failed` blocked result, not a 5xx. The event check is
+intentionally bounded, so a blocked `count` is a safe observed lower bound
+rather than an unbounded history scan; data/active reasons have a positive
+count, while a read failure has count zero.
+
+This action performs no migration, deletion, mutation, or cutover. Flutter
+uses the normal Message Server ProductCore client only, displays the status as
+read-only, and treats an unavailable or malformed response as blocked.
+
 ## 2026-07-17: owner-only on-demand encrypted deployment pairing payload
 
 - Added `cloud.deployments.pairing.payload.retrieve` as an owner-authenticated,
