@@ -38,6 +38,12 @@ func (*testAgentGRPCRunner) ListCloudDeployments(context.Context) ([]p2p.CloudDe
 func (*testAgentGRPCRunner) GetCloudDeployment(context.Context, string) (p2p.CloudDeployment, bool, error) {
 	return p2p.CloudDeployment{}, false, nil
 }
+func (*testAgentGRPCRunner) ListCloudServices(context.Context) ([]p2p.CloudService, error) {
+	return []p2p.CloudService{}, nil
+}
+func (*testAgentGRPCRunner) GetCloudService(context.Context, string) (p2p.CloudService, bool, error) {
+	return p2p.CloudService{}, false, nil
+}
 func (*testAgentGRPCRunner) CreateAgentSecretBootstrap(context.Context, p2p.CreateCloudSecretBootstrapRequest) (p2p.CloudSecretBootstrapSession, error) {
 	return p2p.CloudSecretBootstrapSession{}, nil
 }
@@ -219,6 +225,10 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || cloudReader != wantRunner {
 		t.Fatalf("remote Cloud deployment reader=%v err=%v", cloudReader, err)
 	}
+	serviceReader, err := p2pAgentCloudServiceReader(config, runner)
+	if err != nil || serviceReader != wantRunner {
+		t.Fatalf("remote Cloud service reader=%v err=%v", serviceReader, err)
+	}
 	secretClient, err := p2pAgentSecretBootstrapClient(config, runner)
 	if err != nil || secretClient != wantRunner {
 		t.Fatalf("remote secret bootstrap client=%v err=%v", secretClient, err)
@@ -249,6 +259,9 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	}
 	if _, err = p2pAgentCloudDeploymentReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without Cloud deployment query capability")
+	}
+	if _, err = p2pAgentCloudServiceReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without managed-service query capability")
 	}
 	if _, err = p2pAgentSecretBootstrapClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without encrypted secret bootstrap capability")

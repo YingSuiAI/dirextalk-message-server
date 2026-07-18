@@ -34,10 +34,14 @@ type cloudTestService struct {
 	mu                    sync.Mutex
 	listRequests          []*agentv1.ListCloudDeploymentsRequest
 	getRequests           []*agentv1.GetCloudDeploymentRequest
+	listManagedRequests   []*agentv1.ListCloudManagedServicesRequest
+	getManagedRequests    []*agentv1.GetCloudManagedServiceRequest
 	previewRequest        *agentv1.PreviewAwsIdentityRequest
 	auth                  []string
 	list                  func(*agentv1.ListCloudDeploymentsRequest) (*agentv1.ListCloudDeploymentsResponse, error)
 	get                   func(*agentv1.GetCloudDeploymentRequest) (*agentv1.GetCloudDeploymentResponse, error)
+	listManagedServices   func(*agentv1.ListCloudManagedServicesRequest) (*agentv1.ListCloudManagedServicesResponse, error)
+	getManagedService     func(*agentv1.GetCloudManagedServiceRequest) (*agentv1.GetCloudManagedServiceResponse, error)
 	preview               func(*agentv1.PreviewAwsIdentityRequest) (*agentv1.PreviewAwsIdentityResponse, error)
 	createGoal            func(*agentv1.CreateCloudGoalRequest) (*agentv1.CreateCloudGoalResponse, error)
 	getPlan               func(*agentv1.GetCloudPlanRequest) (*agentv1.GetCloudPlanResponse, error)
@@ -350,6 +354,28 @@ func (service *cloudTestService) GetCloudDeployment(ctx context.Context, request
 	return nil, status.Error(codes.NotFound, "missing")
 }
 
+func (service *cloudTestService) ListCloudManagedServices(ctx context.Context, request *agentv1.ListCloudManagedServicesRequest) (*agentv1.ListCloudManagedServicesResponse, error) {
+	service.captureManaged(ctx, request, nil)
+	service.mu.Lock()
+	callback := service.listManagedServices
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return &agentv1.ListCloudManagedServicesResponse{}, nil
+}
+
+func (service *cloudTestService) GetCloudManagedService(ctx context.Context, request *agentv1.GetCloudManagedServiceRequest) (*agentv1.GetCloudManagedServiceResponse, error) {
+	service.captureManaged(ctx, nil, request)
+	service.mu.Lock()
+	callback := service.getManagedService
+	service.mu.Unlock()
+	if callback != nil {
+		return callback(request)
+	}
+	return nil, status.Error(codes.NotFound, "missing")
+}
+
 func (service *cloudTestService) capture(ctx context.Context, list *agentv1.ListCloudDeploymentsRequest, get *agentv1.GetCloudDeploymentRequest) {
 	values := metadata.ValueFromIncomingContext(ctx, "authorization")
 	authorization := ""
@@ -363,6 +389,23 @@ func (service *cloudTestService) capture(ctx context.Context, list *agentv1.List
 	}
 	if get != nil {
 		service.getRequests = append(service.getRequests, get)
+	}
+	service.auth = append(service.auth, authorization)
+}
+
+func (service *cloudTestService) captureManaged(ctx context.Context, list *agentv1.ListCloudManagedServicesRequest, get *agentv1.GetCloudManagedServiceRequest) {
+	values := metadata.ValueFromIncomingContext(ctx, "authorization")
+	authorization := ""
+	if len(values) == 1 {
+		authorization = values[0]
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if list != nil {
+		service.listManagedRequests = append(service.listManagedRequests, list)
+	}
+	if get != nil {
+		service.getManagedRequests = append(service.getManagedRequests, get)
 	}
 	service.auth = append(service.auth, authorization)
 }

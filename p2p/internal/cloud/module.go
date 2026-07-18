@@ -134,6 +134,7 @@ type Config struct {
 	NewID                     func(kind string) string
 	Publish                   func(context.Context, string, string, map[string]any) error
 	DeploymentReader          DeploymentReader
+	ServiceReader             ServiceReader
 	DeploymentCreateEnabled   bool
 	ConnectionStack           ConnectionStackConfig
 	CredentialBootstrapClient ConnectionCredentialBootstrapClient
@@ -1506,7 +1507,7 @@ func (m *Module) readCloudStatusSnapshot(ctx context.Context, includeRecipes boo
 	if err != nil {
 		return cloudStatusSnapshot{}, err
 	}
-	services, err := m.store.ListCloudServices(ctx)
+	services, err := m.readCloudServices(ctx)
 	if err != nil {
 		return cloudStatusSnapshot{}, err
 	}
@@ -2227,11 +2228,52 @@ func (m *Module) servicesList(ctx context.Context, params map[string]any) (any, 
 	if err := only(params); err != nil {
 		return nil, err
 	}
-	items, err := m.store.ListCloudServices(ctx)
+	items, err := m.readCloudServices(ctx)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
 	}
 	return map[string]any{"services": items}, nil
+}
+
+// readCloudServices is the sole read projection for both the explicit service
+// endpoints and Cloud bootstrap/status. Once enabled, Agent-owned canonical
+// service UUIDs never fall back to a stale local ProductCore row.
+func (m *Module) readCloudServices(ctx context.Context) ([]Service, error) {
+	if m == nil {
+		return nil, errors.New("cloud status is not configured")
+	}
+	if m.cfg.ServiceReader == nil {
+		if m.store == nil {
+			return nil, errors.New("cloud status is not configured")
+		}
+		return m.store.ListCloudServices(ctx)
+	}
+	remote, err := m.cfg.ServiceReader.ListCloudServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := append([]Service(nil), remote...)
+	for _, item := range items {
+		if !canonicalNonNilUUID(item.ServiceID) {
+			return nil, errors.New("agent service returned an invalid cloud managed service response")
+		}
+	}
+	// The independent Agent owns every canonical UUID service. Keep only legacy
+	// non-UUID records from ProductCore so a stale local row can neither shadow
+	// nor reappear beside an Agent-owned service.
+	if m.store == nil {
+		return items, nil
+	}
+	legacy, err := m.store.ListCloudServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range legacy {
+		if !canonicalNonNilUUID(item.ServiceID) {
+			items = append(items, item)
+		}
+	}
+	return items, nil
 }
 
 func (m *Module) servicesGet(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
@@ -2242,6 +2284,16 @@ func (m *Module) servicesGet(ctx context.Context, params map[string]any) (any, *
 	if id == "" {
 		return nil, actionbase.BadRequest("service_id is required")
 	}
+	if m != nil && m.cfg.ServiceReader != nil && canonicalNonNilUUID(id) {
+		item, ok, err := m.cfg.ServiceReader.GetCloudService(ctx, id)
+		if err != nil {
+			return nil, actionbase.InternalError(err)
+		}
+		if !ok {
+			return nil, actionbase.CodedError(http.StatusNotFound, "cloud_service_not_found", "cloud service was not found")
+		}
+		return item, nil
+	}
 	item, ok, err := m.store.GetCloudService(ctx, id)
 	if err != nil {
 		return nil, actionbase.InternalError(err)
@@ -2250,6 +2302,11 @@ func (m *Module) servicesGet(ctx context.Context, params map[string]any) (any, *
 		return nil, actionbase.CodedError(http.StatusNotFound, "cloud_service_not_found", "cloud service was not found")
 	}
 	return item, nil
+}
+
+func canonicalNonNilUUID(value string) bool {
+	parsed, err := uuid.Parse(strings.TrimSpace(value))
+	return err == nil && parsed != uuid.Nil && parsed.String() == value
 }
 
 func (m *Module) recipesList(ctx context.Context, params map[string]any) (any, *actionbase.Error) {

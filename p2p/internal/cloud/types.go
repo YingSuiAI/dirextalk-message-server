@@ -638,3 +638,12 @@ type DeploymentReader interface {
 	ListCloudDeployments(context.Context) ([]Deployment, error)
 	GetCloudDeployment(context.Context, string) (Deployment, bool, error)
 }
+
+// ServiceReader is the narrow read-only boundary for Agent-owned managed
+// services. It deliberately excludes lifecycle mutations; enabling the remote
+// compatibility projection cannot grant the Message Server provider control.
+// Canonical UUID service IDs are reserved for this reader once it is enabled.
+type ServiceReader interface {
+	ListCloudServices(context.Context) ([]Service, error)
+	GetCloudService(context.Context, string) (Service, bool, error)
+}

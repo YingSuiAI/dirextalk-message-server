@@ -37,6 +37,19 @@ type CloudDeploymentReader interface {
 	GetCloudDeployment(context.Context, string) (CloudDeployment, bool, error)
 }
 
+// CloudService is the existing ProductCore managed-service projection shape.
+// It remains a compatibility façade; durable managed-service facts belong to
+// the independent Agent.
+type CloudService = cloudmodule.Service
+
+// CloudServiceReader delegates only managed-service list/get to the
+// independent Agent. It cannot execute lifecycle actions or obtain provider
+// credentials.
+type CloudServiceReader interface {
+	ListCloudServices(context.Context) ([]CloudService, error)
+	GetCloudService(context.Context, string) (CloudService, bool, error)
+}
+
 // CloudSecretBootstrapClient exposes only create and encrypted upload. The
 // Message Server cannot complete, consume, or deliver a secret through it.
 type CloudSecretBootstrapClient = cloudmodule.SecretBootstrapClient

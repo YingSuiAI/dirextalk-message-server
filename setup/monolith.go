@@ -128,6 +128,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 		logrus.Fatal("P2P Agent gRPC cloud query backend is unavailable")
 	}
+	agentCloudServiceReader, err := p2pAgentCloudServiceReader(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC managed-service query backend is unavailable")
+	}
 	agentSecretBootstrapClient, err := p2pAgentSecretBootstrapClient(agentBackend, agentChatRunner)
 	if err != nil {
 		if agentChatRunner != nil {
@@ -169,6 +176,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		NativeAgentChatRunner:              agentChatRunner,
 		AgentEventClient:                   agentEventClient,
 		CloudDeploymentReader:              agentCloudDeploymentReader,
+		CloudServiceReader:                 agentCloudServiceReader,
 		CloudSecretBootstrapClient:         agentSecretBootstrapClient,
 		CloudIdentityPreviewClient:         agentIdentityPreviewClient,
 		CloudAgentControlClient:            agentCloudControlClient,
@@ -357,6 +365,17 @@ func p2pAgentCloudDeploymentReader(config p2pAgentGRPCBackendConfig, runner Agen
 	reader, ok := runner.(p2p.CloudDeploymentReader)
 	if !ok || reader == nil {
 		return nil, errors.New("enabled Agent gRPC backend does not support cloud deployment queries")
+	}
+	return reader, nil
+}
+
+func p2pAgentCloudServiceReader(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudServiceReader, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	reader, ok := runner.(p2p.CloudServiceReader)
+	if !ok || reader == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support managed-service queries")
 	}
 	return reader, nil
 }
