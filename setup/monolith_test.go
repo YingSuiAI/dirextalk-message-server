@@ -26,6 +26,12 @@ func (*testAgentGRPCRunner) Stream(context.Context, string, map[string]any, func
 	return nil
 }
 func (*testAgentGRPCRunner) Close() error { return nil }
+func (*testAgentGRPCRunner) GetRuntimeProfile(context.Context) (p2p.AgentRuntimeProfileState, error) {
+	return p2p.AgentRuntimeProfileState{}, nil
+}
+func (*testAgentGRPCRunner) UpdateRuntimeProfile(context.Context, p2p.AgentRuntimeProfileUpdate) (p2p.AgentRuntimeProfileState, error) {
+	return p2p.AgentRuntimeProfileState{}, nil
+}
 func (*testAgentGRPCRunner) AgentEventSource() p2p.AgentEventSource {
 	return p2p.AgentEventSource{AgentInstanceID: testAgentInstanceID, CallerID: "dirextalk-project:example.com"}
 }
@@ -221,6 +227,10 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || runner != wantRunner {
 		t.Fatalf("remote Chat Runner=%v err=%v", runner, err)
 	}
+	runtimeProfileClient, err := p2pAgentRuntimeProfileClient(config, runner)
+	if err != nil || runtimeProfileClient != wantRunner {
+		t.Fatalf("remote runtime profile client=%v err=%v", runtimeProfileClient, err)
+	}
 	cloudReader, err := p2pAgentCloudDeploymentReader(config, runner)
 	if err != nil || cloudReader != wantRunner {
 		t.Fatalf("remote Cloud deployment reader=%v err=%v", cloudReader, err)
@@ -259,6 +269,9 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	}
 	if _, err = p2pAgentCloudDeploymentReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without Cloud deployment query capability")
+	}
+	if _, err = p2pAgentRuntimeProfileClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without runtime profile capability")
 	}
 	if _, err = p2pAgentCloudServiceReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without managed-service query capability")

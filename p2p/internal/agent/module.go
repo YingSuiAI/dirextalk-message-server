@@ -26,6 +26,7 @@ type Config struct {
 	// service while the remaining runtime/config/Skill/Knowledge actions stay
 	// on Runner until their public contracts are migrated.
 	ChatRunner        Runner
+	RuntimeProfiles   RuntimeProfileClient
 	DataDir           string
 	Store             nativeagent.ConfigStore
 	MCP               *dirextalkmcp.Service
@@ -38,9 +39,10 @@ type Config struct {
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
 type Module struct {
-	runner     Runner
-	chatRunner Runner
-	account    AccountPort
+	runner          Runner
+	chatRunner      Runner
+	runtimeProfiles RuntimeProfileClient
+	account         AccountPort
 }
 
 func New(cfg Config) *Module {
@@ -60,12 +62,12 @@ func New(cfg Config) *Module {
 	if chatRunner == nil {
 		chatRunner = runner
 	}
-	return &Module{runner: runner, chatRunner: chatRunner, account: cfg.Account}
+	return &Module{runner: runner, chatRunner: chatRunner, runtimeProfiles: cfg.RuntimeProfiles, account: cfg.Account}
 }
 
 // Handlers returns the complete Agent ProductCore action surface.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+5)
+	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+7)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
 	}
@@ -73,6 +75,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	handlers[actionMatrixSessionCreate] = m.createMatrixSession
 	handlers[actionConfigGet] = m.getConfig
 	handlers[actionConfigUpdate] = m.updateConfig
+	handlers[actionRuntimeProfileGet] = m.getRuntimeProfile
+	handlers[actionRuntimeProfileUpdate] = m.updateRuntimeProfile
 	handlers["agent.chat.stream"] = streamOnly
 	return handlers
 }

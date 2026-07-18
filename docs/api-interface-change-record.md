@@ -1,5 +1,43 @@
 # API Interface Change Record
 
+## 2026-07-18: Agent-owned immutable runtime model profile
+
+Added `agent.runtime.profile.get` and `agent.runtime.profile.update` as
+owner-authenticated, HTTP-only ProductCore actions. Every response path is
+non-cacheable with `Cache-Control: no-store` and `Pragma: no-cache`; the
+actions are unavailable through realtime WebSocket and to `agent_token`.
+
+Get accepts no parameters. Update accepts exactly `idempotency_key` as a
+canonical UUID, `profile_id`, and nonnegative `expected_revision`, with only
+optional `temperature`, `top_p`, and `max_output_tokens`. Provider, model,
+base URL, owner identity, credential/secret fields or references, nested model
+profiles, and unknown fields are not representable as mutation intent.
+
+Both actions return the exact de-secreted
+`{available, configured, revision, available_profile_ids, profile}` shape.
+`profile` is either `null` or exactly
+`{profile_id, provider, model, base_url, temperature, top_p,
+max_output_tokens, context_window, reasoning_effort}`. The response contains
+no Agent owner, service-key status, secret reference, credential-presence bit,
+or API key. The immutable profile catalog is owned by the independent Agent
+deployment; clients select a public profile ID rather than constructing
+provider credentials.
+
+Remote `agent.chat` rejects the legacy request-scoped `model_profile_id` and
+`model_profile` fields. The Agent service key must authorize `runtime.read`,
+`runtime.write`, and `runtime.chat`, while the model credential reaches Agent
+only through an operator-provisioned read-only mounted secret file. On the
+first selection, Message Server uses the explicit first-validation runtime
+baseline of 48 context messages, 12 memory messages, and 24 steps; later
+profile changes preserve the Agent-owned non-profile configuration.
+
+After an ambiguous update result, clients reconcile through
+`agent.runtime.profile.get` and its current revision/state. They must not
+rebuild and blindly replay a mutation from a stale revision. This entry
+supersedes the earlier current-client request-local model-profile contract for
+the independent Agent path; the existing local Runner may retain that behavior
+only as compatibility while it remains supported.
+
 ## 2026-07-18: fail-closed direct Cloud cutover preflight
 
 Added `cloud.cutover.preflight` as an owner-authenticated, read-only

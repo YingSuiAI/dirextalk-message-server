@@ -9,8 +9,8 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	first := ActionSpecs()
 	second := ActionSpecs()
 
-	if len(first) != 195 {
-		t.Fatalf("ActionSpecs() returned %d actions, want 195", len(first))
+	if len(first) != 197 {
+		t.Fatalf("ActionSpecs() returned %d actions, want 197", len(first))
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("ActionSpecs() did not preserve action order")
@@ -22,6 +22,15 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	}
 	if got := ActionSpecs()[0].Name; got != "portal.bootstrap" {
 		t.Fatalf("mutating returned specs changed registry: first action = %q", got)
+	}
+}
+
+func TestAgentRuntimeProfileActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{AgentRuntimeProfileGetAction, AgentRuntimeProfileUpdateAction} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
 	}
 }
 

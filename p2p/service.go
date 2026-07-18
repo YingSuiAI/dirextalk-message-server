@@ -56,6 +56,10 @@ type Config struct {
 	// Agent service. All other Agent actions continue to use NativeAgentRunner
 	// or the existing local runtime.
 	NativeAgentChatRunner NativeAgentRunner
+	// AgentRuntimeProfileClient delegates only the owner-selected immutable
+	// model profile to the independent Agent. It never exposes credential
+	// references or bytes to ProductCore.
+	AgentRuntimeProfileClient AgentRuntimeProfileClient
 	// AgentEventClient consumes only the durable TaskService WatchEvents stream.
 	// PostgreSQL owns its per-instance/caller cursor and ProductCore projection.
 	AgentEventClient AgentEventClient
@@ -919,6 +923,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	service.agentModule = agentmodule.New(agentmodule.Config{
 		Runner:            cfg.NativeAgentRunner,
 		ChatRunner:        cfg.NativeAgentChatRunner,
+		RuntimeProfiles:   cfg.AgentRuntimeProfileClient,
 		DataDir:           cfg.NativeAgentDataDir,
 		Store:             nativeAgentConfigStore{service: service},
 		MCP:               service.mcpCapabilities,

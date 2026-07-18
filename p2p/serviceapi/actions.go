@@ -19,6 +19,8 @@ const (
 	CloudDeploymentPairingResumeAction                 = "cloud.deployments.pairing.resume"
 	CloudDeploymentDestroyPlanAction                   = "cloud.deployments.destroy.plan"
 	CloudDeploymentDestroyApproveAction                = "cloud.deployments.destroy.approve"
+	AgentRuntimeProfileGetAction                       = "agent.runtime.profile.get"
+	AgentRuntimeProfileUpdateAction                    = "agent.runtime.profile.update"
 )
 
 type ActionAuth string
@@ -116,6 +118,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "agent.matrix_session.create", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
 	{Name: "agent.config.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.config.update", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: AgentRuntimeProfileGetAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: AgentRuntimeProfileUpdateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "agent.config.propose_patch", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.chat", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.chat.stream", Auth: ActionAuthOwner, Transport: ActionTransportWSStreamOnly},

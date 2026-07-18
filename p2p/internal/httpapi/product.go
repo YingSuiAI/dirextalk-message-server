@@ -50,7 +50,7 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return
 		}
-		if sensitiveCloudHTTPAction(action) {
+		if sensitiveHTTPAction(action) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Pragma", "no-cache")
 		}
@@ -94,7 +94,7 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 	}
 }
 
-func sensitiveCloudHTTPAction(action string) bool {
+func sensitiveHTTPAction(action string) bool {
 	switch action {
 	case serviceapi.CloudConnectionCredentialBootstrapCreateAction,
 		serviceapi.CloudConnectionIdentityPreviewAction,
@@ -107,7 +107,9 @@ func sensitiveCloudHTTPAction(action string) bool {
 		serviceapi.CloudDeploymentPairingPayloadRetrieveAction,
 		serviceapi.CloudDeploymentPairingResumeAction,
 		serviceapi.CloudDeploymentDestroyPlanAction,
-		serviceapi.CloudDeploymentDestroyApproveAction:
+		serviceapi.CloudDeploymentDestroyApproveAction,
+		serviceapi.AgentRuntimeProfileGetAction,
+		serviceapi.AgentRuntimeProfileUpdateAction:
 		return true
 	default:
 		return false

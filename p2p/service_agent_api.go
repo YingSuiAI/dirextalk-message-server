@@ -24,6 +24,14 @@ type ClosableNativeAgentRunner interface {
 	Close() error
 }
 
+// AgentRuntimeProfileClient exposes only the independent Agent's de-secreted
+// immutable catalog selection. ProductCore derives owner identity from its
+// authenticated configuration and never forwards model credentials.
+type AgentRuntimeProfileClient = agentmodule.RuntimeProfileClient
+type AgentRuntimeProfileState = agentmodule.RuntimeProfileState
+type AgentRuntimeProfile = agentmodule.RuntimeProfile
+type AgentRuntimeProfileUpdate = agentmodule.RuntimeProfileUpdate
+
 // CloudDeployment is the existing ProductCore projection shape. The alias lets
 // setup wire a generic Agent client without exposing p2p/internal packages.
 type CloudDeployment = cloudmodule.Deployment
@@ -107,9 +115,10 @@ type AgentGRPCConfig struct {
 }
 
 // NewAgentGRPCChatRunner is the public construction seam for setup. The same
-// narrow transport also implements Cloud queries, encrypted secret bootstrap,
-// and typed approval/connection establishment. Each capability is wired
-// through a separate interface so setup fails closed when one is absent.
+// narrow transport also implements runtime-profile configuration, Cloud
+// queries, encrypted secret bootstrap, and typed approval/connection
+// establishment. Each capability is wired through a separate interface so
+// setup fails closed when one is absent.
 func NewAgentGRPCChatRunner(ctx context.Context, config AgentGRPCConfig) (ClosableNativeAgentRunner, error) {
 	return agentgrpc.New(ctx, agentgrpc.Config{
 		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,
