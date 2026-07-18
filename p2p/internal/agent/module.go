@@ -23,10 +23,14 @@ type Runner interface {
 type Config struct {
 	Runner Runner
 	// ChatRunner optionally moves only Chat/StreamChat to an isolated Agent
-	// service while the remaining runtime/config/Skill/Knowledge actions stay
-	// on Runner until their public contracts are migrated.
-	ChatRunner        Runner
-	RuntimeProfiles   RuntimeProfileClient
+	// service. Typed capabilities below migrate independently; every remaining
+	// runtime/Skill action stays on Runner until its contract is migrated.
+	ChatRunner      Runner
+	RuntimeProfiles RuntimeProfileClient
+	// Knowledge delegates the complete owner-only Knowledge action family to
+	// the independent Agent. When absent, legacy/local Runner behavior is
+	// preserved exactly.
+	Knowledge         KnowledgeClient
 	DataDir           string
 	Store             nativeagent.ConfigStore
 	MCP               *dirextalkmcp.Service
@@ -42,6 +46,7 @@ type Module struct {
 	runner          Runner
 	chatRunner      Runner
 	runtimeProfiles RuntimeProfileClient
+	knowledge       KnowledgeClient
 	account         AccountPort
 }
 
@@ -62,7 +67,7 @@ func New(cfg Config) *Module {
 	if chatRunner == nil {
 		chatRunner = runner
 	}
-	return &Module{runner: runner, chatRunner: chatRunner, runtimeProfiles: cfg.RuntimeProfiles, account: cfg.Account}
+	return &Module{runner: runner, chatRunner: chatRunner, runtimeProfiles: cfg.RuntimeProfiles, knowledge: cfg.Knowledge, account: cfg.Account}
 }
 
 // Handlers returns the complete Agent ProductCore action surface.
@@ -70,6 +75,11 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+7)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
+	}
+	if m.knowledge != nil {
+		for action, handler := range m.knowledgeHandlers() {
+			handlers[action] = handler
+		}
 	}
 	handlers[actionPassword] = m.accountPassword
 	handlers[actionMatrixSessionCreate] = m.createMatrixSession

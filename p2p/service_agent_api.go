@@ -32,6 +32,26 @@ type AgentRuntimeProfileState = agentmodule.RuntimeProfileState
 type AgentRuntimeProfile = agentmodule.RuntimeProfile
 type AgentRuntimeProfileUpdate = agentmodule.RuntimeProfileUpdate
 
+// AgentKnowledgeClient owns the complete typed, owner-bound Knowledge action
+// family. ProductCore never accepts a caller owner, provider endpoint, model,
+// credential, or raw backend selector through this seam.
+type AgentKnowledgeClient = agentmodule.KnowledgeClient
+type AgentKnowledgeState = agentmodule.KnowledgeState
+type AgentKnowledgeConfigUpdate = agentmodule.KnowledgeConfigUpdate
+type AgentKnowledgeSourceList = agentmodule.KnowledgeSourceList
+type AgentKnowledgeSourcePage = agentmodule.KnowledgeSourcePage
+type AgentKnowledgeSource = agentmodule.KnowledgeSource
+type AgentKnowledgeSourceDelete = agentmodule.KnowledgeSourceDelete
+type AgentKnowledgeUploadStart = agentmodule.KnowledgeUploadStart
+type AgentKnowledgeUploadChunk = agentmodule.KnowledgeUploadChunk
+type AgentKnowledgeUploadFinish = agentmodule.KnowledgeUploadFinish
+type AgentKnowledgeUpload = agentmodule.KnowledgeUpload
+type AgentKnowledgeUploadResult = agentmodule.KnowledgeUploadResult
+type AgentKnowledgeMemoryCreate = agentmodule.KnowledgeMemoryCreate
+type AgentKnowledgeSearch = agentmodule.KnowledgeSearch
+type AgentKnowledgeSearchResult = agentmodule.KnowledgeSearchResult
+type AgentKnowledgeStatus = agentmodule.KnowledgeStatus
+
 // CloudDeployment is the existing ProductCore projection shape. The alias lets
 // setup wire a generic Agent client without exposing p2p/internal packages.
 type CloudDeployment = cloudmodule.Deployment
@@ -115,7 +135,7 @@ type AgentGRPCConfig struct {
 }
 
 // NewAgentGRPCChatRunner is the public construction seam for setup. The same
-// narrow transport also implements runtime-profile configuration, Cloud
+// narrow transport also implements runtime-profile and Knowledge configuration, Cloud
 // queries, encrypted secret bootstrap, and typed approval/connection
 // establishment. Each capability is wired through a separate interface so
 // setup fails closed when one is absent.

@@ -53,13 +53,17 @@ type Config struct {
 	PluginRunner                    PluginRunner
 	NativeAgentRunner               NativeAgentRunner
 	// NativeAgentChatRunner delegates only Chat/StreamChat to the independent
-	// Agent service. All other Agent actions continue to use NativeAgentRunner
-	// or the existing local runtime.
+	// Agent service. Dedicated typed clients below own their migrated actions;
+	// every remaining Agent action uses NativeAgentRunner/local runtime.
 	NativeAgentChatRunner NativeAgentRunner
 	// AgentRuntimeProfileClient delegates only the owner-selected immutable
 	// model profile to the independent Agent. It never exposes credential
 	// references or bytes to ProductCore.
 	AgentRuntimeProfileClient AgentRuntimeProfileClient
+	// AgentKnowledgeClient delegates all Knowledge actions to the independent
+	// Agent. It binds one trusted owner and never persists source or blob truth
+	// in ProductCore/Matrix.
+	AgentKnowledgeClient AgentKnowledgeClient
 	// AgentEventClient consumes only the durable TaskService WatchEvents stream.
 	// PostgreSQL owns its per-instance/caller cursor and ProductCore projection.
 	AgentEventClient AgentEventClient
@@ -924,6 +928,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Runner:            cfg.NativeAgentRunner,
 		ChatRunner:        cfg.NativeAgentChatRunner,
 		RuntimeProfiles:   cfg.AgentRuntimeProfileClient,
+		Knowledge:         cfg.AgentKnowledgeClient,
 		DataDir:           cfg.NativeAgentDataDir,
 		Store:             nativeAgentConfigStore{service: service},
 		MCP:               service.mcpCapabilities,

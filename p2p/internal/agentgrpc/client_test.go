@@ -52,6 +52,7 @@ func TestRunnerChatUsesTLS13MountedAuthenticationAndBoundOwner(t *testing.T) {
 		"memory_disabled":                true,
 		"expected_conversation_revision": 7,
 		"cloud_dialogue_mode":            false,
+		"knowledge_enabled":              false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -167,16 +168,23 @@ func TestRunnerFailsClosedForUnrepresentableLegacyParameters(t *testing.T) {
 		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "model_profile": map[string]any{"api_key": modelProfileCanary}},
 		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "conversation_context": map[string]any{"summary": "must not cross"}},
 		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "owner_id": "attacker"},
+		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "knowledge_enabled": true},
+		{"prompt": "hello", "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID, "knowledge_enabled": "false"},
 	} {
 		_, err := runner.Invoke(context.Background(), "agent.chat", params)
 		if err == nil || err.Error() != "agent chat parameters cannot be represented by the remote runtime contract" {
-			t.Fatalf("fail-closed error = %v", err)
+			t.Fatalf("Invoke fail-closed error = %v", err)
+		}
+		err = runner.Stream(context.Background(), "agent.chat.stream", params, func(nativeagent.Event) error { return nil })
+		if err == nil || err.Error() != "agent chat parameters cannot be represented by the remote runtime contract" {
+			t.Fatalf("Stream fail-closed error = %v", err)
 		}
 	}
 	server.service.mu.Lock()
 	request := server.service.chatRequest
+	streamRequest := server.service.streamRequest
 	server.service.mu.Unlock()
-	if request != nil {
+	if request != nil || streamRequest != nil {
 		t.Fatal("unrepresentable parameters reached the remote Agent service")
 	}
 }
@@ -197,6 +205,7 @@ func TestRunnerCloudDialogueValidatesOwnedConnectionAndForwardsOnlyTypedScope(t 
 	params := map[string]any{
 		"prompt": "research official documentation", "conversation_id": "conversation-1",
 		"idempotency_key": idempotencyKey, "cloud_dialogue_mode": true, "cloud_connection_id": cloudDialogueConnectionID,
+		"knowledge_enabled": false,
 	}
 	result, err := runner.Invoke(context.Background(), "agent.chat", params)
 	if err != nil {
@@ -472,13 +481,14 @@ func chatResponse() *agentv1.ChatResponse {
 }
 
 type testRuntimeServer struct {
-	target  string
-	caFile  string
-	keyFile string
-	service *runtimeTestService
-	tasks   *taskTestService
-	cloud   *cloudTestService
-	secrets *secretBootstrapTestService
+	target    string
+	caFile    string
+	keyFile   string
+	service   *runtimeTestService
+	tasks     *taskTestService
+	cloud     *cloudTestService
+	secrets   *secretBootstrapTestService
+	knowledge *knowledgeTestService
 }
 
 func startRuntimeServer(t *testing.T) testRuntimeServer {
@@ -492,6 +502,7 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 	tasks := &taskTestService{}
 	cloud := &cloudTestService{}
 	secrets := &secretBootstrapTestService{}
+	knowledge := newKnowledgeTestService()
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13,
 	})))
@@ -499,6 +510,7 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 	agentv1.RegisterTaskServiceServer(server, tasks)
 	agentv1.RegisterCloudControlServiceServer(server, cloud)
 	agentv1.RegisterSecretBootstrapServiceServer(server, secrets)
+	agentv1.RegisterKnowledgeServiceServer(server, knowledge)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
 	dir := t.TempDir()
@@ -510,7 +522,7 @@ func startRuntimeServer(t *testing.T) testRuntimeServer {
 	if err := os.WriteFile(keyFile, []byte(testServiceKey+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service, tasks: tasks, cloud: cloud, secrets: secrets}
+	return testRuntimeServer{target: listener.Addr().String(), caFile: caFile, keyFile: keyFile, service: service, tasks: tasks, cloud: cloud, secrets: secrets, knowledge: knowledge}
 }
 
 func newTestRunner(t *testing.T, server testRuntimeServer, override Config) *Runner {

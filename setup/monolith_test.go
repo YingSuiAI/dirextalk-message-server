@@ -32,6 +32,36 @@ func (*testAgentGRPCRunner) GetRuntimeProfile(context.Context) (p2p.AgentRuntime
 func (*testAgentGRPCRunner) UpdateRuntimeProfile(context.Context, p2p.AgentRuntimeProfileUpdate) (p2p.AgentRuntimeProfileState, error) {
 	return p2p.AgentRuntimeProfileState{}, nil
 }
+func (*testAgentGRPCRunner) GetKnowledgeState(context.Context, string) (p2p.AgentKnowledgeState, error) {
+	return p2p.AgentKnowledgeState{}, nil
+}
+func (*testAgentGRPCRunner) UpdateKnowledgeConfig(context.Context, p2p.AgentKnowledgeConfigUpdate) (p2p.AgentKnowledgeState, error) {
+	return p2p.AgentKnowledgeState{}, nil
+}
+func (*testAgentGRPCRunner) ListKnowledgeSources(context.Context, p2p.AgentKnowledgeSourceList) (p2p.AgentKnowledgeSourcePage, error) {
+	return p2p.AgentKnowledgeSourcePage{}, nil
+}
+func (*testAgentGRPCRunner) DeleteKnowledgeSource(context.Context, p2p.AgentKnowledgeSourceDelete) (p2p.AgentKnowledgeSource, error) {
+	return p2p.AgentKnowledgeSource{}, nil
+}
+func (*testAgentGRPCRunner) StartKnowledgeUpload(context.Context, p2p.AgentKnowledgeUploadStart) (p2p.AgentKnowledgeUpload, error) {
+	return p2p.AgentKnowledgeUpload{}, nil
+}
+func (*testAgentGRPCRunner) AppendKnowledgeUploadChunk(context.Context, p2p.AgentKnowledgeUploadChunk) (p2p.AgentKnowledgeUpload, error) {
+	return p2p.AgentKnowledgeUpload{}, nil
+}
+func (*testAgentGRPCRunner) FinishKnowledgeUpload(context.Context, p2p.AgentKnowledgeUploadFinish) (p2p.AgentKnowledgeUploadResult, error) {
+	return p2p.AgentKnowledgeUploadResult{}, nil
+}
+func (*testAgentGRPCRunner) CreateKnowledgeMemory(context.Context, p2p.AgentKnowledgeMemoryCreate) (p2p.AgentKnowledgeSource, error) {
+	return p2p.AgentKnowledgeSource{}, nil
+}
+func (*testAgentGRPCRunner) SearchKnowledge(context.Context, p2p.AgentKnowledgeSearch) (p2p.AgentKnowledgeSearchResult, error) {
+	return p2p.AgentKnowledgeSearchResult{}, nil
+}
+func (*testAgentGRPCRunner) GetKnowledgeStatus(context.Context) (p2p.AgentKnowledgeStatus, error) {
+	return p2p.AgentKnowledgeStatus{}, nil
+}
 func (*testAgentGRPCRunner) AgentEventSource() p2p.AgentEventSource {
 	return p2p.AgentEventSource{AgentInstanceID: testAgentInstanceID, CallerID: "dirextalk-project:example.com"}
 }
@@ -231,6 +261,10 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	if err != nil || runtimeProfileClient != wantRunner {
 		t.Fatalf("remote runtime profile client=%v err=%v", runtimeProfileClient, err)
 	}
+	knowledgeClient, err := p2pAgentKnowledgeClient(config, runner)
+	if err != nil || knowledgeClient != wantRunner {
+		t.Fatalf("remote Knowledge client=%v err=%v", knowledgeClient, err)
+	}
 	cloudReader, err := p2pAgentCloudDeploymentReader(config, runner)
 	if err != nil || cloudReader != wantRunner {
 		t.Fatalf("remote Cloud deployment reader=%v err=%v", cloudReader, err)
@@ -272,6 +306,9 @@ func TestP2PAgentGRPCBackendBuildsChatOnlyRunnerWithTrustedOwner(t *testing.T) {
 	}
 	if _, err = p2pAgentRuntimeProfileClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without runtime profile capability")
+	}
+	if _, err = p2pAgentKnowledgeClient(config, &chatOnlyAgentGRPCRunner{}); err == nil {
+		t.Fatal("enabled Agent backend accepted a Runner without Knowledge capability")
 	}
 	if _, err = p2pAgentCloudServiceReader(config, &chatOnlyAgentGRPCRunner{}); err == nil {
 		t.Fatal("enabled Agent backend accepted a Runner without managed-service query capability")

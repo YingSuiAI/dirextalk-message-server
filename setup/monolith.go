@@ -128,6 +128,13 @@ func (m *Monolith) AddAllPublicRoutes(
 		}
 		logrus.Fatal("P2P Agent gRPC runtime profile backend is unavailable")
 	}
+	agentKnowledgeClient, err := p2pAgentKnowledgeClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC Knowledge backend is unavailable")
+	}
 	agentCloudDeploymentReader, err := p2pAgentCloudDeploymentReader(agentBackend, agentChatRunner)
 	if err != nil {
 		if agentChatRunner != nil {
@@ -182,6 +189,7 @@ func (m *Monolith) AddAllPublicRoutes(
 		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
 		NativeAgentChatRunner:              agentChatRunner,
 		AgentRuntimeProfileClient:          agentRuntimeProfileClient,
+		AgentKnowledgeClient:               agentKnowledgeClient,
 		AgentEventClient:                   agentEventClient,
 		CloudDeploymentReader:              agentCloudDeploymentReader,
 		CloudServiceReader:                 agentCloudServiceReader,
@@ -384,6 +392,17 @@ func p2pAgentRuntimeProfileClient(config p2pAgentGRPCBackendConfig, runner Agent
 	client, ok := runner.(p2p.AgentRuntimeProfileClient)
 	if !ok || client == nil {
 		return nil, errors.New("enabled Agent gRPC backend does not support runtime profile configuration")
+	}
+	return client, nil
+}
+
+func p2pAgentKnowledgeClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.AgentKnowledgeClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.AgentKnowledgeClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support Knowledge")
 	}
 	return client, nil
 }

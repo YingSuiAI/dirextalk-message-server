@@ -68,6 +68,7 @@ type Runner struct {
 	tasks           agentv1.TaskServiceClient
 	cloud           agentv1.CloudControlServiceClient
 	secrets         agentv1.SecretBootstrapServiceClient
+	knowledge       agentv1.KnowledgeServiceClient
 	agentInstanceID string
 	ownerID         string
 	chainTimeout    time.Duration
@@ -121,7 +122,8 @@ func New(ctx context.Context, config Config) (*Runner, error) {
 	return &Runner{
 		connection: connection, runtime: agentv1.NewRuntimeServiceClient(connection),
 		tasks: agentv1.NewTaskServiceClient(connection), cloud: agentv1.NewCloudControlServiceClient(connection),
-		secrets: agentv1.NewSecretBootstrapServiceClient(connection), agentInstanceID: config.AgentInstanceID, ownerID: config.OwnerID,
+		secrets: agentv1.NewSecretBootstrapServiceClient(connection), knowledge: agentv1.NewKnowledgeServiceClient(connection),
+		agentInstanceID: config.AgentInstanceID, ownerID: config.OwnerID,
 		chainTimeout: unaryTimeout, streamTimeout: streamTimeout,
 	}, nil
 }
@@ -352,6 +354,11 @@ func validateCloudDialogueEnvelope(params map[string]any) error {
 			}
 		case "memory_disabled", "cloud_dialogue_mode":
 			if _, ok := value.(bool); !ok {
+				return errUnrepresentableChatParameters
+			}
+		case "knowledge_enabled":
+			enabled, ok := value.(bool)
+			if !ok || enabled {
 				return errUnrepresentableChatParameters
 			}
 		case "expected_conversation_revision":

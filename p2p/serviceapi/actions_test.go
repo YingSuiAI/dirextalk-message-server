@@ -34,6 +34,26 @@ func TestAgentRuntimeProfileActionsAreOwnerHTTPOnly(t *testing.T) {
 	}
 }
 
+func TestKnowledgeActionsRemainOwnerOnly(t *testing.T) {
+	for _, action := range []string{
+		"agent.knowledge.config.get",
+		"agent.knowledge.config.update",
+		"agent.knowledge.sources.list",
+		"agent.knowledge.sources.delete",
+		"agent.knowledge.upload.start",
+		"agent.knowledge.upload.chunk",
+		"agent.knowledge.upload.finish",
+		"agent.knowledge.memory.create",
+		"agent.knowledge.search",
+		"agent.knowledge.status",
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPAndWS {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
 func TestCloudPairingActionsAreOwnerHTTPOnly(t *testing.T) {
 	for _, action := range []string{
 		CloudDeploymentPairingPayloadRetrieveAction,

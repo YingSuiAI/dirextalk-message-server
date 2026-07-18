@@ -1,5 +1,28 @@
 # Dirextalk Message Server release notes
 
+## v1.0.5
+
+This release moves Agent Chat, immutable runtime-profile selection, the
+owner-only Knowledge action family, and typed Cloud control/query surfaces
+behind the independently authenticated Agent gRPC boundary. ProductCore
+remains the compatibility façade while Agent owns durable task, deployment,
+service, Knowledge, Worker, Recipe, and cloud-resource facts; strict owner,
+revision, idempotency, and response-validation fences keep credentials,
+backend endpoints, raw Knowledge content, and internal errors out of public
+responses.
+
+The Cloud workflow now covers typed connection bootstrap, planning and
+approval, provisioning, managed-service preparation and lifecycle, Worker
+recovery, health, retained backup, restore, and bounded ProductCore
+projections. Remote Knowledge uploads are limited to 64 MiB and 256 canonical
+chunks, use immutable binding/source revision fences, and never fall back to
+local state when the remote Agent backend is enabled.
+
+The server pins the exact published Agent module needed by this contract and
+the production Docker build resolves it without a sibling checkout or local
+module replacement. Server schema version 2 and readable schema version 1 are
+unchanged.
+
 ## v1.0.4
 
 This release adds the owner-only HTTP `release.v2.status` and
