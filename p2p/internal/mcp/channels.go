@@ -37,7 +37,12 @@ func (m *Module) channelPostsList(ctx context.Context, params map[string]any) (a
 	for _, post := range rawPosts {
 		posts = append(posts, m.postSummary(ctx, post))
 	}
-	result := map[string]any{"room_id": channel.RoomID, "name": channel.Name, "posts": posts}
+	result := map[string]any{
+		"channel_id": channel.ChannelID,
+		"room_id":    channel.RoomID,
+		"name":       channel.Name,
+		"posts":      posts,
+	}
 	lastTS, lastID := lastPostKey(rawPosts)
 	if mcpErr := dirextalkmcp.AttachPagination(result, dirextalkmcp.ActionChannelPostsList, roomID, page, hasMore, lastTS, lastID); mcpErr != nil {
 		return nil, mcpErr

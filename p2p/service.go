@@ -35,6 +35,7 @@ import (
 	releasemodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/release"
 	reportsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/reports"
 	socialmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/social"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 	p2pstorage "github.com/YingSuiAI/dirextalk-message-server/p2p/storage"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -79,6 +80,7 @@ type Config struct {
 	CloudAgentControlClient CloudAgentControlClient
 	NativeAgentDataDir      string
 	ReleaseController       releasecontrol.Controller
+	CentralVersionSource    releasecontrol.CentralVersionSource
 	// CloudConnectionStack is public configuration for the owner-only
 	// CloudFormation role-plan handoff. It contains a template identity and
 	// Node public key only; the Ed25519 private key remains mounted solely in
@@ -725,8 +727,9 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		},
 	)
 	service.releaseModule = releasemodule.New(serviceReleasePort{service: service}, releasemodule.Config{
-		SessionLocker: &service.matrixSessionMu,
-		Now:           time.Now,
+		SessionLocker:        &service.matrixSessionMu,
+		Now:                  time.Now,
+		CentralVersionSource: cfg.CentralVersionSource,
 	})
 	service.profileModule = profilemodule.New(serviceProfilePort{service: service})
 	var joinDirectRoom contactsmodule.DirectRoomJoiner
@@ -783,6 +786,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		SaveMemberGeneration:     service.saveMemberIfState,
 		PublishPolicy:            service.publishMemberPolicyState,
 		Conversation:             service.conversationModule,
+		ResolveRoomOwner:         service.resolveRoomOwner,
 		OwnerMXID:                service.memberOwnerMXID,
 		KickMember:               service.kickMember,
 		LeaveMember:              service.leaveMember,
@@ -905,6 +909,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 			defer service.mu.Unlock()
 			return service.matrixProfiles
 		},
+		ResolveRoomOwner:      service.resolveRoomOwner,
 		BeginAccountOperation: service.beginAccountOperation,
 		AccountDeprovisioned:  service.accountIsDeprovisioned,
 		AgentRoomName:         agentRoomName,
@@ -921,6 +926,14 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		CloudPlanner:      serviceNativeCloudPlannerPort{service: service},
 		CloudStatusReader: serviceNativeCloudPlannerPort{service: service},
 		CloudRecipeReader: serviceNativeCloudPlannerPort{service: service},
+		CurrentUser: func() nativeagent.UserIdentity {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return nativeagent.UserIdentity{
+				UserID:      service.ownerMXID,
+				DisplayName: service.profile.DisplayName,
+			}
+		},
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{
@@ -944,6 +957,43 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		}
 	}
 	return service
+}
+
+func (s *Service) resolveRoomOwner(ctx context.Context, roomID string) (string, error) {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" || s.conversationModule == nil {
+		return "", nil
+	}
+	record, ok, err := s.conversationModule.GetRecord(ctx, "", roomID)
+	if err != nil || !ok {
+		return "", err
+	}
+	if record.Kind != dirextalkdomain.ConversationKindGroup && record.Kind != dirextalkdomain.ConversationKindChannel {
+		return "", nil
+	}
+	if s.transport == nil {
+		return strings.TrimSpace(record.CreatedByMXID), nil
+	}
+	reader, ok := s.transport.(RoomCreatorReader)
+	if !ok {
+		if strings.TrimSpace(record.CreatedByMXID) != "" {
+			if err := s.conversationModule.SetCreator(ctx, roomID, ""); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
+	}
+	creatorMXID, err := reader.ReadRoomCreator(ctx, roomID)
+	if err != nil {
+		return "", err
+	}
+	creatorMXID = strings.TrimSpace(creatorMXID)
+	if strings.TrimSpace(record.CreatedByMXID) != creatorMXID {
+		if err := s.conversationModule.SetCreator(ctx, roomID, creatorMXID); err != nil {
+			return "", err
+		}
+	}
+	return creatorMXID, nil
 }
 
 func normalizeAgentConfig(cfg agentConfig) agentConfig {

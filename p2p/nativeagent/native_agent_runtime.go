@@ -24,6 +24,13 @@ type Config struct {
 	CloudStatusReader CloudStatusReader
 	CloudRecipeReader CloudRecipeReader
 	HTTPClient        *http.Client
+	CurrentUser       func() UserIdentity
+}
+
+// UserIdentity is the server-authoritative identity for the current Agent user.
+type UserIdentity struct {
+	UserID      string
+	DisplayName string
 }
 
 type ConfigStore interface {
@@ -89,6 +96,7 @@ type Runtime struct {
 	cloudPlanner      CloudPlanner
 	cloudStatusReader CloudStatusReader
 	cloudRecipeReader CloudRecipeReader
+	currentUser       func() UserIdentity
 }
 
 func New(config Config) *Runtime {
@@ -111,6 +119,7 @@ func New(config Config) *Runtime {
 		cloudPlanner:      config.CloudPlanner,
 		cloudStatusReader: config.CloudStatusReader,
 		cloudRecipeReader: config.CloudRecipeReader,
+		currentUser:       config.CurrentUser,
 	}
 }
 
@@ -228,6 +237,9 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		"tool_calls": toolCalls,
 		"steps":      trace["steps"],
 		"trace":      trace,
+	}
+	if references := nativeAgentReferences(produced); len(references) > 0 {
+		done["references"] = references
 	}
 	if reasoning != "" {
 		done["reasoning_content"] = reasoning

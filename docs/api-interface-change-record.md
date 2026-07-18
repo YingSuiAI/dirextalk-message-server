@@ -655,6 +655,41 @@ listed by external MCP. Its child runtime uses an isolated home and rejects
 direct or common wrapped AWS CLI invocation. Both it and the owner HTTP action reject
 credential-shaped goal content before any database/event/outbox write; a goal
 may use a `secret_ref` placeholder only.
+Last updated: 2026-07-17
+
+## 2026-07-17 Native Agent Current User Context
+
+Native Agent now identifies itself to the model as `Ying`. Every `agent.chat` and realtime Native Agent stream rebuilds a server-provided current Dirextalk user block in the system prompt from the authoritative owner user ID and latest profile nickname. The prompt block uses `user_id` and `nickname` terminology, treats the ID as authoritative and the nickname as untrusted display-only metadata, and is inserted before configured or request-scoped system prompts. Clients cannot submit or override either identity, and no request or response schema changes.
+
+## 2026-07-17 Central Version Direct Upgrade Contract
+
+`release.v2.status` and `release.v2.apply` are owner-token, HTTP-only ProductCore actions. They are not valid realtime `client.request` actions and `agent_token` is rejected. `release.v2.status` accepts no parameters and returns the local running `current_version`, current portal-device `client_version`, `available`, `updater_available`, `updater_ready`, `desired_state`, a token-free optional `active_job`, and sanitized `watchdog` status. It never performs GitHub release discovery, returns a release plan, or exposes an image, digest, command, path, plan token, or job bearer.
+
+`release.v2.apply` accepts exactly `target_version`, lowercase canonical UUID `idempotency_key`, and `confirm="apply_release_change"`. `target_version` is canonical stable `vX.Y.Z`; image, digest, URL, plan token, shell, Compose, service, and all unknown fields are rejected. The message server first requires updater direct-release contract v2 and performs an atomic replay-only lookup for the supplied target/key. A replay miss is the only result that may continue toward new-job creation. Before creating a new job, the server queries the fixed central `appId=1&channelId=server` record, requires HTTP success plus business `code=0`, `appId="1"`, `channelId="server"`, canonical `version`/`preVersion`, an exact target match, and current reported client version at least `preVersion`. It sends the three public fields plus its authoritative current-device `client_version` to the updater's Unix control interface. The updater resolves the fixed `dirextalk/message-server:<target_version>` tag to an immutable registry digest and persists that digest before host mutation; it does not require GitHub Release assets. The middle-platform record is the version and client-compatibility authority. The owner portal device/generation is revalidated and serialized with portal session changes through the complete mutation, so an HTTP request authorized for an old device cannot create a job after a device switch.
+
+Replay-only recovery works for active and terminal persisted jobs. A known key bound to the same target rotates and returns a replacement bearer ticket without consulting the mutable central record or creating a job; an unknown key returns `idempotency_not_found` and a target mismatch is rejected. New-job gates run only after that atomic miss, so an active-to-terminal or rollback transition between status and apply cannot turn recovery into an unchecked create. A different active target, maintenance state, unsupported updater contract, unavailable updater, unverified release edge/digest, schema mismatch, or incompatible client remains fail-closed. Failed central validation for new jobs returns `central_version_invalid`; a temporary central failure returns `central_version_unavailable`; incompatible client and changed-target failures are structured and create no updater job.
+
+V1 release actions remain registered for existing clients. V2 exposes no discovery plan or rollback operation to ProductCore clients, while the updater internally verifies the canonical formal-release assets before accepting a central-selected target.
+
+## 2026-07-17 Group And Channel Member Ordering
+
+When the durable conversation projection contains the room creator's Matrix ID, `groups.members` and `channels.members` now place only that exact full MXID first and return only that member with `role: "owner"`. Other personal-node identities such as `@owner:another.example` remain ordinary members even though they share the `owner` localpart.
+
+Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
+
+The creator projection is assigned only from the authoritative `m.room.create` sender when that raw sender is already a validated full MXID. Binding an existing `room_id`, the current node identity, later room-profile event senders, and the non-authoritative legacy `content.creator` field do not infer or replace the creator. Member reads lazily resolve current create-event sender IDs through the roomserver, persist the resolved MXID, and clear stale projected creators when current create state cannot identify one; unresolved rooms use the join-order fallback.
+
+Matrix product-write policy uses the same create-sender authority for the privileged owner role. A member-policy `role` value cannot promote a non-creator to owner or demote the confirmed creator; member-policy mute state remains authoritative.
+
+The `dirextalk_room_members_list` MCP tool applies the same rule once, after merging product projections with Matrix room-state members: exact creator first, then ascending `joined_at`, missing timestamps last, and full MXID as the tie-breaker.
+
+## 2026-07-16 Native Agent Room And Post References
+
+Successful non-stream `agent.chat` responses and realtime Native Agent stream `done` payloads may now include additive `references[]`. The server derives these references only from full, successful built-in Dirextalk tool results produced during that run; it does not parse the model's final Markdown or accept third-party MCP/runtime output as a navigation contract.
+
+Contact list/search and room search results produce deduplicated room references. A messages-list result produces one reference for its containing room and does not expose or target a message `event_id`. Channel-post list results produce one post reference per valid post. References preserve tool/result order and use either `{kind:"room",room_id,room_type?,title?,preview?}` or `{kind:"channel_post",room_id,channel_id,post_id,title?,preview?}`. `room_type`, when present, is normalized to `direct`, `group`, or `channel`.
+
+`mcp.channel_posts.list` and the embedded `dirextalk_channel_posts_list` result envelope now include top-level `channel_id` alongside `room_id`, `name`, `posts`, and pagination fields. This is additive and lets clients open an exact channel post without inferring channel identity from content.
 
 ## 2026-07-13 Join And Decision Recovery Contract
 

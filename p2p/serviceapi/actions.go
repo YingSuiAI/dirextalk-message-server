@@ -54,6 +54,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "client.version.report", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "release.v1.status", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "release.v1.apply", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "release.v2.status", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "release.v2.apply", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 
 	{Name: "profile.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "profile.update", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},

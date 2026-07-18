@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -596,12 +597,19 @@ func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 	if len(decoded.Members) != 2 {
 		t.Fatalf("expected owner plus alice, got %s", string(payload))
 	}
-	if decoded.Members[1].UserID != "@alice:remote.example" ||
-		decoded.Members[1].UserMXID != "@alice:remote.example" ||
-		decoded.Members[1].Localpart != "alice" ||
-		decoded.Members[1].Domain != "remote.example" ||
-		decoded.Members[1].DisplayName != "Alice Remote" ||
-		decoded.Members[1].Membership != "join" {
+	var alice = decoded.Members[0]
+	for _, member := range decoded.Members {
+		if member.UserMXID == "@alice:remote.example" {
+			alice = member
+			break
+		}
+	}
+	if alice.UserID != "@alice:remote.example" ||
+		alice.UserMXID != "@alice:remote.example" ||
+		alice.Localpart != "alice" ||
+		alice.Domain != "remote.example" ||
+		alice.DisplayName != "Alice Remote" ||
+		alice.Membership != "join" {
 		t.Fatalf("expected member JSON to expose Matrix identity, got %s", string(payload))
 	}
 }
@@ -641,6 +649,83 @@ func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
 		decoded.Members[1].DisplayName != "Alice Remote" ||
 		decoded.Members[1].Membership != "join" {
 		t.Fatalf("expected Matrix room state member identity, got %s", string(payload))
+	}
+}
+
+func TestMCPRoomMembersListGloballySortsMixedGroupAndChannelSources(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		roomID    string
+		channelID string
+		prepare   func(context.Context, *Service) error
+	}{
+		{
+			name:   "group",
+			roomID: "!mixed-group:example.com",
+			prepare: func(ctx context.Context, service *Service) error {
+				return service.saveGroup(ctx, groupRecord{RoomID: "!mixed-group:example.com", Name: "Mixed Group"})
+			},
+		},
+		{
+			name:      "channel",
+			roomID:    "!mixed-channel:example.com",
+			channelID: "mixed_channel",
+			prepare: func(ctx context.Context, service *Service) error {
+				return service.saveChannel(ctx, channel{ChannelID: "mixed_channel", RoomID: "!mixed-channel:example.com", Name: "Mixed Channel"})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			matrixTransport := &recordingTransport{roomMembers: []memberRecord{
+				{RoomID: tc.roomID, UserID: "@a-matrix:matrix.example", Membership: "join", Role: "member", JoinedAt: 500},
+				{RoomID: tc.roomID, UserID: "@fake-owner:matrix.example", Membership: "join", Role: "owner", JoinedAt: 1500},
+				{RoomID: tc.roomID, UserID: "@a-tie:matrix.example", Membership: "join", Role: "member", JoinedAt: 2000},
+				{RoomID: tc.roomID, UserID: "@missing-time:matrix.example", Membership: "join", Role: "member"},
+			}}
+			transport := &roomCreatorReadingTransport{
+				recordingTransport: matrixTransport,
+				creators:           map[string]string{tc.roomID: "@actual-creator:creator.example"},
+			}
+			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			if err := tc.prepare(ctx, service); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.conversationModule.SetCreator(ctx, tc.roomID, "@actual-creator:creator.example"); err != nil {
+				t.Fatal(err)
+			}
+			for _, member := range []memberRecord{
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: "@actual-creator:creator.example", Membership: "join", Role: "member", JoinedAt: 5000},
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: "@z-projected:projection.example", Membership: "join", Role: "member", JoinedAt: 1000},
+				{RoomID: tc.roomID, ChannelID: tc.channelID, UserID: "@b-tie:projection.example", Membership: "join", Role: "member", JoinedAt: 2000},
+			} {
+				if err := service.store.UpsertMember(ctx, member); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{"room_id": tc.roomID})
+			members := result["members"].([]mcpMemberSummary)
+			got := make([]string, len(members))
+			for index := range members {
+				got[index] = members[index].UserMXID
+			}
+			want := []string{
+				"@actual-creator:creator.example",
+				"@a-matrix:matrix.example",
+				"@z-projected:projection.example",
+				"@fake-owner:matrix.example",
+				"@a-tie:matrix.example",
+				"@b-tie:projection.example",
+				"@missing-time:matrix.example",
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("global mixed-source order = %#v, want %#v", got, want)
+			}
+			if members[0].Role != "owner" || members[3].Role != "member" {
+				t.Fatalf("exact creator roles were not canonicalized after merge: %#v", members)
+			}
+		})
 	}
 }
 
@@ -726,7 +811,11 @@ func TestMCPRoomMembersListEnrichesFallbackNamesFromMatrixProfiles(t *testing.T)
 }
 
 func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
+	transport := &roomCreatorReadingTransport{
+		recordingTransport: &recordingTransport{},
+		creators:           map[string]string{"!blocked:example.com": "@actual-creator:example.com"},
+	}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
 		"room_id": "!blocked:example.com",
 		"name":    "Blocked Group",
@@ -740,6 +829,9 @@ func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
 	})
 	if apiErr == nil || apiErr.Status != 403 || !strings.Contains(apiErr.Error, "blocked") {
 		t.Fatalf("expected blocked room member list to fail, got %#v", apiErr)
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("blocked room resolved or persisted creator before authorization: %#v", transport.reads)
 	}
 }
 
@@ -792,6 +884,9 @@ func TestMCPChannelPostsAndCommentsReturnConciseJSON(t *testing.T) {
 	posts := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
 		"room_id": ch.RoomID,
 	})
+	if posts["channel_id"] != ch.ChannelID || posts["room_id"] != ch.RoomID {
+		t.Fatalf("expected channel identity in post result, got %#v", posts)
+	}
 	gotPosts := posts["posts"].([]mcpPostSummary)
 	if len(gotPosts) != 1 || gotPosts[0].PostID != post.PostID || gotPosts[0].Msg != "post body" {
 		t.Fatalf("unexpected post summaries: %#v", gotPosts)

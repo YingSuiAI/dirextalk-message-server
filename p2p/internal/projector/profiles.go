@@ -57,7 +57,6 @@ func (m *Module) projectConversationProfile(ctx context.Context, event *types.He
 		MatrixRoomID:    event.RoomID().String(),
 		Kind:            kind,
 		Lifecycle:       lifecycle,
-		CreatedByMXID:   string(event.SenderID()),
 		Title:           title,
 		AvatarURL:       textValue(content["avatar_url"]),
 		ProjectionState: dirextalkdomain.ConversationProjectionReady,

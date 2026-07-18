@@ -6,6 +6,12 @@ Dirextalk Message Server 是 Dirextalk 后端服务，将 Matrix 兼容 homeserv
 
 [English README](README.md)
 
+## 架构概览
+
+每位用户拥有一个私有 Dirextalk 服务节点。个人节点之间直接联邦消息；Dirextalk Platform 仅负责激活、分发和经授权的公开发现元数据。
+
+![Dirextalk 平台架构](docs/assets/dirextalk-platform-architecture.png)
+
 ## 运行时
 
 - 生产入口：`cmd/dirextalk-message-server`

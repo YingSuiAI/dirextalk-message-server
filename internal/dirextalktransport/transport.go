@@ -24,6 +24,14 @@ type Transport interface {
 	RedactEvent(ctx context.Context, req RedactEventRequest) (RedactEventResult, error)
 }
 
+// RoomCreatorReader is an optional Matrix read boundary for recovering the
+// authoritative creator from current m.room.create state. An empty creator
+// with a nil error means the create event is absent or its sender cannot be
+// resolved to a valid Matrix user ID.
+type RoomCreatorReader interface {
+	ReadRoomCreator(ctx context.Context, roomID string) (creatorMXID string, err error)
+}
+
 type CreateRoomRequest struct {
 	CreatorMXID        string
 	CreatorDisplayName string

@@ -33,6 +33,7 @@ type Config struct {
 	CloudPlanner      nativeagent.CloudPlanner
 	CloudStatusReader nativeagent.CloudStatusReader
 	CloudRecipeReader nativeagent.CloudRecipeReader
+	CurrentUser       func() nativeagent.UserIdentity
 }
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
@@ -52,6 +53,7 @@ func New(cfg Config) *Module {
 			CloudPlanner:      cfg.CloudPlanner,
 			CloudStatusReader: cfg.CloudStatusReader,
 			CloudRecipeReader: cfg.CloudRecipeReader,
+			CurrentUser:       cfg.CurrentUser,
 		})}
 	}
 	chatRunner := cfg.ChatRunner

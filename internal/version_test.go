@@ -10,8 +10,8 @@ import (
 func TestCurrentBuildInfoUsesCanonicalReleaseVersion(t *testing.T) {
 	got := CurrentBuildInfo()
 
-	if got.Version != "v1.0.3" {
-		t.Fatalf("Version = %q, want v1.0.3", got.Version)
+	if got.Version != "v1.0.4" {
+		t.Fatalf("Version = %q, want v1.0.4", got.Version)
 	}
 	if got.SchemaVersion != 2 {
 		t.Fatalf("SchemaVersion = %d, want 2", got.SchemaVersion)
@@ -48,20 +48,17 @@ func TestCurrentBuildInfoKeepsCommitAndBuildTimeSeparate(t *testing.T) {
 	}
 }
 
-func TestDockerBuildDefaultsToExplicitNonReleaseMetadata(t *testing.T) {
+func TestDockerBuildDefaultsToStableBootstrapVersion(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dockerfile := string(data)
 
-	if strings.Contains(dockerfile, "ARG VERSION=v1.0.0") {
-		t.Fatal("ordinary Docker builds must not default to the formal v1.0.0 version")
-	}
 	for value, wantCount := range map[string]int{
-		"ARG VERSION=v0.0.0-dev+local": 2,
-		"ARG COMMIT=uncommitted":       2,
-		"ARG BUILD_TIME=":              2,
+		"ARG VERSION=v1.0.0":     2,
+		"ARG COMMIT=uncommitted": 2,
+		"ARG BUILD_TIME=":        2,
 	} {
 		if got := strings.Count(dockerfile, value); got != wantCount {
 			t.Fatalf("Dockerfile contains %q %d times, want %d", value, got, wantCount)

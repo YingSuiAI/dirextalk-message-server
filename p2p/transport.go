@@ -3,6 +3,7 @@ package p2p
 import "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport"
 
 type Transport = dirextalktransport.Transport
+type RoomCreatorReader = dirextalktransport.RoomCreatorReader
 type CreateRoomRequest = dirextalktransport.CreateRoomRequest
 type RoomStateEvent = dirextalktransport.RoomStateEvent
 type SendStateEventRequest = dirextalktransport.SendStateEventRequest

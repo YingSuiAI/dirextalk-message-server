@@ -15,7 +15,7 @@ FROM --platform=${BUILDPLATFORM} base AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=v0.0.0-dev+local
+ARG VERSION=v1.0.0
 ARG COMMIT=uncommitted
 ARG BUILD_TIME=
 RUN --mount=target=. \
@@ -38,7 +38,7 @@ RUN --mount=target=. \
 # per-instance initialization tools.
 #
 FROM docker.io/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-ARG VERSION=v0.0.0-dev+local
+ARG VERSION=v1.0.0
 ARG COMMIT=uncommitted
 ARG BUILD_TIME=
 

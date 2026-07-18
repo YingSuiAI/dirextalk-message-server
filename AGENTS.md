@@ -7,7 +7,7 @@ This Go monolith is the backend contract authority for Dirextalk: Matrix homeser
 - Public ProductCore actions: `docs/product-action-contract.json` (generated from `p2p/serviceapi.ActionSpecs`) and `docs/api-interface-change-record.md`.
 - Agent/MCP behavior: `docs/agent-mcp-current-contract.md`.
 - Current architecture and product facts: `docs/current-project-documentation.md`.
-- Stable releases: `.codex/skills/dirextalk-message-server-release/SKILL.md` and the target `release/vX.Y.Z.json`.
+- Stable releases: `.codex/skills/dirextalk-message-server-release/SKILL.md`.
 - Contract, Matrix state, projection, or storage changes: `.codex/skills/dirextalk-backend-contract-state-storage/SKILL.md`.
 
 Read only the references needed by the touched behavior. Current code, generated contracts, and tests override stale narrative notes.

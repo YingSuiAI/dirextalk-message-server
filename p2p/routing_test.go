@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	serverinternal "github.com/YingSuiAI/dirextalk-message-server/internal"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
 	"github.com/gorilla/mux"
 )
@@ -290,7 +291,7 @@ func TestHealthReportsAdditiveBuildInfo(t *testing.T) {
 	if rec.Code != http.StatusOK || got["status"] != "ok" {
 		t.Fatalf("health contract changed: status=%d body=%#v", rec.Code, got)
 	}
-	if got["version"] != "v1.0.3" || got["schema_version"] != float64(2) || got["schema_compat_version"] != float64(1) {
+	if got["version"] != serverinternal.VersionString() || got["schema_version"] != float64(2) || got["schema_compat_version"] != float64(1) {
 		t.Fatalf("health build info missing: %#v", got)
 	}
 }
