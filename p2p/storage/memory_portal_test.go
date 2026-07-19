@@ -119,3 +119,39 @@ func TestMemoryStoreSaveClientBuildRequiresPortal(t *testing.T) {
 		t.Fatalf("SaveClientBuild without portal = (%v, %v), want (false, nil)", updated, err)
 	}
 }
+
+func TestMemoryStoreReadMarkersAdvanceMonotonicallyAndListDeterministically(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+
+	for _, marker := range []readMarker{
+		{RoomID: "!z:example.com", EventID: "$z-new", OriginServerTS: 200},
+		{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100},
+		{RoomID: "!a:example.com", EventID: "$a-stale", OriginServerTS: 99},
+		{RoomID: "!a:example.com", EventID: "$a-equal", OriginServerTS: 100},
+	} {
+		if err := store.SaveReadMarker(ctx, marker); err != nil {
+			t.Fatalf("SaveReadMarker(%#v): %v", marker, err)
+		}
+	}
+
+	marker, found, err := store.GetReadMarker(ctx, "!a:example.com")
+	if err != nil || !found {
+		t.Fatalf("GetReadMarker = (%#v, %v, %v), want current marker", marker, found, err)
+	}
+	if marker.EventID != "$a-current" || marker.OriginServerTS != 100 {
+		t.Fatalf("stale or equal timestamp replaced current marker: %#v", marker)
+	}
+	if _, found, err := store.GetReadMarker(ctx, "!missing:example.com"); err != nil || found {
+		t.Fatalf("missing GetReadMarker = (_, %v, %v), want (_, false, nil)", found, err)
+	}
+
+	markers, err := store.ListReadMarkers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(markers) != 2 || markers[0].RoomID != "!a:example.com" || markers[1].RoomID != "!z:example.com" {
+		t.Fatalf("ListReadMarkers = %#v, want room-id order", markers)
+	}
+}

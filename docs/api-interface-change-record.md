@@ -1,6 +1,26 @@
 # API Interface Change Record
 
-Last updated: 2026-07-16
+Last updated: 2026-07-19
+
+## 2026-07-19 New-Device Unread Recovery Read Markers
+
+`sync.bootstrap` now includes additive metadata-only `read_markers`. The field is always an array, including when empty, and is ordered by `room_id` for a stable snapshot:
+
+```json
+{
+  "read_markers": [
+    {
+      "room_id": "!room:example.com",
+      "event_id": "$event",
+      "origin_server_ts": 1784426400000
+    }
+  ]
+}
+```
+
+These records are recovery boundaries only. They do not contain message content, media metadata, senders, or timeline events. Clients continue to obtain unread counts, receipts, messages, media, and paginated history from Matrix Client-Server APIs.
+
+`sync.read_marker` and `channels.read_marker` now advance each room's durable marker only when the submitted `origin_server_ts` is strictly greater than the stored timestamp. Delayed or repeated writes with an older or equal timestamp return the existing successful action result without replacing the current marker. The same monotonic rule applies to the in-memory test store and PostgreSQL, and durable markers remain available through `sync.bootstrap` after a server restart.
 
 ## 2026-07-16 Native Agent Room And Post References
 

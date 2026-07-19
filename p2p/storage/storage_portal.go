@@ -113,7 +113,49 @@ func (s *DatabaseStore) SaveReadMarker(ctx context.Context, marker readMarker) e
 			ON CONFLICT(room_id) DO UPDATE SET
 				event_id = EXCLUDED.event_id,
 				origin_server_ts = EXCLUDED.origin_server_ts
+			WHERE p2p_read_markers.origin_server_ts < EXCLUDED.origin_server_ts
 		`, marker.RoomID, marker.EventID, marker.OriginServerTS)
 		return err
 	})
+}
+
+func (s *DatabaseStore) GetReadMarker(ctx context.Context, roomID string) (readMarker, bool, error) {
+	var marker readMarker
+	err := s.db.QueryRowContext(ctx, `
+		SELECT room_id, event_id, origin_server_ts
+		FROM p2p_read_markers
+		WHERE room_id = $1
+	`, roomID).Scan(&marker.RoomID, &marker.EventID, &marker.OriginServerTS)
+	if err == sql.ErrNoRows {
+		return readMarker{}, false, nil
+	}
+	if err != nil {
+		return readMarker{}, false, err
+	}
+	return marker, true, nil
+}
+
+func (s *DatabaseStore) ListReadMarkers(ctx context.Context) ([]readMarker, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT room_id, event_id, origin_server_ts
+		FROM p2p_read_markers
+		ORDER BY room_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	markers := make([]readMarker, 0)
+	for rows.Next() {
+		var marker readMarker
+		if err := rows.Scan(&marker.RoomID, &marker.EventID, &marker.OriginServerTS); err != nil {
+			return nil, err
+		}
+		markers = append(markers, marker)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return markers, nil
 }
