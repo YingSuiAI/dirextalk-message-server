@@ -1,5 +1,18 @@
 # Dirextalk Message Server release notes
 
+## v1.0.6
+
+This release aligns the existing Agent Cloud v2 plan, quote, approval, and
+service-operation forwarding with the Worker-control PrivateLink scope. Message
+Server forwards and validates the additive private-connectivity fields and the
+private-endpoint service, security-group-source, and endpoint-type enum values
+for the S3 Gateway, Secrets Manager Interface, and Worker Control Interface
+operations.
+
+The server pins the exact published Agent module
+`v0.1.0-alpha.20260719.6-7ac10ce17ae5` with no local module replacement.
+Server schema version 2 and readable schema version 1 are unchanged.
+
 ## v1.0.5
 
 This release moves Agent Chat, immutable runtime-profile selection, the
