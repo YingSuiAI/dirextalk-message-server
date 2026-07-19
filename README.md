@@ -1,6 +1,6 @@
 # Dirextalk Message Server
 
-Dirextalk Message Server is the Dirextalk backend that combines a Matrix-compatible homeserver with the Dirextalk P2P product API in one Go monolith.
+Dirextalk Message Server is the backend contract authority for Dirextalk. It combines a Matrix-compatible homeserver, the Dirextalk ProductCore action API, product policy, projection/read models, Native Agent, external MCP access, and PostgreSQL-backed runtime storage in one Go monolith.
 
 It is based on Element Dendrite, but this repository is maintained as a Dirextalk product server rather than a general-purpose Matrix homeserver distribution.
 
@@ -12,6 +12,13 @@ Each user owns a private Dirextalk service node. Personal nodes federate message
 
 ![Dirextalk platform architecture](docs/assets/dirextalk-platform-architecture.png)
 
+Inside each personal node:
+
+- Matrix remains the source of truth for rooms, membership, ordinary messages, media, history, search, unread state, and redaction.
+- ProductCore actions provide the product-facing facade for auth, parameter validation, remote forwarding, Matrix write orchestration, and projection reads.
+- P2P tables are projection/read models unless a documented domain rule makes a table authoritative.
+- Native Agent and `POST /mcp` are backend-owned capabilities. They are not installed, configured, or invoked through the plugin lifecycle.
+
 ## Runtime
 
 - Production entry point: `cmd/dirextalk-message-server`
@@ -20,7 +27,9 @@ Each user owns a private Dirextalk service node. Personal nodes federate message
 - Default config path in Docker: `/etc/dirextalk-message-server/message-server.yaml`
 - Default data path in Docker: `/var/dirextalk-message-server`
 - Go module: `github.com/YingSuiAI/dirextalk-message-server`
-- Go version: `1.26.4`
+- Go version: `1.26.5`
+- Server database: PostgreSQL only. SQLite/file DSNs are not supported server runtimes.
+- Docker development database: PostgreSQL 18
 
 ## API Surface
 
@@ -36,8 +45,19 @@ Dirextalk product APIs use the body-action surface:
 - `GET /_p2p/health`
 - `POST /_p2p/query`
 - `POST /_p2p/command`
+- `POST /mcp`
 - `GET /_p2p/ws`
 - `GET /.well-known/portal/owner.json`
+
+The generated ProductCore contract is [docs/product-action-contract.json](docs/product-action-contract.json). At this revision it lists 148 actions: 11 public actions, 136 owner actions, and 1 agent action.
+
+Authentication and transport boundaries:
+
+- Owner product actions use `Authorization: Bearer <access_token>`.
+- Logged-in clients prefer `GET /_p2p/ws` with `client.request`/`server.response`; when realtime is not ready, safe actions can fall back to `POST /_p2p/query` or `POST /_p2p/command`.
+- `GET /_p2p/ws` accepts short-lived owner WebSocket tickets, not raw bearer tokens.
+- `agent_token` can call only `agent.matrix_session.create` through the ProductCore body-action surface and the standard `POST /mcp` endpoint.
+- External MCP clients use JSON-RPC over `POST /mcp`, currently for `initialize`, `tools/list`, and `tools/call`. The endpoint accepts `Authorization: Bearer <agent_token>`; owner tokens and query-string bearer tokens are rejected.
 
 Product requests use this envelope:
 
@@ -51,9 +71,23 @@ Product requests use this envelope:
 }
 ```
 
+## Contract Sources
+
+Use these files as the maintained facts before changing clients, deployment tooling, agents, or API docs:
+
+- [Generated ProductCore action contract](docs/product-action-contract.json)
+- [Current project documentation](docs/current-project-documentation.md)
+- [Current Agent and MCP contract](docs/agent-mcp-current-contract.md)
+- [API change record](docs/api-interface-change-record.md)
+- [Backend contract/state/storage skill](.codex/skills/dirextalk-backend-contract-state-storage/SKILL.md)
+- [Release skill](.codex/skills/dirextalk-message-server-release/SKILL.md)
+- [Release notes](release/RELEASE_NOTES.md)
+
 ## Local Development
 
 Run commands from the repository root. PowerShell, Bash on Linux, Bash on macOS, and Bash in WSL are all supported; choose the command form that matches the shell you are using.
+
+PostgreSQL-backed tests require a local PostgreSQL instance. The Go test helper creates isolated `dendrite_test_*` databases and drops them when each test finishes.
 
 Build the server:
 
@@ -111,16 +145,23 @@ export POSTGRES_DB=postgres
 go test ./p2p ./internal/productpolicy -count=1
 ```
 
-The Go test helper creates isolated `dendrite_test_*` databases and drops them when each test finishes.
+Check documentation-only changes before committing:
+
+```bash
+git diff --check
+```
 
 ## Documentation
 
 Current maintained docs are intentionally small. Historical Dendrite site docs, obsolete trackers, and one-off implementation plans are not maintained in this fork.
 
 - [Current project documentation](docs/current-project-documentation.md)
+- [Current Agent and MCP contract](docs/agent-mcp-current-contract.md)
+- [Generated ProductCore action contract](docs/product-action-contract.json)
 - [Implementation notes](docs/p2p-integrated-as-implementation.md)
 - [API change record](docs/api-interface-change-record.md)
 - [API audit and optimization notes](docs/api-audit-and-optimization.md)
+- [Release notes](release/RELEASE_NOTES.md)
 - [Postman collection](docs/postman/dirextalk-message-server.postman_collection.json)
 - [Plugin Postman collection](docs/postman/dirextalk-plugins.postman_collection.json)
 - [Docker image notes](docs/dirextalk-message-server.md)
