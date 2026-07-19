@@ -18,7 +18,9 @@ New-device recovery now includes a deterministic, metadata-only
 strictly newer server-resolved Matrix timeline positions; optional client
 timestamps are non-authoritative. Equal, missing, invalid, and skewed event
 timestamps, delayed requests, replay, and concurrent writes cannot regress
-unread recovery boundaries across restarts.
+unread recovery boundaries across restarts. Event resolution is bound to the
+authenticated owner and applies the existing Matrix event-visibility checks
+before exposing or persisting a boundary.
 
 ## v1.0.5
 

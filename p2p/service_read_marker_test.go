@@ -89,13 +89,22 @@ func TestReadMarkerRejectsEventOutsideRequestedRoom(t *testing.T) {
 		"$event": {roomID: "!actual:example.com", topologicalPosition: 1, streamPosition: 1},
 	})
 
-	if _, apiErr := service.Handle(context.Background(), "sync.read_marker", map[string]any{
-		"room_id": "!other:example.com", "event_id": "$event",
-	}); apiErr == nil || apiErr.Status != 400 {
-		t.Fatalf("cross-room read marker error = %#v, want HTTP 400", apiErr)
-	}
-	if _, found, err := service.store.GetReadMarker(context.Background(), "!other:example.com"); err != nil || found {
-		t.Fatalf("cross-room marker persisted = (%v, %v), want (false, nil)", found, err)
+	for _, testCase := range []struct {
+		name, roomID, eventID string
+	}{
+		{name: "cross-room", roomID: "!other:example.com", eventID: "$event"},
+		{name: "unauthorized", roomID: "!actual:example.com", eventID: "$not-visible"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, apiErr := service.Handle(context.Background(), "sync.read_marker", map[string]any{
+				"room_id": testCase.roomID, "event_id": testCase.eventID,
+			}); apiErr == nil || apiErr.Status != 400 || apiErr.Error != "event_id cannot be resolved in room_id" {
+				t.Fatalf("non-visible read marker error = %#v, want stable non-leaking HTTP 400", apiErr)
+			}
+			if _, found, err := service.store.GetReadMarker(context.Background(), testCase.roomID); err != nil || found {
+				t.Fatalf("non-visible marker persisted = (%v, %v), want (false, nil)", found, err)
+			}
+		})
 	}
 }
 
