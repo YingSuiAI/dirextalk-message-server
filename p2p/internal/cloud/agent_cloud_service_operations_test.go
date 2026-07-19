@@ -1,7 +1,9 @@
 package cloud
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -86,5 +88,88 @@ func TestAgentV2ServiceOperationsBindApprovalAndQuoteUsage(t *testing.T) {
 	legacy.ServiceOperations = AgentCloudServiceOperationScope{PrivateEndpoints: []AgentCloudPrivateEndpointOperation{{OperationKey: "endpoint-s3"}}}
 	if err := validateReadableAgentCloudPlan(legacy); err == nil {
 		t.Fatal("v1 plan with service operations was accepted")
+	}
+}
+
+func TestAgentV2NoNATWorkerControlEndpointsAreCanonicalAndSigned(t *testing.T) {
+	now := time.Date(2026, time.July, 19, 8, 0, 0, 0, time.UTC)
+	plan := readyAgentPlan(now)
+	plan.SchemaVersion = AgentCloudPlanSchemaV2
+	plan.Resource.Region = agentCloudWorkerControlRegion
+	plan.Network = AgentCloudNetworkScope{
+		VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupMode: "create_dedicated",
+		EntryPoint: "none", RouteTableID: "rtb-0123456789abcdef0", ControlPlaneEndpoint: agentCloudWorkerControlEndpoint,
+		PrivateConnectivity: agentCloudPrivateConnectivityNoNATEndpointsV1,
+	}
+	plan.ServiceOperations = AgentCloudServiceOperationScope{PrivateEndpoints: []AgentCloudPrivateEndpointOperation{
+		{OperationKey: agentCloudWorkerControlOperationKey, Service: "worker_control", ServiceName: "com.amazonaws.vpce.ap-northeast-3.vpce-svc-0123456789abcdef0", SecurityGroupSource: "endpoint_dedicated_from_worker", EndpointType: "interface", PrivateDNSEnabled: true, MonthlyHours: 730, DataMiBPerMonth: 1},
+		{OperationKey: agentCloudS3GatewayOperationKey, Service: "s3", EndpointType: "gateway"},
+		{OperationKey: agentCloudSecretsManagerOperationKey, Service: "secretsmanager", SecurityGroupSource: "endpoint_dedicated_from_worker", EndpointType: "interface", PrivateDNSEnabled: true, MonthlyHours: 730, DataMiBPerMonth: 1},
+	}}
+	if err := validateReadableAgentCloudPlan(plan); err != nil {
+		t.Fatalf("valid worker-control Plan rejected: %v", err)
+	}
+
+	normalized := NormalizeAgentCloudServiceOperations(plan.ServiceOperations)
+	for index, key := range []string{agentCloudS3GatewayOperationKey, agentCloudSecretsManagerOperationKey, agentCloudWorkerControlOperationKey} {
+		if normalized.PrivateEndpoints[index].OperationKey != key {
+			t.Fatalf("endpoint ordering=%#v", normalized.PrivateEndpoints)
+		}
+	}
+	plan.ServiceOperations = normalized
+	approval := agentApprovalFromChallenge(plan, challengeForAgentPlan(plan, now))
+	approval.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, 64))
+	first, err := json.Marshal(approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, _, err := decodeAgentCloudApproval(approvalMapForAgentTest(t, approval), now)
+	if err != nil || decoded.ServiceOperations == nil || len(decoded.ServiceOperations.PrivateEndpoints) != 3 {
+		t.Fatalf("signed worker-control scope rejected: %#v err=%v", decoded, err)
+	}
+	unsigned := approval
+	unsigned.Signature = ""
+	first, err = json.Marshal(unsigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := json.Marshal(agentApprovalFromChallenge(plan, challengeForAgentPlan(plan, now)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatalf("canonical approval bytes changed: %s != %s", first, second)
+	}
+
+	quote := quoteForAgentPlan(plan, now)
+	quote.Usage = AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PrivateEndpointHours: 1460, PrivateEndpointDataMiB: 2}
+	if view, ok := agentCloudQuoteView(quote); !ok || view.Usage == nil || view.Usage.PrivateEndpointHours != 1460 || view.Usage.PrivateEndpointDataMiB != 2 {
+		t.Fatalf("worker-control endpoint price was not bound: %#v ok=%v", view, ok)
+	}
+	quote.Usage.PrivateEndpointDataMiB++
+	if _, ok := agentCloudQuoteView(quote); ok {
+		t.Fatal("tampered worker-control endpoint pricing was accepted")
+	}
+
+	for name, mutate := range map[string]func(*AgentCloudPlan){
+		"missing": func(value *AgentCloudPlan) {
+			value.ServiceOperations.PrivateEndpoints = value.ServiceOperations.PrivateEndpoints[:2]
+		},
+		"duplicate": func(value *AgentCloudPlan) {
+			value.ServiceOperations.PrivateEndpoints[2].OperationKey = agentCloudSecretsManagerOperationKey
+		},
+		"unknown": func(value *AgentCloudPlan) { value.ServiceOperations.PrivateEndpoints[2].Service = "ec2" },
+		"service_name_tamper": func(value *AgentCloudPlan) {
+			value.ServiceOperations.PrivateEndpoints[2].ServiceName = "com.amazonaws.vpce.ap-northeast-3.vpce-svc-0123456789abcdefX"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := plan
+			mutated.ServiceOperations = NormalizeAgentCloudServiceOperations(plan.ServiceOperations)
+			mutate(&mutated)
+			if err := validateReadableAgentCloudPlan(mutated); err == nil {
+				t.Fatalf("%s endpoint tampering was accepted", name)
+			}
+		})
 	}
 }

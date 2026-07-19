@@ -38,6 +38,7 @@ var (
 	agentCloudVPCPattern          = regexp.MustCompile(`^vpc-[0-9a-f]{8,17}$`)
 	agentCloudSubnetPattern       = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
 	agentCloudSGPattern           = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
+	agentCloudRouteTablePattern   = regexp.MustCompile(`^rtb-[0-9a-f]{8,17}$`)
 	agentCloudSecretRefPattern    = regexp.MustCompile(`^secret_ref:[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	agentCloudVolumeDevicePattern = regexp.MustCompile(`^/dev/sd[f-p]$`)
 	agentCloudVolumeKMSPattern    = regexp.MustCompile(`^(?:alias/[A-Za-z0-9/_-]{1,240}|arn:(?:aws|aws-cn|aws-us-gov):kms:[a-z0-9-]+:[0-9]{12}:(?:key/[0-9a-f-]{36}|alias/[A-Za-z0-9/_-]{1,240}))$`)
@@ -603,7 +604,21 @@ func mapAgentCloudNetwork(value *agentv1.CloudNetworkScope) (cloudmodule.AgentCl
 	if entry != "none" && !validAgentCloudText(value.GetHostname(), 253) {
 		return cloudmodule.AgentCloudNetworkScope{}, false
 	}
-	return cloudmodule.AgentCloudNetworkScope{VPCID: value.GetVpcId(), SubnetID: value.GetSubnetId(), SecurityGroupID: value.GetSecurityGroupId(), SecurityGroupMode: securityGroupMode, EntryPoint: entry, PublicIPv4: value.GetPublicIpv4(), PublicExposure: value.GetPublicExposure(), IngressPorts: append([]uint32(nil), value.GetIngressPorts()...), Hostname: value.GetHostname(), TLSRequired: value.GetTlsRequired(), AuthenticationRequired: value.GetAuthenticationRequired()}, true
+	privateConnectivity := value.GetPrivateConnectivity()
+	if privateConnectivity == "" {
+		if value.GetRouteTableId() != "" || value.GetControlPlaneEndpoint() != "" {
+			return cloudmodule.AgentCloudNetworkScope{}, false
+		}
+	} else if privateConnectivity == "no_nat_endpoints_v1" {
+		if !agentCloudRouteTablePattern.MatchString(value.GetRouteTableId()) || value.GetPublicIpv4() || securityGroupMode != "create_dedicated" ||
+			entry != "none" || value.GetPublicExposure() || len(value.GetIngressPorts()) != 0 || value.GetHostname() != "" || value.GetTlsRequired() || value.GetAuthenticationRequired() ||
+			value.GetControlPlaneEndpoint() != "grpcs://worker-control.y1.dirextalk.ai:443" {
+			return cloudmodule.AgentCloudNetworkScope{}, false
+		}
+	} else {
+		return cloudmodule.AgentCloudNetworkScope{}, false
+	}
+	return cloudmodule.AgentCloudNetworkScope{VPCID: value.GetVpcId(), SubnetID: value.GetSubnetId(), SecurityGroupID: value.GetSecurityGroupId(), SecurityGroupMode: securityGroupMode, EntryPoint: entry, PublicIPv4: value.GetPublicIpv4(), PublicExposure: value.GetPublicExposure(), IngressPorts: append([]uint32(nil), value.GetIngressPorts()...), Hostname: value.GetHostname(), TLSRequired: value.GetTlsRequired(), AuthenticationRequired: value.GetAuthenticationRequired(), RouteTableID: value.GetRouteTableId(), ControlPlaneEndpoint: value.GetControlPlaneEndpoint(), PrivateConnectivity: value.GetPrivateConnectivity()}, true
 }
 
 func mapAgentCloudRetention(value *agentv1.CloudRetentionScope) (cloudmodule.AgentCloudRetentionScope, bool) {

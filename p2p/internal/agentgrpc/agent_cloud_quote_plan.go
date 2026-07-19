@@ -333,23 +333,43 @@ func agentCloudServiceOperationsToProto(value cloudmodule.AgentCloudServiceOpera
 	}
 	for _, endpoint := range normalized.PrivateEndpoints {
 		service := agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_UNSPECIFIED
-		if endpoint.Service == "s3" {
+		switch endpoint.Service {
+		case "s3":
 			service = agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3
-		} else {
+		case "secretsmanager":
+			service = agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_SECRETS_MANAGER
+		case "worker_control":
+			service = agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_WORKER_CONTROL
+		default:
 			return nil, false
 		}
 		securityGroupSource := agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_UNSPECIFIED
 		switch endpoint.SecurityGroupSource {
+		case "":
+			// Gateway endpoints have no security group.
 		case "plan_existing":
 			securityGroupSource = agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_PLAN_EXISTING
 		case "worker_dedicated":
 			securityGroupSource = agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_WORKER_DEDICATED
+		case "endpoint_dedicated_from_worker":
+			securityGroupSource = agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_ENDPOINT_DEDICATED_FROM_WORKER
+		default:
+			return nil, false
+		}
+		endpointType := agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_UNSPECIFIED
+		switch endpoint.EndpointType {
+		case "":
+			// The frozen V2 interface endpoint compatibility form omits this field.
+		case "gateway":
+			endpointType = agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_GATEWAY
+		case "interface":
+			endpointType = agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_INTERFACE
 		default:
 			return nil, false
 		}
 		result.PrivateEndpoints = append(result.PrivateEndpoints, &agentv1.CloudPrivateEndpointOperation{
-			OperationKey: endpoint.OperationKey, Service: service, SecurityGroupSource: securityGroupSource,
-			PrivateDnsEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMibPerMonth: endpoint.DataMiBPerMonth,
+			OperationKey: endpoint.OperationKey, Service: service, ServiceName: endpoint.ServiceName, SecurityGroupSource: securityGroupSource,
+			PrivateDnsEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMibPerMonth: endpoint.DataMiBPerMonth, EndpointType: endpointType,
 		})
 	}
 	for _, snapshot := range normalized.Snapshots {
@@ -387,21 +407,39 @@ func mapAgentCloudServiceOperations(value *agentv1.CloudServiceOperationScope) (
 		switch endpoint.GetService() {
 		case agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3:
 			service = "s3"
+		case agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_SECRETS_MANAGER:
+			service = "secretsmanager"
+		case agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_WORKER_CONTROL:
+			service = "worker_control"
 		default:
 			return cloudmodule.AgentCloudServiceOperationScope{}, false
 		}
 		securityGroupSource := ""
 		switch endpoint.GetSecurityGroupSource() {
+		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_UNSPECIFIED:
+			securityGroupSource = ""
 		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_PLAN_EXISTING:
 			securityGroupSource = "plan_existing"
 		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_WORKER_DEDICATED:
 			securityGroupSource = "worker_dedicated"
+		case agentv1.CloudEndpointSecurityGroupSource_CLOUD_ENDPOINT_SECURITY_GROUP_SOURCE_ENDPOINT_DEDICATED_FROM_WORKER:
+			securityGroupSource = "endpoint_dedicated_from_worker"
+		default:
+			return cloudmodule.AgentCloudServiceOperationScope{}, false
+		}
+		endpointType := ""
+		switch endpoint.GetEndpointType() {
+		case agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_UNSPECIFIED:
+		case agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_GATEWAY:
+			endpointType = "gateway"
+		case agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_INTERFACE:
+			endpointType = "interface"
 		default:
 			return cloudmodule.AgentCloudServiceOperationScope{}, false
 		}
 		result.PrivateEndpoints = append(result.PrivateEndpoints, cloudmodule.AgentCloudPrivateEndpointOperation{
-			OperationKey: endpoint.GetOperationKey(), Service: service, SecurityGroupSource: securityGroupSource,
-			PrivateDNSEnabled: endpoint.GetPrivateDnsEnabled(), MonthlyHours: endpoint.GetMonthlyHours(), DataMiBPerMonth: endpoint.GetDataMibPerMonth(),
+			OperationKey: endpoint.GetOperationKey(), Service: service, ServiceName: endpoint.GetServiceName(), SecurityGroupSource: securityGroupSource,
+			PrivateDNSEnabled: endpoint.GetPrivateDnsEnabled(), MonthlyHours: endpoint.GetMonthlyHours(), DataMiBPerMonth: endpoint.GetDataMibPerMonth(), EndpointType: endpointType,
 		})
 	}
 	for _, snapshot := range value.GetSnapshots() {
@@ -491,7 +529,7 @@ func agentCloudResourceToProto(value cloudmodule.AgentCloudResourceScope, allowU
 
 func agentCloudNetworkToProto(value cloudmodule.AgentCloudNetworkScope) (*agentv1.CloudNetworkScope, bool) {
 	value = normalizeAgentCloudNetwork(value)
-	network := &agentv1.CloudNetworkScope{VpcId: value.VPCID, SubnetId: value.SubnetID, SecurityGroupId: value.SecurityGroupID, PublicIpv4: value.PublicIPv4, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname, TlsRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired}
+	network := &agentv1.CloudNetworkScope{VpcId: value.VPCID, SubnetId: value.SubnetID, SecurityGroupId: value.SecurityGroupID, PublicIpv4: value.PublicIPv4, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname, TlsRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired, RouteTableId: value.RouteTableID, ControlPlaneEndpoint: value.ControlPlaneEndpoint, PrivateConnectivity: value.PrivateConnectivity}
 	switch value.SecurityGroupMode {
 	case "existing":
 		network.SecurityGroupMode = agentv1.CloudSecurityGroupMode_CLOUD_SECURITY_GROUP_MODE_EXISTING

@@ -18,6 +18,17 @@ const (
 )
 
 var agentCloudServiceOperationKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+var agentCloudWorkerControlServiceNamePattern = regexp.MustCompile(`^com\.amazonaws\.vpce\.ap-northeast-3\.vpce-svc-[0-9a-f]{17}$`)
+var agentCloudRouteTablePattern = regexp.MustCompile(`^rtb-[0-9a-f]{8,17}$`)
+
+const (
+	agentCloudPrivateConnectivityNoNATEndpointsV1 = "no_nat_endpoints_v1"
+	agentCloudWorkerControlRegion                 = "ap-northeast-3"
+	agentCloudWorkerControlEndpoint               = "grpcs://worker-control.y1.dirextalk.ai:443"
+	agentCloudS3GatewayOperationKey               = "worker-s3-gateway"
+	agentCloudSecretsManagerOperationKey          = "worker-secretsmanager-interface"
+	agentCloudWorkerControlOperationKey           = "worker-worker-control-interface"
+)
 
 func (value AgentCloudServiceOperationScope) empty() bool {
 	return len(value.PrivateEndpoints) == 0 && len(value.Snapshots) == 0
@@ -52,6 +63,23 @@ func NormalizeAgentCloudServiceOperations(value AgentCloudServiceOperationScope)
 	return result
 }
 
+func validateAgentCloudPrivateConnectivity(network AgentCloudNetworkScope) error {
+	network = normalizeAgentCloudNetworkScope(network)
+	if network.PrivateConnectivity == "" {
+		if network.RouteTableID != "" || network.ControlPlaneEndpoint != "" {
+			return fmt.Errorf("private connectivity fields require an explicit mode")
+		}
+		return nil
+	}
+	if network.PrivateConnectivity != agentCloudPrivateConnectivityNoNATEndpointsV1 || !agentCloudRouteTablePattern.MatchString(network.RouteTableID) ||
+		network.PublicIPv4 || network.SecurityGroupMode != "create_dedicated" || network.SecurityGroupID != "" || network.EntryPoint != "none" ||
+		network.PublicExposure || len(network.IngressPorts) != 0 || network.Hostname != "" || network.TLSRequired || network.AuthenticationRequired ||
+		network.ControlPlaneEndpoint != agentCloudWorkerControlEndpoint {
+		return fmt.Errorf("no-NAT private connectivity scope is invalid")
+	}
+	return nil
+}
+
 // ValidateAgentCloudServiceOperations applies the closed v1/v2 contract to an
 // approval-visible scope. It never resolves or accepts provider resource IDs.
 func ValidateAgentCloudServiceOperations(schemaVersion string, value AgentCloudServiceOperationScope, resource AgentCloudResourceScope, network AgentCloudNetworkScope, retention AgentCloudRetentionScope) error {
@@ -73,7 +101,11 @@ func ValidateAgentCloudServiceOperations(schemaVersion string, value AgentCloudS
 	}
 
 	network = normalizeAgentCloudNetworkScope(network)
+	if err := validateAgentCloudPrivateConnectivity(network); err != nil {
+		return err
+	}
 	seenKeys := make(map[string]struct{}, len(value.PrivateEndpoints)+len(value.Snapshots))
+	var gatewayS3, interfaceSecretsManager, interfaceWorkerControl int
 	for _, endpoint := range value.PrivateEndpoints {
 		if !agentCloudServiceOperationKeyPattern.MatchString(endpoint.OperationKey) {
 			return fmt.Errorf("private endpoint operation key is invalid")
@@ -82,24 +114,59 @@ func ValidateAgentCloudServiceOperations(schemaVersion string, value AgentCloudS
 			return fmt.Errorf("service operations contain duplicate operation keys")
 		}
 		seenKeys[endpoint.OperationKey] = struct{}{}
-		if endpoint.Service != "s3" {
+		if endpoint.Service != "s3" && endpoint.Service != "secretsmanager" && endpoint.Service != "worker_control" {
 			return fmt.Errorf("private endpoint service is not approved")
 		}
-		switch endpoint.SecurityGroupSource {
-		case "plan_existing":
-			if network.SecurityGroupMode != "existing" || network.SecurityGroupID == "" {
-				return fmt.Errorf("private endpoint must use the planned existing security group")
+		endpointType := endpoint.EndpointType
+		if endpointType == "" {
+			endpointType = "interface"
+		}
+		switch endpointType {
+		case "gateway":
+			if network.PrivateConnectivity != agentCloudPrivateConnectivityNoNATEndpointsV1 || endpoint.OperationKey != agentCloudS3GatewayOperationKey || endpoint.Service != "s3" || endpoint.ServiceName != "" || endpoint.SecurityGroupSource != "" || endpoint.PrivateDNSEnabled || endpoint.MonthlyHours != 0 || endpoint.DataMiBPerMonth != 0 {
+				return fmt.Errorf("S3 gateway endpoint scope is invalid")
 			}
-		case "worker_dedicated":
-			if network.SecurityGroupMode != "create_dedicated" || network.SecurityGroupID != "" {
-				return fmt.Errorf("private endpoint must use the planned dedicated worker security group")
+			gatewayS3++
+		case "interface":
+			switch endpoint.SecurityGroupSource {
+			case "plan_existing":
+				if endpoint.EndpointType != "" || endpoint.Service != "s3" || endpoint.ServiceName != "" || network.SecurityGroupMode != "existing" || network.SecurityGroupID == "" {
+					return fmt.Errorf("private endpoint must use the planned existing security group")
+				}
+			case "worker_dedicated":
+				if endpoint.EndpointType != "" || endpoint.Service != "s3" || endpoint.ServiceName != "" || network.SecurityGroupMode != "create_dedicated" || network.SecurityGroupID != "" {
+					return fmt.Errorf("private endpoint must use the planned dedicated worker security group")
+				}
+			case "endpoint_dedicated_from_worker":
+				if endpoint.EndpointType != "interface" || network.PrivateConnectivity != agentCloudPrivateConnectivityNoNATEndpointsV1 || network.SecurityGroupMode != "create_dedicated" || network.SecurityGroupID != "" || !endpoint.PrivateDNSEnabled {
+					return fmt.Errorf("private endpoint must use the planned endpoint-dedicated security group")
+				}
+				switch endpoint.Service {
+				case "secretsmanager":
+					if endpoint.OperationKey != agentCloudSecretsManagerOperationKey || endpoint.ServiceName != "" {
+						return fmt.Errorf("Secrets Manager endpoint scope is invalid")
+					}
+					interfaceSecretsManager++
+				case "worker_control":
+					if endpoint.OperationKey != agentCloudWorkerControlOperationKey || resource.Region != agentCloudWorkerControlRegion || network.ControlPlaneEndpoint != agentCloudWorkerControlEndpoint || !agentCloudWorkerControlServiceNamePattern.MatchString(endpoint.ServiceName) {
+						return fmt.Errorf("worker-control endpoint scope is invalid")
+					}
+					interfaceWorkerControl++
+				default:
+					return fmt.Errorf("private endpoint service is invalid for endpoint-dedicated security group")
+				}
+			default:
+				return fmt.Errorf("private endpoint security group source is invalid")
+			}
+			if endpoint.MonthlyHours == 0 || endpoint.MonthlyHours > 744 || endpoint.DataMiBPerMonth == 0 || endpoint.DataMiBPerMonth > agentCloudServiceOperationUsageLimit {
+				return fmt.Errorf("private endpoint usage assumptions are invalid")
 			}
 		default:
-			return fmt.Errorf("private endpoint security group source is invalid")
+			return fmt.Errorf("private endpoint type is invalid")
 		}
-		if endpoint.MonthlyHours == 0 || endpoint.MonthlyHours > 744 || endpoint.DataMiBPerMonth > agentCloudServiceOperationUsageLimit {
-			return fmt.Errorf("private endpoint usage assumptions are invalid")
-		}
+	}
+	if network.PrivateConnectivity == agentCloudPrivateConnectivityNoNATEndpointsV1 && (len(value.PrivateEndpoints) != 3 || gatewayS3 != 1 || interfaceSecretsManager != 1 || interfaceWorkerControl != 1) {
+		return fmt.Errorf("private endpoint operations must contain exactly S3 Gateway, Secrets Manager Interface, and Worker Control Interface")
 	}
 
 	volumes := make(map[string]AgentCloudVolumeScope, len(resource.VolumeScopes))
@@ -162,6 +229,13 @@ func ValidateAgentCloudServiceOperationUsage(schemaVersion string, operations Ag
 
 	var expectedHours, expectedData uint64
 	for _, endpoint := range operations.PrivateEndpoints {
+		endpointType := endpoint.EndpointType
+		if endpointType == "" {
+			endpointType = "interface"
+		}
+		if endpointType != "interface" {
+			continue
+		}
 		if expectedHours > ^uint64(0)-uint64(endpoint.MonthlyHours) || expectedData > ^uint64(0)-endpoint.DataMiBPerMonth {
 			return fmt.Errorf("private endpoint usage overflows")
 		}

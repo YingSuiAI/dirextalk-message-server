@@ -133,10 +133,11 @@ type AgentCloudServiceOperationScope struct {
 }
 
 type AgentCloudPrivateEndpointOperation struct {
-	OperationKey, Service, SecurityGroupSource string
-	PrivateDNSEnabled                          bool
-	MonthlyHours                               uint32
-	DataMiBPerMonth                            uint64
+	OperationKey, Service, ServiceName, SecurityGroupSource string
+	EndpointType                                            string
+	PrivateDNSEnabled                                       bool
+	MonthlyHours                                            uint32
+	DataMiBPerMonth                                         uint64
 }
 
 type AgentCloudSnapshotOperation struct {
@@ -249,6 +250,8 @@ type AgentCloudNetworkScope struct {
 	IngressPorts                        []uint32
 	Hostname                            string
 	TLSRequired, AuthenticationRequired bool
+	RouteTableID, ControlPlaneEndpoint  string
+	PrivateConnectivity                 string
 }
 
 type AgentCloudSecretScope struct{ SecretRef, Purpose, Delivery string }

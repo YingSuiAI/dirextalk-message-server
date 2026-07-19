@@ -1,5 +1,28 @@
 # API Interface Change Record
 
+## 2026-07-19: signed private Worker-control endpoint scope
+
+The existing Agent Cloud v2 plan/quote/approval service-operation scope now
+accepts the additive `worker_control` private Interface endpoint without a
+schema-version change. Its exact operation key is
+`worker-worker-control-interface`; it is paired with the ordered
+`worker-s3-gateway` Gateway and `worker-secretsmanager-interface` Interface
+operations when `private_connectivity=no_nat_endpoints_v1`.
+
+The Worker-control operation is fixed to `ap-northeast-3`, private DNS,
+`endpoint_dedicated_from_worker`, the canonical
+`grpcs://worker-control.y1.dirextalk.ai:443` target, and the
+operator-frozen `com.amazonaws.vpce.ap-northeast-3.vpce-svc-<17 lowercase hex>`
+service identity. Message Server forwards and revalidates endpoint type,
+service identity, route/control-plane scope, and the exact two-Interface
+usage total (currently 1460 endpoint-hours and 2 MiB/month). Unknown,
+duplicate, omitted, or price/identity-drifted entries fail closed. Historical
+v1 and pre-private-connectivity v2 plans retain their original decoding and
+validation behavior.
+
+No new public ProductCore, MCP, authorization, Worker credential, or prompt
+surface is introduced.
+
 ## 2026-07-18: Agent-owned immutable runtime model profile
 
 Added `agent.runtime.profile.get` and `agent.runtime.profile.update` as

@@ -111,6 +111,9 @@ type agentCloudNetworkScopeV1 struct {
 	Hostname               string   `json:"hostname,omitempty"`
 	TLSRequired            bool     `json:"tls_required"`
 	AuthenticationRequired bool     `json:"authentication_required"`
+	RouteTableID           string   `json:"route_table_id,omitempty"`
+	ControlPlaneEndpoint   string   `json:"control_plane_endpoint,omitempty"`
+	PrivateConnectivity    string   `json:"private_connectivity,omitempty"`
 }
 
 type agentCloudSecretScopeV1 struct {
@@ -140,10 +143,12 @@ type agentCloudServiceOperationScopeV1 struct {
 type agentCloudPrivateEndpointOperationV1 struct {
 	OperationKey        string `json:"operation_key"`
 	Service             string `json:"service"`
+	ServiceName         string `json:"service_name,omitempty"`
 	SecurityGroupSource string `json:"security_group_source"`
 	PrivateDNSEnabled   bool   `json:"private_dns_enabled"`
 	MonthlyHours        uint32 `json:"monthly_hours"`
 	DataMiBPerMonth     uint64 `json:"data_mib_per_month"`
+	EndpointType        string `json:"endpoint_type,omitempty"`
 }
 
 type agentCloudSnapshotOperationV1 struct {
@@ -530,7 +535,8 @@ func networkScopeFromAgent(value AgentCloudNetworkScope) agentCloudNetworkScopeV
 	return agentCloudNetworkScopeV1{
 		VPCID: value.VPCID, SubnetID: value.SubnetID, SecurityGroupID: value.SecurityGroupID, SecurityGroupMode: value.SecurityGroupMode, EntryPoint: value.EntryPoint,
 		PublicIPv4: value.PublicIPv4, PublicExposure: value.PublicExposure, IngressPorts: append([]uint32(nil), value.IngressPorts...), Hostname: value.Hostname,
-		TLSRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired,
+		TLSRequired: value.TLSRequired, AuthenticationRequired: value.AuthenticationRequired, RouteTableID: value.RouteTableID,
+		ControlPlaneEndpoint: value.ControlPlaneEndpoint, PrivateConnectivity: value.PrivateConnectivity,
 	}
 }
 
@@ -573,8 +579,8 @@ func serviceOperationScopeFromAgent(value AgentCloudServiceOperationScope) agent
 	}
 	for _, endpoint := range normalized.PrivateEndpoints {
 		result.PrivateEndpoints = append(result.PrivateEndpoints, agentCloudPrivateEndpointOperationV1{
-			OperationKey: endpoint.OperationKey, Service: endpoint.Service, SecurityGroupSource: endpoint.SecurityGroupSource,
-			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth,
+			OperationKey: endpoint.OperationKey, Service: endpoint.Service, ServiceName: endpoint.ServiceName, SecurityGroupSource: endpoint.SecurityGroupSource,
+			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth, EndpointType: endpoint.EndpointType,
 		})
 	}
 	for _, snapshot := range normalized.Snapshots {
@@ -597,8 +603,8 @@ func serviceOperationScopeToAgent(value *agentCloudServiceOperationScopeV1) Agen
 	}
 	for _, endpoint := range value.PrivateEndpoints {
 		result.PrivateEndpoints = append(result.PrivateEndpoints, AgentCloudPrivateEndpointOperation{
-			OperationKey: endpoint.OperationKey, Service: endpoint.Service, SecurityGroupSource: endpoint.SecurityGroupSource,
-			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth,
+			OperationKey: endpoint.OperationKey, Service: endpoint.Service, ServiceName: endpoint.ServiceName, SecurityGroupSource: endpoint.SecurityGroupSource,
+			PrivateDNSEnabled: endpoint.PrivateDNSEnabled, MonthlyHours: endpoint.MonthlyHours, DataMiBPerMonth: endpoint.DataMiBPerMonth, EndpointType: endpoint.EndpointType,
 		})
 	}
 	for _, snapshot := range value.Snapshots {
@@ -679,6 +685,9 @@ func validateReadableAgentCloudPlan(plan AgentCloudPlan) error {
 		!namedSHA256Pattern.MatchString(plan.QuoteDigest) || !namedSHA256Pattern.MatchString(plan.QuoteScopeDigest) ||
 		agentCandidateTier(plan.CandidateProfile) == "" || plan.Recipe.RecipeID == "" || plan.QuoteValidUntil.IsZero() ||
 		!readableAgentCloudPlanStatus(plan.Status) {
+		return ErrAgentCloudControlInvalidResponse
+	}
+	if err := validateAgentCloudPrivateConnectivity(plan.Network); err != nil {
 		return ErrAgentCloudControlInvalidResponse
 	}
 	if err := ValidateAgentCloudServiceOperations(plan.SchemaVersion, plan.ServiceOperations, plan.Resource, plan.Network, plan.Retention); err != nil {
@@ -781,7 +790,7 @@ func validateAgentApprovalScopes(value agentCloudApprovalV1) error {
 	if !validAgentApprovalVolumes(r.VolumeScopes, value.RetentionScope.Class) {
 		return ErrAgentCloudControlInvalidResponse
 	}
-	resource := AgentCloudResourceScope{VolumeScopes: make([]AgentCloudVolumeScope, 0, len(r.VolumeScopes))}
+	resource := AgentCloudResourceScope{Region: r.Region, VolumeScopes: make([]AgentCloudVolumeScope, 0, len(r.VolumeScopes))}
 	for _, volume := range r.VolumeScopes {
 		resource.VolumeScopes = append(resource.VolumeScopes, AgentCloudVolumeScope{
 			SlotID: volume.SlotID, SizeGiB: volume.SizeGiB, VolumeType: volume.VolumeType, IOPS: volume.IOPS,
@@ -790,7 +799,17 @@ func validateAgentApprovalScopes(value agentCloudApprovalV1) error {
 			Persistent: volume.Persistent, Disposition: volume.Disposition,
 		})
 	}
-	network := AgentCloudNetworkScope{SecurityGroupID: value.NetworkScope.SecurityGroupID, SecurityGroupMode: value.NetworkScope.SecurityGroupMode}
+	network := AgentCloudNetworkScope{
+		VPCID: value.NetworkScope.VPCID, SubnetID: value.NetworkScope.SubnetID, SecurityGroupID: value.NetworkScope.SecurityGroupID,
+		SecurityGroupMode: value.NetworkScope.SecurityGroupMode, EntryPoint: value.NetworkScope.EntryPoint, PublicIPv4: value.NetworkScope.PublicIPv4,
+		PublicExposure: value.NetworkScope.PublicExposure, IngressPorts: append([]uint32(nil), value.NetworkScope.IngressPorts...), Hostname: value.NetworkScope.Hostname,
+		TLSRequired: value.NetworkScope.TLSRequired, AuthenticationRequired: value.NetworkScope.AuthenticationRequired,
+		RouteTableID: value.NetworkScope.RouteTableID, ControlPlaneEndpoint: value.NetworkScope.ControlPlaneEndpoint,
+		PrivateConnectivity: value.NetworkScope.PrivateConnectivity,
+	}
+	if err := validateAgentCloudPrivateConnectivity(network); err != nil {
+		return ErrAgentCloudControlInvalidResponse
+	}
 	retention := AgentCloudRetentionScope{Class: value.RetentionScope.Class, AutoDestroy: value.RetentionScope.AutoDestroy, GracePeriodSeconds: value.RetentionScope.GracePeriodSeconds, MaxLifetimeSeconds: value.RetentionScope.MaxLifetimeSeconds}
 	if err := ValidateAgentCloudServiceOperations(value.SchemaVersion, serviceOperationScopeToAgent(value.ServiceOperations), resource, network, retention); err != nil {
 		return ErrAgentCloudControlInvalidResponse

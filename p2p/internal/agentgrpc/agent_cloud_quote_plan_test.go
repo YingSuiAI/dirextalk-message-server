@@ -146,6 +146,40 @@ func TestAgentCloudPlanningMapsV2ServiceOperationsAndRejectsUsageDrift(t *testin
 	}
 }
 
+func TestAgentCloudPlanningForwardsWorkerControlPrivateLinkScope(t *testing.T) {
+	now := time.Date(2026, time.July, 19, 8, 0, 0, 0, time.UTC)
+	server := startRuntimeServer(t)
+	usage := cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PrivateEndpointHours: 1460, PrivateEndpointDataMiB: 2}
+	scopes := planningWorkerControlScopes(true)
+	quote := planningQuoteProtoForScopes(now, scopes, usage)
+	server.cloud.createQuote = func(request *agentv1.CreateCloudQuoteRequest) (*agentv1.CreateCloudQuoteResponse, error) {
+		for _, scope := range request.GetScopes() {
+			operations := scope.GetServiceOperations()
+			if scope.GetNetwork().GetPrivateConnectivity() != "no_nat_endpoints_v1" || scope.GetNetwork().GetControlPlaneEndpoint() != "grpcs://worker-control.y1.dirextalk.ai:443" ||
+				operations == nil || len(operations.GetPrivateEndpoints()) != 3 || request.GetUsage().GetPrivateEndpointHours() != 1460 || request.GetUsage().GetPrivateEndpointDataMib() != 2 {
+				t.Fatalf("worker-control scope was not forwarded: %#v", request)
+			}
+			endpoints := operations.GetPrivateEndpoints()
+			if endpoints[0].GetOperationKey() != "worker-s3-gateway" || endpoints[0].GetService() != agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_S3 || endpoints[0].GetEndpointType() != agentv1.CloudPrivateEndpointType_CLOUD_PRIVATE_ENDPOINT_TYPE_GATEWAY ||
+				endpoints[1].GetOperationKey() != "worker-secretsmanager-interface" || endpoints[1].GetService() != agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_SECRETS_MANAGER || endpoints[1].GetServiceName() != "" ||
+				endpoints[2].GetOperationKey() != "worker-worker-control-interface" || endpoints[2].GetService() != agentv1.CloudPrivateEndpointService_CLOUD_PRIVATE_ENDPOINT_SERVICE_WORKER_CONTROL || endpoints[2].GetServiceName() != "com.amazonaws.vpce.ap-northeast-3.vpce-svc-0123456789abcdef0" {
+				t.Fatalf("worker-control endpoint bytes changed: %#v", endpoints)
+			}
+		}
+		return &agentv1.CreateCloudQuoteResponse{Quote: quote}, nil
+	}
+	runner := newTestRunner(t, server, Config{})
+	created, err := runner.CreateAgentCloudQuote(t.Context(), cloudmodule.AgentCloudQuoteCreateRequest{
+		IdempotencyKey: "019f6a80-1234-7abc-8def-012345678913", Scopes: planningWorkerControlScopes(false), Usage: usage,
+	})
+	if err != nil || len(created.Candidates) != 3 || len(created.Candidates[0].Scope.ServiceOperations.PrivateEndpoints) != 3 {
+		t.Fatalf("worker-control quote mapping=%#v err=%v", created, err)
+	}
+	if created.Candidates[0].Scope.ServiceOperations.PrivateEndpoints[2].ServiceName != "com.amazonaws.vpce.ap-northeast-3.vpce-svc-0123456789abcdef0" {
+		t.Fatalf("worker-control service identity was not round-tripped: %#v", created.Candidates[0].Scope.ServiceOperations)
+	}
+}
+
 func TestAgentCloudResourceMappingPreservesAbsentDataVolumeScope(t *testing.T) {
 	t.Parallel()
 	resource := planningQuoteScopes(true)[0].Resource
@@ -228,6 +262,25 @@ func planningServiceOperationScopes(workerBound bool) []cloudmodule.AgentCloudQu
 	return result
 }
 
+func planningWorkerControlScopes(workerBound bool) []cloudmodule.AgentCloudQuoteScope {
+	result := planningQuoteScopes(workerBound)
+	for index := range result {
+		result[index].SchemaVersion = cloudmodule.AgentCloudQuoteScopeSchemaV2
+		result[index].Resource.Region = "ap-northeast-3"
+		result[index].Resource.AvailabilityZones = []string{"ap-northeast-3a"}
+		result[index].Network = cloudmodule.AgentCloudNetworkScope{
+			VPCID: "vpc-0123456789abcdef0", SubnetID: "subnet-0123456789abcdef0", SecurityGroupMode: "create_dedicated", EntryPoint: "none",
+			RouteTableID: "rtb-0123456789abcdef0", ControlPlaneEndpoint: "grpcs://worker-control.y1.dirextalk.ai:443", PrivateConnectivity: "no_nat_endpoints_v1",
+		}
+		result[index].ServiceOperations = cloudmodule.AgentCloudServiceOperationScope{PrivateEndpoints: []cloudmodule.AgentCloudPrivateEndpointOperation{
+			{OperationKey: "worker-worker-control-interface", Service: "worker_control", ServiceName: "com.amazonaws.vpce.ap-northeast-3.vpce-svc-0123456789abcdef0", SecurityGroupSource: "endpoint_dedicated_from_worker", EndpointType: "interface", PrivateDNSEnabled: true, MonthlyHours: 730, DataMiBPerMonth: 1},
+			{OperationKey: "worker-s3-gateway", Service: "s3", EndpointType: "gateway"},
+			{OperationKey: "worker-secretsmanager-interface", Service: "secretsmanager", SecurityGroupSource: "endpoint_dedicated_from_worker", EndpointType: "interface", PrivateDNSEnabled: true, MonthlyHours: 730, DataMiBPerMonth: 1},
+		}}
+	}
+	return result
+}
+
 func planningQuoteProto(now time.Time) *agentv1.CloudQuote {
 	return planningQuoteProtoForScopes(now, planningQuoteScopes(true), cloudmodule.AgentCloudUsageEstimate{RuntimeHoursPerMonth: 730, PublicIPv4Hours: 730})
 }
@@ -239,7 +292,7 @@ func planningQuoteProtoForScopes(now time.Time, scopes []cloudmodule.AgentCloudQ
 		micros := uint64((index + 1) * 1_000_000)
 		candidates = append(candidates, &agentv1.CloudQuoteCandidate{
 			CandidateProfile: remote.GetResource().GetCandidateProfile(), Scope: remote,
-			ScopeDigest: "sha256:" + strings.Repeat(string(rune('5'+index)), 64), OfferedAvailabilityZones: []string{"ap-northeast-1a"},
+			ScopeDigest: "sha256:" + strings.Repeat(string(rune('5'+index)), 64), OfferedAvailabilityZones: append([]string(nil), scope.Resource.AvailabilityZones...),
 			Quotas: []*agentv1.CloudQuotaEvidence{{ServiceCode: "ec2", QuotaCode: "L-1216C47A", LimitUnits: 32, RequiredUnits: 4}},
 			CostItems: []*agentv1.CloudCostItem{
 				{Category: "compute", Description: "EC2 On-Demand", SourceId: "price-list", HourlyEstimateMicros: micros, MonthlyEstimateMicros: micros * 730, MaximumLaunchAmountMicros: micros},
