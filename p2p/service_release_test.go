@@ -15,6 +15,8 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 )
 
+const releaseV2FutureVersion = "v1.0.7"
+
 type recordingReleaseController struct {
 	statusRequest       releasecontrol.StatusRequest
 	applyRequest        releasecontrol.ApplyRequest
@@ -317,13 +319,13 @@ func TestReleaseV2ApplyRevalidatesCentralVersionAndCreatesDirectJob(t *testing.T
 		directTicket: releasecontrol.JobTicket{JobID: "job_direct", JobToken: "job-secret", StatusURL: "/_dirextalk/updater/v1/jobs/job_direct", Status: "queued"},
 	}
 	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
-		AppID: "1", ChannelID: "server", Version: "v1.0.6", PreVersion: "v1.0.2",
+		AppID: "1", ChannelID: "server", Version: releaseV2FutureVersion, PreVersion: "v1.0.2",
 	}}
 	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
 	router := newP2PTestRouter(service)
 	releaseRoute(t, router, service.AccessToken(), "client.version.report", map[string]any{"client_version": "v1.0.2"})
 	apply := releaseRoute(t, router, service.AccessToken(), "release.v2.apply", map[string]any{
-		"target_version": "v1.0.6", "idempotency_key": "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+		"target_version": releaseV2FutureVersion, "idempotency_key": "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
 	})
 	if apply["job_id"] != "job_direct" || apply["job_token"] != "job-secret" || apply["status"] != "queued" {
 		t.Fatalf("unexpected direct apply response: %#v", apply)
@@ -332,7 +334,7 @@ func TestReleaseV2ApplyRevalidatesCentralVersionAndCreatesDirectJob(t *testing.T
 		t.Fatalf("central version source calls = %d, want 1", central.calls)
 	}
 	if controller.directApplyRequest != (releasecontrol.DirectApplyRequest{
-		TargetVersion: "v1.0.6", IdempotencyKey: "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e",
+		TargetVersion: releaseV2FutureVersion, IdempotencyKey: "31a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e",
 		Confirm: releasecontrol.ApplyConfirmation, ClientVersion: "v1.0.2",
 	}) {
 		t.Fatalf("unexpected direct updater request: %#v", controller.directApplyRequest)
@@ -375,13 +377,13 @@ func TestReleaseV2ApplyPassesAuthoritativeClientVersionToUpdater(t *testing.T) {
 		},
 	}
 	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
-		AppID: "1", ChannelID: "server", Version: "v1.0.6", PreVersion: "v1.0.0",
+		AppID: "1", ChannelID: "server", Version: releaseV2FutureVersion, PreVersion: "v1.0.0",
 	}}
 	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
 	mustReportClientVersion(t, service, map[string]any{"client_version": "v2.0.0"})
 
 	response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
-		"target_version": "v1.0.6", "idempotency_key": "41a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+		"target_version": releaseV2FutureVersion, "idempotency_key": "41a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
 	})
 	if response.Code != http.StatusConflict || releaseResponseCode(t, response) != "client_version_incompatible" {
 		t.Fatalf("updater client gate was not preserved: %d %s", response.Code, response.Body.String())
@@ -403,13 +405,13 @@ func TestReleaseV2ApplyRejectsInvalidUpdaterTicketStatus(t *testing.T) {
 		},
 	}
 	central := &recordingCentralVersionSource{version: releasecontrol.CentralServerVersion{
-		AppID: "1", ChannelID: "server", Version: "v1.0.6", PreVersion: "v1.0.2",
+		AppID: "1", ChannelID: "server", Version: releaseV2FutureVersion, PreVersion: "v1.0.2",
 	}}
 	service := NewService(Config{ServerName: "example.com", ReleaseController: controller, CentralVersionSource: central})
 	mustReportClientVersion(t, service, map[string]any{"client_version": "v1.0.2"})
 
 	response := releaseRouteRaw(t, newP2PTestRouter(service), service.AccessToken(), "release.v2.apply", map[string]any{
-		"target_version": "v1.0.6", "idempotency_key": "51a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
+		"target_version": releaseV2FutureVersion, "idempotency_key": "51a20813-c5d9-4f6d-b4f0-cdf8cfc75c6e", "confirm": releasecontrol.ApplyConfirmation,
 	})
 	if response.Code != http.StatusBadGateway || releaseResponseCode(t, response) != "updater_response_invalid" {
 		t.Fatalf("invalid ticket status must fail closed: %d %s", response.Code, response.Body.String())
