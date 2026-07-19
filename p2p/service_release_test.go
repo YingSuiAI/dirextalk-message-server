@@ -15,7 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 )
 
-const releaseV2FutureVersion = "v1.0.7"
+const releaseV2FutureVersion = "v1.0.8"
 
 type recordingReleaseController struct {
 	statusRequest       releasecontrol.StatusRequest

@@ -1,5 +1,22 @@
 # Dirextalk Message Server release notes
 
+## v1.0.7
+
+This corrective release makes unread recovery markers advance by the
+server-authoritative Matrix timeline position rather than a client-supplied
+timestamp. Resolution is bound to the authenticated owner and applies the
+existing Matrix history-visibility and local-hidden-event checks, so absent,
+cross-room, or unauthorized events cannot expose or persist a marker.
+
+The retained-row migration adds the authoritative position tuple without
+discarding existing read-marker rows; legacy rows canonicalize monotonically
+after upgrade and restart. Server schema version 2 and readable schema version
+1 are unchanged.
+
+This release retains v1.0.6's Worker-control PrivateLink scope and the exact
+published Agent module `v0.1.0-alpha.20260719.6-7ac10ce17ae5`, with no local
+module replacement.
+
 ## v1.0.6
 
 This release aligns the existing Agent Cloud v2 plan, quote, approval, and
@@ -12,15 +29,6 @@ operations.
 The server pins the exact published Agent module
 `v0.1.0-alpha.20260719.6-7ac10ce17ae5` with no local module replacement.
 Server schema version 2 and readable schema version 1 are unchanged.
-
-New-device recovery now includes a deterministic, metadata-only
-`sync.bootstrap.read_markers` snapshot. Durable read markers advance only for
-strictly newer server-resolved Matrix timeline positions; optional client
-timestamps are non-authoritative. Equal, missing, invalid, and skewed event
-timestamps, delayed requests, replay, and concurrent writes cannot regress
-unread recovery boundaries across restarts. Event resolution is bound to the
-authenticated owner and applies the existing Matrix event-visibility checks
-before exposing or persisting a boundary.
 
 ## v1.0.5
 
