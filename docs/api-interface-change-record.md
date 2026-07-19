@@ -19,7 +19,6 @@
 These records are recovery boundaries only. They do not contain message content, media metadata, senders, or timeline events. Clients continue to obtain unread counts, receipts, messages, media, and paginated history from Matrix Client-Server APIs.
 
 `sync.read_marker` and `channels.read_marker` now advance each room's durable marker only when the submitted `origin_server_ts` is strictly greater than the stored timestamp. Delayed or repeated writes with an older or equal timestamp return the existing successful action result without replacing the current marker. The same monotonic rule applies to the in-memory test store and PostgreSQL, and durable markers remain available through `sync.bootstrap` after a server restart.
-
 ## 2026-07-19: signed private Worker-control endpoint scope
 
 The existing Agent Cloud v2 plan/quote/approval service-operation scope now
