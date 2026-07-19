@@ -142,6 +142,7 @@ P2P action 生命周期：
 同步策略：
 
 - `sync.bootstrap` 是冷启动、登录后恢复、本地缓存不可用或事件缺口兜底用的基线快照；不要在每个事件后全量刷新。
+- `sync.bootstrap.read_markers` 固定返回按 `room_id` 排序的 metadata-only 数组，每项只有 `room_id`、`event_id`、`origin_server_ts`，空状态返回 `[]`。它只为新设备未读恢复提供 ProductCore fallback 边界，不返回消息正文、发送者或媒体；客户端仍通过 Matrix `/sync`、receipt 与 `/rooms/{roomID}/messages` 获取未读和历史。`sync.read_marker`、`channels.read_marker` 只在 `origin_server_ts` 严格增大时推进，延迟或相同时间戳写入不能回退/替换已存 marker。
 - 日常弱网/断线恢复使用 `GET /_p2p/ws` 增量追平。客户端先通过 `realtime.ws_ticket.create` 创建 ticket，连接后发送 `client.hello` 的 `since=<last_seq>`，并持久保存最后处理的 `seq`，对已知事件类型做本地 reducer 更新；只有遇到未知事件、解析失败、缺口无法确认或本地缓存损坏时才拉一次 `sync.bootstrap`。WS ready 时可通过 `client.request` 拉取；WS 不可用时可通过 owner HTTP fallback 立即拉取。
 - 如果 `since` 是非零旧 cursor 且已经早于服务端保留的 `p2p_events` 最小序号，WS 会先发送 `server.cursor_reset`。控制事件 payload 包含 `type`、`since`、`min_seq`、`max_seq`、`count`、`recovery: "bootstrap_required"`；客户端收到后应清理本地产品缓存，优先通过 WS `client.request` 调用一次 `sync.bootstrap`，WS 不 ready 时可用 owner HTTP fallback 拉取，再用最新 `seq` 继续订阅增量。
 
