@@ -1,6 +1,9 @@
 package storage
 
-import "context"
+import (
+	"context"
+	"sort"
+)
 
 func (s *MemoryStore) LoadPortal(ctx context.Context) (portalState, bool, error) {
 	s.mu.RLock()
@@ -34,7 +37,30 @@ func (s *MemoryStore) SaveClientBuild(ctx context.Context, expectedDeviceID stri
 
 func (s *MemoryStore) SaveReadMarker(ctx context.Context, marker readMarker) error {
 	s.mu.Lock()
-	s.readMarks[marker.RoomID] = marker
+	current, exists := s.readMarks[marker.RoomID]
+	if !exists || marker.OriginServerTS > current.OriginServerTS {
+		s.readMarks[marker.RoomID] = marker
+	}
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *MemoryStore) GetReadMarker(ctx context.Context, roomID string) (readMarker, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	marker, ok := s.readMarks[roomID]
+	return marker, ok, nil
+}
+
+func (s *MemoryStore) ListReadMarkers(ctx context.Context) ([]readMarker, error) {
+	s.mu.RLock()
+	markers := make([]readMarker, 0, len(s.readMarks))
+	for _, marker := range s.readMarks {
+		markers = append(markers, marker)
+	}
+	s.mu.RUnlock()
+	sort.Slice(markers, func(i, j int) bool {
+		return markers[i].RoomID < markers[j].RoomID
+	})
+	return markers, nil
 }
