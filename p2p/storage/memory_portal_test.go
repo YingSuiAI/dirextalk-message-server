@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
@@ -126,10 +127,11 @@ func TestMemoryStoreReadMarkersAdvanceMonotonicallyAndListDeterministically(t *t
 	store := NewMemoryStore()
 
 	for _, marker := range []readMarker{
-		{RoomID: "!z:example.com", EventID: "$z-new", OriginServerTS: 200},
-		{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100},
-		{RoomID: "!a:example.com", EventID: "$a-stale", OriginServerTS: 99},
-		{RoomID: "!a:example.com", EventID: "$a-equal", OriginServerTS: 100},
+		{RoomID: "!z:example.com", EventID: "$z-new", OriginServerTS: 200, TopologicalPosition: 2, StreamPosition: 20},
+		{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100, TopologicalPosition: 5, StreamPosition: 10},
+		{RoomID: "!a:example.com", EventID: "$a-stale", OriginServerTS: 999, TopologicalPosition: 4, StreamPosition: 99},
+		{RoomID: "!a:example.com", EventID: "$a-equal", OriginServerTS: 100, TopologicalPosition: 5, StreamPosition: 11},
+		{RoomID: "!a:example.com", EventID: "$a-replay", OriginServerTS: 9999, TopologicalPosition: 5, StreamPosition: 10},
 	} {
 		if err := store.SaveReadMarker(ctx, marker); err != nil {
 			t.Fatalf("SaveReadMarker(%#v): %v", marker, err)
@@ -140,8 +142,9 @@ func TestMemoryStoreReadMarkersAdvanceMonotonicallyAndListDeterministically(t *t
 	if err != nil || !found {
 		t.Fatalf("GetReadMarker = (%#v, %v, %v), want current marker", marker, found, err)
 	}
-	if marker.EventID != "$a-current" || marker.OriginServerTS != 100 {
-		t.Fatalf("stale or equal timestamp replaced current marker: %#v", marker)
+	if marker.EventID != "$a-equal" || marker.OriginServerTS != 100 ||
+		marker.TopologicalPosition != 5 || marker.StreamPosition != 11 {
+		t.Fatalf("authoritatively older marker replaced current marker: %#v", marker)
 	}
 	if _, found, err := store.GetReadMarker(ctx, "!missing:example.com"); err != nil || found {
 		t.Fatalf("missing GetReadMarker = (_, %v, %v), want (_, false, nil)", found, err)
@@ -153,5 +156,34 @@ func TestMemoryStoreReadMarkersAdvanceMonotonicallyAndListDeterministically(t *t
 	}
 	if len(markers) != 2 || markers[0].RoomID != "!a:example.com" || markers[1].RoomID != "!z:example.com" {
 		t.Fatalf("ListReadMarkers = %#v, want room-id order", markers)
+	}
+}
+
+func TestMemoryStoreReadMarkerConcurrentWritesDoNotRegress(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	markers := []readMarker{
+		{RoomID: "!room:example.com", EventID: "$newest", OriginServerTS: 1, TopologicalPosition: 9, StreamPosition: 30},
+		{RoomID: "!room:example.com", EventID: "$older-depth", OriginServerTS: 999, TopologicalPosition: 8, StreamPosition: 99},
+		{RoomID: "!room:example.com", EventID: "$older-stream", OriginServerTS: 999, TopologicalPosition: 9, StreamPosition: 29},
+	}
+
+	var wg sync.WaitGroup
+	for _, marker := range markers {
+		marker := marker
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := store.SaveReadMarker(ctx, marker); err != nil {
+				t.Errorf("SaveReadMarker(%s): %v", marker.EventID, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	marker, found, err := store.GetReadMarker(ctx, "!room:example.com")
+	if err != nil || !found || marker.EventID != "$newest" {
+		t.Fatalf("concurrent marker = (%#v, %v, %v), want newest", marker, found, err)
 	}
 }

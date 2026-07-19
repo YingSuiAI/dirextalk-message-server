@@ -38,11 +38,17 @@ func (s *MemoryStore) SaveClientBuild(ctx context.Context, expectedDeviceID stri
 func (s *MemoryStore) SaveReadMarker(ctx context.Context, marker readMarker) error {
 	s.mu.Lock()
 	current, exists := s.readMarks[marker.RoomID]
-	if !exists || marker.OriginServerTS > current.OriginServerTS {
+	if !exists || readMarkerPositionAfter(marker, current) {
 		s.readMarks[marker.RoomID] = marker
 	}
 	s.mu.Unlock()
 	return nil
+}
+
+func readMarkerPositionAfter(candidate, current readMarker) bool {
+	return candidate.TopologicalPosition > current.TopologicalPosition ||
+		(candidate.TopologicalPosition == current.TopologicalPosition &&
+			candidate.StreamPosition > current.StreamPosition)
 }
 
 func (s *MemoryStore) GetReadMarker(ctx context.Context, roomID string) (readMarker, bool, error) {

@@ -1,19 +1,50 @@
 package p2p
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
 
+type resolvedReadMarker struct {
+	roomID              string
+	topologicalPosition int64
+	streamPosition      int64
+	originServerTS      int64
+}
+
+type staticReadMarkerResolver map[string]resolvedReadMarker
+
+func (r staticReadMarkerResolver) ResolveReadMarkerPosition(
+	_ context.Context, roomID, eventID string,
+) (int64, int64, int64, bool, error) {
+	resolved, ok := r[eventID]
+	if !ok || resolved.roomID != roomID {
+		return 0, 0, 0, false, nil
+	}
+	return resolved.topologicalPosition, resolved.streamPosition, resolved.originServerTS, true, nil
+}
+
 func TestSyncBootstrapReturnsMetadataOnlyMonotonicReadMarkers(t *testing.T) {
 	t.Parallel()
 	service := NewService(Config{ServerName: "example.com"})
+	service.SetReadMarkerPositionResolver(staticReadMarkerResolver{
+		"$z-current": {roomID: "!z:example.com", topologicalPosition: 2, streamPosition: 20, originServerTS: 200},
+		"$a-current": {roomID: "!a:example.com", topologicalPosition: 5, streamPosition: 10, originServerTS: 100},
+		"$a-stale":   {roomID: "!a:example.com", topologicalPosition: 4, streamPosition: 99, originServerTS: 500},
+		"$a-equal":   {roomID: "!a:example.com", topologicalPosition: 5, streamPosition: 11, originServerTS: 100},
+		"$a-missing": {roomID: "!a:example.com", topologicalPosition: 6, streamPosition: 12, originServerTS: 101},
+		"$a-invalid": {roomID: "!a:example.com", topologicalPosition: 7, streamPosition: 13, originServerTS: 102},
+	})
 
 	for _, params := range []map[string]any{
-		{"room_id": "!z:example.com", "event_id": "$z-current", "origin_server_ts": int64(200)},
-		{"room_id": "!a:example.com", "event_id": "$a-current", "origin_server_ts": int64(100)},
-		{"room_id": "!a:example.com", "event_id": "$a-stale", "origin_server_ts": int64(99)},
-		{"room_id": "!a:example.com", "event_id": "$a-equal", "origin_server_ts": int64(100)},
+		{"room_id": "!z:example.com", "event_id": "$z-current", "origin_server_ts": int64(-1)},
+		{"room_id": "!a:example.com", "event_id": "$a-current", "origin_server_ts": int64(9_999_999_999_999)},
+		{"room_id": "!a:example.com", "event_id": "$a-stale"},
+		{"room_id": "!a:example.com", "event_id": "$a-equal"},
+		{"room_id": "!a:example.com", "event_id": "$a-missing"},
+		{"room_id": "!a:example.com", "event_id": "$a-invalid", "origin_server_ts": "invalid"},
+		{"room_id": "!a:example.com", "event_id": "$a-stale", "origin_server_ts": int64(9_999_999_999_999)},
 	} {
 		mustHandle[map[string]any](t, service, "sync.read_marker", params)
 	}
@@ -26,8 +57,14 @@ func TestSyncBootstrapReturnsMetadataOnlyMonotonicReadMarkers(t *testing.T) {
 	if len(markers) != 2 {
 		t.Fatalf("sync.bootstrap read_markers = %#v, want two metadata records", markers)
 	}
-	if markers[0] != (readMarker{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100}) ||
-		markers[1] != (readMarker{RoomID: "!z:example.com", EventID: "$z-current", OriginServerTS: 200}) {
+	if markers[0] != (readMarker{
+		RoomID: "!a:example.com", EventID: "$a-invalid", OriginServerTS: 102,
+		TopologicalPosition: 7, StreamPosition: 13,
+	}) ||
+		markers[1] != (readMarker{
+			RoomID: "!z:example.com", EventID: "$z-current", OriginServerTS: 200,
+			TopologicalPosition: 2, StreamPosition: 20,
+		}) {
 		t.Fatalf("sync.bootstrap returned unordered or regressed read markers: %#v", markers)
 	}
 	encoded, err := json.Marshal(markers)
@@ -42,6 +79,55 @@ func TestSyncBootstrapReturnsMetadataOnlyMonotonicReadMarkers(t *testing.T) {
 		if len(marker) != 3 || marker["room_id"] == nil || marker["event_id"] == nil || marker["origin_server_ts"] == nil {
 			t.Fatalf("sync.bootstrap read marker wire shape must be metadata-only: %#v", marker)
 		}
+	}
+}
+
+func TestReadMarkerRejectsEventOutsideRequestedRoom(t *testing.T) {
+	t.Parallel()
+	service := NewService(Config{ServerName: "example.com"})
+	service.SetReadMarkerPositionResolver(staticReadMarkerResolver{
+		"$event": {roomID: "!actual:example.com", topologicalPosition: 1, streamPosition: 1},
+	})
+
+	if _, apiErr := service.Handle(context.Background(), "sync.read_marker", map[string]any{
+		"room_id": "!other:example.com", "event_id": "$event",
+	}); apiErr == nil || apiErr.Status != 400 {
+		t.Fatalf("cross-room read marker error = %#v, want HTTP 400", apiErr)
+	}
+	if _, found, err := service.store.GetReadMarker(context.Background(), "!other:example.com"); err != nil || found {
+		t.Fatalf("cross-room marker persisted = (%v, %v), want (false, nil)", found, err)
+	}
+}
+
+func TestReadMarkerCanonicalizesLegacyBoundaryBeforeAdvancing(t *testing.T) {
+	t.Parallel()
+	service := NewService(Config{ServerName: "example.com"})
+	service.SetReadMarkerPositionResolver(staticReadMarkerResolver{
+		"$legacy-current": {
+			roomID: "!room:example.com", topologicalPosition: 8, streamPosition: 20,
+			originServerTS: 100,
+		},
+		"$older": {
+			roomID: "!room:example.com", topologicalPosition: 7, streamPosition: 99,
+			originServerTS: 9_999_999_999_999,
+		},
+	})
+	if err := service.store.SaveReadMarker(context.Background(), readMarker{
+		RoomID: "!room:example.com", EventID: "$legacy-current", OriginServerTS: 200,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mustHandle[map[string]any](t, service, "sync.read_marker", map[string]any{
+		"room_id": "!room:example.com", "event_id": "$older",
+	})
+	marker, found, err := service.store.GetReadMarker(context.Background(), "!room:example.com")
+	if err != nil || !found {
+		t.Fatalf("GetReadMarker = (%#v, %v, %v), want canonicalized legacy marker", marker, found, err)
+	}
+	if marker.EventID != "$legacy-current" || marker.OriginServerTS != 100 ||
+		marker.TopologicalPosition != 8 || marker.StreamPosition != 20 {
+		t.Fatalf("legacy marker regressed during canonicalization: %#v", marker)
 	}
 }
 

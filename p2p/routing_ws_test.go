@@ -241,6 +241,12 @@ func TestRealtimeWSStreamsLiveEventsAndTracksClientState(t *testing.T) {
 
 func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	service.SetReadMarkerPositionResolver(staticReadMarkerResolver{
+		"$event": {
+			roomID: "!room:example.com", topologicalPosition: 17, streamPosition: 23,
+			originServerTS: 1710000000000,
+		},
+	})
 	readMarkers := &recordingReadMarkerStore{Store: service.store}
 	service.store = readMarkers
 	router := newP2PTestRouter(service)
@@ -302,6 +308,7 @@ func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 	_, saved := readMarkers.snapshot()
 	if len(saved) != 1 || saved[0] != (readMarker{
 		RoomID: "!room:example.com", EventID: "$event", OriginServerTS: 1710000000000,
+		TopologicalPosition: 17, StreamPosition: 23,
 	}) {
 		t.Fatalf("expected read marker to persist via WS command, got %#v", saved)
 	}
@@ -309,6 +316,11 @@ func TestRealtimeWSClientRequestCallsOwnerProductActions(t *testing.T) {
 
 func TestReadMarkerStoreFailureReturnsErrorWithoutCommit(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	service.SetReadMarkerPositionResolver(staticReadMarkerResolver{
+		"$failed": {
+			roomID: "!room:example.com", topologicalPosition: 1, streamPosition: 1,
+		},
+	})
 	readMarkers := &recordingReadMarkerStore{Store: service.store, err: errors.New("save failed")}
 	service.store = readMarkers
 
