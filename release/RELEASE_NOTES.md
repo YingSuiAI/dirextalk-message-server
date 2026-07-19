@@ -13,6 +13,11 @@ The server pins the exact published Agent module
 `v0.1.0-alpha.20260719.6-7ac10ce17ae5` with no local module replacement.
 Server schema version 2 and readable schema version 1 are unchanged.
 
+New-device recovery now includes a deterministic, metadata-only
+`sync.bootstrap.read_markers` snapshot. Durable read markers advance only for
+strictly newer timestamps, preventing delayed or repeated writes from
+regressing unread recovery boundaries across restarts.
+
 ## v1.0.5
 
 This release moves Agent Chat, immutable runtime-profile selection, the

@@ -81,6 +81,14 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 	if err != nil {
 		return nil, internalError(err)
 	}
+	readMarkerStore := s.readMarkerStore()
+	if readMarkerStore == nil {
+		return nil, internalError(errors.New("read marker store is not configured"))
+	}
+	readMarkers, err := readMarkerStore.ListReadMarkers(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	s.mu.Lock()
 	userID := s.ownerMXID
 	agentRoomID := s.agentRoomID
@@ -120,6 +128,7 @@ func (s *Service) syncBootstrap(ctx context.Context) (any, *apiError) {
 		"contacts":       contacts,
 		"groups":         visibleGroups,
 		"channels":       visibleChannels,
+		"read_markers":   readMarkers,
 		"pending": map[string]any{
 			"friend_requests": pendingFriendRequestsFromContacts(contacts),
 			"group_invites":   pendingGroupInvitesFromMembers(members, groups),
@@ -234,6 +243,8 @@ func pendingItem(id, title string, ts int64) map[string]any {
 
 type readMarkerStore interface {
 	SaveReadMarker(ctx context.Context, marker readMarker) error
+	GetReadMarker(ctx context.Context, roomID string) (readMarker, bool, error)
+	ListReadMarkers(ctx context.Context) ([]readMarker, error)
 }
 
 func (s *Service) readMarkerStore() readMarkerStore {
