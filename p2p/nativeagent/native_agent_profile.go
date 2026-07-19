@@ -75,13 +75,13 @@ func defaultModelForProvider(provider string) string {
 	case "anthropic":
 		return "claude-3-5-sonnet-latest"
 	case "deepseek":
-		return "deepseek-chat"
+		return "deepseek-v4-pro"
 	case "openrouter":
 		return "openai/gpt-4.1-mini"
 	case "openai_compatible", "litellm":
 		return "gpt-4.1-mini"
 	default:
-		return "deepseek-chat"
+		return "deepseek-v4-pro"
 	}
 }
 

@@ -1,0 +1,10 @@
+{
+  "schema": "dirextalk.worker-session-claim/v1",
+  "connection_id": "connection-create-0001",
+  "deployment_id": "deployment-create-0001",
+  "bootstrap_session_id": "bootstrap-0123456789abcdef0123456789abcdef",
+  "worker_image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "artifact_manifest_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "instance_identity_document_b64": "eyJhY2NvdW50SWQiOiIxMjM0NTY3ODkwMTIiLCJpbnN0YW5jZUlkIjoiaS0wMTIzNDU2Nzg5YWJjZGVmMCJ9",
+  "instance_identity_signature_b64": "Zml4dHVyZS1zaWduYXR1cmU="
+}

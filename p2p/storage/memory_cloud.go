@@ -1,0 +1,326 @@
+package storage
+
+import (
+	"context"
+	"errors"
+	"sort"
+
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
+)
+
+func (s *MemoryStore) CreateCloudGoal(_ context.Context, request cloudmodule.CreateGoalRequest) (cloudmodule.CreateGoalResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idempotencyKey := request.Goal.OwnerMXID + "\x00" + request.Goal.IdempotencyHash
+	if goalID, ok := s.cloudIdem[idempotencyKey]; ok {
+		goal := s.cloudGoals[goalID]
+		if goal.RequestDigest != request.Goal.RequestDigest {
+			return cloudmodule.CreateGoalResult{}, cloudmodule.ErrIdempotencyConflict
+		}
+		return cloudmodule.CreateGoalResult{Goal: goal, Plan: s.cloudPlans[goal.PlanID], Created: false}, nil
+	}
+	s.cloudGoals[request.Goal.GoalID] = request.Goal
+	s.cloudPlans[request.Plan.PlanID] = request.Plan
+	if request.Job.JobID != "" {
+		s.cloudJobs[request.Job.JobID] = request.Job
+	}
+	s.cloudIdem[idempotencyKey] = request.Goal.GoalID
+	for _, event := range request.Events {
+		s.cloudEvents = append(s.cloudEvents, event)
+	}
+	s.cloudOutbox[request.Outbox.OutboxID] = request.Outbox
+	return cloudmodule.CreateGoalResult{Goal: request.Goal, Plan: request.Plan, Created: true}, nil
+}
+
+func (s *MemoryStore) CreateCloudConnectionBootstrap(_ context.Context, request cloudmodule.CreateConnectionBootstrapRequest) (cloudmodule.CreateConnectionBootstrapResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bootstrap := cloneCloudConnectionBootstrap(request.Bootstrap)
+	idempotencyKey := bootstrap.OwnerMXID + "\x00" + bootstrap.IdempotencyHash
+	if bootstrapID, ok := s.cloudConnectionBootstrapIdem[idempotencyKey]; ok {
+		existing := cloneCloudConnectionBootstrap(s.cloudConnectionBootstraps[bootstrapID])
+		if existing.RequestDigest != bootstrap.RequestDigest {
+			return cloudmodule.CreateConnectionBootstrapResult{}, cloudmodule.ErrIdempotencyConflict
+		}
+		return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: existing}, nil
+	}
+	if _, exists := s.cloudConnectionBootstraps[bootstrap.BootstrapID]; exists {
+		return cloudmodule.CreateConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+	s.cloudConnectionBootstrapIdem[idempotencyKey] = bootstrap.BootstrapID
+	return cloudmodule.CreateConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
+func cloneCloudConnectionBootstrap(bootstrap cloudmodule.ConnectionBootstrap) cloudmodule.ConnectionBootstrap {
+	bootstrap.ConnectionTemplate = bootstrap.ConnectionTemplate.Clone()
+	return bootstrap
+}
+
+func (s *MemoryStore) LoadCloudConnectionCredentialBootstrap(_ context.Context, request cloudmodule.LoadConnectionCredentialBootstrapRequest) (cloudmodule.ConnectionRolePlan, error) {
+	s.mu.RLock()
+	bootstrap, found := s.cloudConnectionBootstraps[request.BootstrapID]
+	s.mu.RUnlock()
+	if !found || bootstrap.OwnerMXID != request.OwnerMXID || bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if bootstrap.Revision != request.ExpectedRevision {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	if request.Now <= 0 || request.Now >= bootstrap.ExpiresAt {
+		return cloudmodule.ConnectionRolePlan{}, cloudmodule.ErrConnectionBootstrapExpired
+	}
+	return bootstrap.RolePlan(), nil
+}
+
+func (s *MemoryStore) CompleteCloudConnectionBootstrap(_ context.Context, request cloudmodule.CompleteConnectionBootstrapRequest) (cloudmodule.CompleteConnectionBootstrapResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bootstrap, found := s.cloudConnectionBootstraps[request.BootstrapID]
+	if !found || bootstrap.OwnerMXID != request.OwnerMXID {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if bootstrap.CompletionIdempotencyHash != "" {
+		if bootstrap.CompletionIdempotencyHash != request.IdempotencyHash || bootstrap.CompletionRequestDigest != request.RequestDigest {
+			return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrIdempotencyConflict
+		}
+		return cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap}, nil
+	}
+	if bootstrap.Revision != request.ExpectedRevision {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapConflict
+	}
+	if request.Job.CreatedAt >= bootstrap.ExpiresAt {
+		bootstrap.Status = cloudmodule.ConnectionBootstrapExpired
+		bootstrap.Revision++
+		bootstrap.UpdatedAt = request.Job.CreatedAt
+		s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapExpired
+	}
+	if bootstrap.Status != cloudmodule.ConnectionBootstrapAwaitingStack {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	if err := cloudmodule.ValidateConnectionRegistrationEndpoint(request.BrokerCommandURL, bootstrap.RequestedRegion); err != nil {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInputInvalid
+	}
+	if err := cloudmodule.ValidateConnectionRegistrationStackARN(request.StackARN, bootstrap.RequestedRegion); err != nil {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInputInvalid
+	}
+	if request.Job.JobID == "" || request.Job.Kind != "connection_registration" || request.Job.PlanID != "" || request.Job.Execution != "queued" || request.Job.Outcome != "pending" || request.Job.Checkpoint != "connection_verification_queued" || request.Job.Revision != 1 || request.Event.Type != "cloud.job.changed" || request.Outbox.Kind != cloudmodule.OutboxKindConnectionRegistrationRequested {
+		return cloudmodule.CompleteConnectionBootstrapResult{}, cloudmodule.ErrConnectionBootstrapInvalid
+	}
+	bootstrap.CandidateBrokerURL = request.BrokerCommandURL
+	bootstrap.StackARN = request.StackARN
+	bootstrap.Status = cloudmodule.ConnectionBootstrapVerificationQueued
+	bootstrap.Revision++
+	bootstrap.CompletionIdempotencyHash = request.IdempotencyHash
+	bootstrap.CompletionRequestDigest = request.RequestDigest
+	bootstrap.JobID = request.Job.JobID
+	bootstrap.UpdatedAt = request.Job.CreatedAt
+	s.cloudConnectionBootstraps[bootstrap.BootstrapID] = bootstrap
+	s.cloudJobs[request.Job.JobID] = request.Job
+	s.cloudEvents = append(s.cloudEvents, request.Event)
+	s.cloudOutbox[request.Outbox.OutboxID] = request.Outbox
+	return cloudmodule.CompleteConnectionBootstrapResult{Bootstrap: bootstrap, Created: true}, nil
+}
+
+// HasLegacyCloudPrivateFootprint reports whether the in-memory compatibility
+// store retains a fact that is intentionally absent from public Cloud lists.
+// Production uses DatabaseStore's exhaustive durable-table check; this narrow
+// implementation covers every private fact the in-memory store can retain.
+func (s *MemoryStore) HasLegacyCloudPrivateFootprint(_ context.Context) (bool, error) {
+	if s == nil {
+		return false, errors.New("cloud memory storage is unavailable")
+	}
+	s.mu.RLock()
+	hasFootprint := len(s.cloudConnectionBootstraps) > 0 || len(s.cloudOutbox) > 0
+	s.mu.RUnlock()
+	return hasFootprint, nil
+}
+
+func (s *MemoryStore) ListCloudGoals(_ context.Context) ([]cloudmodule.Goal, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Goal, 0, len(s.cloudGoals))
+	for _, item := range s.cloudGoals {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].GoalID, items[j].GoalID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) ListCloudPlans(_ context.Context) ([]cloudmodule.Plan, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Plan, 0, len(s.cloudPlans))
+	for _, item := range s.cloudPlans {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].PlanID, items[j].PlanID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) GetCloudPlan(_ context.Context, id string) (cloudmodule.Plan, bool, error) {
+	s.mu.RLock()
+	item, ok := s.cloudPlans[id]
+	s.mu.RUnlock()
+	return item, ok, nil
+}
+
+// GetCloudQuote supports focused in-process tests without introducing a second
+// quote source of truth. A test may seed a Plan with its safe Quote projection;
+// production startup continues to require PostgreSQL and its quote table.
+func (s *MemoryStore) GetCloudQuote(_ context.Context, id string) (cloudmodule.QuoteView, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, plan := range s.cloudPlans {
+		if plan.QuoteID == id && plan.Quote != nil && plan.Quote.QuoteID == id {
+			return cloneCloudQuoteView(*plan.Quote), true, nil
+		}
+	}
+	return cloudmodule.QuoteView{}, false, nil
+}
+
+func cloneCloudQuoteView(value cloudmodule.QuoteView) cloudmodule.QuoteView {
+	clone := value
+	clone.Candidates = make([]cloudmodule.QuoteCandidateView, len(value.Candidates))
+	for index, candidate := range value.Candidates {
+		clone.Candidates[index] = candidate
+		clone.Candidates[index].AvailabilityZones = cloneStringSlice(candidate.AvailabilityZones)
+	}
+	clone.IncludedItems = cloneStringSlice(value.IncludedItems)
+	clone.UnincludedItems = cloneStringSlice(value.UnincludedItems)
+	return clone
+}
+
+func (s *MemoryStore) ListCloudJobs(_ context.Context) ([]cloudmodule.Job, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Job, 0, len(s.cloudJobs))
+	for _, item := range s.cloudJobs {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].JobID, items[j].JobID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) ListCloudConnections(_ context.Context) ([]cloudmodule.Connection, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Connection, 0, len(s.cloudConnections))
+	for _, item := range s.cloudConnections {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].ConnectionID, items[j].ConnectionID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) GetCloudConnection(_ context.Context, id string) (cloudmodule.Connection, bool, error) {
+	s.mu.RLock()
+	item, ok := s.cloudConnections[id]
+	s.mu.RUnlock()
+	return item, ok, nil
+}
+
+func (s *MemoryStore) ListCloudDeployments(_ context.Context) ([]cloudmodule.Deployment, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Deployment, 0, len(s.cloudDeployments))
+	for _, item := range s.cloudDeployments {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].DeploymentID, items[j].DeploymentID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) GetCloudDeployment(_ context.Context, id string) (cloudmodule.Deployment, bool, error) {
+	s.mu.RLock()
+	item, ok := s.cloudDeployments[id]
+	s.mu.RUnlock()
+	return item, ok, nil
+}
+
+func (s *MemoryStore) ListCloudServices(_ context.Context) ([]cloudmodule.Service, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Service, 0, len(s.cloudServices))
+	for _, item := range s.cloudServices {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].ServiceID, items[j].ServiceID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) GetCloudService(_ context.Context, id string) (cloudmodule.Service, bool, error) {
+	s.mu.RLock()
+	item, ok := s.cloudServices[id]
+	s.mu.RUnlock()
+	return item, ok, nil
+}
+
+func (s *MemoryStore) ListCloudRecipes(_ context.Context) ([]cloudmodule.Recipe, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Recipe, 0, len(s.cloudRecipes))
+	for _, item := range s.cloudRecipes {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].RecipeID, items[j].RecipeID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) GetCloudRecipe(_ context.Context, id string) (cloudmodule.Recipe, bool, error) {
+	s.mu.RLock()
+	item, ok := s.cloudRecipes[id]
+	s.mu.RUnlock()
+	return item, ok, nil
+}
+
+func (s *MemoryStore) ListCloudAlerts(_ context.Context) ([]cloudmodule.Alert, error) {
+	s.mu.RLock()
+	items := make([]cloudmodule.Alert, 0, len(s.cloudAlerts))
+	for _, item := range s.cloudAlerts {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].UpdatedAt, items[j].UpdatedAt, items[i].AlertID, items[j].AlertID)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) ListCloudEvents(_ context.Context, limit int) ([]cloudmodule.Event, error) {
+	s.mu.RLock()
+	items := append([]cloudmodule.Event(nil), s.cloudEvents...)
+	s.mu.RUnlock()
+	sort.Slice(items, func(i, j int) bool {
+		return newer(items[i].CreatedAt, items[j].CreatedAt, items[i].EventID, items[j].EventID)
+	})
+	for index := range items {
+		items[index].HydrateSummary()
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+func newer(leftTime, rightTime int64, leftID, rightID string) bool {
+	if leftTime != rightTime {
+		return leftTime > rightTime
+	}
+	return leftID < rightID
+}

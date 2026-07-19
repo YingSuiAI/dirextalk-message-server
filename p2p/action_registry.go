@@ -36,6 +36,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "channel-content", handlers: s.channelContentModule.Handlers()},
 		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),
 		{name: "reports", handlers: s.reportsModule.Handlers()},
+		{name: "cloud", handlers: s.cloudModule.Handlers()},
 	}
 	return mustBuildActionHandlers(
 		serviceapi.ActionSpecs(),

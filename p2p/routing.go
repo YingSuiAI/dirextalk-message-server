@@ -6,6 +6,7 @@ import (
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	httpapi "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/httpapi"
 	"github.com/gorilla/mux"
 )
@@ -21,8 +22,10 @@ type envelope struct {
 
 func Register(router *mux.Router, service *Service) {
 	product := httpapi.ProductHandler(serviceHTTPProductPort{service: service})
+	secretBootstrapUpload := httpapi.SecretBootstrapUploadHandler(serviceHTTPSecretBootstrapPort{service: service})
 	router.HandleFunc("/query", product).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", product).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/cloud/secret-bootstrap/upload", secretBootstrapUpload).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/health", httpapi.HealthHandler(nil)).Methods(http.MethodGet, http.MethodOptions)
 }
@@ -70,6 +73,28 @@ func (p serviceHTTPProductPort) CreateWSTicket(token string) (any, *actionbase.E
 }
 
 type serviceHTTPMCPPort struct{ service *Service }
+
+type serviceHTTPSecretBootstrapPort struct{ service *Service }
+
+func (p serviceHTTPSecretBootstrapPort) OwnerAuthorized(token string) bool {
+	return p.service != nil && p.service.Authenticate(token)
+}
+
+func (p serviceHTTPSecretBootstrapPort) UploadEncryptedSecret(ctx context.Context, request httpapi.SecretBootstrapUploadRequest) (any, *actionbase.Error) {
+	if p.service == nil || p.service.cloudModule == nil {
+		return nil, actionbase.CodedError(http.StatusServiceUnavailable, "cloud_secret_bootstrap_unavailable", "cloud secret bootstrap is not configured")
+	}
+	ctx, finishOperation := p.service.beginAccountOperation(ctx)
+	defer finishOperation()
+	if p.service.accountIsDeprovisioned() {
+		return nil, actionbase.StatusError(http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
+	}
+	return p.service.cloudModule.UploadAgentEncryptedSecret(ctx, cloudmodule.UploadAgentEncryptedSecretRequest{
+		SessionID: request.SessionID, UploadToken: request.UploadToken, ClientPublicKey: request.ClientPublicKey,
+		Nonce: request.Nonce, Ciphertext: request.Ciphertext, IdempotencyKey: request.IdempotencyKey,
+		ExpectedRevision: request.ExpectedRevision,
+	})
+}
 
 func (p serviceHTTPMCPPort) TokenAuthorized(token string) bool {
 	return p.service != nil && token != "" && token == p.service.AgentToken()

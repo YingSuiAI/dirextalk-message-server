@@ -67,6 +67,45 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_events_room_idx",
 		"p2p_events_type_idx",
 		"p2p_legacy_agent_invocations_state_updated_idx",
+		"p2p_cloud_goals_owner_updated_idx",
+		"p2p_cloud_plans_status_updated_idx",
+		"p2p_cloud_connections_status_updated_idx",
+		"p2p_cloud_deployments_plan_updated_idx",
+		"p2p_cloud_services_deployment_updated_idx",
+		"p2p_cloud_recipes_digest_idx",
+		"p2p_cloud_alerts_open_updated_idx",
+		"p2p_cloud_events_aggregate_revision_idx",
+		"p2p_cloud_outbox_pending_idx",
+		"p2p_cloud_outbox_claim_idx",
+		"p2p_cloud_plan_versions_plan_created_idx",
+		"p2p_cloud_recipe_versions_recipe_created_idx",
+		"p2p_cloud_quotes_connection_valid_idx",
+		"p2p_cloud_jobs_plan_updated_idx",
+		"p2p_cloud_job_steps_job_updated_idx",
+		"p2p_cloud_projection_outbox_pending_idx",
+		"p2p_cloud_connection_brokers_region_idx",
+		"p2p_cloud_broker_commands_plan_idx",
+		"p2p_cloud_connection_bootstraps_status_expiry_idx",
+		"p2p_cloud_connection_registration_commands_state_idx",
+		"p2p_cloud_plan_approvals_owner_approve_idempotency_idx",
+		"p2p_cloud_plan_approvals_plan_status_idx",
+		"p2p_cloud_deployment_commands_deployment_idx",
+		"p2p_cloud_deployment_resources_status_idx",
+		"p2p_cloud_execution_probe_tasks_claim_idx",
+		"p2p_cloud_execution_probe_commands_task_idx",
+		"p2p_cloud_recipe_execution_manifests_status_updated_idx",
+		"p2p_cloud_recipe_execution_approvals_owner_approve_idempotency_idx",
+		"p2p_cloud_recipe_execution_approvals_execution_active_idx",
+		"p2p_cloud_recipe_execution_approvals_execution_status_idx",
+		"p2p_cloud_service_backup_approvals_approve_idempotency_idx",
+		"p2p_cloud_service_backup_approvals_service_idx",
+		"p2p_cloud_service_backups_claim_idx",
+		"p2p_cloud_service_backup_commands_backup_idx",
+		"p2p_cloud_service_secret_bootstrap_active_slot_idx",
+		"p2p_cloud_service_secret_bootstrap_updated_marker_idx",
+		"p2p_cloud_service_secret_bootstrap_observe_claim_idx",
+		"p2p_cloud_service_secret_observe_commands_approval_idx",
+		"p2p_agent_projection_revisions_aggregate_idx",
 	}
 	for _, indexName := range expected {
 		t.Run(indexName, func(t *testing.T) {
@@ -75,6 +114,10 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 				t.Fatalf("expected index %s to exist: %v", indexName, err)
 			}
 		})
+	}
+	var providerVersionColumns int
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='p2p_cloud_service_secret_bootstrap_approvals' AND column_name='provider_version'`).Scan(&providerVersionColumns); err != nil || providerVersionColumns != 0 {
+		t.Fatalf("service secret provider metadata column count=%d err=%v", providerVersionColumns, err)
 	}
 	var contactPeerIndex string
 	if err := store.DB().QueryRowContext(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'p2p_contacts_peer_idx'`).Scan(&contactPeerIndex); err != nil {

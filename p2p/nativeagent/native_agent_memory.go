@@ -30,7 +30,7 @@ type nativeAgentRunContext struct {
 func (r *Runtime) prepareEinoRun(ctx context.Context, config map[string]any, params map[string]any, profile nativeModelProfile) (nativeAgentRunContext, error) {
 	run := nativeAgentRunContext{
 		conversationID: nativeAgentConversationKey(params),
-		memoryDisabled: boolParam(params["memory_disabled"]) || boolParam(config["memory_disabled"]),
+		memoryDisabled: cloudDialogueMode(params) || boolParam(params["memory_disabled"]) || boolParam(config["memory_disabled"]),
 		maxSteps:       nativeAgentMaxSteps(config, params),
 	}
 	requestMessages := requestEinoMessages(params)

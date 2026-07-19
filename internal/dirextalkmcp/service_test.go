@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,26 @@ func TestToolsAreGeneratedFromSameRegistryAsActions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(actions, toolActions) {
 		t.Fatalf("native tool registry must preserve MCP action order, actions=%#v toolActions=%#v", actions, toolActions)
+	}
+}
+
+func TestCloudMCPToolsAreLimitedToReadOnlyProjectionAccess(t *testing.T) {
+	allowed := map[string]bool{
+		"dirextalk_cloud_workloads_list": true,
+		"dirextalk_cloud_workloads_get":  true,
+		"dirextalk_cloud_status":         true,
+	}
+	seen := map[string]bool{}
+	for _, tool := range Tools() {
+		if !strings.Contains(tool.Action, ".cloud.") {
+			continue
+		}
+		if !allowed[tool.Name] || tool.Write {
+			t.Fatalf("Cloud MCP tool must be an allowed read-only projection, got %#v", tool)
+		}
+		seen[tool.Name] = true
+	}
+	if !reflect.DeepEqual(seen, allowed) {
+		t.Fatalf("Cloud MCP tools = %#v, want %#v", seen, allowed)
 	}
 }

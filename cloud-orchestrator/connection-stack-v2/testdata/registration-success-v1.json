@@ -1,0 +1,36 @@
+{
+  "status": "connection_registered",
+  "receipt": {
+    "schema": "dirextalk.aws.command-receipt/v2",
+    "disposition": "committed",
+    "connection_id": "connection-0001",
+    "expected_generation": 2,
+    "node_counter": 8,
+    "command_id": "command-0002",
+    "request_sha256": "e6ce520f2238f0682179ca20f4a1de37fb68a1cd4cabfcddc750fce3fa05a475",
+    "action": "connection.registration.verify"
+  },
+  "registration": {
+    "schema": "dirextalk.aws.connection-registration/v1",
+    "bootstrap_id": "bootstrap-0001",
+    "connection_id": "connection-0001",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "broker_command_url": "https://abcdefghij.execute-api.us-east-1.amazonaws.com/prod/v2/commands",
+    "node_key_id": "node-key-1",
+    "connection_generation": 2,
+    "worker_artifact": {
+      "kind": "fixed_ami",
+      "ami_id": "ami-0123456789abcdef0"
+    },
+    "worker_network": {
+      "vpc_id": "vpc-0123456789abcdef0",
+      "subnet_id": "subnet-0123456789abcdef0",
+      "availability_zone": "us-east-1a"
+    },
+    "worker_resource_manifest_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "stack_arn": "arn:aws:cloudformation:us-east-1:123456789012:stack/DirextalkConnection-0001/01234567-89ab-cdef-0123-456789abcdef",
+    "command_id": "command-0002",
+    "request_sha256": "e6ce520f2238f0682179ca20f4a1de37fb68a1cd4cabfcddc750fce3fa05a475"
+  }
+}

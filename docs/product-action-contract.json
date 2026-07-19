@@ -88,6 +88,241 @@
       "transport": "http_and_ws_request"
     },
     {
+      "name": "cloud.bootstrap",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.cutover.preflight",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.connections.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.connections.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.plans.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.plans.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.deployments.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.deployments.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.services.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.services.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.recipes.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.recipes.get",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.events.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "cloud.goals.create",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.role_plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.credential_bootstrap.create",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.identity.preview",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.registration.complete",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.foundation.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.foundation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.connections.foundation.operations.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.plans.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.plans.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.recipe_execution.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.recipe_execution.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.secrets.bootstrap.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.pairing.payload.retrieve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.pairing.resume",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.jobs.cancel.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.jobs.cancel.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.destroy.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.deployments.destroy.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.operation.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.operation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.destroy.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.destroy.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.restore.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.restore.confirmation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.restore.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.management.plan",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.management.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.managed_preparation.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.managed_preparation.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.managed_preparation.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.prepare",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.approve",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "cloud.services.root_helper_key.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
       "name": "agent.password",
       "auth": "owner",
       "transport": "http_and_ws_request"
@@ -106,6 +341,16 @@
       "name": "agent.config.update",
       "auth": "owner",
       "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.runtime.profile.get",
+      "auth": "owner",
+      "transport": "http_only"
+    },
+    {
+      "name": "agent.runtime.profile.update",
+      "auth": "owner",
+      "transport": "http_only"
     },
     {
       "name": "agent.config.propose_patch",

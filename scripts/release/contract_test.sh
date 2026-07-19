@@ -18,6 +18,17 @@ for script in "$prepare" "$verify" "$publish" "$lib"; do
   bash -n "$script"
 done
 
+python3 - "$repo_root/go.mod" <<'PY' || fail 'go.mod contains a local filesystem replacement'
+import json
+import subprocess
+import sys
+
+module = json.loads(subprocess.check_output(["go", "mod", "edit", "-json", sys.argv[1]], text=True))
+for replacement in module.get("Replace") or []:
+    if not (replacement.get("New") or {}).get("Version"):
+        raise SystemExit(1)
+PY
+
 for removed in release-index release-manifest attestation retained-upgrade minimum_client_version previous_version upgrade_edges; do
   if grep -F "$removed" "$lib" "$prepare" "$verify" "$publish" "$workflow" >/dev/null; then
     fail "current release flow still references obsolete $removed metadata"

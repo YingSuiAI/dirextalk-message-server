@@ -17,6 +17,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	groupsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/groups"
@@ -31,6 +32,20 @@ const (
 // MemberStore is the durable member read boundary required by MCP discovery.
 type MemberStore interface {
 	ListMembers(context.Context, string, string) ([]dirextalkdomain.MemberRecord, error)
+}
+
+// CloudReader deliberately omits Goal/Outbox reads so external MCP can expose
+// only de-secretsed workload projections, never private prompts or planner
+// inputs.
+type CloudReader interface {
+	ListCloudPlans(context.Context) ([]cloudmodule.Plan, error)
+	GetCloudPlan(context.Context, string) (cloudmodule.Plan, bool, error)
+	ListCloudJobs(context.Context) ([]cloudmodule.Job, error)
+	ListCloudDeployments(context.Context) ([]cloudmodule.Deployment, error)
+	GetCloudDeployment(context.Context, string) (cloudmodule.Deployment, bool, error)
+	ListCloudServices(context.Context) ([]cloudmodule.Service, error)
+	GetCloudService(context.Context, string) (cloudmodule.Service, bool, error)
+	ListCloudAlerts(context.Context) ([]cloudmodule.Alert, error)
 }
 
 // MatrixPort is the narrow Matrix read/write boundary required by MCP tools.
@@ -64,6 +79,7 @@ type Dependencies struct {
 	Members        MemberStore
 	Social         *socialmodule.Module
 	Matrix         MatrixPort
+	Cloud          CloudReader
 }
 
 // Config contains dynamic service state and lifecycle callbacks. Dynamic
@@ -90,6 +106,7 @@ type Module struct {
 	members       MemberStore
 	social        *socialmodule.Module
 	matrix        MatrixPort
+	cloud         CloudReader
 	config        Config
 	service       *dirextalkmcp.Service
 }
@@ -104,6 +121,7 @@ func New(deps Dependencies, cfg Config) *Module {
 		members:       deps.Members,
 		social:        deps.Social,
 		matrix:        deps.Matrix,
+		cloud:         deps.Cloud,
 		config:        cfg,
 	}
 	module.service = dirextalkmcp.NewServiceWithConfig(dirextalkmcp.Config{
@@ -154,6 +172,12 @@ func (m *Module) InvokeCapability(ctx context.Context, action string, params map
 		return m.channelCommentsList(ctx, params)
 	case dirextalkmcp.ActionChannelCommentsCreate:
 		return m.channelCommentCreate(ctx, params)
+	case dirextalkmcp.ActionCloudWorkloadsList:
+		return m.cloudWorkloadsList(ctx, params)
+	case dirextalkmcp.ActionCloudWorkloadsGet:
+		return m.cloudWorkloadsGet(ctx, params)
+	case dirextalkmcp.ActionCloudStatus:
+		return m.cloudStatus(ctx, params)
 	default:
 		return nil, dirextalkmcp.BadRequest("unknown MCP action")
 	}

@@ -16,6 +16,9 @@ const (
 	ActionChannelPostsList      = "mcp.channel_posts.list"
 	ActionChannelCommentsList   = "mcp.channel_comments.list"
 	ActionChannelCommentsCreate = "mcp.channel_comments.create"
+	ActionCloudWorkloadsList    = "mcp.cloud.workloads.list"
+	ActionCloudWorkloadsGet     = "mcp.cloud.workloads.get"
+	ActionCloudStatus           = "mcp.cloud.status"
 )
 
 type Invoker interface {
@@ -170,6 +173,24 @@ var capabilityTools = []Tool{
 		Description: "Create a channel comment through Dirextalk transport.",
 		InputSchema: objectSchema(map[string]any{"post_id": stringSchema(), "msg": stringSchema()}),
 		Write:       true,
+	},
+	{
+		Action:      ActionCloudWorkloadsList,
+		Name:        "dirextalk_cloud_workloads_list",
+		Description: "List de-secretsed Cloud plans, deployments, or services. This tool is read-only and cannot create, approve, operate, or destroy Cloud resources.",
+		InputSchema: objectSchema(map[string]any{"kind": stringSchema(), "limit": numberSchema()}),
+	},
+	{
+		Action:      ActionCloudWorkloadsGet,
+		Name:        "dirextalk_cloud_workloads_get",
+		Description: "Get one de-secretsed Cloud plan, deployment, or service by kind and id. This tool is read-only and never returns goal prompts or secret references.",
+		InputSchema: objectSchema(map[string]any{"kind": stringSchema(), "id": stringSchema()}),
+	},
+	{
+		Action:      ActionCloudStatus,
+		Name:        "dirextalk_cloud_status",
+		Description: "Read aggregate Cloud workload status and de-secretsed alert metadata. This tool is read-only and never returns credentials, goals, pairing data, or service secrets.",
+		InputSchema: objectSchema(nil),
 	},
 }
 

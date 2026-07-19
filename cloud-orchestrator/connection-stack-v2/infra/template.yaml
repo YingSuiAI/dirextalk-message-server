@@ -1,0 +1,1243 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Dirextalk Connection Stack V2 Go Broker. Typed EC2 creation and Worker
+  bootstrap remain disabled unless the deployment gate and identity
+  verification key are explicitly configured.
+
+Parameters:
+  BrokerArtifactBucket:
+    Type: String
+    MinLength: 3
+    Description: Versioned S3 bucket containing the reviewed Go Lambda zip.
+  BrokerArtifactKey:
+    Type: String
+    MinLength: 1
+    Description: Immutable S3 object key for the reviewed Go Lambda zip.
+  BrokerArtifactVersion:
+    Type: String
+    MinLength: 1
+    Description: Exact immutable S3 object version for the reviewed Go Lambda zip.
+  ConnectionId:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+  ConnectionGeneration:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 9007199254740991
+  NodeKeyId:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  NodePublicKeySpkiBase64:
+    Type: String
+    NoEcho: true
+    MinLength: 56
+    MaxLength: 256
+    AllowedPattern: "^[A-Za-z0-9+/]+={0,2}$"
+  DeviceApprovalKeyId:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  DeviceApprovalPublicKeySpkiBase64:
+    Type: String
+    NoEcho: true
+    MinLength: 56
+    MaxLength: 256
+    AllowedPattern: "^[A-Za-z0-9+/]+={0,2}$"
+  StageName:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+  WorkerBaseAmiId:
+    Type: String
+    AllowedPattern: "^ami-[0-9a-f]{8,17}$"
+  WorkerResourceManifestDigest:
+    Type: String
+    AllowedPattern: "^sha256:[0-9a-f]{64}$"
+  WorkerVpcId:
+    Type: String
+    AllowedPattern: "^vpc-[0-9a-f]{8,17}$"
+  WorkerSubnetId:
+    Type: String
+    AllowedPattern: "^subnet-[0-9a-f]{8,17}$"
+  WorkerSecurityGroupId:
+    Type: String
+    AllowedPattern: "^sg-[0-9a-f]{8,17}$"
+  WorkerAvailabilityZone:
+    Type: String
+    AllowedPattern: "^(af|ap|ca|cn|eu|il|me|mx|sa|us)(-gov)?-[a-z]+-[0-9][a-z]$"
+  WorkerIdentityRsaPublicKeyPem:
+    Type: String
+    Default: ""
+    NoEcho: true
+    MaxLength: 2048
+    Description: >-
+      Pinned RSA public key used only to verify AWS EC2 instance identity
+      document signatures. Required when deployment creation is enabled.
+  EnableDeploymentCreate:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableDeploymentDestroy:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableServiceBackup:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableServiceRestorePlan:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableServiceRestore:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableServiceSecrets:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+  EnableDynamicArtifacts:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "false"
+      - "true"
+
+Rules:
+  DeploymentCreateRequiresWorkerIdentityKey:
+    RuleCondition: !Equals [!Ref EnableDeploymentCreate, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref WorkerIdentityRsaPublicKeyPem, ""]]
+        AssertDescription: >-
+          Worker bootstrap identity verification key must be configured when
+          deployment creation is enabled.
+
+Conditions:
+  DeploymentCreateEnabled: !Equals [!Ref EnableDeploymentCreate, "true"]
+  DeploymentDestroyEnabled: !Equals [!Ref EnableDeploymentDestroy, "true"]
+  ServiceBackupEnabled: !Equals [!Ref EnableServiceBackup, "true"]
+  ServiceRestorePlanEnabled: !Equals [!Ref EnableServiceRestorePlan, "true"]
+  ServiceRestoreEnabled: !Equals [!Ref EnableServiceRestore, "true"]
+  ServiceSecretsEnabled: !Equals [!Ref EnableServiceSecrets, "true"]
+  DynamicArtifactsEnabled: !Equals [!Ref EnableDynamicArtifacts, "true"]
+  ServiceSecretDestroyEnabled: !And [!Condition DeploymentDestroyEnabled, !Condition ServiceSecretsEnabled]
+
+Resources:
+  BrokerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-connection-broker"
+      RetentionInDays: 30
+
+  CommandReceiptsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: command_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: command_id
+          KeyType: RANGE
+
+  ConnectionCountersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+
+  IssuedQuotesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: quote_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: quote_id
+          KeyType: RANGE
+
+  DeploymentReservationsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: deployment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: deployment_id
+          KeyType: RANGE
+
+  DeploymentDestroyTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: deployment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: deployment_id
+          KeyType: RANGE
+
+  ServiceBackupsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: backup_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: backup_id
+          KeyType: RANGE
+
+  ServiceRestoresTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: restore_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: restore_id
+          KeyType: RANGE
+
+  ApprovalUsesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: use_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+        - AttributeName: use_id
+          KeyType: RANGE
+
+  WorkerSessionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl_epoch_seconds
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: bootstrap_session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bootstrap_session_id
+          KeyType: HASH
+
+  WorkerTasksTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: task_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+        - AttributeName: task_id
+          KeyType: RANGE
+
+  ServiceReadinessTasksTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: task_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+        - AttributeName: task_id
+          KeyType: RANGE
+
+  ServiceSecretSealingKey:
+    Type: AWS::KMS::Key
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub "${AWS::StackName} service-secret session sealing key"
+      Enabled: true
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAccountIAMPolicies
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: kms:*
+            Resource: "*"
+
+  ServiceSecretSealingKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AliasName: !Sub "alias/dirextalk/${AWS::StackName}/service-secret-sessions"
+      TargetKeyId: !Ref ServiceSecretSealingKey
+
+  ServiceSecretSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: ServiceSecretsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref ServiceSecretSealingKey
+      TimeToLiveSpecification:
+        AttributeName: ttl_epoch_seconds
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: materialization_key
+          AttributeType: S
+        - AttributeName: deployment_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: materialization-key-index
+          KeySchema:
+            - AttributeName: materialization_key
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+        - IndexName: deployment-key-index
+          KeySchema:
+            - AttributeName: deployment_key
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+
+  DynamicArtifactKey:
+    Type: AWS::KMS::Key
+    Condition: DynamicArtifactsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: {AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}
+            Action: "kms:*"
+            Resource: "*"
+
+  DynamicArtifactBucket:
+    Type: AWS::S3::Bucket
+    Condition: DynamicArtifactsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration: {Status: Enabled}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt DynamicArtifactKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  DynamicArtifactsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: DynamicArtifactsEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: deployment_id, AttributeType: S}
+        - {AttributeName: task_id, AttributeType: S}
+      KeySchema:
+        - {AttributeName: deployment_id, KeyType: HASH}
+        - {AttributeName: task_id, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !GetAtt DynamicArtifactKey.Arn}
+
+  BrokerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: broker-typed-operations-and-receipt-store
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnBrokerLogsOnly
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-connection-broker:*"
+              - Sid: PersistCommandFencesAndWorkerLeasesOnly
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt CommandReceiptsTable.Arn
+                  - !GetAtt ConnectionCountersTable.Arn
+                  - !GetAtt IssuedQuotesTable.Arn
+                  - !GetAtt DeploymentReservationsTable.Arn
+                  - !GetAtt DeploymentDestroyTable.Arn
+                  - !GetAtt ServiceBackupsTable.Arn
+                  - !GetAtt ServiceRestoresTable.Arn
+                  - !GetAtt ApprovalUsesTable.Arn
+                  - !If [DeploymentCreateEnabled, !GetAtt WorkerSessionsTable.Arn, !Ref "AWS::NoValue"]
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: AccessTypedWorkerTasksOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:Query
+                    - dynamodb:TransactWriteItems
+                  Resource:
+                    - !GetAtt WorkerTasksTable.Arn
+                    - !GetAtt ServiceReadinessTasksTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - DynamicArtifactsEnabled
+                - Sid: PersistVerifiedDynamicArtifactsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:TransactWriteItems
+                  Resource: !GetAtt DynamicArtifactsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - DynamicArtifactsEnabled
+                - Sid: VerifyAndPresignDynamicArtifactsOnly
+                  Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:GetObjectVersion
+                    - s3:PutObject
+                  Resource: !Sub "${DynamicArtifactBucket.Arn}/artifacts/*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DynamicArtifactsEnabled
+                - Sid: EncryptDynamicArtifactsOnly
+                  Effect: Allow
+                  Action: [kms:Decrypt, kms:GenerateDataKey]
+                  Resource: !GetAtt DynamicArtifactKey.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: AccessServiceSecretSessionsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:UpdateItem
+                  Resource: !GetAtt ServiceSecretSessionsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: QueryCompletedServiceSecretMaterializationOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:Query
+                  Resource: !Sub "${ServiceSecretSessionsTable.Arn}/index/materialization-key-index"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: SealServiceSecretSessionMaterialOnly
+                  Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:Encrypt
+                    - kms:GenerateDataKey
+                  Resource: !GetAtt ServiceSecretSealingKey.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretsEnabled
+                - Sid: WriteScopedServiceSecretVersionsOnly
+                  Effect: Allow
+                  Action:
+                    - secretsmanager:CreateSecret
+                    - secretsmanager:GetSecretValue
+                    - secretsmanager:PutSecretValue
+                  Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:dirextalk/${ConnectionId}/*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: DeleteTrackedDeploymentServiceSecretsOnly
+                  Effect: Allow
+                  Action:
+                    - secretsmanager:DeleteSecret
+                    - secretsmanager:DescribeSecret
+                  Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:dirextalk/${ConnectionId}/*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: DeleteCompletedServiceSecretBindingsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:DeleteItem
+                  Resource: !GetAtt ServiceSecretSessionsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceSecretDestroyEnabled
+                - Sid: QueryDeploymentServiceSecretBindingsOnly
+                  Effect: Allow
+                  Action:
+                    - dynamodb:Query
+                  Resource: !Sub "${ServiceSecretSessionsTable.Arn}/index/deployment-key-index"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentDestroyEnabled
+                - Sid: DestroyTrackedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:TerminateInstances
+                    - ec2:DeleteNetworkInterface
+                    - ec2:DeleteVolume
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestorePlanEnabled
+                - Sid: PlanInPlaceServiceRestoreReadOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeImages
+                    - ec2:DescribeInstances
+                    - ec2:DescribeSnapshots
+                    - ec2:DescribeVolumes
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: ObserveInPlaceServiceRestoreOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: CreateReplacementFromTrackedBackupSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateVolume
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/DirextalkConnectionId: !Ref ConnectionId
+                      ec2:ResourceTag/DirextalkRetention: manual
+                    "Null":
+                      ec2:ResourceTag/DirextalkBackupId: "false"
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: CreateTaggedReplacementVolumesOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateVolume
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/dirextalk:managed: "true"
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRetention: manual
+                    "Null":
+                      aws:RequestTag/dirextalk:deployment-id: "false"
+                      aws:RequestTag/DirextalkRestoreId: "false"
+                      aws:RequestTag/DirextalkServiceId: "false"
+                      aws:RequestTag/DirextalkDeploymentId: "false"
+                      aws:RequestTag/DirextalkBackupId: "false"
+                      aws:RequestTag/DirextalkOriginalVolumeId: "false"
+                      aws:RequestTag/DirextalkDeviceName: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - dirextalk:managed
+                        - dirextalk:connection-id
+                        - dirextalk:deployment-id
+                        - DirextalkConnectionId
+                        - DirextalkRestoreId
+                        - DirextalkServiceId
+                        - DirextalkDeploymentId
+                        - DirextalkBackupId
+                        - DirextalkOriginalVolumeId
+                        - DirextalkDeviceName
+                        - DirextalkRetention
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: TagReplacementVolumesAtCreationOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: CreateVolume
+                      aws:RequestTag/dirextalk:managed: "true"
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: SwapTrackedDeploymentVolumesOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:AttachVolume
+                    - ec2:DetachVolume
+                    - ec2:ModifyInstanceAttribute
+                    - ec2:StartInstances
+                    - ec2:StopInstances
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceRestoreEnabled
+                - Sid: MarkReplacementFallbackOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRestorePhase: fallback
+                    "Null":
+                      ec2:ResourceTag/DirextalkRestoreId: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - DirextalkRestorePhase
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: ImageTrackedWorkerInstanceOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateImage
+                  Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  Condition:
+                    StringEquals:
+                      ec2:ResourceTag/dirextalk:managed: "true"
+                      ec2:ResourceTag/dirextalk:connection-id: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: CreateTaggedServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateImage
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                      aws:RequestTag/DirextalkRetention: manual
+                    "Null":
+                      aws:RequestTag/DirextalkBackupId: "false"
+                      aws:RequestTag/DirextalkServiceId: "false"
+                      aws:RequestTag/DirextalkDeploymentId: "false"
+                    ForAllValues:StringEquals:
+                      aws:TagKeys:
+                        - DirextalkConnectionId
+                        - DirextalkBackupId
+                        - DirextalkServiceId
+                        - DirextalkDeploymentId
+                        - DirextalkRetention
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: TagServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:snapshot/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: CreateImage
+                      aws:RequestTag/DirextalkConnectionId: !Ref ConnectionId
+                - !Ref "AWS::NoValue"
+              - !If
+                - ServiceBackupEnabled
+                - Sid: ObserveServiceBackupImageAndSnapshotsOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeImages
+                    - ec2:DescribeSnapshots
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentDestroyEnabled
+                - Sid: ObserveDestroyedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                    - ec2:DescribeNetworkInterfaces
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+              - Sid: ReadInstanceOfferingsAndCapacityOnly
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstanceTypeOfferings
+                  - ec2:DescribeInstanceTypes
+                Resource: "*"
+              - Sid: ReadOnDemandPriceListOnly
+                Effect: Allow
+                Action:
+                  - pricing:GetProducts
+                Resource: "*"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: CreateFixedIsolatedWorkerOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:RunInstances
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}::image/${WorkerBaseAmiId}"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${WorkerSubnetId}"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${WorkerSecurityGroupId}"
+                  Condition:
+                    StringEquals:
+                      aws:RequestTag/dirextalk:managed: "true"
+                    StringLike:
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/dirextalk:deployment-id: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: TagAndObserveFixedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:CreateTags
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                  Condition:
+                    StringEquals:
+                      ec2:CreateAction: RunInstances
+                      aws:RequestTag/dirextalk:managed: "true"
+                    StringLike:
+                      aws:RequestTag/dirextalk:connection-id: !Ref ConnectionId
+                      aws:RequestTag/dirextalk:deployment-id: "*"
+                - !Ref "AWS::NoValue"
+              - !If
+                - DeploymentCreateEnabled
+                - Sid: ObserveCreatedWorkersOnly
+                  Effect: Allow
+                  Action:
+                    - ec2:DescribeInstances
+                    - ec2:DescribeVolumes
+                    - ec2:DescribeNetworkInterfaces
+                  Resource: "*"
+                - !Ref "AWS::NoValue"
+
+  BrokerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-connection-broker"
+      Description: Dirextalk Connection Stack V2 Go typed Broker
+      Runtime: provided.al2023
+      Handler: bootstrap
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrentExecutions: 5
+      Role: !GetAtt BrokerRole.Arn
+      Code:
+        S3Bucket: !Ref BrokerArtifactBucket
+        S3Key: !Ref BrokerArtifactKey
+        S3ObjectVersion: !Ref BrokerArtifactVersion
+      Environment:
+        Variables:
+          DIREXTALK_CONNECTION_ID: !Ref ConnectionId
+          DIREXTALK_CONNECTION_GENERATION: !Ref ConnectionGeneration
+          DIREXTALK_NODE_KEY_ID: !Ref NodeKeyId
+          DIREXTALK_NODE_PUBLIC_KEY_SPKI_B64: !Ref NodePublicKeySpkiBase64
+          DIREXTALK_DEVICE_APPROVAL_KEY_ID: !Ref DeviceApprovalKeyId
+          DIREXTALK_DEVICE_APPROVAL_PUBLIC_KEY_SPKI_B64: !Ref DeviceApprovalPublicKeySpkiBase64
+          DIREXTALK_STACK_ACCOUNT_ID: !Ref "AWS::AccountId"
+          DIREXTALK_STACK_REGION: !Ref "AWS::Region"
+          DIREXTALK_STACK_ARN: !Ref "AWS::StackId"
+          DIREXTALK_AWS_URL_SUFFIX: !Ref "AWS::URLSuffix"
+          DIREXTALK_BROKER_STAGE_NAME: !Ref StageName
+          DIREXTALK_WORKER_BASE_AMI_ID: !Ref WorkerBaseAmiId
+          DIREXTALK_WORKER_RESOURCE_MANIFEST_DIGEST: !Ref WorkerResourceManifestDigest
+          DIREXTALK_WORKER_VPC_ID: !Ref WorkerVpcId
+          DIREXTALK_WORKER_SUBNET_ID: !Ref WorkerSubnetId
+          DIREXTALK_WORKER_AVAILABILITY_ZONE: !Ref WorkerAvailabilityZone
+          DIREXTALK_WORKER_SECURITY_GROUP_ID: !Ref WorkerSecurityGroupId
+          DIREXTALK_COMMAND_RECEIPTS_TABLE: !Ref CommandReceiptsTable
+          DIREXTALK_CONNECTION_COUNTERS_TABLE: !Ref ConnectionCountersTable
+          DIREXTALK_ISSUED_QUOTES_TABLE: !Ref IssuedQuotesTable
+          DIREXTALK_DEPLOYMENT_RESERVATIONS_TABLE: !Ref DeploymentReservationsTable
+          DIREXTALK_DEPLOYMENT_DESTROY_TABLE: !Ref DeploymentDestroyTable
+          DIREXTALK_SERVICE_BACKUPS_TABLE: !Ref ServiceBackupsTable
+          DIREXTALK_SERVICE_RESTORES_TABLE: !Ref ServiceRestoresTable
+          DIREXTALK_APPROVAL_USES_TABLE: !Ref ApprovalUsesTable
+          DIREXTALK_WORKER_SESSIONS_TABLE: !Ref WorkerSessionsTable
+          DIREXTALK_WORKER_TASKS_TABLE: !Ref WorkerTasksTable
+          DIREXTALK_SERVICE_READINESS_TASKS_TABLE: !Ref ServiceReadinessTasksTable
+          DIREXTALK_WORKER_BOOTSTRAP_ENDPOINT: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/worker-sessions"
+          DIREXTALK_WORKER_IDENTITY_RSA_PUBLIC_KEY_PEM: !Ref WorkerIdentityRsaPublicKeyPem
+          DIREXTALK_DEPLOYMENT_CREATE_ENABLED: !Ref EnableDeploymentCreate
+          DIREXTALK_DEPLOYMENT_DESTROY_ENABLED: !Ref EnableDeploymentDestroy
+          DIREXTALK_SERVICE_BACKUP_ENABLED: !Ref EnableServiceBackup
+          DIREXTALK_SERVICE_RESTORE_PLAN_ENABLED: !Ref EnableServiceRestorePlan
+          DIREXTALK_SERVICE_RESTORE_ENABLED: !Ref EnableServiceRestore
+          DIREXTALK_SERVICE_SECRETS_ENABLED: !Ref EnableServiceSecrets
+          DIREXTALK_SERVICE_SECRET_SESSIONS_TABLE: !If [ServiceSecretsEnabled, !Ref ServiceSecretSessionsTable, ""]
+          DIREXTALK_SERVICE_SECRET_KMS_KEY_ID: !If [ServiceSecretsEnabled, !Ref ServiceSecretSealingKey, ""]
+          DIREXTALK_DYNAMIC_ARTIFACTS_ENABLED: !Ref EnableDynamicArtifacts
+          DIREXTALK_ARTIFACTS_TABLE: !If [DynamicArtifactsEnabled, !Ref DynamicArtifactsTable, ""]
+          DIREXTALK_ARTIFACT_BUCKET: !If [DynamicArtifactsEnabled, !Ref DynamicArtifactBucket, ""]
+          DIREXTALK_ARTIFACT_KMS_KEY_ID: !If [DynamicArtifactsEnabled, !GetAtt DynamicArtifactKey.Arn, ""]
+
+  BrokerAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-connection-broker"
+      ProtocolType: HTTP
+      Description: Signed-only Dirextalk Connection Stack V2 command endpoint.
+
+  BrokerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BrokerAPI
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BrokerFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  BrokerCommandsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/commands"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/service-secret-sessions"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretUploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "PUT /v2/service-secret-sessions/{session_id}/encrypted-upload"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceSecretCompleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/service-secret-sessions/{session_id}/complete"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerServiceSecretRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ServiceSecretsEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/service-secrets/materialize"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerTaskClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/tasks/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerSessionEventRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/events"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerWorkerTaskEventRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/tasks/{task_id}/events"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerRecipeTaskClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/recipe-tasks/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerRecipeTaskEventRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/recipe-tasks/{task_id}/events"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceReadinessClaimRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/service-readiness-tasks/claim"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerServiceReadinessEventRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: DeploymentCreateEnabled
+    Properties:
+      ApiId: !Ref BrokerAPI
+      RouteKey: "POST /v2/worker-sessions/{session_id}/service-readiness-tasks/{task_id}/events"
+      Target: !Join ["/", ["integrations", !Ref BrokerIntegration]]
+
+  BrokerStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref BrokerAPI
+      StageName: !Ref StageName
+      AutoDeploy: true
+
+  BrokerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/commands"
+
+  BrokerServiceSecretCreateInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/service-secret-sessions"
+
+  BrokerServiceSecretUploadInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/PUT/v2/service-secret-sessions/*/encrypted-upload"
+
+  BrokerServiceSecretCompleteInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/service-secret-sessions/*/complete"
+
+  BrokerWorkerServiceSecretInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ServiceSecretsEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/service-secrets/materialize"
+
+  BrokerWorkerClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/claim"
+
+  BrokerWorkerTaskClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/tasks/claim"
+
+  BrokerWorkerSessionEventInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/events"
+
+  BrokerWorkerTaskEventInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/tasks/*/events"
+
+  BrokerRecipeTaskClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/recipe-tasks/claim"
+
+  BrokerRecipeTaskEventInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/recipe-tasks/*/events"
+
+  BrokerServiceReadinessClaimInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/service-readiness-tasks/claim"
+
+  BrokerServiceReadinessEventInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploymentCreateEnabled
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BrokerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BrokerAPI}/${StageName}/POST/v2/worker-sessions/*/service-readiness-tasks/*/events"
+
+Outputs:
+  ConnectionId:
+    Value: !Ref ConnectionId
+  ConnectionGeneration:
+    Value: !Ref ConnectionGeneration
+  AccountId:
+    Value: !Ref "AWS::AccountId"
+  Region:
+    Value: !Ref "AWS::Region"
+  NodeKeyId:
+    Value: !Ref NodeKeyId
+  WorkerBaseAmiId:
+    Value: !Ref WorkerBaseAmiId
+  WorkerVpcId:
+    Value: !Ref WorkerVpcId
+  WorkerSubnetId:
+    Value: !Ref WorkerSubnetId
+  WorkerAvailabilityZone:
+    Value: !Ref WorkerAvailabilityZone
+  WorkerSecurityGroupId:
+    Value: !Ref WorkerSecurityGroupId
+  DeploymentCreateEnabled:
+    Value: !Ref EnableDeploymentCreate
+  ServiceSecretsEnabled:
+    Value: !Ref EnableServiceSecrets
+  WorkerResourceManifestDigest:
+    Value: !Ref WorkerResourceManifestDigest
+  BrokerCommandUrl:
+    Description: Exact endpoint submitted to Dirextalk for signed verification.
+    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/commands"
+  WorkerBootstrapEndpoint:
+    Description: Fixed base endpoint embedded in non-secret Worker bootstrap manifests.
+    Value: !Sub "https://${BrokerAPI}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}/v2/worker-sessions"
+  BrokerRuntime:
+    Value: provided.al2023

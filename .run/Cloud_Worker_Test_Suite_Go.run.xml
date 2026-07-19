@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Cloud Worker Test Suite Go" type="GoTestRunConfiguration" factoryName="Go Test">
+    <option name="nameIsGenerated" value="false" />
+    <module name="dirextalk-message-server" />
+    <working_directory value="$PROJECT_DIR$" />
+    <go_parameters value="-count=1" />
+    <kind value="DIRECTORY" />
+    <directory value="$PROJECT_DIR$/p2p/internal/cloudworker" />
+    <filePath value="" />
+    <package value="" />
+    <pattern value="" />
+    <framework value="gotest" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Cloud Worker Command Tests" run_configuration_type="GoTestRunConfiguration" />
+    </method>
+  </configuration>
+</component>

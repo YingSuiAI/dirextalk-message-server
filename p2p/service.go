@@ -18,6 +18,7 @@ import (
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
+	cloudmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/cloud"
 	contactsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/contacts"
 	conversationmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/conversation"
 	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
@@ -51,9 +52,91 @@ type Config struct {
 	RealtimeSessions                *realtime.SessionStore
 	PluginRunner                    PluginRunner
 	NativeAgentRunner               NativeAgentRunner
-	NativeAgentDataDir              string
-	ReleaseController               releasecontrol.Controller
-	CentralVersionSource            releasecontrol.CentralVersionSource
+	// NativeAgentChatRunner delegates only Chat/StreamChat to the independent
+	// Agent service. Dedicated typed clients below own their migrated actions;
+	// every remaining Agent action uses NativeAgentRunner/local runtime.
+	NativeAgentChatRunner NativeAgentRunner
+	// AgentRuntimeProfileClient delegates only the owner-selected immutable
+	// model profile to the independent Agent. It never exposes credential
+	// references or bytes to ProductCore.
+	AgentRuntimeProfileClient AgentRuntimeProfileClient
+	// AgentKnowledgeClient delegates all Knowledge actions to the independent
+	// Agent. It binds one trusted owner and never persists source or blob truth
+	// in ProductCore/Matrix.
+	AgentKnowledgeClient AgentKnowledgeClient
+	// AgentEventClient consumes only the durable TaskService WatchEvents stream.
+	// PostgreSQL owns its per-instance/caller cursor and ProductCore projection.
+	AgentEventClient AgentEventClient
+	// CloudDeploymentReader delegates only deployment list/get to the
+	// independent Agent. Mutations and all other Cloud actions remain local.
+	CloudDeploymentReader CloudDeploymentReader
+	// CloudServiceReader delegates only Agent-owned managed-service list/get.
+	// The Cloud module retains legacy non-UUID compatibility records locally.
+	CloudServiceReader CloudServiceReader
+	// CloudSecretBootstrapClient supports only an encrypted upload session. It
+	// deliberately has no secret completion or typed destination capability.
+	CloudSecretBootstrapClient CloudSecretBootstrapClient
+	// CloudIdentityPreviewClient verifies only the caller identity represented
+	// by one uploaded Agent bootstrap session. It cannot create a connection or
+	// consume the uploaded credential.
+	CloudIdentityPreviewClient CloudIdentityPreviewClient
+	// CloudAgentControlClient exposes typed Agent plan approval, AWS connection
+	// establishment, exact Agent-owned Deployment destruction, and optional
+	// Agent-owned lifecycle capabilities such as managed acceptance. It cannot
+	// administer approval devices, retrieve credentials, select arbitrary
+	// provider resources, or invoke arbitrary AWS APIs.
+	CloudAgentControlClient CloudAgentControlClient
+	NativeAgentDataDir      string
+	ReleaseController       releasecontrol.Controller
+	CentralVersionSource    releasecontrol.CentralVersionSource
+	// CloudConnectionStack is public configuration for the owner-only
+	// CloudFormation role-plan handoff. It contains a template identity and
+	// Node public key only; the Ed25519 private key remains mounted solely in
+	// the independent cloud-orchestrator process.
+	CloudConnectionStack CloudConnectionStackConfig
+	// CloudDeploymentCreateEnabled controls only the owner UI capability
+	// projection. The independent Cloud Orchestrator enforces its own
+	// fail-closed execution gate before any AWS mutation.
+	CloudDeploymentCreateEnabled bool
+	// CloudConnectionCredentialBootstrap configures the independent mTLS-only
+	// controller that creates one-time encrypted AWS credential upload sessions.
+	CloudConnectionCredentialBootstrap CloudConnectionCredentialBootstrapConfig
+}
+
+// CloudConnectionStackConfig is the public p2p configuration shape for the
+// owner-only Connection Stack role-plan. It contains public key material only;
+// the Cloud Orchestrator receives the matching private key from a mounted file.
+type CloudConnectionStackConfig struct {
+	// TemplateURL is a rejected legacy setting. The executable template is the
+	// closed ConnectionTemplate union below; keeping this field prevents an old
+	// environment configuration from silently becoming an arbitrary fetch.
+	TemplateURL             string
+	TemplateDigest          string
+	ConnectionTemplate      CloudConnectionTemplate
+	SourceTreeDigest        string
+	NodeKeyID               string
+	NodePublicKeySPKIBase64 string
+	RolePlanTTL             time.Duration
+}
+
+// CloudConnectionTemplate is the closed immutable template reference shared
+// by setup and the p2p Cloud module. It deliberately exposes no URL-only
+// compatibility constructor.
+type CloudConnectionTemplate = cloudmodule.ConnectionTemplateReference
+
+// ParseCloudConnectionTemplateJSON is the only public configuration parser
+// for a Connection Stack template. Keeping the parser here prevents setup
+// from importing p2p/internal/cloud or accepting a mutable URL fallback.
+func ParseCloudConnectionTemplateJSON(raw string) (CloudConnectionTemplate, error) {
+	return cloudmodule.ParseConnectionTemplateReference(raw)
+}
+
+type CloudConnectionCredentialBootstrapConfig struct {
+	Endpoint        string
+	CAFile          string
+	CertificateFile string
+	KeyFile         string
+	Timeout         time.Duration
 }
 
 const (
@@ -105,6 +188,7 @@ type Service struct {
 	mcpModule                 *mcpmodule.Module
 	mcpCapabilities           *dirextalkmcp.Service
 	releaseController         releasecontrol.Controller
+	agentEventClient          AgentEventClient
 	legacyAgentGatewayModule  *legacygatewaymodule.Module
 
 	servicePortalState
@@ -126,6 +210,7 @@ type Service struct {
 	releaseModule        *releasemodule.Module
 	reportsModule        *reportsmodule.Module
 	socialModule         *socialmodule.Module
+	cloudModule          *cloudmodule.Module
 
 	serviceOperationState
 }
@@ -161,6 +246,7 @@ type Store interface {
 	eventStore
 	pluginsmodule.Store
 	reportsmodule.Store
+	cloudmodule.Store
 }
 
 type socialStore = socialmodule.Store
@@ -552,6 +638,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		remoteAllowPrivate: cfg.RemoteNodeAllowPrivateBaseURLs,
 		storeMode:          storeMode(store),
 		releaseController:  cfg.ReleaseController,
+		agentEventClient:   cfg.AgentEventClient,
 		servicePortalState: servicePortalState{
 			initialized:             state.Initialized,
 			password:                state.Password,
@@ -763,6 +850,40 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		PublishEvent: service.appendP2PEvent,
 	})
 	service.socialModule = socialmodule.New(service.store, socialmodule.Config{})
+	var credentialBootstrapClient cloudmodule.ConnectionCredentialBootstrapClient
+	credentialConfig := cfg.CloudConnectionCredentialBootstrap
+	if strings.TrimSpace(credentialConfig.Endpoint) != "" || strings.TrimSpace(credentialConfig.CAFile) != "" || strings.TrimSpace(credentialConfig.CertificateFile) != "" || strings.TrimSpace(credentialConfig.KeyFile) != "" {
+		credentialBootstrapClient, _ = cloudmodule.NewConnectionCredentialBootstrapHTTPClient(cloudmodule.ConnectionCredentialBootstrapHTTPConfig{
+			Endpoint: credentialConfig.Endpoint, CAFile: credentialConfig.CAFile, CertificateFile: credentialConfig.CertificateFile,
+			KeyFile: credentialConfig.KeyFile, Timeout: credentialConfig.Timeout,
+		})
+	}
+	service.cloudModule = cloudmodule.New(service.store, cloudmodule.Config{
+		OwnerMXID: func() string {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			return service.ownerMXID
+		},
+		Now: time.Now,
+		NewID: func(kind string) string {
+			return "cloud_" + kind + "_" + randomToken(kind)
+		},
+		Publish: func(ctx context.Context, eventType, cloudEventID string, payload map[string]any) error {
+			return service.appendP2PEvent(ctx, p2pEvent{Type: eventType, DedupeKey: "cloud-event:" + cloudEventID, Payload: payload})
+		},
+		DeploymentReader:        cfg.CloudDeploymentReader,
+		ServiceReader:           cfg.CloudServiceReader,
+		DeploymentCreateEnabled: cfg.CloudDeploymentCreateEnabled,
+		ConnectionStack: cloudmodule.ConnectionStackConfig{
+			TemplateURL: cfg.CloudConnectionStack.TemplateURL, TemplateDigest: cfg.CloudConnectionStack.TemplateDigest, ConnectionTemplate: cfg.CloudConnectionStack.ConnectionTemplate, SourceTreeDigest: cfg.CloudConnectionStack.SourceTreeDigest,
+			NodeKeyID: cfg.CloudConnectionStack.NodeKeyID, NodePublicKeySPKIBase64: cfg.CloudConnectionStack.NodePublicKeySPKIBase64,
+			RolePlanTTL: cfg.CloudConnectionStack.RolePlanTTL,
+		},
+		CredentialBootstrapClient: credentialBootstrapClient,
+		SecretBootstrapClient:     cfg.CloudSecretBootstrapClient,
+		IdentityPreviewClient:     cfg.CloudIdentityPreviewClient,
+		AgentCloudControlClient:   cfg.CloudAgentControlClient,
+	})
 	service.mcpModule = mcpmodule.New(mcpmodule.Dependencies{
 		Conversations:  service.conversationModule,
 		Contacts:       service.contactsModule,
@@ -772,6 +893,7 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Members:        service.store,
 		Social:         service.socialModule,
 		Matrix:         service.transport,
+		Cloud:          service.store,
 	}, mcpmodule.Config{
 		Identity: func() mcpmodule.Identity {
 			service.mu.Lock()
@@ -803,11 +925,17 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 	})
 	service.mcpCapabilities = service.mcpModule.Service()
 	service.agentModule = agentmodule.New(agentmodule.Config{
-		Runner:  cfg.NativeAgentRunner,
-		DataDir: cfg.NativeAgentDataDir,
-		Store:   nativeAgentConfigStore{service: service},
-		MCP:     service.mcpCapabilities,
-		Account: serviceAgentAccountPort{service: service},
+		Runner:            cfg.NativeAgentRunner,
+		ChatRunner:        cfg.NativeAgentChatRunner,
+		RuntimeProfiles:   cfg.AgentRuntimeProfileClient,
+		Knowledge:         cfg.AgentKnowledgeClient,
+		DataDir:           cfg.NativeAgentDataDir,
+		Store:             nativeAgentConfigStore{service: service},
+		MCP:               service.mcpCapabilities,
+		Account:           serviceAgentAccountPort{service: service},
+		CloudPlanner:      serviceNativeCloudPlannerPort{service: service},
+		CloudStatusReader: serviceNativeCloudPlannerPort{service: service},
+		CloudRecipeReader: serviceNativeCloudPlannerPort{service: service},
 		CurrentUser: func() nativeagent.UserIdentity {
 			service.mu.Lock()
 			defer service.mu.Unlock()

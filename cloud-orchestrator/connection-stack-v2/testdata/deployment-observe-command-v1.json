@@ -1,0 +1,14 @@
+{
+  "schema": "dirextalk.aws.command/v2",
+  "connection_id": "connection-create-0001",
+  "command_id": "command-observe-0001",
+  "node_key_id": "node-key-1",
+  "issued_at": "2026-07-15T08:00:00.000Z",
+  "expires_at": "2026-07-15T08:04:00.000Z",
+  "expected_generation": 2,
+  "node_counter": 10,
+  "action": "deployment.observe",
+  "payload_b64": "eyJkZXBsb3ltZW50X2lkIjoiZGVwbG95bWVudC1jcmVhdGUtMDAwMSJ9",
+  "payload_sha256": "e9aef54c7fee353de6e1ea032a90056cd4dfa64f1c6859a17e054f7ff688cfee",
+  "signature_b64": "nvhDfrKnIoyqqH5IJDB0wG5MiWOlZCMeOSrsnHSdYn2M8WD35zinxAvVYL9ZTqm4t829qsox1J+5qxO0twW4BA=="
+}

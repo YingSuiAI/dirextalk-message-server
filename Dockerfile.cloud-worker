@@ -1,0 +1,34 @@
+FROM --platform=${BUILDPLATFORM} docker.io/golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
+
+WORKDIR /src
+ARG TARGETARCH
+ARG BUILD_TAG=cloud-worker-dev-0714
+
+RUN case "$BUILD_TAG" in ''|latest|v1.0.3) exit 64 ;; esac
+
+RUN --mount=target=. \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    GOOS=linux GOARCH="$TARGETARCH" CGO_ENABLED=0 \
+    go build -trimpath -ldflags="-s -w" -o /out/cloud-worker ./p2p/cmd/cloud-worker
+
+FROM docker.io/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+
+ARG BUILD_TAG=cloud-worker-dev-0714
+
+RUN case "$BUILD_TAG" in ''|latest|v1.0.3) exit 64 ;; esac && \
+    apk --no-cache add ca-certificates && \
+    addgroup -S -g 65531 cloudworker && \
+    adduser -S -D -H -u 65531 -G cloudworker cloudworker
+
+LABEL org.opencontainers.image.title="Dirextalk Cloud Worker" \
+      org.opencontainers.image.description="Outbound-only bootstrap process for one exclusive Dirextalk worker VM" \
+      org.opencontainers.image.source="https://github.com/YingSuiAI/dirextalk-message-server" \
+      org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial" \
+      org.opencontainers.image.version="${BUILD_TAG}"
+
+COPY --from=build /out/cloud-worker /usr/local/bin/cloud-worker
+
+USER 65531:65531
+WORKDIR /var/empty
+ENTRYPOINT ["/usr/local/bin/cloud-worker"]

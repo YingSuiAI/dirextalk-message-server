@@ -5,7 +5,23 @@ import (
 	"strings"
 )
 
-const RealtimeWSTicketAction = "realtime.ws_ticket.create"
+const (
+	RealtimeWSTicketAction                             = "realtime.ws_ticket.create"
+	CloudConnectionCredentialBootstrapCreateAction     = "cloud.connections.credential_bootstrap.create"
+	CloudConnectionIdentityPreviewAction               = "cloud.connections.identity.preview"
+	CloudConnectionRegistrationCompleteAction          = "cloud.connections.registration.complete"
+	CloudConnectionFoundationConfirmationPrepareAction = "cloud.connections.foundation.confirmation.prepare"
+	CloudConnectionFoundationApproveAction             = "cloud.connections.foundation.approve"
+	CloudConnectionFoundationOperationGetAction        = "cloud.connections.foundation.operations.get"
+	CloudPlanConfirmationPrepareAction                 = "cloud.plans.confirmation.prepare"
+	CloudPlanApproveAction                             = "cloud.plans.approve"
+	CloudDeploymentPairingPayloadRetrieveAction        = "cloud.deployments.pairing.payload.retrieve"
+	CloudDeploymentPairingResumeAction                 = "cloud.deployments.pairing.resume"
+	CloudDeploymentDestroyPlanAction                   = "cloud.deployments.destroy.plan"
+	CloudDeploymentDestroyApproveAction                = "cloud.deployments.destroy.approve"
+	AgentRuntimeProfileGetAction                       = "agent.runtime.profile.get"
+	AgentRuntimeProfileUpdateAction                    = "agent.runtime.profile.update"
+)
 
 type ActionAuth string
 
@@ -50,10 +66,60 @@ var actionSpecs = []ActionSpec{
 	{Name: "conversations.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "conversations.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 
+	{Name: "cloud.bootstrap", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.cutover.preflight", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.connections.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.connections.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.plans.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.plans.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.deployments.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.deployments.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.services.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.services.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.recipes.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.recipes.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.events.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "cloud.goals.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.connections.role_plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionCredentialBootstrapCreateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionIdentityPreviewAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionRegistrationCompleteAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionFoundationConfirmationPrepareAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionFoundationApproveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudConnectionFoundationOperationGetAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudPlanConfirmationPrepareAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudPlanApproveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.deployments.recipe_execution.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.deployments.recipe_execution.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.secrets.bootstrap.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentPairingPayloadRetrieveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentPairingResumeAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.jobs.cancel.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.jobs.cancel.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentDestroyPlanAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: CloudDeploymentDestroyApproveAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.operation.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.operation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.destroy.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.destroy.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.confirmation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.restore.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.management.plan", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.management.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.managed_preparation.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.managed_preparation.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.managed_preparation.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.root_helper_key.prepare", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.root_helper_key.approve", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "cloud.services.root_helper_key.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+
 	{Name: "agent.password", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.matrix_session.create", Auth: ActionAuthAgent, Transport: ActionTransportHTTPOnly},
 	{Name: "agent.config.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.config.update", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: AgentRuntimeProfileGetAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: AgentRuntimeProfileUpdateAction, Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "agent.config.propose_patch", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.chat", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.chat.stream", Auth: ActionAuthOwner, Transport: ActionTransportWSStreamOnly},

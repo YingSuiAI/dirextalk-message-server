@@ -2,9 +2,11 @@ package nativeagent
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -57,6 +59,52 @@ func TestRuntimeSubprocessEnvDoesNotInheritServiceSecrets(t *testing.T) {
 	env := runtimeEnv(filepath.Join(t.TempDir(), "agent"))
 	if envHasPrefix(env, "DIREXTALK_AGENT_TOKEN=") || envHasPrefix(env, "P2P_PORTAL_PASSWORD=") {
 		t.Fatalf("runtime env must not inherit service secrets, got %#v", env)
+	}
+}
+
+func TestRuntimeSubprocessEnvUsesAnIsolatedHomeAndExcludesAWSSettings(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "agent")
+	t.Setenv("HOME", "not-the-native-agent-home")
+	t.Setenv("USERPROFILE", "not-the-native-agent-profile")
+	t.Setenv("AWS_ACCESS_KEY_ID", "not-a-real-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "not-a-real-secret")
+	t.Setenv("AWS_SESSION_TOKEN", "not-a-real-session-token")
+
+	env := runtimeEnv(dataDir)
+	for _, prefix := range []string{"AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=", "AWS_SESSION_TOKEN="} {
+		if envHasPrefix(env, prefix) {
+			t.Fatalf("runtime env must not inherit AWS setting %q: %#v", prefix, env)
+		}
+	}
+	wantHome := filepath.Join(dataDir, "runtime", "home")
+	if got := envValue(env, "HOME"); got != "" && got != wantHome {
+		t.Fatalf("runtime HOME = %q, want isolated %q", got, wantHome)
+	}
+	if got := envValue(env, "USERPROFILE"); got != "" && got != wantHome {
+		t.Fatalf("runtime USERPROFILE = %q, want isolated %q", got, wantHome)
+	}
+	if envValue(env, "HOME") == os.Getenv("HOME") && os.Getenv("HOME") != "" {
+		t.Fatalf("runtime environment inherited host HOME: %#v", env)
+	}
+	if envValue(env, "USERPROFILE") == os.Getenv("USERPROFILE") && os.Getenv("USERPROFILE") != "" {
+		t.Fatalf("runtime environment inherited host USERPROFILE: %#v", env)
+	}
+}
+
+func TestRuntimeRefusesAWSCLIThroughDirectAndShellEntryPoints(t *testing.T) {
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	if _, err := runtime.runtimeRun(context.Background(), map[string]any{"command": "aws"}); err == nil || !strings.Contains(err.Error(), "AWS CLI execution is not available") {
+		t.Fatalf("runtime direct command must reject AWS CLI before execution, err=%v", err)
+	}
+	for _, command := range []string{
+		"aws ec2 describe-instances",
+		"sh -c 'aws ec2 describe-instances'",
+		"env AWS_PROFILE=ignored aws ec2 describe-instances",
+		"command aws ec2 describe-instances",
+	} {
+		if _, err := runtime.runShell(context.Background(), command, time.Second); err == nil || !strings.Contains(err.Error(), "AWS CLI execution is not available") {
+			t.Fatalf("runtime shell must reject wrapped AWS CLI command %q before execution, err=%v", command, err)
+		}
 	}
 }
 
@@ -121,4 +169,14 @@ func envHasPrefix(env []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, value := range env {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return ""
 }

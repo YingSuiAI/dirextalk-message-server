@@ -8,10 +8,15 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	appserviceAPI "github.com/YingSuiAI/dirextalk-message-server/appservice/api"
 	"github.com/YingSuiAI/dirextalk-message-server/clientapi"
@@ -35,6 +40,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/syncapi/agenthistory"
 	syncstorage "github.com/YingSuiAI/dirextalk-message-server/syncapi/storage"
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
+	"github.com/google/uuid"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/sirupsen/logrus"
@@ -54,9 +60,30 @@ type Monolith struct {
 	UserAPI       userapi.UserInternalAPI
 	RelayAPI      relayAPI.RelayInternalAPI
 
+	// AgentGRPCRunnerFactory is an optional construction override. Production
+	// uses p2p.NewAgentGRPCChatRunner when it is nil.
+	AgentGRPCRunnerFactory AgentGRPCRunnerFactory
+
 	// Optional
 	ExtPublicRoomsProvider   api.ExtraPublicRoomsProvider
 	ExtUserDirectoryProvider userapi.QuerySearchProfilesAPI
+}
+
+// AgentGRPCDialConfig contains no secret value. ServiceKeyFile is a protected
+// mounted-file reference consumed by the Agent gRPC client constructor.
+type AgentGRPCDialConfig = p2p.AgentGRPCConfig
+
+type AgentGRPCRunner = p2p.ClosableNativeAgentRunner
+
+type AgentGRPCRunnerFactory func(context.Context, AgentGRPCDialConfig) (AgentGRPCRunner, error)
+
+type p2pAgentGRPCBackendConfig struct {
+	Enabled         bool
+	Target          string
+	CAFile          string
+	ServerName      string
+	ServiceKeyFile  string
+	AgentInstanceID string
 }
 
 // AddAllPublicRoutes attaches all public paths to the given router
@@ -84,15 +111,96 @@ func (m *Monolith) AddAllPublicRoutes(
 	mediaapi.AddPublicRoutes(routers, cm, cfg, m.UserAPI, m.Client, m.FedClient, m.KeyRing)
 	syncapi.AddPublicRoutes(processCtx, routers, cfg, cm, natsInstance, m.UserAPI, m.RoomserverAPI, caches, enableMetrics)
 	remoteNodeInsecureSkipTLSVerify := p2pRemoteNodeInsecureSkipTLSVerifyFromEnv()
+	agentBackend, err := p2pAgentGRPCBackendConfigFromEnv()
+	if err != nil {
+		logrus.Fatal("P2P Agent gRPC configuration is invalid")
+	}
+	agentChatRunner, err := newP2PAgentChatRunner(
+		processCtx.Context(), string(cfg.Global.ServerName), agentBackend, m.AgentGRPCRunnerFactory,
+	)
+	if err != nil {
+		logrus.Fatal("P2P Agent gRPC backend is unavailable")
+	}
+	agentRuntimeProfileClient, err := p2pAgentRuntimeProfileClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC runtime profile backend is unavailable")
+	}
+	agentKnowledgeClient, err := p2pAgentKnowledgeClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC Knowledge backend is unavailable")
+	}
+	agentCloudDeploymentReader, err := p2pAgentCloudDeploymentReader(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC cloud query backend is unavailable")
+	}
+	agentCloudServiceReader, err := p2pAgentCloudServiceReader(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC managed-service query backend is unavailable")
+	}
+	agentSecretBootstrapClient, err := p2pAgentSecretBootstrapClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC secret bootstrap backend is unavailable")
+	}
+	agentIdentityPreviewClient, err := p2pAgentIdentityPreviewClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC identity preview backend is unavailable")
+	}
+	agentCloudControlClient, err := p2pAgentCloudControlClient(agentBackend, agentChatRunner)
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC cloud control backend is unavailable")
+	}
+	agentEventClient, err := p2pAgentEventClient(agentBackend, agentChatRunner, string(cfg.Global.ServerName))
+	if err != nil {
+		if agentChatRunner != nil {
+			_ = agentChatRunner.Close()
+		}
+		logrus.Fatal("P2P Agent gRPC event backend is unavailable")
+	}
+	if agentChatRunner != nil {
+		startAgentGRPCRunnerLifecycle(processCtx, agentChatRunner)
+	}
 	p2pConfig := p2p.Config{
-		ServerName:                      string(cfg.Global.ServerName),
-		Homeserver:                      cfg.Global.WellKnownClientName,
-		RemoteNodeInsecureSkipTLSVerify: remoteNodeInsecureSkipTLSVerify,
-		RemoteNodeAllowPrivateBaseURLs:  remoteNodeInsecureSkipTLSVerify,
-		P2PEventRetentionMaxRows:        p2pEventRetentionMaxRowsFromEnv(),
-		P2PEventRetentionPruneOnWrite:   p2pEventRetentionPruneOnWriteFromEnv(),
-		PushRules:                       m.UserAPI,
-		ReleaseController:               releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
+		ServerName:                         string(cfg.Global.ServerName),
+		Homeserver:                         cfg.Global.WellKnownClientName,
+		RemoteNodeInsecureSkipTLSVerify:    remoteNodeInsecureSkipTLSVerify,
+		RemoteNodeAllowPrivateBaseURLs:     remoteNodeInsecureSkipTLSVerify,
+		P2PEventRetentionMaxRows:           p2pEventRetentionMaxRowsFromEnv(),
+		P2PEventRetentionPruneOnWrite:      p2pEventRetentionPruneOnWriteFromEnv(),
+		NativeAgentChatRunner:              agentChatRunner,
+		AgentRuntimeProfileClient:          agentRuntimeProfileClient,
+		AgentKnowledgeClient:               agentKnowledgeClient,
+		AgentEventClient:                   agentEventClient,
+		CloudDeploymentReader:              agentCloudDeploymentReader,
+		CloudServiceReader:                 agentCloudServiceReader,
+		CloudSecretBootstrapClient:         agentSecretBootstrapClient,
+		CloudIdentityPreviewClient:         agentIdentityPreviewClient,
+		CloudAgentControlClient:            agentCloudControlClient,
+		PushRules:                          m.UserAPI,
+		ReleaseController:                  releasecontrol.NewUnixController(releasecontrol.UnixControllerConfig{}),
+		CloudConnectionStack:               p2pCloudConnectionStackConfigFromEnv(),
+		CloudDeploymentCreateEnabled:       p2pCloudDeploymentCreateEnabledFromEnv(),
+		CloudConnectionCredentialBootstrap: p2pCloudConnectionCredentialBootstrapConfigFromEnv(),
 	}
 	matrixHistoryBaseURL := matrixHistoryReaderBaseURL(p2pConfig.Homeserver)
 	matrixProfileResolver := p2p.NewHTTPMatrixProfileResolver(matrixHistoryBaseURL, nil)
@@ -105,6 +213,20 @@ func (m *Monolith) AddAllPublicRoutes(
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeprovisioner(accountDeprovisioner)
+	processCtx.ComponentStarted()
+	go func() {
+		defer processCtx.ComponentFinished()
+		if relayErr := p2pService.RunCloudProjectionRelay(processCtx.Context()); relayErr != nil && processCtx.Context().Err() == nil {
+			logrus.WithError(relayErr).Warn("P2P cloud projection relay unavailable")
+		}
+	}()
+	processCtx.ComponentStarted()
+	go func() {
+		defer processCtx.ComponentFinished()
+		if relayErr := p2pService.RunAgentEventRelay(processCtx.Context()); relayErr != nil && processCtx.Context().Err() == nil {
+			logrus.WithError(relayErr).Warn("P2P Agent event projection relay unavailable")
+		}
+	}()
 	matrixHistoryReader := p2p.NewHTTPMatrixHistoryReader(matrixHistoryBaseURL, p2pService.MatrixHistoryAccessToken, nil)
 	p2pService.SetMatrixMessageReader(matrixHistoryReader)
 	p2pService.SetMatrixProfileResolver(matrixProfileResolver)
@@ -131,6 +253,231 @@ func (m *Monolith) AddAllPublicRoutes(
 	if m.RelayAPI != nil {
 		relayapi.AddPublicRoutes(routers, cfg, m.KeyRing, m.RelayAPI)
 	}
+}
+
+func p2pAgentGRPCBackendConfigFromEnv() (p2pAgentGRPCBackendConfig, error) {
+	if _, present := os.LookupEnv("P2P_AGENT_GRPC_SERVICE_KEY"); present {
+		return p2pAgentGRPCBackendConfig{}, errors.New("inline Agent service key configuration is forbidden")
+	}
+	enabled, err := strictOptionalBool("P2P_AGENT_GRPC_ENABLED")
+	if err != nil {
+		return p2pAgentGRPCBackendConfig{}, err
+	}
+	config := p2pAgentGRPCBackendConfig{
+		Enabled:         enabled,
+		Target:          strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_TARGET")),
+		CAFile:          strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_CA_FILE")),
+		ServerName:      strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVER_NAME")),
+		ServiceKeyFile:  strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_SERVICE_KEY_FILE")),
+		AgentInstanceID: strings.TrimSpace(os.Getenv("P2P_AGENT_GRPC_INSTANCE_ID")),
+	}
+	if !config.Enabled {
+		return config, nil
+	}
+	if validateAgentGRPCTarget(config.Target) != nil || validateAgentGRPCServerName(config.ServerName) != nil || validateAgentInstanceID(config.AgentInstanceID) != nil ||
+		validateAgentMountedFile(config.CAFile, false) != nil || validateAgentMountedFile(config.ServiceKeyFile, true) != nil {
+		return p2pAgentGRPCBackendConfig{}, errors.New("enabled Agent gRPC backend is incomplete or invalid")
+	}
+	return config, nil
+}
+
+func validateAgentInstanceID(value string) error {
+	parsed, err := uuid.Parse(strings.TrimSpace(value))
+	if err != nil || parsed == uuid.Nil || parsed.String() != value {
+		return errors.New("invalid Agent instance ID")
+	}
+	return nil
+}
+
+func strictOptionalBool(name string) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return false, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, errors.New("invalid boolean Agent gRPC configuration")
+	}
+	return value, nil
+}
+
+func validateAgentGRPCTarget(value string) error {
+	target := strings.TrimSpace(value)
+	if strings.HasPrefix(target, "dns:///") {
+		target = strings.TrimPrefix(target, "dns:///")
+	}
+	if target == "" || strings.ContainsAny(target, "/?#@") {
+		return errors.New("invalid Agent gRPC target")
+	}
+	host, port, err := net.SplitHostPort(target)
+	if err != nil || strings.TrimSpace(host) == "" {
+		return errors.New("invalid Agent gRPC target")
+	}
+	parsedPort, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || parsedPort == 0 {
+		return errors.New("invalid Agent gRPC target")
+	}
+	return nil
+}
+
+func validateAgentGRPCServerName(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " /\\@?#:\x00\r\n\t") {
+		return errors.New("invalid Agent TLS server name")
+	}
+	return nil
+}
+
+func validateAgentMountedFile(path string, secret bool) error {
+	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
+		return errors.New("Agent mounted-file path is invalid")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		return errors.New("Agent mounted file is unavailable")
+	}
+	if secret && runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return errors.New("Agent service-key file permissions are too broad")
+	}
+	return nil
+}
+
+func newP2PAgentChatRunner(ctx context.Context, serverName string, config p2pAgentGRPCBackendConfig, factory AgentGRPCRunnerFactory) (AgentGRPCRunner, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	serverName = strings.TrimSpace(serverName)
+	if validateAgentGRPCServerName(serverName) != nil {
+		return nil, errors.New("Message Server owner identity is invalid")
+	}
+	// OwnerID is a stable project-scoped protocol identifier, not a Matrix
+	// user ID. This keeps Agent resource ownership independent of Matrix.
+	ownerID := "dirextalk-project:" + strings.ToLower(serverName)
+	if factory == nil {
+		factory = func(ctx context.Context, config AgentGRPCDialConfig) (AgentGRPCRunner, error) {
+			return p2p.NewAgentGRPCChatRunner(ctx, config)
+		}
+	}
+	runner, err := factory(ctx, AgentGRPCDialConfig{
+		Target: config.Target, CAFile: config.CAFile, ServerName: config.ServerName,
+		ServiceKeyFile: config.ServiceKeyFile, AgentInstanceID: config.AgentInstanceID, OwnerID: ownerID,
+	})
+	if err != nil {
+		if runner != nil {
+			_ = runner.Close()
+		}
+		return nil, errors.New("Agent gRPC client construction failed")
+	}
+	if runner == nil {
+		return nil, errors.New("Agent gRPC client construction returned no runner")
+	}
+	return runner, nil
+}
+
+func p2pAgentCloudDeploymentReader(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudDeploymentReader, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	reader, ok := runner.(p2p.CloudDeploymentReader)
+	if !ok || reader == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support cloud deployment queries")
+	}
+	return reader, nil
+}
+
+func p2pAgentRuntimeProfileClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.AgentRuntimeProfileClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.AgentRuntimeProfileClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support runtime profile configuration")
+	}
+	return client, nil
+}
+
+func p2pAgentKnowledgeClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.AgentKnowledgeClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.AgentKnowledgeClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support Knowledge")
+	}
+	return client, nil
+}
+
+func p2pAgentCloudServiceReader(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudServiceReader, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	reader, ok := runner.(p2p.CloudServiceReader)
+	if !ok || reader == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support managed-service queries")
+	}
+	return reader, nil
+}
+
+func p2pAgentSecretBootstrapClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudSecretBootstrapClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.CloudSecretBootstrapClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support encrypted secret bootstrap")
+	}
+	return client, nil
+}
+
+func p2pAgentIdentityPreviewClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudIdentityPreviewClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.CloudIdentityPreviewClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support AWS identity preview")
+	}
+	return client, nil
+}
+
+func p2pAgentCloudControlClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner) (p2p.CloudAgentControlClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.CloudAgentControlClient)
+	if !ok || client == nil {
+		return nil, errors.New("enabled Agent gRPC backend does not support typed cloud control")
+	}
+	return client, nil
+}
+
+func p2pAgentEventClient(config p2pAgentGRPCBackendConfig, runner AgentGRPCRunner, serverName string) (p2p.AgentEventClient, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	client, ok := runner.(p2p.AgentEventClient)
+	expectedCaller := "dirextalk-project:" + strings.ToLower(strings.TrimSpace(serverName))
+	source := p2p.AgentEventSource{}
+	if ok && client != nil {
+		source = client.AgentEventSource()
+	}
+	if !ok || client == nil || source.AgentInstanceID != config.AgentInstanceID || source.CallerID != expectedCaller {
+		return nil, errors.New("enabled Agent gRPC backend does not support durable events")
+	}
+	return client, nil
+}
+
+func startAgentGRPCRunnerLifecycle(processCtx *process.ProcessContext, runner AgentGRPCRunner) {
+	processCtx.ComponentStarted()
+	go func() {
+		defer processCtx.ComponentFinished()
+		<-processCtx.Context().Done()
+		if err := runner.Close(); err != nil {
+			// Close errors are intentionally not logged because transport errors
+			// are outside Message Server's secret-redaction boundary.
+			logrus.Warn("P2P Agent gRPC connection did not close cleanly")
+		}
+	}()
 }
 
 func p2pDatabaseOptions(cfg *config.Dendrite) *config.DatabaseOptions {
@@ -200,4 +547,75 @@ func p2pEventRetentionPruneOnWriteFromEnv() bool {
 		return false
 	}
 	return parsed
+}
+
+func p2pCloudDeploymentCreateEnabledFromEnv() bool {
+	value := strings.TrimSpace(os.Getenv("P2P_CLOUD_DEPLOYMENT_CREATE_ENABLED"))
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		logrus.WithField("value", value).Warn("Ignoring invalid P2P_CLOUD_DEPLOYMENT_CREATE_ENABLED value")
+		return false
+	}
+	return parsed
+}
+
+// p2pCloudConnectionStackConfigFromEnv reads only public Connection Stack
+// identity. The executable template is a closed immutable reference, never a
+// caller-configured URL. The corresponding Ed25519 private key is intentionally
+// not an environment value and is loaded solely by the independent
+// Orchestrator from a mounted file. Malformed, legacy, or incomplete values
+// fail closed later by the Cloud role-plan action.
+func p2pCloudConnectionStackConfigFromEnv() p2p.CloudConnectionStackConfig {
+	// Do not silently reinterpret an old mutable configuration. LookupEnv is
+	// deliberate: even a present-but-empty legacy setting requires an operator
+	// to remove it before the new immutable contract becomes usable.
+	if _, present := os.LookupEnv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_URL"); present {
+		return p2p.CloudConnectionStackConfig{}
+	}
+	if _, present := os.LookupEnv("P2P_CLOUD_CONNECTION_STACK_TEMPLATE_DIGEST"); present {
+		return p2p.CloudConnectionStackConfig{}
+	}
+	template, err := p2p.ParseCloudConnectionTemplateJSON(os.Getenv("P2P_CLOUD_CONNECTION_TEMPLATE_JSON"))
+	if err != nil {
+		return p2p.CloudConnectionStackConfig{}
+	}
+	ttl := 15 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_ROLE_PLAN_TTL_SECONDS")); raw != "" {
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || seconds <= 0 || seconds > int64((24*time.Hour).Seconds()) {
+			ttl = 0
+		} else {
+			ttl = time.Duration(seconds) * time.Second
+		}
+	}
+	return p2p.CloudConnectionStackConfig{
+		TemplateDigest:          template.ContentDigest(),
+		ConnectionTemplate:      template,
+		SourceTreeDigest:        strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_STACK_SOURCE_TREE_DIGEST")),
+		NodeKeyID:               strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_KEY_ID")),
+		NodePublicKeySPKIBase64: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_NODE_PUBLIC_KEY_SPKI_BASE64")),
+		RolePlanTTL:             ttl,
+	}
+}
+
+func p2pCloudConnectionCredentialBootstrapConfigFromEnv() p2p.CloudConnectionCredentialBootstrapConfig {
+	timeout := 10 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_TIMEOUT_SECONDS")); raw != "" {
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || seconds <= 0 || seconds > 30 {
+			timeout = -1
+		} else {
+			timeout = time.Duration(seconds) * time.Second
+		}
+	}
+	return p2p.CloudConnectionCredentialBootstrapConfig{
+		Endpoint:        strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_ENDPOINT")),
+		CAFile:          strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CA_FILE")),
+		CertificateFile: strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_CERT_FILE")),
+		KeyFile:         strings.TrimSpace(os.Getenv("P2P_CLOUD_CONNECTION_CREDENTIAL_BOOTSTRAP_KEY_FILE")),
+		Timeout:         timeout,
+	}
 }

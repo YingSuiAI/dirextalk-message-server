@@ -32,6 +32,13 @@ func TestAgentSystemPromptPrependsNativeProductRules(t *testing.T) {
 	}
 }
 
+func TestDeepSeekDefaultsToV4Pro(t *testing.T) {
+	profile := New(Config{}).resolveModelProfile(map[string]any{"provider": "deepseek"}, nil)
+	if profile.Model != "deepseek-v4-pro" {
+		t.Fatalf("default DeepSeek model = %q, want deepseek-v4-pro", profile.Model)
+	}
+}
+
 func TestAgentSystemPromptIncludesCurrentServerUserDynamically(t *testing.T) {
 	current := UserIdentity{UserID: "@owner:example.com", DisplayName: "Alice"}
 	runtime := New(Config{CurrentUser: func() UserIdentity { return current }})

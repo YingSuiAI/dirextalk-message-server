@@ -17,11 +17,14 @@ const (
 )
 
 type Config struct {
-	DataDir     string
-	Store       ConfigStore
-	Tools       []Tool
-	HTTPClient  *http.Client
-	CurrentUser func() UserIdentity
+	DataDir           string
+	Store             ConfigStore
+	Tools             []Tool
+	CloudPlanner      CloudPlanner
+	CloudStatusReader CloudStatusReader
+	CloudRecipeReader CloudRecipeReader
+	HTTPClient        *http.Client
+	CurrentUser       func() UserIdentity
 }
 
 // UserIdentity is the server-authoritative identity for the current Agent user.
@@ -35,17 +38,65 @@ type ConfigStore interface {
 	Save(ctx context.Context, config map[string]any) error
 }
 
+// CloudPlanner is the narrow Eino-Agent-to-control-plane boundary. It can
+// persist a research-only goal, but deliberately has no AWS credential,
+// pricing, approval, provision, network, or destroy method.
+type CloudPlanner interface {
+	CreateResearchGoal(context.Context, string, string, string) (map[string]any, error)
+}
+
+// CloudRecipePlanner is an optional, still research-only extension used when
+// the client has already bound one current private Recipe before the model
+// request starts. The model never receives recipe selection parameters.
+type CloudRecipePlanner interface {
+	CreateResearchGoalWithRecipe(context.Context, string, string, string, int64, string) (map[string]any, error)
+}
+
+// CloudStatusReader exposes only a de-secretsed Cloud projection to the
+// Eino Agent. It has no approval, secret, provider, or lifecycle mutation
+// method, so cloud dialogue can report progress without becoming a control
+// plane bypass.
+type CloudStatusReader interface {
+	ReadCloudStatus(context.Context) (map[string]any, error)
+}
+
+// CloudRecipeReader exposes only owner-scoped, de-secreted private Recipe
+// summaries. It cannot select a Recipe or mutate a Goal, Plan, or resource.
+type CloudRecipeReader interface {
+	ReadCloudRecipes(context.Context) ([]CloudRecipeRecommendation, error)
+}
+
+type CloudRecipeResourceSummary struct {
+	MinVCPU         uint16 `json:"min_vcpu"`
+	MinMemoryMiB    uint32 `json:"min_memory_mib"`
+	MinGPUMemoryMiB uint32 `json:"min_gpu_memory_mib"`
+	MinDiskGiB      uint32 `json:"min_disk_gib"`
+	Architecture    string `json:"architecture"`
+}
+
+type CloudRecipeRecommendation struct {
+	RecipeID  string                     `json:"recipe_id"`
+	Name      string                     `json:"name"`
+	Version   string                     `json:"version"`
+	Maturity  string                     `json:"maturity"`
+	Revision  int64                      `json:"revision"`
+	Resources CloudRecipeResourceSummary `json:"resources"`
+}
+
 type Event struct {
 	Event string
 	Data  map[string]any
 }
 
 type Runtime struct {
-	store       ConfigStore
-	dataDir     string
-	client      *http.Client
-	tools       []Tool
-	currentUser func() UserIdentity
+	store             ConfigStore
+	dataDir           string
+	client            *http.Client
+	tools             []Tool
+	cloudPlanner      CloudPlanner
+	cloudStatusReader CloudStatusReader
+	cloudRecipeReader CloudRecipeReader
+	currentUser       func() UserIdentity
 }
 
 func New(config Config) *Runtime {
@@ -61,11 +112,14 @@ func New(config Config) *Runtime {
 		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
 	}
 	return &Runtime{
-		store:       config.Store,
-		dataDir:     filepath.Clean(dataDir),
-		client:      client,
-		tools:       append([]Tool{}, config.Tools...),
-		currentUser: config.CurrentUser,
+		store:             config.Store,
+		dataDir:           filepath.Clean(dataDir),
+		client:            client,
+		tools:             append([]Tool{}, config.Tools...),
+		cloudPlanner:      config.CloudPlanner,
+		cloudStatusReader: config.CloudStatusReader,
+		cloudRecipeReader: config.CloudRecipeReader,
+		currentUser:       config.CurrentUser,
 	}
 }
 
@@ -140,6 +194,10 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if strings.TrimSpace(action) != "agent.chat.stream" {
 		return fmt.Errorf("native agent stream action %q is not implemented", action)
 	}
+	ctx, err := prepareCloudDialogueRequest(ctx, params)
+	if err != nil {
+		return err
+	}
 	config, _, err := r.agentConfig(ctx)
 	if err != nil {
 		return err
@@ -186,6 +244,9 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if reasoning != "" {
 		done["reasoning_content"] = reasoning
 	}
+	if workload := cloudWorkloadSummaryFromContext(ctx); workload != nil {
+		done["cloud_workload"] = workload
+	}
 	return emit(Event{Event: "done", Data: done})
 }
 
@@ -196,6 +257,7 @@ func (r *Runtime) ensureDataDirs() error {
 		filepath.Join(r.dataDir, "mcp"),
 		filepath.Join(r.dataDir, "runtime"),
 		filepath.Join(r.dataDir, "runtime", "bin"),
+		filepath.Join(r.dataDir, "runtime", "home"),
 	} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -210,15 +272,16 @@ func (r *Runtime) runtimeInspect(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{
-		"ok":            true,
-		"native":        true,
-		"framework":     "eino",
-		"configured":    exists,
-		"data_dir":      r.dataDir,
-		"skills":        configList(config, "skills"),
-		"mcp_servers":   configList(config, "mcp_servers"),
-		"runtime_tools": configList(config, "runtime_tools"),
-		"time":          time.Now().UTC().Format(time.RFC3339),
+		"ok":              true,
+		"native":          true,
+		"framework":       "eino",
+		"configured":      exists,
+		"data_dir":        r.dataDir,
+		"skills":          configList(config, "skills"),
+		"built_in_skills": r.builtInSkills(),
+		"mcp_servers":     configList(config, "mcp_servers"),
+		"runtime_tools":   configList(config, "runtime_tools"),
+		"time":            time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 

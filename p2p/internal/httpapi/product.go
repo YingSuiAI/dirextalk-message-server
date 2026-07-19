@@ -50,6 +50,10 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return
 		}
+		if sensitiveHTTPAction(action) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		if (port == nil || !port.HasAction(action)) && action != serviceapi.RealtimeWSTicketAction {
 			WriteError(w, actionbase.BadRequest("unknown action"))
 			return
@@ -87,6 +91,28 @@ func ProductHandler(port ProductPort) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, http.StatusOK, ResponseForRequest(r, response))
+	}
+}
+
+func sensitiveHTTPAction(action string) bool {
+	switch action {
+	case serviceapi.CloudConnectionCredentialBootstrapCreateAction,
+		serviceapi.CloudConnectionIdentityPreviewAction,
+		serviceapi.CloudConnectionRegistrationCompleteAction,
+		serviceapi.CloudConnectionFoundationConfirmationPrepareAction,
+		serviceapi.CloudConnectionFoundationApproveAction,
+		serviceapi.CloudConnectionFoundationOperationGetAction,
+		serviceapi.CloudPlanConfirmationPrepareAction,
+		serviceapi.CloudPlanApproveAction,
+		serviceapi.CloudDeploymentPairingPayloadRetrieveAction,
+		serviceapi.CloudDeploymentPairingResumeAction,
+		serviceapi.CloudDeploymentDestroyPlanAction,
+		serviceapi.CloudDeploymentDestroyApproveAction,
+		serviceapi.AgentRuntimeProfileGetAction,
+		serviceapi.AgentRuntimeProfileUpdateAction:
+		return true
+	default:
+		return false
 	}
 }
 

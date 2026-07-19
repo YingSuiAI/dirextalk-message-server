@@ -9,8 +9,8 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	first := ActionSpecs()
 	second := ActionSpecs()
 
-	if len(first) != 148 {
-		t.Fatalf("ActionSpecs() returned %d actions, want 148", len(first))
+	if len(first) != 197 {
+		t.Fatalf("ActionSpecs() returned %d actions, want 197", len(first))
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("ActionSpecs() did not preserve action order")
@@ -22,6 +22,91 @@ func TestActionSpecsReturnsStableOrderedCopy(t *testing.T) {
 	}
 	if got := ActionSpecs()[0].Name; got != "portal.bootstrap" {
 		t.Fatalf("mutating returned specs changed registry: first action = %q", got)
+	}
+}
+
+func TestAgentRuntimeProfileActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{AgentRuntimeProfileGetAction, AgentRuntimeProfileUpdateAction} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestKnowledgeActionsRemainOwnerOnly(t *testing.T) {
+	for _, action := range []string{
+		"agent.knowledge.config.get",
+		"agent.knowledge.config.update",
+		"agent.knowledge.sources.list",
+		"agent.knowledge.sources.delete",
+		"agent.knowledge.upload.start",
+		"agent.knowledge.upload.chunk",
+		"agent.knowledge.upload.finish",
+		"agent.knowledge.memory.create",
+		"agent.knowledge.search",
+		"agent.knowledge.status",
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPAndWS {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudPairingActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		CloudDeploymentPairingPayloadRetrieveAction,
+		CloudDeploymentPairingResumeAction,
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudCancellationAndDeploymentDestroyActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{"cloud.jobs.cancel.plan", "cloud.jobs.cancel.approve", "cloud.deployments.destroy.plan", "cloud.deployments.destroy.approve"} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("ActionSpecFor(%q)=%#v,%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudFoundationActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{CloudConnectionFoundationConfirmationPrepareAction, CloudConnectionFoundationApproveAction, CloudConnectionFoundationOperationGetAction} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudManagedPreparationActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		"cloud.services.managed_preparation.prepare",
+		"cloud.services.managed_preparation.approve",
+		"cloud.services.managed_preparation.get",
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
+	}
+}
+
+func TestCloudRootHelperKeyActionsAreOwnerHTTPOnly(t *testing.T) {
+	for _, action := range []string{
+		"cloud.services.root_helper_key.prepare",
+		"cloud.services.root_helper_key.approve",
+		"cloud.services.root_helper_key.get",
+	} {
+		spec, ok := ActionSpecFor(action)
+		if !ok || spec.Auth != ActionAuthOwner || spec.Transport != ActionTransportHTTPOnly {
+			t.Fatalf("%s spec=%#v found=%v", action, spec, ok)
+		}
 	}
 }
 

@@ -17,7 +17,17 @@ Core product rules:
 - Shell, runtime CLI, skill/MCP mutation tools, external MCP tools, message sends, and channel comment writes are high-risk capabilities because they can change the server, install code, call external services, or send user-visible content. When using them, tell the user the operation is high-risk and summarize the exact action and result; do not claim the tool is unavailable solely because it is risky.
 - Current Native Agent can inspect runtime/config, manage native skills, manage MCP servers, run runtime shell/CLI tools, call configured model providers, compress local conversation context, and use built-in Dirextalk tools for contacts, rooms, messages, members, channel posts/comments, summaries, and allowed writes.`
 
+const nativeAgentCloudDialogueSystemPrompt = `You are Dirextalk's restricted Cloud planning assistant.
+
+This conversation can only create a credential-free research goal with ` + nativeAgentCloudDeploymentPlanTool + `, read de-secretsed progress with ` + nativeAgentCloudStatusTool + `, and read owner-scoped private Recipe recommendations with ` + nativeAgentCloudRecipesTool + ` when those read ports are available. It cannot access a shell, runtime tools, MCP servers, installed skills, AWS credentials, secrets, approvals, cloud purchase controls, network ingress controls, service lifecycle controls, or destruction controls.
+
+Before asking the owner to repeat a result, use ` + nativeAgentCloudStatusTool + ` when that read-only tool is available. Use ` + nativeAgentCloudRecipesTool + ` only to compare de-secretsed reusable Recipes; never pass it a Recipe identifier or claim a recommendation is selected. Final Recipe selection is bound by the client and confirmed through the reviewed plan. Use ` + nativeAgentCloudDeploymentPlanTool + ` only after the owner has stated a concrete cloud workload goal and the client has selected an existing Cloud Connection. The control plane binds that Connection outside the tool call; submit only the workload goal and never a Connection or Recipe identifier. Capture constraints needed for an independent Cloud Orchestrator to research official sources and prepare a quote. Do not accept or repeat any secret value. Explain that a reviewed plan, price, and device-signed confirmation are required before any billable resource is created, and that destruction is a separate reviewed plan.`
+
 func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]any, error) {
+	ctx, err := prepareCloudDialogueRequest(ctx, params)
+	if err != nil {
+		return nil, err
+	}
 	config, _, err := r.agentConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -49,7 +59,7 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 	}
 	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
 	trace := buildAgentTrace(run, produced, toolCalls, text)
-	result := map[string]any{
+	response := map[string]any{
 		"ok":         true,
 		"native":     true,
 		"framework":  "eino",
@@ -60,14 +70,23 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 		"steps":      trace["steps"],
 		"trace":      trace,
 	}
-	if references := nativeAgentReferences(produced); len(references) > 0 {
-		result["references"] = references
+	if workload := cloudWorkloadSummaryFromContext(ctx); workload != nil {
+		response["cloud_workload"] = workload
 	}
-	return result, nil
+	if references := nativeAgentReferences(produced); len(references) > 0 {
+		response["references"] = references
+	}
+	return response, nil
 }
 
 func (r *Runtime) agentSystemPrompt(ctx context.Context, config map[string]any, params map[string]any, extra string) string {
+	if cloudDialogueMode(params) {
+		return nativeAgentCloudDialogueSystemPrompt
+	}
 	systemPrompt := nativeAgentDefaultSystemPrompt
+	if cloudSkill := r.cloudDeploymentSkillPrompt(); cloudSkill != "" {
+		systemPrompt = appendPromptBlock(systemPrompt, cloudSkill)
+	}
 	if currentUserPrompt := r.currentUserPrompt(); currentUserPrompt != "" {
 		systemPrompt = appendPromptBlock(systemPrompt, currentUserPrompt)
 	}

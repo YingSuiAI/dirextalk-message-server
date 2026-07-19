@@ -8,6 +8,10 @@ A release binds one canonical `vX.Y.Z`, one pushed `main` commit and its RFC3339
 - `internal/version_test.go` asserts that target.
 - `release/RELEASE_NOTES.md` contains the matching release section.
 - Dockerfile `ARG VERSION` defaults to `v1.0.0` for ordinary builds; formal release scripts always pass the target version explicitly.
+- `go.mod` resolves every dependency from a published module version. Local
+  filesystem replacements are forbidden because the production Docker context
+  contains only this repository; `scripts/release/contract_test.sh` enforces
+  this before release preparation.
 
 Do not create per-release manifest/index/config/checksum/attestation files. The middle-platform `appId=1`, `channelId=server` record selects the published target version and owns the minimum compatible client version.
 

@@ -133,6 +133,16 @@ func (m *Module) ResetSequence() {
 	m.mu.Unlock()
 }
 
+// NotifyPersisted wakes live ProductCore consumers after another transactional
+// store path has committed a p2p_events row. The external writer is responsible
+// for calling this only after a successful insert.
+func (m *Module) NotifyPersisted() {
+	if m == nil {
+		return
+	}
+	m.notify()
+}
+
 func (m *Module) notify() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
