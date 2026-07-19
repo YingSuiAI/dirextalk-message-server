@@ -26,10 +26,13 @@ the durable marker only when that topological position is newer. The optional
 request `origin_server_ts` is non-authoritative; the bootstrap record uses the
 resolved event timestamp. Equal, missing, invalid, or skewed timestamps
 therefore cannot pin or regress the boundary, while delayed and repeated
-requests remain successful no-ops. An event that cannot be resolved in the
-requested room is rejected. The same monotonic tuple-CAS rule applies to the
-in-memory store and PostgreSQL, and durable markers remain available through
-`sync.bootstrap` after a server restart.
+requests remain successful no-ops. Resolution is bound to the authenticated
+owner MXID and uses the existing Matrix history-visibility and local-hidden
+event access checks. An event that is absent, belongs to another room, or is
+not visible to that owner is rejected with the same non-leaking validation
+error. The same monotonic tuple-CAS rule applies to the in-memory store and
+PostgreSQL, and durable markers remain available through `sync.bootstrap`
+after a server restart.
 
 ## 2026-07-16 Native Agent Room And Post References
 

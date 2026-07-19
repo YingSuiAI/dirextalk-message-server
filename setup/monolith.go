@@ -111,7 +111,9 @@ func (m *Monolith) AddAllPublicRoutes(
 	if syncDB, err := syncstorage.NewSyncServerDatasource(processCtx.Context(), cm, &cfg.SyncAPI.Database); err != nil {
 		logrus.WithError(err).Warn("P2P native Agent sync DB reader unavailable; using Matrix HTTP history reader")
 	} else {
-		p2pService.SetReadMarkerPositionResolver(syncReadMarkerPositionResolver{db: syncDB})
+		p2pService.SetReadMarkerPositionResolver(agenthistory.NewReadMarkerPositionResolver(
+			syncDB, m.RoomserverAPI, p2pService.OwnerMXID(),
+		))
 		p2pService.SetMatrixMessageReader(p2p.NewCompositeMatrixHistoryReader(
 			agenthistory.NewReader(syncDB, m.RoomserverAPI, p2pService.OwnerMXID()),
 			matrixHistoryReader,
