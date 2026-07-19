@@ -247,6 +247,12 @@ type readMarkerStore interface {
 	ListReadMarkers(ctx context.Context) ([]readMarker, error)
 }
 
+type readMarkerPositionResolver interface {
+	ResolveReadMarkerPosition(ctx context.Context, roomID, eventID string) (
+		topologicalPosition, streamPosition, originServerTS int64, found bool, err error,
+	)
+}
+
 func (s *Service) readMarkerStore() readMarkerStore {
 	if s.store == nil {
 		return nil
@@ -260,14 +266,50 @@ func (s *Service) updateReadMarker(ctx context.Context, params map[string]any) (
 	if roomID == "" || eventID == "" {
 		return nil, badRequest("room_id and event_id are required")
 	}
+	s.mu.Lock()
+	resolver := s.readMarkerPositions
+	s.mu.Unlock()
+	if resolver == nil {
+		return nil, internalError(errors.New("read marker position resolver is not configured"))
+	}
+	topologicalPosition, streamPosition, originServerTS, found, err := resolver.ResolveReadMarkerPosition(ctx, roomID, eventID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !found || topologicalPosition < 0 || streamPosition <= 0 {
+		return nil, badRequest("event_id cannot be resolved in room_id")
+	}
 	marker := readMarker{
-		RoomID:         roomID,
-		EventID:        eventID,
-		OriginServerTS: int64Param(params["origin_server_ts"]),
+		RoomID:              roomID,
+		EventID:             eventID,
+		OriginServerTS:      originServerTS,
+		TopologicalPosition: topologicalPosition,
+		StreamPosition:      streamPosition,
 	}
 	store := s.readMarkerStore()
 	if store == nil {
 		return nil, internalError(errors.New("read marker store is not configured"))
+	}
+	current, exists, err := store.GetReadMarker(ctx, roomID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if exists && current.StreamPosition <= 0 {
+		currentTopology, currentStream, currentTS, currentFound, resolveErr := resolver.ResolveReadMarkerPosition(
+			ctx, current.RoomID, current.EventID,
+		)
+		if resolveErr != nil {
+			return nil, internalError(resolveErr)
+		}
+		if !currentFound || currentTopology < 0 || currentStream <= 0 {
+			return nil, internalError(errors.New("stored read marker cannot be resolved into authoritative room order"))
+		}
+		current.TopologicalPosition = currentTopology
+		current.StreamPosition = currentStream
+		current.OriginServerTS = currentTS
+		if err := store.SaveReadMarker(ctx, current); err != nil {
+			return nil, internalError(err)
+		}
 	}
 	if err := store.SaveReadMarker(ctx, marker); err != nil {
 		return nil, internalError(err)

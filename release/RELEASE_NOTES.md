@@ -15,8 +15,10 @@ Server schema version 2 and readable schema version 1 are unchanged.
 
 New-device recovery now includes a deterministic, metadata-only
 `sync.bootstrap.read_markers` snapshot. Durable read markers advance only for
-strictly newer timestamps, preventing delayed or repeated writes from
-regressing unread recovery boundaries across restarts.
+strictly newer server-resolved Matrix timeline positions; optional client
+timestamps are non-authoritative. Equal, missing, invalid, and skewed event
+timestamps, delayed requests, replay, and concurrent writes cannot regress
+unread recovery boundaries across restarts.
 
 ## v1.0.5
 

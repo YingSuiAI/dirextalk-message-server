@@ -176,6 +176,7 @@ type Service struct {
 	sessions                  MatrixSessionIssuer
 	matrixMessages            matrixMessageReader
 	matrixProfiles            matrixProfileResolver
+	readMarkerPositions       readMarkerPositionResolver
 	remoteHTTPClient          *http.Client
 	remoteAllowPrivate        bool
 	accountDeactivator        AccountDeactivator
@@ -546,6 +547,12 @@ func (s *Service) SetMatrixMessageReader(reader matrixMessageReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.matrixMessages = reader
+}
+
+func (s *Service) SetReadMarkerPositionResolver(resolver readMarkerPositionResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.readMarkerPositions = resolver
 }
 
 func (s *Service) SetMatrixProfileResolver(resolver matrixProfileResolver) {

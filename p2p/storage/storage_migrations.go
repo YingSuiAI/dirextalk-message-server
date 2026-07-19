@@ -1945,6 +1945,19 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: authoritative read marker order v73",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_read_markers")
+			if err != nil || !exists {
+				return err
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_read_markers ADD COLUMN IF NOT EXISTS topological_position BIGINT NOT NULL DEFAULT 0`,
+				`ALTER TABLE p2p_read_markers ADD COLUMN IF NOT EXISTS stream_position BIGINT NOT NULL DEFAULT 0`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 

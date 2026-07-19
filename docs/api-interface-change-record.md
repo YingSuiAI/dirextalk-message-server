@@ -18,7 +18,16 @@
 
 These records are recovery boundaries only. They do not contain message content, media metadata, senders, or timeline events. Clients continue to obtain unread counts, receipts, messages, media, and paginated history from Matrix Client-Server APIs.
 
-`sync.read_marker` and `channels.read_marker` now advance each room's durable marker only when the submitted `origin_server_ts` is strictly greater than the stored timestamp. Delayed or repeated writes with an older or equal timestamp return the existing successful action result without replacing the current marker. The same monotonic rule applies to the in-memory test store and PostgreSQL, and durable markers remain available through `sync.bootstrap` after a server restart.
+`sync.read_marker` and `channels.read_marker` now resolve `event_id` to the
+server-owned Matrix timeline position for the supplied `room_id` and advance
+the durable marker only when that topological position is newer. The optional
+request `origin_server_ts` is non-authoritative; the bootstrap record uses the
+resolved event timestamp. Equal, missing, invalid, or skewed timestamps
+therefore cannot pin or regress the boundary, while delayed and repeated
+requests remain successful no-ops. An event that cannot be resolved in the
+requested room is rejected. The same monotonic tuple-CAS rule applies to the
+in-memory store and PostgreSQL, and durable markers remain available through
+`sync.bootstrap` after a server restart.
 ## 2026-07-19: signed private Worker-control endpoint scope
 
 The existing Agent Cloud v2 plan/quote/approval service-operation scope now

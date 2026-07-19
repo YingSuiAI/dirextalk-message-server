@@ -108,13 +108,18 @@ func (s *DatabaseStore) SaveClientBuild(ctx context.Context, expectedDeviceID st
 func (s *DatabaseStore) SaveReadMarker(ctx context.Context, marker readMarker) error {
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO p2p_read_markers (room_id, event_id, origin_server_ts)
-			VALUES ($1, $2, $3)
+			INSERT INTO p2p_read_markers (
+				room_id, event_id, origin_server_ts, topological_position, stream_position
+			)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT(room_id) DO UPDATE SET
 				event_id = EXCLUDED.event_id,
-				origin_server_ts = EXCLUDED.origin_server_ts
-			WHERE p2p_read_markers.origin_server_ts < EXCLUDED.origin_server_ts
-		`, marker.RoomID, marker.EventID, marker.OriginServerTS)
+				origin_server_ts = EXCLUDED.origin_server_ts,
+				topological_position = EXCLUDED.topological_position,
+				stream_position = EXCLUDED.stream_position
+			WHERE (p2p_read_markers.topological_position, p2p_read_markers.stream_position) <
+				(EXCLUDED.topological_position, EXCLUDED.stream_position)
+		`, marker.RoomID, marker.EventID, marker.OriginServerTS, marker.TopologicalPosition, marker.StreamPosition)
 		return err
 	})
 }
@@ -122,10 +127,13 @@ func (s *DatabaseStore) SaveReadMarker(ctx context.Context, marker readMarker) e
 func (s *DatabaseStore) GetReadMarker(ctx context.Context, roomID string) (readMarker, bool, error) {
 	var marker readMarker
 	err := s.db.QueryRowContext(ctx, `
-		SELECT room_id, event_id, origin_server_ts
+		SELECT room_id, event_id, origin_server_ts, topological_position, stream_position
 		FROM p2p_read_markers
 		WHERE room_id = $1
-	`, roomID).Scan(&marker.RoomID, &marker.EventID, &marker.OriginServerTS)
+	`, roomID).Scan(
+		&marker.RoomID, &marker.EventID, &marker.OriginServerTS,
+		&marker.TopologicalPosition, &marker.StreamPosition,
+	)
 	if err == sql.ErrNoRows {
 		return readMarker{}, false, nil
 	}
@@ -137,7 +145,7 @@ func (s *DatabaseStore) GetReadMarker(ctx context.Context, roomID string) (readM
 
 func (s *DatabaseStore) ListReadMarkers(ctx context.Context) ([]readMarker, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT room_id, event_id, origin_server_ts
+		SELECT room_id, event_id, origin_server_ts, topological_position, stream_position
 		FROM p2p_read_markers
 		ORDER BY room_id
 	`)
@@ -149,7 +157,10 @@ func (s *DatabaseStore) ListReadMarkers(ctx context.Context) ([]readMarker, erro
 	markers := make([]readMarker, 0)
 	for rows.Next() {
 		var marker readMarker
-		if err := rows.Scan(&marker.RoomID, &marker.EventID, &marker.OriginServerTS); err != nil {
+		if err := rows.Scan(
+			&marker.RoomID, &marker.EventID, &marker.OriginServerTS,
+			&marker.TopologicalPosition, &marker.StreamPosition,
+		); err != nil {
 			return nil, err
 		}
 		markers = append(markers, marker)

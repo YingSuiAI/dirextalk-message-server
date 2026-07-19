@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
@@ -20,14 +21,28 @@ func TestDatabaseStoreReadMarkersAdvanceMonotonicallyAndSurviveReopen(t *testing
 		t.Fatal(err)
 	}
 	defer store.Close()
-	for _, marker := range []readMarker{
-		{RoomID: "!z:example.com", EventID: "$z-current", OriginServerTS: 200},
-		{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100},
-		{RoomID: "!a:example.com", EventID: "$a-stale", OriginServerTS: 99},
-		{RoomID: "!a:example.com", EventID: "$a-equal", OriginServerTS: 100},
-	} {
-		if err := store.SaveReadMarker(ctx, marker); err != nil {
-			t.Fatalf("SaveReadMarker(%#v): %v", marker, err)
+	markersToSave := []readMarker{
+		{RoomID: "!z:example.com", EventID: "$z-current", OriginServerTS: 200, TopologicalPosition: 2, StreamPosition: 20},
+		{RoomID: "!a:example.com", EventID: "$a-current", OriginServerTS: 100, TopologicalPosition: 5, StreamPosition: 10},
+		{RoomID: "!a:example.com", EventID: "$a-stale", OriginServerTS: 999, TopologicalPosition: 4, StreamPosition: 99},
+		{RoomID: "!a:example.com", EventID: "$a-equal", OriginServerTS: 100, TopologicalPosition: 5, StreamPosition: 11},
+		{RoomID: "!a:example.com", EventID: "$a-replay", OriginServerTS: 9999, TopologicalPosition: 5, StreamPosition: 10},
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, len(markersToSave))
+	for _, marker := range markersToSave {
+		marker := marker
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- store.SaveReadMarker(ctx, marker)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent SaveReadMarker: %v", err)
 		}
 	}
 	if err := store.Close(); err != nil {
@@ -44,8 +59,9 @@ func TestDatabaseStoreReadMarkersAdvanceMonotonicallyAndSurviveReopen(t *testing
 	if err != nil || !found {
 		t.Fatalf("GetReadMarker after reopen = (%#v, %v, %v), want current marker", marker, found, err)
 	}
-	if marker.EventID != "$a-current" || marker.OriginServerTS != 100 {
-		t.Fatalf("stale or equal timestamp replaced durable marker: %#v", marker)
+	if marker.EventID != "$a-equal" || marker.OriginServerTS != 100 ||
+		marker.TopologicalPosition != 5 || marker.StreamPosition != 11 {
+		t.Fatalf("authoritatively older marker replaced durable marker: %#v", marker)
 	}
 	if _, found, err := reloaded.GetReadMarker(ctx, "!missing:example.com"); err != nil || found {
 		t.Fatalf("missing GetReadMarker = (_, %v, %v), want (_, false, nil)", found, err)

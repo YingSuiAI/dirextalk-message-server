@@ -127,9 +127,11 @@ type MemberRecord struct {
 }
 
 type ReadMarker struct {
-	RoomID         string `json:"room_id"`
-	EventID        string `json:"event_id"`
-	OriginServerTS int64  `json:"origin_server_ts"`
+	RoomID              string `json:"room_id"`
+	EventID             string `json:"event_id"`
+	OriginServerTS      int64  `json:"origin_server_ts"`
+	TopologicalPosition int64  `json:"-"`
+	StreamPosition      int64  `json:"-"`
 }
 
 type ChannelInviteGrant struct {
