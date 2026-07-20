@@ -4,6 +4,8 @@ Dirextalk Message Server is the Dirextalk backend that combines a Matrix-compati
 
 It is based on Element Dendrite, but this repository is maintained as a Dirextalk product server rather than a general-purpose Matrix homeserver distribution.
 
+![Dirextalk Message Server overview](docs/images/dirextalk-message-server-overview.png)
+
 [中文说明](README_zh.md)
 
 ## Runtime
