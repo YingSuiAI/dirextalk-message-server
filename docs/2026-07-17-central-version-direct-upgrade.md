@@ -14,7 +14,7 @@
 - [ ] Flutter：删除公开 rollback 调用；兼容历史自动恢复终态与 restart。
 - [x] Message server：新增 owner-only、HTTP-only `release.v2.status`。
 - [x] Message server：新增 owner-only、HTTP-only `release.v2.apply`，仅接受目标版本和幂等参数，并复核中台 `server` 记录。
-- [ ] Updater：新增基于固定镜像仓库和 `target_version` 的直接单跳任务；拉取后固定实际 digest。
+- [ ] Updater：新增基于固定镜像仓库和 `target_version` 的直接任务；只安装中台授信的规范版本 tag。
 - [ ] Updater：移除 GitHub discovery 活跃路径、公开 rollback 路由和 rollback operation，保留自动恢复与 restart。
 - [x] Deployer：停止为新节点安装 discovery timer，并为已有节点提供幂等清理迁移（`57fc7a9`；bundle、安装和 S3 migration tests 已通过）。
 
@@ -29,5 +29,5 @@
 
 - 中台保持现有两个 GET；`url` 是字符串，且 iOS 当前 URL 为空。iOS 更新按钮在 URL 有效前不可执行。
 - `preVersion` 在移动端表示最低服务端版本，在 `server` 记录表示最低客户端版本。
-- 版本直传模式信任中台与镜像 tag；任务内仍固定拉取后解析出的 digest、禁止降级，并在失败时自动恢复。
-- 该模式仅支持单跳更新；发布方必须确保受支持的历史服务端可直接迁移到目标镜像。
+- 版本直传模式只信任中台 `appId=1`、`channelId=server` 的目标版本与固定官方镜像仓库；不读取 GitHub release 资源、不校验镜像 digest，也不维护前置版本链。
+- 任意较旧的规范服务端版本都可直接安装中台授信目标；升级前仍备份，失败时仍自动恢复。

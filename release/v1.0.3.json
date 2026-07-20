@@ -1,23 +1,7 @@
 {
   "version": "v1.0.3",
-  "previous_version": "v1.0.2",
-  "upgrade_from": [
-    "=1.0.2"
-  ],
-  "source_test_modes": {
-    "sha256:fc9897338c688e203152660b91bdedbbc74b02ce5df66f9878e5ba2632e2d42e": "registry"
-  },
   "minimum_client_version": "v1.0.0",
   "maximum_client_version_exclusive": "v2.0.0",
   "schema_version": 2,
-  "schema_compat_version": 1,
-  "upgrade_edges": [
-    {
-      "from_version": "v1.0.2",
-      "from_image_digests": [
-        "sha256:fc9897338c688e203152660b91bdedbbc74b02ce5df66f9878e5ba2632e2d42e"
-      ],
-      "to_version": "v1.0.3"
-    }
-  ]
+  "schema_compat_version": 1
 }

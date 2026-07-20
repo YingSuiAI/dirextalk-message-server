@@ -14,30 +14,29 @@ Release tags:
 
 ```bash
 dirextalk/message-server:latest
-dirextalk/message-server:<git-sha>
+dirextalk/message-server:vX.Y.Z
 ```
 
-After pushing, inspect the immutable digest with:
+Production releases use the repository-owned release workflow. From a clean,
+pushed `main` whose source version, release config, and release notes all name
+the same target, run:
 
 ```bash
-docker buildx imagetools inspect dirextalk/message-server:<git-sha>
+bash scripts/release/prepare.sh vX.Y.Z
+bash scripts/release/verify.sh vX.Y.Z
+bash scripts/release/publish.sh vX.Y.Z
 ```
 
-## Build And Push
+The scripts run tests and image probes, publish the version tag and formal
+GitHub Release, and only then update `latest`. They do not publish updater
+metadata assets or constrain which older server version may install the
+centrally authorized target.
 
-Run these commands from the backend repository root:
-
-```bash
-docker build -t dirextalk/message-server:latest -t dirextalk/message-server:<git-sha> .
-docker push dirextalk/message-server:latest
-docker push dirextalk/message-server:<git-sha>
-```
-
-The compose files in this repository also tag the backend service as `dirextalk/message-server:latest`, so this is equivalent for a local rebuild:
+For a local-only rebuild, the compose files still tag the backend service as
+`dirextalk/message-server:latest`:
 
 ```bash
 docker compose -f docker-compose.p2p.yml build message-server
-docker push dirextalk/message-server:latest
 ```
 
 Before pushing a new `latest`, run the multi-node regression against the rebuilt image.

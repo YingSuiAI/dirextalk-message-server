@@ -2,6 +2,11 @@
 
 Date: 2026-07-10
 
+Current-policy note (2026-07-20): the source research is retained, but the
+adopted Dirextalk policy now uses the central server version record as the sole
+target authority. The repository no longer publishes predecessor edges,
+release metadata assets, attestations, or image-identity gates.
+
 ## Scope
 
 Official Element sources were reviewed for server release versioning, database migrations, operator-driven upgrades, rollback constraints, and client involvement.
@@ -10,11 +15,11 @@ Official Element sources were reviewed for server release versioning, database m
 
 ### Dendrite
 
-- Runtime version output is centralized through one version implementation used by command-line and Federation responses. Dirextalk should similarly expose one build-info source, while additionally enforcing that source version, Git tag, image tag, and digest agree in CI.
+- Runtime version output is centralized through one version implementation used by command-line and Federation responses. Dirextalk similarly exposes one build-info source and enforces that source version, Git tag, image tag, and image labels agree in CI.
 - GitHub Releases are the release boundary. The Docker workflow runs when a release is published and publishes both an exact release tag and `latest`.
 - Dendrite documents forward database schema upgrades between releases. Applied migrations are recorded in `db_migrations` together with the Dendrite version.
 - The migration type contains a `Down` callback, but the source explicitly says downgrade migrations are not implemented. Dendrite therefore is not a precedent for arbitrary automatic server downgrade.
-- Dendrite has useful cross-version CI: releases reuse the same PostgreSQL volume and verify that earlier accounts, rooms, and messages remain usable. Dirextalk should run this for every declared `upgrade_from` edge.
+- Dendrite has useful cross-version CI: releases reuse the same PostgreSQL volume and verify that earlier accounts, rooms, and messages remain usable. Dirextalk keeps retained-data migration coverage without tying publication to a predecessor allowlist.
 - Its backup FAQ treats configuration/signing keys, database, JetStream, media, and search state as persistent state. A safe Dirextalk rollback backup must capture the complete required set, not only PostgreSQL.
 - Release notifications are delivered through the `#dendrite-alerts:matrix.org` room. There is no official Element client flow that upgrades the homeserver.
 - Dendrite is currently in maintenance mode and still describes itself as beta, so its deployment examples should not be copied as a production stability policy without hardening.
@@ -39,11 +44,11 @@ Official Element sources were reviewed for server release versioning, database m
 
 ## Dirextalk recommendations
 
-1. Use immutable GitHub Releases (`v1.0.0`, `v1.0.1`, ...) and exact image digests. A moving `latest` tag may be published for convenience but must not be consumed by production deployments.
-2. Put upgrade edges in a signed release manifest. Each edge declares source range, target, required client range, schema version, minimum compatible schema version, backup requirement, and whether rollback to the immediate previous version is supported.
-3. Add `schema_version` and `schema_compat_version` checks before starting a server binary. Treat rollback as a separately approved transition, not as reverse SemVer comparison.
+1. Use formal GitHub Releases (`v1.0.0`, `v1.0.1`, ...) and matching canonical image tags; publish `latest` only after the version image and Release succeed.
+2. Use the fixed central `appId=1`, `channelId=server` record as the only target authorization. Any older canonical server may install that target without a predecessor graph.
+3. Add `schema_version` and `schema_compat_version` checks before starting a server binary. Treat rollback as a separately approved recovery transition, not as reverse SemVer comparison.
 4. Keep server upgrade execution in a privileged host updater. The message-server exposes a stable versioned control API and never receives the Docker socket.
-5. The client may display status and let an owner request an approved transition, but the host updater remains the authority that validates the manifest, signature, digest, disk space, backup, migration edge, and health checks.
+5. The client may display status and let an owner request the centrally approved transition, while the host updater remains responsible for disk space, backup, Compose execution, and health checks.
 6. Keep exactly one committed rollback backup. Build a new backup under a temporary name, validate checksum/manifest and database readability, then atomically replace the committed backup. Never delete the old committed backup before the new one is valid.
 7. Rollback is only to the version recorded in the committed backup manifest. Do not provide arbitrary version selection. After a successful rollback, retain that same committed backup unless a later successful upgrade atomically replaces it.
 8. Use daily release discovery plus a once-per-version client notification, similar in spirit to Dendrite's release-alert room, but do not auto-apply the update.

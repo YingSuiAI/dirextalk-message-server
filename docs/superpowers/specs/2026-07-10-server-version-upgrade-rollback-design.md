@@ -1,7 +1,16 @@
 # Server Version Detection, Upgrade, Rollback, and Recovery Design
 
 Date: 2026-07-10
-Status: Pending written-spec review
+Status: Superseded on 2026-07-20
+
+This document records the original manifest/index design and is not an active
+implementation or release contract. Current v2 upgrades use the fixed central
+`appId=1`, `channelId=server` record as the sole target authorization and may
+install that canonical target from any older canonical server version. Current
+publication and updater paths do not consume GitHub metadata assets,
+predecessor graphs, offline attestations, or image-identity validation. See
+`docs/2026-07-17-central-version-direct-upgrade.md` and the repository-local
+`dirextalk-message-server-release` Skill for the active rules.
 
 ## V1 platform baseline
 

@@ -4,8 +4,11 @@
 
 ## v1.0.7
 
-1. Publish a new immutable server image from the verified current source.
-2. Preserve the formal `v1.0.6` upgrade path with its exact tested image digest.
+1. Authorize server targets exclusively through the central version record.
+2. Allow a node on any older canonical server version to install the centrally
+   authorized target while retaining backup and rollback protection.
+3. Simplify publication to the version image, Git tag, release notes, formal
+   GitHub Release, and `latest` tag.
 
 ## v1.0.6
 
@@ -22,7 +25,7 @@
 
 ## v1.0.4
 
-1. Establish a fresh trusted-release baseline with a verified, exact `v1.0.3` upgrade source.
+1. Establish a fresh stable release baseline.
 2. Add metadata-only unread recovery snapshots for new devices.
 3. Keep read-marker ordering server-authoritative across retries, restarts, and concurrent updates.
 
@@ -34,19 +37,14 @@
 
 ## v1.0.2
 
-This release keeps the exact `v1.0.1` formal image as its stable upgrade
-source. Server schema, updater API, Product actions, and client compatibility
-remain unchanged. Legacy hosts must first be moved to a formal baseline under
-an operator-controlled backup; unindexed legacy images remain fail closed.
+Server schema, updater API, Product actions, and client compatibility remain
+unchanged.
 
 ## v1.0.1
 
 This security patch updates `golang.org/x/crypto` to `v0.52.0`. It does not
 change the server schema, updater API, Product action contract, or supported
 client-version range.
-
-The trusted release index permits only the exact tested `v1.0.0` image digest
-to upgrade to `v1.0.1`. Other source images continue to fail closed.
 
 ## v1.0.0
 
@@ -60,8 +58,9 @@ metadata.
 - Oldest readable server schema version: `1`.
 - Client compatibility is declared by each published release manifest using
   an inclusive minimum and exclusive maximum version.
-- `upgrade_from` is an explicit allowlist of SemVer constraints. An absent
-  upgrade path must be rejected instead of guessed.
+- The central server version record is the only authority for selecting an
+  upgrade target; repository release metadata does not constrain the source
+  server version.
 
 ### Backup and rollback
 
@@ -69,28 +68,13 @@ An upgrade requires a backup. Rollback restores the single retained backup
 created before the current deployment attempt; it does not reuse an arbitrary
 older backup.
 
-### Publishing the manifest
+### Publishing
 
-`release-manifest.template.json` contains substitution placeholders and must
-not be published as-is. Replace every placeholder, resolve the image to a
-lowercase `sha256` digest, and validate the rendered JSON before attaching it
-to the matching GitHub Release.
-
-The image tag, manifest version, release-notes tag, and GitHub tag must all be
-identical. Production upgrades must pull the immutable digest from the
-manifest, never a mutable `latest` tag.
-
-The matching GitHub Release also carries `release-index.json` and its checksum.
-The index is the only authority for ordered upgrade paths: each edge names the
-source version, exact tested source image digest, and target manifest. For the
-initial release, the legacy `v0.15.2` edge is restricted to the recorded
-pre-release image digest; other `v0.15.2` builds are not assumed compatible.
-The recorded legacy identity is not available from Docker Hub. Its upgrade
-edge additionally requires a canonical retained-data attestation produced from
-an explicitly imported image whose local image ID matches exactly; missing
-evidence disables publication rather than falling back to a tag.
+The source version, Docker version tag, release-notes section, Git tag, and
+GitHub Release tag must all be identical. The formal GitHub Release carries the
+release notes and no updater metadata assets.
 
 Run the project-local `dirextalk-message-server-release` Skill and
-`scripts/release/{prepare,verify,publish}.sh`. The scripts publish the fixed
-version image and verified GitHub assets before they move `latest` to the same
-digest.
+`scripts/release/{prepare,verify,publish}.sh`. The scripts publish and probe the
+version image, create or verify the GitHub Release, and only then update
+`latest`.
