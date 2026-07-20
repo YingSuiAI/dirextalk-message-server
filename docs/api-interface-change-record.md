@@ -163,7 +163,7 @@ The default order is newest first. Cursor pages keep the first-page snapshot fix
 
 MCP responses no longer return `ts` or `last_ts`. Message, post, comment, send, and comment-create summaries return `created_at`; room summaries return `last_message_at`; member summaries return string `joined_at`.
 
-`mcp.channel_posts.list` post summaries now include `comment_count`, `like_count`, `favorite_count`, and `favorited_by_me`. Favorite state is owner-local message-server favorite state, not a federated/global channel count. Channel ordinary chat remains separate and is read through `mcp.messages.list`, which continues to filter out product `p2p_kind` post/comment events.
+`mcp.channel_posts.list` post summaries now include `comment_count`, `like_count`, `favorite_count`, and `favorited_by_me`. `channels.posts.list` exposes the same favorite fields. Channel favorites use the existing Matrix `m.reaction` projection with `reaction="favorite"`: `favorite_count` is the distinct active-user count and `favorited_by_me` is request-owner-specific, so both converge through normal room refresh/backfill. Clients toggle this state through `channels.post_reaction.toggle` with `reaction="favorite"`; legacy `favorites.*` remains the owner-local saved-message surface. Channel ordinary chat remains separate and is read through `mcp.messages.list`, which continues to filter out product `p2p_kind` post/comment events.
 
 The embedded Native Agent Dirextalk tools use the same contract: `dirextalk_messages_list`, `dirextalk_channel_posts_list`, and `dirextalk_channel_comments_list` expose `from_time`, `to_time`, `cursor`, and `limit` instead of legacy millisecond timestamp fields.
 

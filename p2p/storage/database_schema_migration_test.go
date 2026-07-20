@@ -92,6 +92,64 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	}
 }
 
+func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.SavePortal(ctx, portalState{OwnerMXID: "@owner:example.com"}); err != nil {
+		t.Fatalf("save owner portal: %v", err)
+	}
+	if err := store.InsertChannelPost(ctx, channelPostRecord{
+		PostID: "post_legacy", ChannelID: "channel_legacy", RoomID: "!channel:example.com", EventID: "$post_legacy",
+	}); err != nil {
+		t.Fatalf("insert channel post: %v", err)
+	}
+	if err := store.UpsertFavorite(ctx, favoriteRecord{
+		ID: 1, EventID: "$post_legacy", RoomID: "!channel:example.com", MessageType: "channel_post", CreatedAt: "2026-07-20T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("insert legacy favorite: %v", err)
+	}
+
+	txn, err := store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillLegacyChannelFavorites(ctx, txn); err != nil {
+		_ = txn.Rollback()
+		t.Fatalf("backfill legacy favorite: %v", err)
+	}
+	if err := txn.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	reaction, ok, err := store.GetReaction(ctx, "post", "post_legacy", "favorite", "@owner:example.com")
+	if err != nil || !ok || !reaction.Active || reaction.ChannelID != "channel_legacy" {
+		t.Fatalf("expected active owner favorite reaction, got %#v ok=%v err=%v", reaction, ok, err)
+	}
+
+	txn, err = store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillLegacyChannelFavorites(ctx, txn); err != nil {
+		_ = txn.Rollback()
+		t.Fatalf("replay backfill: %v", err)
+	}
+	if err := txn.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	count, err := store.CountActiveReactions(ctx, "post", "post_legacy", "favorite")
+	if err != nil || count != 1 {
+		t.Fatalf("backfill replay must remain idempotent, count=%d err=%v", count, err)
+	}
+}
+
 func TestDatabaseStoreContactPeerUniqueMigrationDeduplicatesExistingRows(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

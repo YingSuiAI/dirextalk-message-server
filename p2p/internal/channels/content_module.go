@@ -43,6 +43,8 @@ type Post struct {
 	CommentCount   int64                             `json:"comment_count"`
 	ReactionCount  int64                             `json:"reaction_count"`
 	ReactedByMe    bool                              `json:"reacted_by_me"`
+	FavoriteCount  int64                             `json:"favorite_count"`
+	FavoritedByMe  bool                              `json:"favorited_by_me"`
 	Operation      map[string]any                    `json:"operation,omitempty"`
 	Conversation   *dirextalkdomain.ConversationView `json:"conversation,omitempty"`
 }

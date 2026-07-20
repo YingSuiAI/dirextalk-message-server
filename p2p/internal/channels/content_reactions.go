@@ -130,6 +130,14 @@ func (m *ContentModule) EnrichPosts(ctx context.Context, posts []Post, ownerMXID
 				posts[i].ReactedByMe = reaction.Active
 			}
 		}
+		if count, err := m.store.CountActiveReactions(ctx, "post", posts[i].PostID, "favorite"); err == nil {
+			posts[i].FavoriteCount = count
+		}
+		if ownerMXID != "" {
+			if reaction, ok, err := m.store.GetReaction(ctx, "post", posts[i].PostID, "favorite", ownerMXID); err == nil && ok {
+				posts[i].FavoritedByMe = reaction.Active
+			}
+		}
 	}
 }
 

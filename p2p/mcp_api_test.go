@@ -936,12 +936,14 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 		UserID:     "@owner:example.com",
 		Active:     true,
 	})
-	mustUpsertFavorite(t, service, favoriteRecord{
-		ID:             1,
-		EventID:        "$post_l",
-		RoomID:         ch.RoomID,
-		MessageType:    "channel_post",
-		OriginServerTS: base.Add(11 * time.Minute).UnixMilli(),
+	mustUpsertReaction(t, service, reactionRecord{
+		TargetType: "post",
+		TargetID:   "post_l",
+		ChannelID:  ch.ChannelID,
+		PostID:     "post_l",
+		Reaction:   "favorite",
+		UserID:     "@owner:example.com",
+		Active:     true,
 	})
 
 	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{
