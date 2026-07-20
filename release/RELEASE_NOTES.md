@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.0.7
+
+1. Publish a new immutable server image from the verified current source.
+2. Preserve the formal `v1.0.6` upgrade path with its exact tested image digest.
+
 ## v1.0.6
 
 1. Require current Matrix `join` membership for MCP room discovery and room-scoped actions.

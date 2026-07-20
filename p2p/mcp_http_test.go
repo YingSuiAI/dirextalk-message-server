@@ -55,7 +55,7 @@ func TestMCPHTTPInitializeAndToolsListRequireAgentToken(t *testing.T) {
 		t.Fatalf("expected initialize protocolVersion, got %#v", initializeResult)
 	}
 	serverInfo, ok := initializeResult["serverInfo"].(map[string]any)
-	if !ok || serverInfo["version"] != "v1.0.6" {
+	if !ok || serverInfo["version"] != "v1.0.7" {
 		t.Fatalf("expected canonical MCP server version, got %#v", initializeResult["serverInfo"])
 	}
 	if _, ok := initializeResult["capabilities"].(map[string]any)["tools"]; !ok {
