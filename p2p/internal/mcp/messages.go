@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	matrixhistory "github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmatrix"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalktransport"
@@ -32,6 +33,9 @@ func (m *Module) messagesSend(ctx context.Context, params map[string]any) (any, 
 	}
 	if !gatewayMarked && strings.TrimSpace(identity.AgentRoomID) != "" && roomID == strings.TrimSpace(identity.AgentRoomID) {
 		return nil, dirextalkmcp.BadRequest("mcp.messages.send cannot send owner messages to the agent room; use the Matrix agent gateway")
+	}
+	if mcpErr := m.requireJoinedRoomForUser(ctx, roomID, senderMXID); mcpErr != nil {
+		return nil, mcpErr
 	}
 	if m.matrix == nil {
 		return nil, internalError(errors.New("matrix transport is unavailable"))
@@ -85,6 +89,9 @@ func (m *Module) messagesList(ctx context.Context, params map[string]any) (any, 
 	if mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, roomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	reader := m.messageReader()
 	if reader == nil {
 		return nil, internalError(errors.New("MCP message reader is unavailable"))
@@ -104,6 +111,54 @@ func (m *Module) messagesList(ctx context.Context, params map[string]any) (any, 
 		return nil, mcpErr
 	}
 	return result, nil
+}
+
+func (m *Module) requireJoinedRoom(ctx context.Context, roomID string) *dirextalkmcp.Error {
+	identity := m.identity()
+	if roomID == strings.TrimSpace(identity.AgentRoomID) && roomID != "" {
+		return m.requireMatrixJoinedUser(ctx, roomID, identity.OwnerMXID)
+	}
+	record, ok, err := m.conversations.GetRecord(ctx, "", roomID)
+	if err != nil {
+		return internalError(err)
+	}
+	if !ok {
+		return dirextalkmcp.StatusError(http.StatusForbidden, "room is not joined for MCP access")
+	}
+	view, err := m.conversations.View(ctx, record)
+	if err != nil {
+		return internalError(err)
+	}
+	if !joinedConversation(view) {
+		return dirextalkmcp.StatusError(http.StatusForbidden, "room is not joined for MCP access")
+	}
+	return nil
+}
+
+func (m *Module) requireJoinedRoomForUser(ctx context.Context, roomID, userID string) *dirextalkmcp.Error {
+	identity := m.identity()
+	if strings.TrimSpace(userID) == strings.TrimSpace(identity.OwnerMXID) {
+		return m.requireJoinedRoom(ctx, roomID)
+	}
+	return m.requireMatrixJoinedUser(ctx, roomID, userID)
+}
+
+func (m *Module) requireMatrixJoinedUser(ctx context.Context, roomID, userID string) *dirextalkmcp.Error {
+	roomID = strings.TrimSpace(roomID)
+	userID = strings.TrimSpace(userID)
+	if roomID == "" || userID == "" {
+		return dirextalkmcp.StatusError(http.StatusForbidden, "room is not joined for MCP access")
+	}
+	members, err := m.matrixRoomMembers(ctx, roomID)
+	if err != nil {
+		return internalError(err)
+	}
+	for _, member := range members {
+		if strings.TrimSpace(member.UserID) == userID && dirextalkdomain.MemberMembershipJoined(member.Membership) {
+			return nil
+		}
+	}
+	return dirextalkmcp.StatusError(http.StatusForbidden, "room is not joined for MCP access")
 }
 
 func matrixMessageReadError(err error) *dirextalkmcp.Error {

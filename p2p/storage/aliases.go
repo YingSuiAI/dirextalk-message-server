@@ -43,6 +43,11 @@ func normalizeConversationRecord(record conversationRecord) conversationRecord {
 	return dirextalkdomain.NormalizeConversationRecord(record)
 }
 
+func normalizeMemberRecord(record memberRecord) memberRecord {
+	record.Membership = dirextalkdomain.NormalizeMemberMembership(record.Membership)
+	return record
+}
+
 func conversationIDForRoomID(roomID string) string {
 	return dirextalkdomain.ConversationIDForRoomID(roomID)
 }

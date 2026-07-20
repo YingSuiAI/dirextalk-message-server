@@ -157,7 +157,6 @@ func (m *Module) requireRecordedGroupInvite(ctx context.Context, roomID, userID 
 	}
 	if !ok || (!strings.EqualFold(strings.TrimSpace(existing.Membership), "invite") &&
 		!strings.EqualFold(strings.TrimSpace(existing.Membership), "join") &&
-		!strings.EqualFold(strings.TrimSpace(existing.Membership), "joined") &&
 		!leftMembership(existing.Membership)) {
 		return actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "group invite is missing or expired")
 	}

@@ -128,7 +128,7 @@ func TestViewHydratesChannelMemberWithCommentsDisabled(t *testing.T) {
 			roomID: {RoomID: roomID, ChannelID: "channel", ChannelType: "", CommentsEnabled: false},
 		},
 		members: map[string]dirextalkdomain.MemberRecord{
-			roomID + "|" + ownerMXID: {RoomID: roomID, UserID: ownerMXID, Membership: "joined", Role: "member"},
+			roomID + "|" + ownerMXID: {RoomID: roomID, UserID: ownerMXID, Membership: "join", Role: "member"},
 		},
 	}
 	view, err := New(&moduleStore{}, hydrator).View(context.Background(), activeConversation(roomID, dirextalkdomain.ConversationKindChannel))

@@ -11,15 +11,16 @@ func (s *DatabaseStore) UpsertReaction(ctx context.Context, reaction reactionRec
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_reactions (
-				target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				event_id, target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT(target_type, target_id, reaction, user_id) DO UPDATE SET
+				event_id = EXCLUDED.event_id,
 				channel_id = EXCLUDED.channel_id,
 				post_id = EXCLUDED.post_id,
 				comment_id = EXCLUDED.comment_id,
 				active = EXCLUDED.active,
 				created_at = EXCLUDED.created_at
-		`, reaction.TargetType, reaction.TargetID, reaction.ChannelID, reaction.PostID, reaction.CommentID, reaction.Reaction, reaction.UserID, boolInt(reaction.Active), reaction.CreatedAt)
+		`, reaction.EventID, reaction.TargetType, reaction.TargetID, reaction.ChannelID, reaction.PostID, reaction.CommentID, reaction.Reaction, reaction.UserID, boolInt(reaction.Active), reaction.CreatedAt)
 		return err
 	})
 }
@@ -28,10 +29,10 @@ func (s *DatabaseStore) GetReaction(ctx context.Context, targetType, targetID, r
 	var record reactionRecord
 	var active int64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
+			SELECT event_id, target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
 		FROM p2p_reactions
 		WHERE target_type = $1 AND target_id = $2 AND reaction = $3 AND user_id = $4
-	`, targetType, targetID, reaction, userID).Scan(&record.TargetType, &record.TargetID, &record.ChannelID, &record.PostID, &record.CommentID, &record.Reaction, &record.UserID, &active, &record.CreatedAt)
+		`, targetType, targetID, reaction, userID).Scan(&record.EventID, &record.TargetType, &record.TargetID, &record.ChannelID, &record.PostID, &record.CommentID, &record.Reaction, &record.UserID, &active, &record.CreatedAt)
 	if err == sql.ErrNoRows {
 		return reactionRecord{}, false, nil
 	}
@@ -40,6 +41,26 @@ func (s *DatabaseStore) GetReaction(ctx context.Context, targetType, targetID, r
 	}
 	record.Active = active == 1
 	return record, true, nil
+}
+
+func (s *DatabaseStore) DeactivateReactionByEventID(ctx context.Context, eventID string) (bool, error) {
+	if strings.TrimSpace(eventID) == "" {
+		return false, nil
+	}
+	var changed bool
+	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
+		result, err := s.db.ExecContext(ctx, `UPDATE p2p_reactions SET active = 0 WHERE event_id = $1 AND active = 1`, eventID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		changed = rows > 0
+		return nil
+	})
+	return changed, err
 }
 
 func (s *DatabaseStore) CountActiveReactions(ctx context.Context, targetType, targetID, reaction string) (int64, error) {
@@ -53,7 +74,7 @@ func (s *DatabaseStore) CountActiveReactions(ctx context.Context, targetType, ta
 
 func (s *DatabaseStore) ListReactions(ctx context.Context, userID string) ([]reactionRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
+			SELECT event_id, target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
 		FROM p2p_reactions
 		WHERE user_id = $1 AND active = 1
 		ORDER BY created_at DESC
@@ -66,7 +87,7 @@ func (s *DatabaseStore) ListReactions(ctx context.Context, userID string) ([]rea
 	for rows.Next() {
 		var record reactionRecord
 		var active int64
-		if err := rows.Scan(&record.TargetType, &record.TargetID, &record.ChannelID, &record.PostID, &record.CommentID, &record.Reaction, &record.UserID, &active, &record.CreatedAt); err != nil {
+		if err := rows.Scan(&record.EventID, &record.TargetType, &record.TargetID, &record.ChannelID, &record.PostID, &record.CommentID, &record.Reaction, &record.UserID, &active, &record.CreatedAt); err != nil {
 			return nil, err
 		}
 		record.Active = active == 1
@@ -76,6 +97,7 @@ func (s *DatabaseStore) ListReactions(ctx context.Context, userID string) ([]rea
 }
 
 func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) error {
+	member = normalizeMemberRecord(member)
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_members (
@@ -98,8 +120,8 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 					ELSE p2p_members.request_id
 				END,
 				joined_at = CASE
-					WHEN LOWER(BTRIM(EXCLUDED.membership)) IN ('join', 'joined')
-						AND LOWER(BTRIM(p2p_members.membership)) NOT IN ('join', 'joined')
+					WHEN LOWER(BTRIM(EXCLUDED.membership)) = 'join'
+						AND LOWER(BTRIM(p2p_members.membership)) <> 'join'
 						AND EXCLUDED.joined_at > 0
 						THEN EXCLUDED.joined_at
 					WHEN p2p_members.joined_at > 0 THEN p2p_members.joined_at
@@ -112,6 +134,7 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 }
 
 func (s *DatabaseStore) InsertMemberIfAbsent(ctx context.Context, member memberRecord) (bool, error) {
+	member = normalizeMemberRecord(member)
 	inserted := false
 	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		result, err := s.db.ExecContext(ctx, `
@@ -140,6 +163,8 @@ func (s *DatabaseStore) CompareAndSwapMemberGeneration(
 	expectedRequestID,
 	expectedMembership string,
 ) (bool, error) {
+	member = normalizeMemberRecord(member)
+	expectedMembership = normalizeMemberRecord(memberRecord{Membership: expectedMembership}).Membership
 	updated := false
 	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		result, err := s.db.ExecContext(ctx, `

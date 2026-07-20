@@ -131,7 +131,7 @@ func (m *Module) handleJoinRequest(ctx context.Context, action string, raw map[s
 		member.RequestID = requestID
 	}
 	membership := strings.ToLower(strings.TrimSpace(member.Membership))
-	if approved && (membership == "join" || membership == "joined") {
+	if approved && membership == "join" {
 		settlementCtx, cancel := actionbase.SettlementContext(ctx)
 		defer cancel()
 		result, completionErr := m.config.CompleteJoinRequest(settlementCtx, true, member, raw)
@@ -145,7 +145,7 @@ func (m *Module) handleJoinRequest(ctx context.Context, action string, raw map[s
 		}
 		return m.attachOperation(settlementCtx, result, action, status, member.RoomID)
 	}
-	if !approved && (membership == "join" || membership == "joined") {
+	if !approved && membership == "join" {
 		joined, err := m.matrixJoined(ctx, member.RoomID, member.UserID)
 		if err != nil {
 			return nil, actionbase.InternalError(err)
@@ -227,7 +227,7 @@ func (m *Module) currentJoinRequestResult(ctx context.Context, action string, me
 	switch status {
 	case "reject", "rejected":
 		status = "rejected"
-	case "join", "joined":
+	case "join":
 		joined, err := m.matrixJoined(ctx, member.RoomID, member.UserID)
 		if err != nil {
 			return nil, actionbase.InternalError(err)
@@ -282,7 +282,7 @@ func joinRequestMutationAllowed(approved bool, membership string) bool {
 	membership = strings.ToLower(strings.TrimSpace(membership))
 	if approved {
 		switch membership {
-		case "pending", "approved", "joining", "join_failed", "join", "joined":
+		case "pending", "approved", "joining", "join_failed", "join":
 			return true
 		default:
 			return false
@@ -325,8 +325,7 @@ func (m *Module) repairMatrixJoinedMember(
 		if !found {
 			return dirextalkdomain.MemberRecord{}, actionbase.InternalError(errors.New("matrix joined member disappeared during projection repair"))
 		}
-		if strings.EqualFold(strings.TrimSpace(current.Membership), "join") ||
-			strings.EqualFold(strings.TrimSpace(current.Membership), "joined") {
+		if strings.EqualFold(strings.TrimSpace(current.Membership), "join") {
 			return current, nil
 		}
 		member = current

@@ -109,7 +109,7 @@ func TestMergeMemberPersistenceUsesConfirmedJoinTransitionTime(t *testing.T) {
 	}
 
 	profileUpdate := memberRecord{Membership: "join", JoinedAt: 400}
-	mergeMemberPersistence(&profileUpdate, memberRecord{Membership: "joined", JoinedAt: 300})
+	mergeMemberPersistence(&profileUpdate, memberRecord{Membership: "join", JoinedAt: 300})
 	if profileUpdate.JoinedAt != 300 {
 		t.Fatalf("joined profile update changed join timestamp: %#v", profileUpdate)
 	}

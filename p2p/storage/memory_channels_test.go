@@ -31,13 +31,26 @@ func TestMemoryStoreCompareAndSwapMemberGenerationGuardsState(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCanonicalizesJoinedMembershipToJoin(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	member := memberRecord{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: " JOINED "}
+	if err := store.UpsertMember(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := store.LookupMember(ctx, member.RoomID, member.UserID)
+	if err != nil || !found || got.Membership != "join" {
+		t.Fatalf("canonical membership = %#v found=%v err=%v, want join", got, found, err)
+	}
+}
+
 func TestMemoryStoreMembersPreserveLegacyVisibilityCountsAndOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := NewMemoryStore()
 	members := []memberRecord{
 		{RoomID: "!room:example.com", UserID: "@late:example.com", Membership: "join", Role: "member", JoinedAt: 30},
-		{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: "JOINED", Role: "OWNER", JoinedAt: 20},
+		{RoomID: "!room:example.com", UserID: "@owner:example.com", Membership: "JOIN", Role: "OWNER", JoinedAt: 20},
 		{RoomID: "!room:example.com", UserID: "@pending:example.com", Membership: "pending", Role: "member", JoinedAt: 10},
 		{RoomID: "!room:example.com", UserID: "@left:example.com", Membership: "LEFT", Role: "member", JoinedAt: 5},
 	}

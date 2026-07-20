@@ -11,6 +11,7 @@ func memoryMemberKey(roomID, userID string) string {
 }
 
 func (s *MemoryStore) UpsertMember(ctx context.Context, member memberRecord) error {
+	member = normalizeMemberRecord(member)
 	s.mu.Lock()
 	s.members[memoryMemberKey(member.RoomID, member.UserID)] = member
 	s.mu.Unlock()
@@ -18,6 +19,7 @@ func (s *MemoryStore) UpsertMember(ctx context.Context, member memberRecord) err
 }
 
 func (s *MemoryStore) InsertMemberIfAbsent(_ context.Context, member memberRecord) (bool, error) {
+	member = normalizeMemberRecord(member)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := memoryMemberKey(member.RoomID, member.UserID)
@@ -34,6 +36,8 @@ func (s *MemoryStore) CompareAndSwapMemberGeneration(
 	expectedRequestID,
 	expectedMembership string,
 ) (bool, error) {
+	member = normalizeMemberRecord(member)
+	expectedMembership = normalizeMemberRecord(memberRecord{Membership: expectedMembership}).Membership
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := memoryMemberKey(member.RoomID, member.UserID)
@@ -97,7 +101,7 @@ func (s *MemoryStore) CountProductMembers(ctx context.Context, roomID, channelID
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(member.Membership)) {
-		case "join", "joined":
+		case "join":
 			joined++
 		case "pending":
 			pending++

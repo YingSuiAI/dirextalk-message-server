@@ -163,7 +163,7 @@ func capabilities(view dirextalkdomain.ConversationView) dirextalkdomain.Convers
 	if view.Kind == dirextalkdomain.ConversationKindSystem {
 		return dirextalkdomain.ConversationCapabilities{Open: ready && active}
 	}
-	joined := strings.EqualFold(view.Membership, "join") || strings.EqualFold(view.Membership, "joined")
+	joined := dirextalkdomain.MemberMembershipJoined(view.Membership)
 	owner := dirextalkdomain.ProductOwnerRole(view.Role)
 	open := ready && active && joined
 	if view.Kind == dirextalkdomain.ConversationKindDirect {

@@ -92,8 +92,7 @@ func (s *Service) completeLocalApprovedChannelJoin(ctx context.Context, member m
 			"error_code": fallbackString(apiErr.Code, actionbase.MatrixJoinUnconfirmedCode), "channel": s.channelSnapshot(ctx, member.ChannelID),
 		}, nil
 	}
-	if strings.EqualFold(strings.TrimSpace(member.Membership), "join") ||
-		strings.EqualFold(strings.TrimSpace(member.Membership), "joined") {
+	if strings.EqualFold(strings.TrimSpace(member.Membership), "join") {
 		return map[string]any{
 			"status": "joined", "room_id": member.RoomID, "member": member, "error": apiErr.Error,
 			"error_code": actionbase.OperationRecoveryCode, "channel": s.channelSnapshot(ctx, member.ChannelID),
@@ -192,6 +191,8 @@ func (s *Service) notifyRemoteChannelJoinResult(ctx context.Context, member memb
 		switch status {
 		case "approved":
 			member.Membership = "approved"
+		case "joined":
+			member.Membership = "join"
 		case "rejected":
 			member.Membership = "reject"
 		default:
@@ -333,7 +334,7 @@ func (s *Service) currentChannelJoinResult(ctx context.Context, current memberRe
 	status := strings.ToLower(strings.TrimSpace(current.Membership))
 	result := map[string]any{"status": status, "member": current, "channel": s.channelSnapshot(ctx, current.ChannelID)}
 	switch status {
-	case "join", "joined":
+	case "join":
 		joined, joinedErr := s.matrixMemberJoined(ctx, current.RoomID, current.UserID)
 		if joinedErr != nil {
 			return nil, transportWriteError(joinedErr)

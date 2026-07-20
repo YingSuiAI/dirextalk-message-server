@@ -26,6 +26,23 @@ func mustInvokeMCP[T any](t *testing.T, service *Service, action string, params 
 	return typed
 }
 
+func mustSaveJoinedMCPRoom(t *testing.T, service *Service, roomID string) {
+	t.Helper()
+	if err := service.saveConversation(context.Background(), conversationRecord{
+		MatrixRoomID: roomID,
+		Kind:         conversationKindGroup,
+		Lifecycle:    conversationLifecycleActive,
+		Title:        roomID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID: roomID, UserID: service.OwnerMXID(), Membership: "join", Role: "owner",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMCPSearchRoomsReturnsConciseMixedRooms(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 
@@ -71,6 +88,37 @@ func TestMCPSearchRoomsEmptyQueryListsByType(t *testing.T) {
 	rooms := result["rooms"].([]mcpRoomSummary)
 	if len(rooms) != 1 || rooms[0].Type != "group" || rooms[0].RoomID != "!group:example.com" {
 		t.Fatalf("expected group list from empty query, got %#v", rooms)
+	}
+}
+
+func TestMCPSearchRoomsOnlyReturnsJoinedRooms(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com"})
+	for _, room := range []struct {
+		roomID     string
+		name       string
+		membership string
+	}{
+		{roomID: "!joined:example.com", name: "Joined Group", membership: "join"},
+		{roomID: "!joining:example.com", name: "Joining Group", membership: "joining"},
+		{roomID: "!left:example.com", name: "Left Group", membership: "left"},
+	} {
+		mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+			"room_id": room.roomID,
+			"name":    room.name,
+		})
+		if err := service.saveMember(context.Background(), memberRecord{
+			RoomID: room.roomID, UserID: service.OwnerMXID(), Membership: room.membership, Role: "owner",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomsSearch, map[string]any{
+		"type": "group",
+	})
+	rooms := result["rooms"].([]mcpRoomSummary)
+	if len(rooms) != 1 || rooms[0].RoomID != "!joined:example.com" {
+		t.Fatalf("expected only joined rooms in MCP discovery, got %#v", rooms)
 	}
 }
 
@@ -194,6 +242,7 @@ func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.profile.DisplayName = "Owner"
+	mustSaveJoinedMCPRoom(t, service, "!room:example.com")
 
 	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionMessagesSend, map[string]any{
 		"room_id": "!room:example.com",
@@ -218,7 +267,10 @@ func TestMCPMessagesSendUsesTransportAndReturnsConciseResult(t *testing.T) {
 }
 
 func TestMCPMessagesSendMarksGatewayReplies(t *testing.T) {
-	transport := &recordingTransport{eventID: "$mcp:event", ts: 1710000000000}
+	transport := &recordingTransport{
+		eventID: "$mcp:event", ts: 1710000000000,
+		roomMembers: []memberRecord{{RoomID: "!agents:example.com", UserID: "@agent:example.com", Membership: "join"}},
+	}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	service.agentRoomID = "!agents:example.com"
 
@@ -288,9 +340,11 @@ func TestMCPMessagesRejectBlockedRooms(t *testing.T) {
 type fakeMCPMessageReader struct {
 	messages []mcpMessageSummary
 	err      error
+	calls    int
 }
 
 func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, page mcpMessagePage) (mcpMessagePageResult, error) {
+	r.calls++
 	if r.err != nil {
 		return mcpMessagePageResult{}, r.err
 	}
@@ -375,6 +429,7 @@ func TestMCPMessagesListUsesReaderAndReturnsConciseMessages(t *testing.T) {
 
 func TestMCPMessagesPaginationUsesStableSnapshot(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	mustSaveJoinedMCPRoom(t, service, "!channel:example.com")
 	reader := &fakeMCPMessageReader{}
 	service.SetMatrixMessageReader(reader)
 	base := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
@@ -458,6 +513,7 @@ func TestMCPRejectsInvalidTimeParams(t *testing.T) {
 
 func TestMCPMessagesListPropagatesMatrixAccessErrors(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
+	mustSaveJoinedMCPRoom(t, service, "!room:example.com")
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{
 		err: matrixhistory.StatusError{StatusCode: http.StatusForbidden, Message: "matrix messages failed with status 403"},
 	})
@@ -467,6 +523,46 @@ func TestMCPMessagesListPropagatesMatrixAccessErrors(t *testing.T) {
 	})
 	if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not allowed") {
 		t.Fatalf("expected Matrix access failure to be exposed as 403, got %#v", apiErr)
+	}
+}
+
+func TestMCPMessagesListRejectsRoomsThatAreNotJoined(t *testing.T) {
+	for _, membership := range []string{"joining", "left", "unknown"} {
+		t.Run(membership, func(t *testing.T) {
+			service := NewService(Config{ServerName: "example.com"})
+			reader := &fakeMCPMessageReader{messages: []mcpMessageSummary{{
+				EventID: "$secret", OriginServerTS: 1710000000000, Msg: "secret",
+			}}}
+			service.SetMatrixMessageReader(reader)
+			if membership != "unknown" {
+				mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+					"room_id": "!restricted:example.com",
+					"name":    "Restricted Group",
+				})
+				if err := service.saveMember(context.Background(), memberRecord{
+					RoomID: "!restricted:example.com", UserID: service.OwnerMXID(), Membership: membership, Role: "owner",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, apiErr := service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesList, map[string]any{
+				"room_id": "!restricted:example.com",
+			})
+			if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not joined") {
+				t.Fatalf("expected %s room message access to fail, got %#v", membership, apiErr)
+			}
+			if reader.calls != 0 {
+				t.Fatalf("non-joined room must be rejected before Matrix history access, calls=%d", reader.calls)
+			}
+			_, apiErr = service.invokeDirextalkMCP(context.Background(), dirextalkmcp.ActionMessagesSend, map[string]any{
+				"room_id": "!restricted:example.com",
+				"msg":     "must not send",
+			})
+			if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not joined") {
+				t.Fatalf("expected %s room message send to fail, got %#v", membership, apiErr)
+			}
+		})
 	}
 }
 
@@ -567,6 +663,14 @@ func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 		"user_mxid":    "@alice:remote.example",
 		"display_name": "Alice Remote",
 	})
+	for _, member := range []memberRecord{
+		{RoomID: group.RoomID, UserID: "@joining:remote.example", Membership: "joining", Role: "member"},
+		{RoomID: group.RoomID, UserID: "@pending:remote.example", Membership: "pending", Role: "member"},
+	} {
+		if err := service.saveMember(context.Background(), member); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
@@ -614,16 +718,75 @@ func TestMCPRoomMembersListReturnsMemberIdentities(t *testing.T) {
 	}
 }
 
+func TestMCPRoomScopedToolsRejectNonJoinedRooms(t *testing.T) {
+	for _, membership := range []string{"joining", "left"} {
+		t.Run(membership, func(t *testing.T) {
+			transport := &recordingTransport{eventID: "$event", ts: 1710000000000}
+			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			reader := &fakeMCPMessageReader{}
+			service.SetMatrixMessageReader(reader)
+			ch := mustHandle[channel](t, service, "channels.create", map[string]any{
+				"channel_id":       "restricted",
+				"room_id":          "!restricted-channel:example.com",
+				"name":             "Restricted Channel",
+				"comments_enabled": true,
+			})
+			post := mustHandle[channelPostRecord](t, service, "channels.posts.create", map[string]any{
+				"channel_id": ch.ChannelID,
+				"room_id":    ch.RoomID,
+				"body":       "existing post",
+			})
+			if err := service.saveMember(context.Background(), memberRecord{
+				RoomID: ch.RoomID, ChannelID: ch.ChannelID, UserID: service.OwnerMXID(), Membership: membership, Role: "owner",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			writesBefore := len(transport.messages)
+			for _, tc := range []struct {
+				action string
+				params map[string]any
+			}{
+				{dirextalkmcp.ActionMessagesList, map[string]any{"room_id": ch.RoomID}},
+				{dirextalkmcp.ActionMessagesSend, map[string]any{"room_id": ch.RoomID, "msg": "blocked"}},
+				{dirextalkmcp.ActionRoomMembersList, map[string]any{"room_id": ch.RoomID}},
+				{dirextalkmcp.ActionChannelPostsList, map[string]any{"room_id": ch.RoomID}},
+				{dirextalkmcp.ActionChannelCommentsList, map[string]any{"post_id": post.PostID}},
+				{dirextalkmcp.ActionChannelCommentsCreate, map[string]any{"post_id": post.PostID, "msg": "blocked"}},
+			} {
+				_, apiErr := service.invokeDirextalkMCP(context.Background(), tc.action, tc.params)
+				if apiErr == nil || apiErr.Status != http.StatusForbidden || !strings.Contains(apiErr.Error, "not joined") {
+					t.Fatalf("expected %s to reject %s room, got %#v", tc.action, membership, apiErr)
+				}
+			}
+			if reader.calls != 0 {
+				t.Fatalf("non-joined room must not reach Matrix history, calls=%d", reader.calls)
+			}
+			if len(transport.messages) != writesBefore {
+				t.Fatalf("non-joined room must not accept MCP writes, before=%d after=%d", writesBefore, len(transport.messages))
+			}
+		})
+	}
+}
+
 func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
 	transport := &recordingTransport{roomMembers: []memberRecord{
 		{RoomID: "!group:example.com", UserID: "@owner:example.com", DisplayName: "Owner Name", Membership: "join", Role: "owner"},
 		{RoomID: "!group:example.com", UserID: "@alice:remote.example", DisplayName: "Alice Remote", Membership: "join", Role: "member"},
+		{RoomID: "!group:example.com", UserID: "@bob:remote.example", DisplayName: "Bob Remote", Membership: "left", Role: "member"},
 	}}
 	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
 	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
 		"room_id": "!group:example.com",
 		"name":    "Design Group",
 	})
+	for _, member := range []memberRecord{
+		{RoomID: group.RoomID, UserID: "@alice:remote.example", Membership: "joining", Role: "member"},
+		{RoomID: group.RoomID, UserID: "@bob:remote.example", Membership: "join", Role: "member"},
+	} {
+		if err := service.saveMember(context.Background(), member); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	result := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionRoomMembersList, map[string]any{
 		"room_id": group.RoomID,
@@ -643,7 +806,7 @@ func TestMCPRoomMembersListMergesMatrixRoomStateMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(decoded.Members) != 2 {
-		t.Fatalf("expected owner plus Matrix room member, got %s", string(payload))
+		t.Fatalf("expected only current Matrix join members, got %s", string(payload))
 	}
 	if decoded.Members[1].UserMXID != "@alice:remote.example" ||
 		decoded.Members[1].DisplayName != "Alice Remote" ||
@@ -688,6 +851,7 @@ func TestMCPRoomMembersListGloballySortsMixedGroupAndChannelSources(t *testing.T
 				creators:           map[string]string{tc.roomID: "@actual-creator:creator.example"},
 			}
 			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			setServiceOwnerForTest(service, "@actual-creator:creator.example", "Actual Creator")
 			if err := tc.prepare(ctx, service); err != nil {
 				t.Fatal(err)
 			}
@@ -836,7 +1000,9 @@ func TestMCPRoomMembersRejectsBlockedRooms(t *testing.T) {
 }
 
 func TestMCPMessagesListUsesAgentRoomNameAndDisplayName(t *testing.T) {
-	service := NewService(Config{ServerName: "example.com"})
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, &recordingTransport{roomMembers: []memberRecord{
+		{RoomID: "!agents:example.com", UserID: "@owner:example.com", Membership: "join"},
+	}})
 	service.agentRoomID = "!agents:example.com"
 	service.agentConfig.DisplayName = "Codex"
 	service.SetMatrixMessageReader(&fakeMCPMessageReader{messages: []mcpMessageSummary{
@@ -936,12 +1102,14 @@ func TestMCPChannelPostsPaginationUsesStableSnapshotAndReadableCounts(t *testing
 		UserID:     "@owner:example.com",
 		Active:     true,
 	})
-	mustUpsertFavorite(t, service, favoriteRecord{
-		ID:             1,
-		EventID:        "$post_l",
-		RoomID:         ch.RoomID,
-		MessageType:    "channel_post",
-		OriginServerTS: base.Add(11 * time.Minute).UnixMilli(),
+	mustUpsertReaction(t, service, reactionRecord{
+		TargetType: "post",
+		TargetID:   "post_l",
+		ChannelID:  ch.ChannelID,
+		PostID:     "post_l",
+		Reaction:   "favorite",
+		UserID:     "@owner:example.com",
+		Active:     true,
 	})
 
 	first := mustInvokeMCP[map[string]any](t, service, dirextalkmcp.ActionChannelPostsList, map[string]any{

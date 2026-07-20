@@ -3,9 +3,7 @@ package mcp
 import (
 	"context"
 	"net/http"
-	"strings"
 
-	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 )
@@ -20,6 +18,9 @@ func (m *Module) channelPostsList(ctx context.Context, params map[string]any) (a
 	}
 	page, mcpErr := dirextalkmcp.PageFromParams(params, dirextalkmcp.ActionChannelPostsList, roomID)
 	if mcpErr != nil {
+		return nil, mcpErr
+	}
+	if mcpErr := m.requireJoinedRoom(ctx, roomID); mcpErr != nil {
 		return nil, mcpErr
 	}
 	channel, ok, err := m.channels.ByIDOrRoom(ctx, "", roomID)
@@ -69,6 +70,9 @@ func (m *Module) channelCommentsList(ctx context.Context, params map[string]any)
 	if mcpErr := m.requireRoomAllowed(post.RoomID); mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, post.RoomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	rawComments, hasMore, err := m.content.CommentPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 	if err != nil {
 		return nil, internalError(err)
@@ -104,6 +108,9 @@ func (m *Module) channelCommentCreate(ctx context.Context, params map[string]any
 	if mcpErr := m.requireRoomAllowed(post.RoomID); mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, post.RoomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	commentAny, actionErr := m.content.CreateComment(ctx, map[string]any{
 		"channel_id":   post.ChannelID,
 		"room_id":      post.RoomID,
@@ -124,7 +131,6 @@ func (m *Module) channelCommentCreate(ctx context.Context, params map[string]any
 }
 
 func (m *Module) postSummary(ctx context.Context, post channelsmodule.Post) dirextalkmcp.PostSummary {
-	favoriteCount, favoritedByMe := m.FavoriteStateForPost(ctx, post)
 	return dirextalkmcp.PostSummary{
 		PostID:        post.PostID,
 		CreatedAt:     dirextalkmcp.FormatTime(post.OriginServerTS),
@@ -132,8 +138,8 @@ func (m *Module) postSummary(ctx context.Context, post channelsmodule.Post) dire
 		Msg:           post.Body,
 		CommentCount:  post.CommentCount,
 		LikeCount:     post.ReactionCount,
-		FavoriteCount: favoriteCount,
-		FavoritedByMe: favoritedByMe,
+		FavoriteCount: post.FavoriteCount,
+		FavoritedByMe: post.FavoritedByMe,
 	}
 }
 
@@ -149,35 +155,12 @@ func commentSummary(comment channelsmodule.Comment) dirextalkmcp.CommentSummary 
 // FavoriteStateForPost is exposed to the root compatibility facade while the
 // owning implementation remains in this module.
 func (m *Module) FavoriteStateForPost(ctx context.Context, post channelsmodule.Post) (int64, bool) {
-	if m == nil || m.social == nil {
+	if m == nil || m.content == nil {
 		return 0, false
 	}
-	favorites, err := m.social.ListFavorites(ctx, "")
-	if err != nil {
-		return 0, false
-	}
-	var count int64
-	for _, favorite := range favorites {
-		if favoriteMatchesPost(favorite, post) {
-			count++
-		}
-	}
-	return count, count > 0
-}
-
-func favoriteMatchesPost(favorite dirextalkdomain.FavoriteRecord, post channelsmodule.Post) bool {
-	if strings.TrimSpace(post.EventID) == "" || strings.TrimSpace(favorite.EventID) != strings.TrimSpace(post.EventID) {
-		return false
-	}
-	if strings.TrimSpace(favorite.RoomID) != "" && strings.TrimSpace(post.RoomID) != "" && strings.TrimSpace(favorite.RoomID) != strings.TrimSpace(post.RoomID) {
-		return false
-	}
-	switch strings.TrimSpace(favorite.MessageType) {
-	case "", "post", "channel_post":
-		return true
-	default:
-		return false
-	}
+	posts := []channelsmodule.Post{post}
+	m.content.EnrichPosts(ctx, posts, m.identity().OwnerMXID)
+	return posts[0].FavoriteCount, posts[0].FavoritedByMe
 }
 
 func lastPostKey(posts []channelsmodule.Post) (int64, string) {

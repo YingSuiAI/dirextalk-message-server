@@ -107,7 +107,7 @@ func TestJoinRequestMemberMapsStatusAndPreservesExistingFields(t *testing.T) {
 
 func TestJoinRequestMemberApprovedDoesNotDowngradeActiveWorkflow(t *testing.T) {
 	now := time.UnixMilli(654321)
-	for _, membership := range []string{"approved", "joining", "join_failed", "join", "joined"} {
+	for _, membership := range []string{"approved", "joining", "join_failed", "join"} {
 		t.Run(membership, func(t *testing.T) {
 			existing := dirextalkdomain.MemberRecord{
 				RoomID:               "!room:example.com",

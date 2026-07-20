@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
@@ -57,6 +58,7 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_favorites_event_idx",
 		"p2p_reactions_user_idx",
 		"p2p_reactions_target_idx",
+		"p2p_reactions_event_idx",
 		"p2p_members_channel_idx",
 		"p2p_members_room_idx",
 		"p2p_members_user_idx",
@@ -89,6 +91,138 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	}
 	if messageTableCount != 0 {
 		t.Fatalf("p2p_messages table must not be created after Matrix-source migration")
+	}
+}
+
+func TestDatabaseMembershipMigrationCanonicalizesJoinedToJoin(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, err := store.DB().ExecContext(ctx, `
+		INSERT INTO p2p_members (
+			room_id, user_id, channel_id, display_name, avatar_url, domain,
+			membership, role, muted, joined_at, requester_node_base_url, request_id
+		) VALUES ($1, $2, '', '', '', 'example.com', ' JOINED ', 'member', 0, 1, '', '')
+	`, "!room:example.com", "@alice:example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `DELETE FROM db_migrations WHERE version = $1`, "p2p: canonical Matrix member membership v76"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var membership string
+	if err := store.DB().QueryRowContext(ctx, `
+		SELECT membership FROM p2p_members WHERE room_id = $1 AND user_id = $2
+	`, "!room:example.com", "@alice:example.com").Scan(&membership); err != nil {
+		t.Fatal(err)
+	}
+	if membership != "join" {
+		t.Fatalf("migrated membership = %q, want join", membership)
+	}
+}
+
+func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.SavePortal(ctx, portalState{OwnerMXID: "@owner:example.com"}); err != nil {
+		t.Fatalf("save owner portal: %v", err)
+	}
+	if err := store.InsertChannelPost(ctx, channelPostRecord{
+		PostID: "post_legacy", ChannelID: "channel_legacy", RoomID: "!channel:example.com", EventID: "$post_legacy",
+	}); err != nil {
+		t.Fatalf("insert channel post: %v", err)
+	}
+	if err := store.UpsertFavorite(ctx, favoriteRecord{
+		ID: 1, EventID: "$post_legacy", RoomID: "!channel:example.com", MessageType: "m.image", CreatedAt: "2026-07-20T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("insert legacy favorite: %v", err)
+	}
+
+	txn, err := store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillLegacyChannelFavorites(ctx, txn); err != nil {
+		_ = txn.Rollback()
+		t.Fatalf("backfill legacy favorite: %v", err)
+	}
+	if err := txn.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	reaction, ok, err := store.GetReaction(ctx, "post", "post_legacy", "favorite", "@owner:example.com")
+	if err != nil || !ok || !reaction.Active || reaction.ChannelID != "channel_legacy" {
+		t.Fatalf("expected active owner favorite reaction, got %#v ok=%v err=%v", reaction, ok, err)
+	}
+	content := channelsmodule.NewContent(store, nil, nil, nil, channelsmodule.ContentConfig{
+		Owner: func() channelsmodule.ContentOwner { return channelsmodule.ContentOwner{MXID: "@owner:example.com"} },
+	})
+	result, apiErr := content.Posts(ctx, map[string]any{"channel_id": "channel_legacy"})
+	if apiErr != nil {
+		t.Fatalf("list migrated post: %#v", apiErr)
+	}
+	posts := result.(map[string]any)["posts"].([]channelsmodule.Post)
+	if len(posts) != 1 || posts[0].FavoriteCount != 1 || !posts[0].FavoritedByMe {
+		t.Fatalf("owner view should expose migrated favorite state, got %#v", posts)
+	}
+
+	txn, err = store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillLegacyChannelFavorites(ctx, txn); err != nil {
+		_ = txn.Rollback()
+		t.Fatalf("replay backfill: %v", err)
+	}
+	if err := txn.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	count, err := store.CountActiveReactions(ctx, "post", "post_legacy", "favorite")
+	if err != nil || count != 1 {
+		t.Fatalf("backfill replay must remain idempotent, count=%d err=%v", count, err)
+	}
+}
+
+func TestDatabaseReactionEventIdentityDeactivatesCurrentProjection(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.UpsertReaction(ctx, reactionRecord{
+		EventID: "$favorite", TargetType: "post", TargetID: "post_1", ChannelID: "channel_1", PostID: "post_1",
+		Reaction: "favorite", UserID: "@owner:example.com", Active: true,
+	}); err != nil {
+		t.Fatalf("store favorite reaction: %v", err)
+	}
+	removed, err := store.DeactivateReactionByEventID(ctx, "$favorite")
+	if err != nil || !removed {
+		t.Fatalf("deactivate projected reaction = (%t, %v), want (true, nil)", removed, err)
+	}
+	reaction, ok, err := store.GetReaction(ctx, "post", "post_1", "favorite", "@owner:example.com")
+	if err != nil || !ok || reaction.Active || reaction.EventID != "$favorite" {
+		t.Fatalf("expected stored reaction to remain identifiable and inactive, got %#v ok=%v err=%v", reaction, ok, err)
 	}
 }
 

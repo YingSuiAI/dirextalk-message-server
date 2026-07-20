@@ -148,6 +148,7 @@ func TestGroupAndChannelMemberReadsRepairLegacyCreatorForHTTPAndMCP(t *testing.T
 				creators:           map[string]string{tc.roomID: actualCreator},
 			}
 			service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+			setServiceOwnerForTest(service, actualCreator, "Actual Creator")
 			if err := service.conversationModule.Save(ctx, dirextalkdomain.ConversationRecord{
 				MatrixRoomID: tc.roomID, Kind: tc.kind, CreatedByMXID: staleCreator,
 			}); err != nil {

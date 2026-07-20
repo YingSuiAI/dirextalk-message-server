@@ -628,6 +628,53 @@ func TestProjectReactionAndMembershipEvents(t *testing.T) {
 	}
 }
 
+func TestChannelPostFavoritesProjectPerUserAndRefreshForAnotherUser(t *testing.T) {
+	userA := test.NewUser(t)
+	userB := test.NewUser(t)
+	userC := test.NewUser(t)
+	room := test.NewRoom(t, userA)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = userC.ID
+	room.CreateAndInsert(t, userB, "m.room.member", map[string]any{"membership": "join"}, test.WithStateKey(userB.ID))
+
+	post := room.CreateAndInsert(t, userA, "m.room.message", map[string]any{
+		"msgtype": "m.text", "body": "favoriteable post", "p2p_kind": "channel_post",
+		"channel_id": "ch_remote", "post_id": "post_remote",
+	})
+	if err := service.ProjectRoomEvent(context.Background(), post); err != nil {
+		t.Fatal(err)
+	}
+	projectFavorite := func(user *test.User, active bool) {
+		reaction := room.CreateAndInsert(t, user, "m.reaction", map[string]any{
+			"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": post.EventID(), "key": "favorite"},
+			"channel_id":   "ch_remote", "post_id": "post_remote", "reaction": "favorite", "active": active,
+		})
+		if err := service.ProjectRoomEvent(context.Background(), reaction); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectFavorite(userA, true)
+	projectFavorite(userA, true) // projector replay must remain idempotent for the same user.
+	projectFavorite(userB, true)
+
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].FavoriteCount != 2 || posts[0].FavoritedByMe {
+		t.Fatalf("third-user refresh should expose two remote favorites without own state, got %#v", posts)
+	}
+
+	projectFavorite(userB, false)
+	posts = mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if posts[0].FavoriteCount != 1 || posts[0].FavoritedByMe {
+		t.Fatalf("removed favorite should leave only user A active, got %#v", posts[0])
+	}
+
+	service.ownerMXID = userA.ID
+	posts = mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if posts[0].FavoriteCount != 1 || !posts[0].FavoritedByMe {
+		t.Fatalf("favoriting user should retain own selected state, got %#v", posts[0])
+	}
+}
+
 func TestProjectOwnerJoinRepairsPendingInboundContact(t *testing.T) {
 	testProjectOwnerJoinRepairsContactStatus(t, "pending_inbound")
 }
@@ -1689,6 +1736,43 @@ func TestProjectOutputRedactionRemovesBusinessRecords(t *testing.T) {
 	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})
 	if gotPosts := posts["posts"].([]channelPostRecord); len(gotPosts) != 0 {
 		t.Fatalf("expected redacted post hidden, got %#v", gotPosts)
+	}
+}
+
+func TestProjectOutputRedactionDeactivatesFavoriteReaction(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = user.ID
+	post := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text", "body": "projected post", "p2p_kind": "channel_post",
+		"channel_id": "ch_remote", "post_id": "post_remote",
+	})
+	if err := service.ProjectRoomEvent(context.Background(), post); err != nil {
+		t.Fatal(err)
+	}
+	favorite := room.CreateAndInsert(t, user, "m.reaction", map[string]any{
+		"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": post.EventID(), "key": "favorite"},
+		"channel_id":   "ch_remote", "post_id": "post_remote", "reaction": "favorite", "active": true,
+	})
+	if err := service.ProjectRoomEvent(context.Background(), favorite); err != nil {
+		t.Fatal(err)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].FavoriteCount != 1 || !posts[0].FavoritedByMe {
+		t.Fatalf("expected active favorite before redaction, got %#v", posts)
+	}
+	if err := service.ProjectOutputEvent(context.Background(), roomserverAPI.OutputEvent{
+		Type: roomserverAPI.OutputTypeRedactedEvent,
+		RedactedEvent: &roomserverAPI.OutputRedactedEvent{
+			RedactedEventID: favorite.EventID(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	posts = mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if posts[0].FavoriteCount != 0 || posts[0].FavoritedByMe {
+		t.Fatalf("favorite redaction should clear aggregate and requester state, got %#v", posts[0])
 	}
 }
 

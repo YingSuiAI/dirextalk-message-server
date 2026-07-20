@@ -758,7 +758,74 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: channel favorite reaction backfill v74",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return backfillLegacyChannelFavorites(ctx, txn)
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: projected reaction event identity v75",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_reactions")
+			if err != nil || !exists {
+				return err
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_reactions ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT ''`,
+				`CREATE INDEX IF NOT EXISTS p2p_reactions_event_idx ON p2p_reactions(event_id) WHERE event_id <> ''`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: canonical Matrix member membership v76",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_members")
+			if err != nil || !exists {
+				return err
+			}
+			_, err = txn.ExecContext(ctx, `
+				UPDATE p2p_members
+				SET membership = CASE
+					WHEN LOWER(BTRIM(membership)) = 'joined' THEN 'join'
+					ELSE LOWER(BTRIM(membership))
+				END
+				WHERE membership <> CASE
+					WHEN LOWER(BTRIM(membership)) = 'joined' THEN 'join'
+					ELSE LOWER(BTRIM(membership))
+				END
+			`)
+			return err
+		},
+	})
 	return m.Up(ctx)
+}
+
+// backfillLegacyChannelFavorites preserves the owner-local channel-post
+// favorites recorded before favorites became Matrix-projected reactions. A
+// legacy row belongs to this portal's owner, so the reaction key remains
+// independently addressable per Matrix user. Existing projected reactions win.
+func backfillLegacyChannelFavorites(ctx context.Context, txn *sql.Tx) error {
+	for _, table := range []string{"p2p_favorites", "p2p_channel_posts", "p2p_portal", "p2p_reactions"} {
+		exists, err := productTableExists(ctx, txn, table)
+		if err != nil || !exists {
+			return err
+		}
+	}
+	_, err := txn.ExecContext(ctx, `
+		INSERT INTO p2p_reactions (
+			target_type, target_id, channel_id, post_id, comment_id, reaction, user_id, active, created_at
+		)
+		SELECT 'post', post.post_id, post.channel_id, post.post_id, '', 'favorite', portal.owner_mxid, 1, favorite.created_at
+		FROM p2p_favorites AS favorite
+		JOIN p2p_channel_posts AS post
+			ON post.event_id = favorite.event_id
+			AND (favorite.room_id = '' OR favorite.room_id = post.room_id)
+		JOIN p2p_portal AS portal ON portal.id = 'owner'
+		WHERE portal.owner_mxid <> ''
+		ON CONFLICT (target_type, target_id, reaction, user_id) DO NOTHING
+	`)
+	return err
 }
 
 func execMigrationStatements(ctx context.Context, txn *sql.Tx, statements []string) error {

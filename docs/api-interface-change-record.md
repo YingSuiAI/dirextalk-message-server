@@ -1,6 +1,12 @@
 # API Interface Change Record
 
-Last updated: 2026-07-17
+Last updated: 2026-07-20
+
+## 2026-07-20 Canonical Membership And MCP Joined-Room Authorization
+
+Durable ProductCore member records now use the Matrix membership enum consistently: the final joined value is only `membership=join`. `joined` remains valid only as an operation or API result `status`. PostgreSQL migration v76 canonicalizes legacy `joined` member rows to `join`, and all member persistence paths normalize future inputs before storage.
+
+MCP room discovery and room-scoped tools now require the current owner or actual Matrix sender to have `membership=join`. Message history/send, room-member listing, channel-post listing, and channel-comment listing/creation reject pending, joining, left, unknown, or otherwise non-joined rooms. Member-list results expose only current `membership=join` members. The configured Agent room is no longer trusted by identity alone; its relevant sender membership is verified from Matrix room state.
 
 ## 2026-07-17 Central Version Direct Upgrade Contract
 
@@ -16,7 +22,7 @@ When the durable conversation projection contains the room creator's Matrix ID, 
 
 Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
 
-For ordering purposes, a member's persisted `joined_at` advances when Matrix membership transitions from a non-joined state to `join`/`joined`, using the authoritative join event timestamp when projected. Repeated joined events and member-profile updates preserve the established join time, so an earlier invite, pending request, or prior membership generation cannot masquerade as the current room-entry time.
+For ordering purposes, a member's persisted `joined_at` advances when Matrix membership transitions from a non-joined state to `join`, using the authoritative join event timestamp when projected. Repeated join events and member-profile updates preserve the established join time, so an earlier invite, pending request, or prior membership generation cannot masquerade as the current room-entry time.
 
 
 The creator projection is assigned only from the authoritative `m.room.create` sender when that raw sender is already a validated full MXID. Binding an existing `room_id`, the current node identity, later room-profile event senders, and the non-authoritative legacy `content.creator` field do not infer or replace the creator. Member reads lazily resolve current create-event sender IDs through the roomserver, persist the resolved MXID, and clear stale projected creators when current create state cannot identify one; unresolved rooms use the join-order fallback.
@@ -163,7 +169,7 @@ The default order is newest first. Cursor pages keep the first-page snapshot fix
 
 MCP responses no longer return `ts` or `last_ts`. Message, post, comment, send, and comment-create summaries return `created_at`; room summaries return `last_message_at`; member summaries return string `joined_at`.
 
-`mcp.channel_posts.list` post summaries now include `comment_count`, `like_count`, `favorite_count`, and `favorited_by_me`. Favorite state is owner-local message-server favorite state, not a federated/global channel count. Channel ordinary chat remains separate and is read through `mcp.messages.list`, which continues to filter out product `p2p_kind` post/comment events.
+`mcp.channel_posts.list` post summaries now include `comment_count`, `like_count`, `favorite_count`, and `favorited_by_me`. `channels.posts.list` exposes the same favorite fields. Channel favorites use the existing Matrix `m.reaction` projection with `reaction="favorite"`: `favorite_count` is the distinct active-user count and `favorited_by_me` is request-owner-specific, so both converge through normal room refresh/backfill. Clients toggle this state through `channels.post_reaction.toggle` with `reaction="favorite"`; legacy `favorites.*` remains the owner-local saved-message surface. Channel ordinary chat remains separate and is read through `mcp.messages.list`, which continues to filter out product `p2p_kind` post/comment events.
 
 The embedded Native Agent Dirextalk tools use the same contract: `dirextalk_messages_list`, `dirextalk_channel_posts_list`, and `dirextalk_channel_comments_list` expose `from_time`, `to_time`, `cursor`, and `limit` instead of legacy millisecond timestamp fields.
 

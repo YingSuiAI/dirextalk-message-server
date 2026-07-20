@@ -43,6 +43,8 @@ type Post struct {
 	CommentCount   int64                             `json:"comment_count"`
 	ReactionCount  int64                             `json:"reaction_count"`
 	ReactedByMe    bool                              `json:"reacted_by_me"`
+	FavoriteCount  int64                             `json:"favorite_count"`
+	FavoritedByMe  bool                              `json:"favorited_by_me"`
 	Operation      map[string]any                    `json:"operation,omitempty"`
 	Conversation   *dirextalkdomain.ConversationView `json:"conversation,omitempty"`
 }
@@ -92,6 +94,7 @@ type ContentStore interface {
 	DeleteChannelComment(context.Context, string) (bool, error)
 	UpsertReaction(context.Context, dirextalkdomain.ReactionRecord) error
 	GetReaction(context.Context, string, string, string, string) (dirextalkdomain.ReactionRecord, bool, error)
+	DeactivateReactionByEventID(context.Context, string) (bool, error)
 	CountActiveReactions(context.Context, string, string, string) (int64, error)
 	ListReactions(context.Context, string) ([]dirextalkdomain.ReactionRecord, error)
 }

@@ -5,6 +5,21 @@ import (
 	"strings"
 )
 
+// NormalizeMemberMembership keeps the durable ProductCore membership enum
+// aligned with Matrix. "joined" is an operation/result status, not a stored
+// m.room.member membership value.
+func NormalizeMemberMembership(membership string) string {
+	membership = strings.ToLower(strings.TrimSpace(membership))
+	if membership == "joined" {
+		return "join"
+	}
+	return membership
+}
+
+func MemberMembershipJoined(membership string) bool {
+	return strings.EqualFold(strings.TrimSpace(membership), "join")
+}
+
 type PortalState struct {
 	Initialized    bool
 	Password       string
@@ -236,6 +251,7 @@ type FollowRecord struct {
 }
 
 type ReactionRecord struct {
+	EventID    string `json:"event_id"`
 	TargetType string `json:"target_type"`
 	TargetID   string `json:"target_id"`
 	ChannelID  string `json:"channel_id"`

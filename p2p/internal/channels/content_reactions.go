@@ -24,6 +24,7 @@ func (m *ContentModule) ToggleReaction(ctx context.Context, action string, raw m
 	targetID := params.String("post_id")
 	roomID := params.String("room_id")
 	eventID := ""
+	reactionEventID := ""
 	channelID := params.String("channel_id")
 	postID := params.String("post_id")
 	commentID := params.String("comment_id")
@@ -78,7 +79,7 @@ func (m *ContentModule) ToggleReaction(ctx context.Context, action string, raw m
 		record.Active = !existing.Active
 	}
 	if matrix := m.matrixPort(); matrix != nil && roomID != "" && eventID != "" {
-		_, err := matrix.SendMessage(ctx, dirextalktransport.SendMessageRequest{
+		result, err := matrix.SendMessage(ctx, dirextalktransport.SendMessageRequest{
 			SenderMXID: userID, RoomID: roomID, EventType: "m.reaction",
 			MessageType: "m.reaction", Timestamp: m.now(),
 			Content: map[string]any{
@@ -92,7 +93,9 @@ func (m *ContentModule) ToggleReaction(ctx context.Context, action string, raw m
 		if err != nil {
 			return nil, m.transportError(err)
 		}
+		reactionEventID = result.EventID
 	}
+	record.EventID = reactionEventID
 	if err := m.store.UpsertReaction(ctx, record); err != nil {
 		return nil, actionbase.InternalError(err)
 	}
@@ -128,6 +131,14 @@ func (m *ContentModule) EnrichPosts(ctx context.Context, posts []Post, ownerMXID
 		if ownerMXID != "" {
 			if reaction, ok, err := m.store.GetReaction(ctx, "post", posts[i].PostID, "like", ownerMXID); err == nil && ok {
 				posts[i].ReactedByMe = reaction.Active
+			}
+		}
+		if count, err := m.store.CountActiveReactions(ctx, "post", posts[i].PostID, "favorite"); err == nil {
+			posts[i].FavoriteCount = count
+		}
+		if ownerMXID != "" {
+			if reaction, ok, err := m.store.GetReaction(ctx, "post", posts[i].PostID, "favorite", ownerMXID); err == nil && ok {
+				posts[i].FavoritedByMe = reaction.Active
 			}
 		}
 	}
@@ -333,6 +344,7 @@ func (m *ContentModule) ProjectReaction(ctx context.Context, event ProjectionEve
 		createdAt = time.UnixMilli(event.OriginServerTS).UTC()
 	}
 	return m.store.UpsertReaction(ctx, dirextalkdomain.ReactionRecord{
+		EventID:    event.EventID,
 		TargetType: targetType, TargetID: targetID, ChannelID: channelID,
 		PostID: postID, CommentID: commentID, Reaction: reactionName,
 		UserID: event.SenderMXID, Active: active, CreatedAt: createdAt.Format(time.RFC3339Nano),
@@ -354,5 +366,9 @@ func (m *ContentModule) RemoveProjectedEvent(ctx context.Context, eventID string
 	if err != nil {
 		return false, err
 	}
-	return postRemoved || commentRemoved, nil
+	reactionRemoved, err := m.store.DeactivateReactionByEventID(ctx, eventID)
+	if err != nil {
+		return false, err
+	}
+	return postRemoved || commentRemoved || reactionRemoved, nil
 }

@@ -165,8 +165,7 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 	if !ok {
 		localMember = s.memberRecordFor(roomID, ch.ChannelID, userID)
 		localMember.Membership = "pending"
-	} else if strings.EqualFold(strings.TrimSpace(localMember.Membership), "join") ||
-		strings.EqualFold(strings.TrimSpace(localMember.Membership), "joined") {
+	} else if strings.EqualFold(strings.TrimSpace(localMember.Membership), "join") {
 		joined, joinedErr := s.matrixMemberJoined(ctx, roomID, userID)
 		if joinedErr != nil {
 			return nil, false, internalError(joinedErr)
@@ -321,8 +320,7 @@ func (s *Service) remoteChannelJoinRequest(ctx context.Context, params map[strin
 				"error": apiErr.Error, "error_code": fallbackString(apiErr.Code, actionbase.MatrixJoinUnconfirmedCode),
 			}, true, nil
 		}
-		if strings.EqualFold(strings.TrimSpace(localJoin.Membership), "join") ||
-			strings.EqualFold(strings.TrimSpace(localJoin.Membership), "joined") {
+		if strings.EqualFold(strings.TrimSpace(localJoin.Membership), "join") {
 			return map[string]any{
 				"status": "joined", "room_id": localJoin.RoomID, "member": localJoin,
 				"channel": ch, "error": apiErr.Error, "error_code": actionbase.OperationRecoveryCode,

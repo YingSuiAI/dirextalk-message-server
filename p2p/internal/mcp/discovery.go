@@ -29,6 +29,9 @@ func (m *Module) roomsSearch(ctx context.Context, params map[string]any) (any, *
 		if err != nil {
 			return nil, internalError(err)
 		}
+		if !joinedConversation(view) {
+			continue
+		}
 		summary := roomSummaryFromConversation(view)
 		summary = m.enrichRoomSummaryWithMatrixMemberCount(ctx, summary)
 		if summary.RoomID == "" {
@@ -58,6 +61,13 @@ func (m *Module) roomsSearch(ctx context.Context, params map[string]any) (any, *
 	return map[string]any{"rooms": rooms}, nil
 }
 
+func joinedConversation(view dirextalkdomain.ConversationView) bool {
+	if view.Lifecycle != dirextalkdomain.ConversationLifecycleActive {
+		return false
+	}
+	return dirextalkdomain.MemberMembershipJoined(view.Membership)
+}
+
 func (m *Module) contactsList(ctx context.Context, params map[string]any) (any, *dirextalkmcp.Error) {
 	return m.contactsSearch(ctx, params)
 }
@@ -75,6 +85,20 @@ func (m *Module) contactsSearch(ctx context.Context, params map[string]any) (any
 		}
 		summary := contactSummary(contact)
 		if summary.PeerMXID == "" || summary.RoomID == "" {
+			continue
+		}
+		record, ok, err := m.conversations.GetRecord(ctx, "", summary.RoomID)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if !ok {
+			continue
+		}
+		view, err := m.conversations.View(ctx, record)
+		if err != nil {
+			return nil, internalError(err)
+		}
+		if !joinedConversation(view) {
 			continue
 		}
 		if query != "" && !contactMatches(summary, query) {
