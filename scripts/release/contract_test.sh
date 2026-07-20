@@ -46,6 +46,15 @@ service = '''    services:
 for name, job in (("verify", verify.group(1)), ("publish", publish.group(1))):
     if job.count(service) != 1:
         raise SystemExit(f"{name} job lacks the fixed PostgreSQL service")
+
+publish_job = publish.group(1)
+identity = '''          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+'''
+if publish_job.count(identity) != 1:
+    raise SystemExit("publish job lacks the fixed GitHub Actions tag identity")
+if publish_job.index(identity) > publish_job.index('run: bash scripts/release/publish.sh'):
+    raise SystemExit("publish job configures tag identity after publication")
 PY
 
 if grep -En 'release-(manifest|index)|attestation|previous_version|upgrade_from|upgrade_edges|source_test_modes|image_digest|imagetools|release download' \
@@ -113,6 +122,10 @@ case "$1 ${2:-}" in
   'tag --list') printf '%s' "${FAKE_GIT_TAG:-}" ;;
   'rev-list -n') printf '%s\n' "${FAKE_GIT_TAG_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}" ;;
   'cat-file -t') printf '%s\n' "${FAKE_GIT_TAG_TYPE:-tag}" ;;
+  'var GIT_COMMITTER_IDENT')
+    [[ "${FAKE_GIT_IDENTITY_VALID:-1}" == 1 ]] || exit 1
+    printf '%s\n' 'GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com> 1784558400 +0000'
+    ;;
   'push origin')
     if [[ "$*" == *'refs/tags/'* ]]; then
       : >"$RELEASE_TEST_GIT_STATE.remote-tag"
@@ -296,6 +309,17 @@ run_script "$fixture" prepare.sh v1.0.0 env
 run_script "$fixture" verify.sh v1.0.0 env
 if run_script "$fixture" publish.sh v1.0.0 env FAKE_IMAGE_REVISION=2222222222222222222222222222222222222222; then
   fail 'publish accepted a local image built from another commit'
+fi
+
+fixture="$(make_fixture missing-tagger-identity)"
+run_script "$fixture" prepare.sh v1.0.0 env
+run_script "$fixture" verify.sh v1.0.0 env
+if run_script "$fixture" publish.sh v1.0.0 env FAKE_GIT_IDENTITY_VALID=0; then
+  fail 'publish accepted missing Git committer identity when an annotated tag was required'
+fi
+if grep -F 'docker push dirextalk/message-server:v1.0.0' "$fixture/commands.log" >/dev/null ||
+   grep -F 'docker push dirextalk/message-server:latest' "$fixture/commands.log" >/dev/null; then
+  fail 'an image tag moved without the committer identity required to create the release tag'
 fi
 
 fixture="$(make_fixture tag)"

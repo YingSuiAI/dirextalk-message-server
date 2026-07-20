@@ -102,6 +102,10 @@ if [[ -n "$existing_tag" ]]; then
 fi
 validate_remote_tag
 
+if [[ "$REMOTE_TAG_EXISTS" == 0 && -z "$existing_tag" ]]; then
+  git var GIT_COMMITTER_IDENT >/dev/null 2>&1 || release_die 'annotated tag creation requires a valid Git committer identity'
+fi
+
 if formal_release_exists "$RELEASE_VERSION"; then
   [[ "$REMOTE_TAG_EXISTS" == 1 ]] || release_die 'existing GitHub Release requires its remote annotated tag'
   assert_formal_release "$RELEASE_VERSION" "$notes_file"

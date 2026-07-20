@@ -96,10 +96,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Configure one-step Git authentication
+      - name: Configure release tag identity and Git authentication
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh auth setup-git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
       - name: Publish version image and Release, then latest
         env:
           GH_TOKEN: ${{ github.token }}
