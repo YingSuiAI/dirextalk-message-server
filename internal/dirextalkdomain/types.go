@@ -236,6 +236,7 @@ type FollowRecord struct {
 }
 
 type ReactionRecord struct {
+	EventID    string `json:"event_id"`
 	TargetType string `json:"target_type"`
 	TargetID   string `json:"target_id"`
 	ChannelID  string `json:"channel_id"`

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
+	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
 	"github.com/YingSuiAI/dirextalk-message-server/test"
 )
@@ -57,6 +58,7 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 		"p2p_favorites_event_idx",
 		"p2p_reactions_user_idx",
 		"p2p_reactions_target_idx",
+		"p2p_reactions_event_idx",
 		"p2p_members_channel_idx",
 		"p2p_members_room_idx",
 		"p2p_members_user_idx",
@@ -112,7 +114,7 @@ func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
 		t.Fatalf("insert channel post: %v", err)
 	}
 	if err := store.UpsertFavorite(ctx, favoriteRecord{
-		ID: 1, EventID: "$post_legacy", RoomID: "!channel:example.com", MessageType: "channel_post", CreatedAt: "2026-07-20T00:00:00Z",
+		ID: 1, EventID: "$post_legacy", RoomID: "!channel:example.com", MessageType: "m.image", CreatedAt: "2026-07-20T00:00:00Z",
 	}); err != nil {
 		t.Fatalf("insert legacy favorite: %v", err)
 	}
@@ -132,6 +134,17 @@ func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
 	if err != nil || !ok || !reaction.Active || reaction.ChannelID != "channel_legacy" {
 		t.Fatalf("expected active owner favorite reaction, got %#v ok=%v err=%v", reaction, ok, err)
 	}
+	content := channelsmodule.NewContent(store, nil, nil, nil, channelsmodule.ContentConfig{
+		Owner: func() channelsmodule.ContentOwner { return channelsmodule.ContentOwner{MXID: "@owner:example.com"} },
+	})
+	result, apiErr := content.Posts(ctx, map[string]any{"channel_id": "channel_legacy"})
+	if apiErr != nil {
+		t.Fatalf("list migrated post: %#v", apiErr)
+	}
+	posts := result.(map[string]any)["posts"].([]channelsmodule.Post)
+	if len(posts) != 1 || posts[0].FavoriteCount != 1 || !posts[0].FavoritedByMe {
+		t.Fatalf("owner view should expose migrated favorite state, got %#v", posts)
+	}
 
 	txn, err = store.DB().BeginTx(ctx, nil)
 	if err != nil {
@@ -147,6 +160,33 @@ func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
 	count, err := store.CountActiveReactions(ctx, "post", "post_legacy", "favorite")
 	if err != nil || count != 1 {
 		t.Fatalf("backfill replay must remain idempotent, count=%d err=%v", count, err)
+	}
+}
+
+func TestDatabaseReactionEventIdentityDeactivatesCurrentProjection(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.UpsertReaction(ctx, reactionRecord{
+		EventID: "$favorite", TargetType: "post", TargetID: "post_1", ChannelID: "channel_1", PostID: "post_1",
+		Reaction: "favorite", UserID: "@owner:example.com", Active: true,
+	}); err != nil {
+		t.Fatalf("store favorite reaction: %v", err)
+	}
+	removed, err := store.DeactivateReactionByEventID(ctx, "$favorite")
+	if err != nil || !removed {
+		t.Fatalf("deactivate projected reaction = (%t, %v), want (true, nil)", removed, err)
+	}
+	reaction, ok, err := store.GetReaction(ctx, "post", "post_1", "favorite", "@owner:example.com")
+	if err != nil || !ok || reaction.Active || reaction.EventID != "$favorite" {
+		t.Fatalf("expected stored reaction to remain identifiable and inactive, got %#v ok=%v err=%v", reaction, ok, err)
 	}
 }
 

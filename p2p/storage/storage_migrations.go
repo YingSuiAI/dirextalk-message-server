@@ -764,6 +764,19 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return backfillLegacyChannelFavorites(ctx, txn)
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: projected reaction event identity v75",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_reactions")
+			if err != nil || !exists {
+				return err
+			}
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_reactions ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT ''`,
+				`CREATE INDEX IF NOT EXISTS p2p_reactions_event_idx ON p2p_reactions(event_id) WHERE event_id <> ''`,
+			})
+		},
+	})
 	return m.Up(ctx)
 }
 
@@ -788,8 +801,7 @@ func backfillLegacyChannelFavorites(ctx context.Context, txn *sql.Tx) error {
 			ON post.event_id = favorite.event_id
 			AND (favorite.room_id = '' OR favorite.room_id = post.room_id)
 		JOIN p2p_portal AS portal ON portal.id = 'owner'
-		WHERE favorite.message_type IN ('', 'post', 'channel_post')
-			AND portal.owner_mxid <> ''
+		WHERE portal.owner_mxid <> ''
 		ON CONFLICT (target_type, target_id, reaction, user_id) DO NOTHING
 	`)
 	return err

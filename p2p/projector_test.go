@@ -1739,6 +1739,43 @@ func TestProjectOutputRedactionRemovesBusinessRecords(t *testing.T) {
 	}
 }
 
+func TestProjectOutputRedactionDeactivatesFavoriteReaction(t *testing.T) {
+	user := test.NewUser(t)
+	room := test.NewRoom(t, user)
+	service := NewService(Config{ServerName: "test"})
+	service.ownerMXID = user.ID
+	post := room.CreateAndInsert(t, user, "m.room.message", map[string]any{
+		"msgtype": "m.text", "body": "projected post", "p2p_kind": "channel_post",
+		"channel_id": "ch_remote", "post_id": "post_remote",
+	})
+	if err := service.ProjectRoomEvent(context.Background(), post); err != nil {
+		t.Fatal(err)
+	}
+	favorite := room.CreateAndInsert(t, user, "m.reaction", map[string]any{
+		"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": post.EventID(), "key": "favorite"},
+		"channel_id":   "ch_remote", "post_id": "post_remote", "reaction": "favorite", "active": true,
+	})
+	if err := service.ProjectRoomEvent(context.Background(), favorite); err != nil {
+		t.Fatal(err)
+	}
+	posts := mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if len(posts) != 1 || posts[0].FavoriteCount != 1 || !posts[0].FavoritedByMe {
+		t.Fatalf("expected active favorite before redaction, got %#v", posts)
+	}
+	if err := service.ProjectOutputEvent(context.Background(), roomserverAPI.OutputEvent{
+		Type: roomserverAPI.OutputTypeRedactedEvent,
+		RedactedEvent: &roomserverAPI.OutputRedactedEvent{
+			RedactedEventID: favorite.EventID(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	posts = mustHandle[map[string]any](t, service, "channels.posts.list", map[string]any{"channel_id": "ch_remote"})["posts"].([]channelPostRecord)
+	if posts[0].FavoriteCount != 0 || posts[0].FavoritedByMe {
+		t.Fatalf("favorite redaction should clear aggregate and requester state, got %#v", posts[0])
+	}
+}
+
 func TestProjectOutputEventIgnoresNonRoomEvents(t *testing.T) {
 	service := NewService(Config{ServerName: "test"})
 	if err := service.ProjectOutputEvent(context.Background(), roomserverAPI.OutputEvent{Type: roomserverAPI.OutputTypeOldRoomEvent}); err != nil {

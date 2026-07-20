@@ -85,6 +85,19 @@ func (s *MemoryStore) GetReaction(ctx context.Context, targetType, targetID, rea
 	return record, ok, nil
 }
 
+func (s *MemoryStore) DeactivateReactionByEventID(ctx context.Context, eventID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, reaction := range s.reactions {
+		if reaction.EventID == eventID && reaction.Active {
+			reaction.Active = false
+			s.reactions[key] = reaction
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *MemoryStore) CountActiveReactions(ctx context.Context, targetType, targetID, reaction string) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

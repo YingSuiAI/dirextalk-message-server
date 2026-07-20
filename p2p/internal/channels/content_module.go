@@ -94,6 +94,7 @@ type ContentStore interface {
 	DeleteChannelComment(context.Context, string) (bool, error)
 	UpsertReaction(context.Context, dirextalkdomain.ReactionRecord) error
 	GetReaction(context.Context, string, string, string, string) (dirextalkdomain.ReactionRecord, bool, error)
+	DeactivateReactionByEventID(context.Context, string) (bool, error)
 	CountActiveReactions(context.Context, string, string, string) (int64, error)
 	ListReactions(context.Context, string) ([]dirextalkdomain.ReactionRecord, error)
 }
