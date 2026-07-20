@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.5
+
+1. Add owner-only `release.v2.status` for safe updater readiness and progress checks.
+2. Add owner-only `release.v2.apply` for centrally validated direct upgrades.
+3. Keep central release records constrained to canonical versions and safe updater fields.
+
 ## v1.0.4
 
 1. Establish a fresh trusted-release baseline with a verified, exact `v1.0.3` upgrade source.
