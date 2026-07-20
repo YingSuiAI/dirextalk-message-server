@@ -20,6 +20,9 @@ func (m *Module) channelPostsList(ctx context.Context, params map[string]any) (a
 	if mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, roomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	channel, ok, err := m.channels.ByIDOrRoom(ctx, "", roomID)
 	if err != nil {
 		return nil, internalError(err)
@@ -67,6 +70,9 @@ func (m *Module) channelCommentsList(ctx context.Context, params map[string]any)
 	if mcpErr := m.requireRoomAllowed(post.RoomID); mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, post.RoomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	rawComments, hasMore, err := m.content.CommentPage(ctx, postID, page.FromTS, page.SnapshotTS, page.CursorTS, page.CursorID, page.Limit)
 	if err != nil {
 		return nil, internalError(err)
@@ -100,6 +106,9 @@ func (m *Module) channelCommentCreate(ctx context.Context, params map[string]any
 		return nil, dirextalkmcp.StatusError(http.StatusNotFound, "post not found")
 	}
 	if mcpErr := m.requireRoomAllowed(post.RoomID); mcpErr != nil {
+		return nil, mcpErr
+	}
+	if mcpErr := m.requireJoinedRoom(ctx, post.RoomID); mcpErr != nil {
 		return nil, mcpErr
 	}
 	commentAny, actionErr := m.content.CreateComment(ctx, map[string]any{

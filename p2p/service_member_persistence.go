@@ -25,6 +25,7 @@ func (s *Service) saveMemberIfAbsent(ctx context.Context, member memberRecord) (
 	release := s.lockMemberWrite(member.RoomID, member.UserID)
 	defer release()
 
+	member.Membership = dirextalkdomain.NormalizeMemberMembership(member.Membership)
 	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
@@ -52,6 +53,7 @@ func (s *Service) saveMemberIfState(
 	release := s.lockMemberWrite(member.RoomID, member.UserID)
 	defer release()
 
+	member.Membership = dirextalkdomain.NormalizeMemberMembership(member.Membership)
 	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
@@ -95,6 +97,7 @@ func (s *Service) saveMember(ctx context.Context, member memberRecord) error {
 	release := s.lockMemberWrite(member.RoomID, member.UserID)
 	defer release()
 
+	member.Membership = dirextalkdomain.NormalizeMemberMembership(member.Membership)
 	member.Role = normalizeProductMemberRole(member.Role)
 	if member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
@@ -172,8 +175,7 @@ func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
 }
 
 func productMembershipJoined(membership string) bool {
-	membership = strings.ToLower(strings.TrimSpace(membership))
-	return membership == "join" || membership == "joined"
+	return dirextalkdomain.MemberMembershipJoined(membership)
 }
 
 func memberStartsNewRequestGeneration(previous, next string) bool {

@@ -598,7 +598,7 @@ func TestRemotePublicChannelJoinResponseAndCallbackShareSingleMatrixJoin(t *test
 			"status": "joined",
 			"member": memberRecord{
 				RoomID: roomID, ChannelID: channelID, UserID: userID,
-				Membership: "joined", Role: "member", RequestID: requestID,
+				Membership: "join", Role: "member", RequestID: requestID,
 			},
 		})
 	}))

@@ -94,6 +94,42 @@ func TestDatabaseStoreCreatesBusinessIndexes(t *testing.T) {
 	}
 }
 
+func TestDatabaseMembershipMigrationCanonicalizesJoinedToJoin(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, err := store.DB().ExecContext(ctx, `
+		INSERT INTO p2p_members (
+			room_id, user_id, channel_id, display_name, avatar_url, domain,
+			membership, role, muted, joined_at, requester_node_base_url, request_id
+		) VALUES ($1, $2, '', '', '', 'example.com', ' JOINED ', 'member', 0, 1, '', '')
+	`, "!room:example.com", "@alice:example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `DELETE FROM db_migrations WHERE version = $1`, "p2p: canonical Matrix member membership v76"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var membership string
+	if err := store.DB().QueryRowContext(ctx, `
+		SELECT membership FROM p2p_members WHERE room_id = $1 AND user_id = $2
+	`, "!room:example.com", "@alice:example.com").Scan(&membership); err != nil {
+		t.Fatal(err)
+	}
+	if membership != "join" {
+		t.Fatalf("migrated membership = %q, want join", membership)
+	}
+}
+
 func TestLegacyChannelFavoritesBackfillToOwnerReaction(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

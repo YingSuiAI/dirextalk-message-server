@@ -63,6 +63,9 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	if mcpErr := m.requireRoomAllowed(roomID); mcpErr != nil {
 		return nil, mcpErr
 	}
+	if mcpErr := m.requireJoinedRoom(ctx, roomID); mcpErr != nil {
+		return nil, mcpErr
+	}
 	if resolveRoomOwner {
 		resolvedOwner, resolveErr := m.config.ResolveRoomOwner(ctx, roomID)
 		if resolveErr != nil {
@@ -79,7 +82,7 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	}
 	summaries := make([]dirextalkmcp.MemberSummary, 0, len(members))
 	for _, member := range members {
-		if dirextalkdomain.MemberHidden(member.Membership) {
+		if !dirextalkdomain.MemberMembershipJoined(member.Membership) {
 			continue
 		}
 		summaries = append(summaries, memberSummary(member))
@@ -89,6 +92,13 @@ func (m *Module) roomMembersList(ctx context.Context, params map[string]any) (an
 	} else if matrixErr == nil {
 		summaries = mergeMemberSummaries(summaries, matrixMembers)
 	}
+	joinedSummaries := summaries[:0]
+	for _, summary := range summaries {
+		if dirextalkdomain.MemberMembershipJoined(summary.Membership) {
+			joinedSummaries = append(joinedSummaries, summary)
+		}
+	}
+	summaries = joinedSummaries
 	if len(summaries) == 0 {
 		if directMembers, directName, mcpErr := m.directRoomMembers(ctx, roomID); mcpErr != nil {
 			return nil, mcpErr
@@ -235,9 +245,6 @@ func mergeMemberSummaries(existing []dirextalkmcp.MemberSummary, matrixMembers [
 		}
 	}
 	for _, member := range matrixMembers {
-		if dirextalkdomain.MemberHidden(member.Membership) {
-			continue
-		}
 		summary := memberSummary(member)
 		userID := strings.TrimSpace(fallback(summary.UserMXID, summary.UserID))
 		if userID == "" {
@@ -245,6 +252,9 @@ func mergeMemberSummaries(existing []dirextalkmcp.MemberSummary, matrixMembers [
 		}
 		if index, ok := indexByUser[userID]; ok {
 			existing[index] = mergeMemberSummary(existing[index], summary)
+			continue
+		}
+		if !dirextalkdomain.MemberMembershipJoined(summary.Membership) {
 			continue
 		}
 		indexByUser[userID] = len(existing)
@@ -261,8 +271,8 @@ func mergeMemberSummary(existing, incoming dirextalkmcp.MemberSummary) dirextalk
 	if strings.TrimSpace(existing.AvatarURL) == "" {
 		existing.AvatarURL = incoming.AvatarURL
 	}
-	if strings.TrimSpace(existing.Membership) == "" {
-		existing.Membership = incoming.Membership
+	if strings.TrimSpace(incoming.Membership) != "" {
+		existing.Membership = dirextalkdomain.NormalizeMemberMembership(incoming.Membership)
 	}
 	if strings.TrimSpace(existing.Role) == "" || strings.TrimSpace(existing.Role) == "member" {
 		existing.Role = incoming.Role

@@ -365,7 +365,7 @@ func (s *Service) preflightPublicChannelJoinResult(
 		return ctx, actionbase.CodedError(404, actionbase.RequestNotFoundCode, "join request not found")
 	}
 	switch strings.ToLower(strings.TrimSpace(member.Membership)) {
-	case "pending", "approved", "joining", "join_failed", "invite", "join", "joined", "reject", "rejected":
+	case "pending", "approved", "joining", "join_failed", "invite", "join", "reject", "rejected":
 	default:
 		return ctx, actionbase.CodedError(410, actionbase.RequestExpiredCode, "join request expired")
 	}
@@ -996,7 +996,7 @@ func (s *Service) supersededOperationCurrentResult(ctx context.Context, record o
 		"current_room_id": member.RoomID,
 	}
 	switch status {
-	case "join", "joined":
+	case "join":
 		joined, joinedErr := s.matrixMemberJoined(ctx, member.RoomID, member.UserID)
 		if joinedErr != nil {
 			return nil, joinedErr
@@ -1343,7 +1343,7 @@ func (s *Service) completedOperationStillCurrent(ctx context.Context, record ope
 			}
 			joined, joinErr := s.matrixMemberJoined(ctx, record.RoomID, record.UserID)
 			return !joined, joinErr
-		case "join", "joined":
+		case "join":
 			if s.transport == nil {
 				return true, nil
 			}

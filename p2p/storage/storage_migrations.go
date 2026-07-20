@@ -777,6 +777,27 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: canonical Matrix member membership v76",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			exists, err := productTableExists(ctx, txn, "p2p_members")
+			if err != nil || !exists {
+				return err
+			}
+			_, err = txn.ExecContext(ctx, `
+				UPDATE p2p_members
+				SET membership = CASE
+					WHEN LOWER(BTRIM(membership)) = 'joined' THEN 'join'
+					ELSE LOWER(BTRIM(membership))
+				END
+				WHERE membership <> CASE
+					WHEN LOWER(BTRIM(membership)) = 'joined' THEN 'join'
+					ELSE LOWER(BTRIM(membership))
+				END
+			`)
+			return err
+		},
+	})
 	return m.Up(ctx)
 }
 

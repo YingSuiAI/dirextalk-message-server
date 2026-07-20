@@ -9,7 +9,7 @@ import (
 func TestProductMemberCountsCountsJoinedAndPendingOnly(t *testing.T) {
 	joined, pending := ProductMemberCounts([]dirextalkdomain.MemberRecord{
 		{UserID: "@owner:example.com", Membership: "join"},
-		{UserID: "@alice:example.com", Membership: "joined"},
+		{UserID: "@alice:example.com", Membership: "join"},
 		{UserID: "@bob:example.com", Membership: " pending "},
 		{UserID: "@left:example.com", Membership: "left"},
 		{UserID: "@removed:example.com", Membership: "remove"},

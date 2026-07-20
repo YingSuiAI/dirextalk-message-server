@@ -185,7 +185,7 @@ func (s *Service) saveRetainedRoomInviteMetadata(ctx context.Context, scope stri
 		}
 	case "channel":
 		memberStatus := "invite"
-		if strings.EqualFold(strings.TrimSpace(member.Membership), "join") || strings.EqualFold(strings.TrimSpace(member.Membership), "joined") {
+		if strings.EqualFold(strings.TrimSpace(member.Membership), "join") {
 			memberStatus = "join"
 		}
 		ch := channel{
@@ -227,8 +227,7 @@ func (s *Service) joinAndProjectRetainedRoom(ctx context.Context, scope string, 
 		*member = attempt.Member
 	}
 	if attempt.Stale {
-		if strings.EqualFold(strings.TrimSpace(attempt.Member.Membership), "join") ||
-			strings.EqualFold(strings.TrimSpace(attempt.Member.Membership), "joined") {
+		if strings.EqualFold(strings.TrimSpace(attempt.Member.Membership), "join") {
 			return nil
 		}
 		return codedError(http.StatusConflict, actionbase.MatrixJoinUnconfirmedCode, "Matrix join generation changed during settlement")
@@ -471,7 +470,7 @@ func (s *Service) joinAndProjectRetainedRoomGeneration(
 
 func retainedRoomMatrixJoinClaimable(membership string) bool {
 	switch strings.ToLower(strings.TrimSpace(membership)) {
-	case "invite", "pending", "approved", "joining", "join_failed", "join", "joined":
+	case "invite", "pending", "approved", "joining", "join_failed", "join":
 		return true
 	default:
 		return false
@@ -615,8 +614,7 @@ func (s *Service) refreshRoomMembersForGeneration(
 		if !found || current.RequestID != target.RequestID {
 			return current, true, nil
 		}
-		if !strings.EqualFold(strings.TrimSpace(member.Membership), "join") &&
-			!strings.EqualFold(strings.TrimSpace(member.Membership), "joined") {
+		if !strings.EqualFold(strings.TrimSpace(member.Membership), "join") {
 			continue
 		}
 		member.Membership = "join"
@@ -655,7 +653,7 @@ func preserveActivePublicJoinOnRoomInviteRefresh(existing, refreshed memberRecor
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(existing.Membership)) {
-	case "pending", "approved", "joining", "join_failed", "join", "joined", "reject", "rejected":
+	case "pending", "approved", "joining", "join_failed", "join", "reject", "rejected":
 		return true
 	default:
 		return false
@@ -676,8 +674,7 @@ func (s *Service) matrixMemberJoined(ctx context.Context, roomID, userID string)
 		return false, err
 	}
 	for _, member := range members {
-		if member.UserID == userID && (strings.EqualFold(strings.TrimSpace(member.Membership), "join") ||
-			strings.EqualFold(strings.TrimSpace(member.Membership), "joined")) {
+		if member.UserID == userID && strings.EqualFold(strings.TrimSpace(member.Membership), "join") {
 			return true, nil
 		}
 	}

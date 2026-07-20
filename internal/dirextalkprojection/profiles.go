@@ -141,7 +141,7 @@ func JoinRequestMember(
 
 func preserveApprovedJoinRequestWorkflow(existing dirextalkdomain.MemberRecord) bool {
 	switch strings.ToLower(strings.TrimSpace(existing.Membership)) {
-	case "approved", "joining", "join_failed", "join", "joined":
+	case "approved", "joining", "join_failed", "join":
 		return true
 	default:
 		return false

@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+func TestNormalizeMemberMembershipUsesMatrixJoinEnum(t *testing.T) {
+	for input, want := range map[string]string{
+		" join ":   "join",
+		" JOINED ": "join",
+		"Joining":  "joining",
+		"LEFT":     "left",
+	} {
+		if got := NormalizeMemberMembership(input); got != want {
+			t.Fatalf("NormalizeMemberMembership(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if !MemberMembershipJoined("JOIN") || MemberMembershipJoined("joined") {
+		t.Fatal("only Matrix membership=join must be treated as joined")
+	}
+}
+
 func TestMemberRecordJSONIncludesCompatibilityFields(t *testing.T) {
 	raw, err := json.Marshal(MemberRecord{
 		RoomID:     "!room:example.com",
@@ -317,7 +333,7 @@ func TestProductMemberVisibilityAndRoleNormalization(t *testing.T) {
 			t.Fatalf("MemberHidden(%q) = false, want true", membership)
 		}
 	}
-	for _, membership := range []string{"", "invite", "pending", "join", "joined"} {
+	for _, membership := range []string{"", "invite", "pending", "join"} {
 		if MemberHidden(membership) {
 			t.Fatalf("MemberHidden(%q) = true, want false", membership)
 		}

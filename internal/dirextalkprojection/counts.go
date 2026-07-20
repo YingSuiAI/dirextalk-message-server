@@ -9,7 +9,7 @@ import (
 func ProductMemberCounts(members []dirextalkdomain.MemberRecord) (joined, pending int64) {
 	for _, member := range members {
 		switch strings.ToLower(strings.TrimSpace(member.Membership)) {
-		case "join", "joined":
+		case "join":
 			joined++
 		case "pending":
 			pending++

@@ -97,6 +97,7 @@ func (s *DatabaseStore) ListReactions(ctx context.Context, userID string) ([]rea
 }
 
 func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) error {
+	member = normalizeMemberRecord(member)
 	return s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO p2p_members (
@@ -119,8 +120,8 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 					ELSE p2p_members.request_id
 				END,
 				joined_at = CASE
-					WHEN LOWER(BTRIM(EXCLUDED.membership)) IN ('join', 'joined')
-						AND LOWER(BTRIM(p2p_members.membership)) NOT IN ('join', 'joined')
+					WHEN LOWER(BTRIM(EXCLUDED.membership)) = 'join'
+						AND LOWER(BTRIM(p2p_members.membership)) <> 'join'
 						AND EXCLUDED.joined_at > 0
 						THEN EXCLUDED.joined_at
 					WHEN p2p_members.joined_at > 0 THEN p2p_members.joined_at
@@ -133,6 +134,7 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 }
 
 func (s *DatabaseStore) InsertMemberIfAbsent(ctx context.Context, member memberRecord) (bool, error) {
+	member = normalizeMemberRecord(member)
 	inserted := false
 	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		result, err := s.db.ExecContext(ctx, `
@@ -161,6 +163,8 @@ func (s *DatabaseStore) CompareAndSwapMemberGeneration(
 	expectedRequestID,
 	expectedMembership string,
 ) (bool, error) {
+	member = normalizeMemberRecord(member)
+	expectedMembership = normalizeMemberRecord(memberRecord{Membership: expectedMembership}).Membership
 	updated := false
 	err := s.writer.Do(nil, nil, func(txn *sql.Tx) error {
 		result, err := s.db.ExecContext(ctx, `

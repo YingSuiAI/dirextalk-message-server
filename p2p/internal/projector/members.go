@@ -72,11 +72,10 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 	if _, ok := content["muted"]; ok {
 		muted = boolValue(content["muted"])
 	}
+	membership = dirextalkdomain.NormalizeMemberMembership(membership)
 	joinedAt := existing.JoinedAt
-	currentlyJoined := strings.EqualFold(strings.TrimSpace(membership), "join") ||
-		strings.EqualFold(strings.TrimSpace(membership), "joined")
-	wasJoined := strings.EqualFold(strings.TrimSpace(existing.Membership), "join") ||
-		strings.EqualFold(strings.TrimSpace(existing.Membership), "joined")
+	currentlyJoined := dirextalkdomain.MemberMembershipJoined(membership)
+	wasJoined := dirextalkdomain.MemberMembershipJoined(existing.Membership)
 	if joinedAt == 0 || currentlyJoined && !wasJoined {
 		joinedAt = m.eventTime(event).UnixMilli()
 	}
@@ -167,7 +166,7 @@ func preservePublicJoinWorkflowOnInvite(existing dirextalkdomain.MemberRecord, e
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(existing.Membership)) {
-	case "pending", "approved", "joining", "join_failed", "reject", "rejected", "join", "joined":
+	case "pending", "approved", "joining", "join_failed", "reject", "rejected", "join":
 		return true
 	default:
 		return false

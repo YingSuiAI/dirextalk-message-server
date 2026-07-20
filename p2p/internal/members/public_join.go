@@ -114,7 +114,7 @@ func (m *Module) ChannelPublicJoinRequest(ctx context.Context, raw map[string]an
 	if found && !newGeneration {
 		existingStatus := strings.ToLower(strings.TrimSpace(existing.Membership))
 		switch existingStatus {
-		case "join", "joined":
+		case "join":
 			joined, joinedErr := m.matrixJoined(settlementCtx, roomID, userID)
 			if joinedErr != nil {
 				return nil, actionbase.InternalError(joinedErr)
@@ -226,7 +226,7 @@ func (m *Module) currentPublicJoinState(ctx context.Context, member dirextalkdom
 	status := strings.ToLower(strings.TrimSpace(member.Membership))
 	result := map[string]any{"status": status, "member": member, "channel": channel}
 	switch status {
-	case "join", "joined":
+	case "join":
 		joined, err := m.matrixJoined(ctx, member.RoomID, member.UserID)
 		if err != nil {
 			return nil, actionbase.InternalError(err)
@@ -307,7 +307,7 @@ func (m *Module) ChannelPublicJoinResult(ctx context.Context, raw map[string]any
 	}
 	memberStatus := strings.ToLower(strings.TrimSpace(member.Membership))
 	switch memberStatus {
-	case "pending", "approved", "joining", "join_failed", "invite", "join", "joined", "reject", "rejected":
+	case "pending", "approved", "joining", "join_failed", "invite", "join", "reject", "rejected":
 	default:
 		return nil, actionbase.CodedError(http.StatusGone, actionbase.RequestExpiredCode, "join request expired")
 	}
