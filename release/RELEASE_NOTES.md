@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.6
+
+1. Restore authoritative room-owner detection from Matrix creation events.
+2. Order members by the exact creator and confirmed room-join time.
+3. Keep member and avatar lists stable across projection retries and restarts.
+
 ## v1.0.5
 
 1. Add owner-only `release.v2.status` for safe updater readiness and progress checks.
