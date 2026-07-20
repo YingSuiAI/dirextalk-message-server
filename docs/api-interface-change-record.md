@@ -16,6 +16,9 @@ When the durable conversation projection contains the room creator's Matrix ID, 
 
 Remaining members are ordered by ascending persisted `joined_at`, with missing/zero timestamps last and the full Matrix `user_id` as the deterministic tie-breaker. Legacy or not-yet-hydrated rooms without a projected creator use that join order for the whole list rather than trusting a stored owner role. Clients should preserve the returned order and must not infer the room creator from the `@owner` localpart.
 
+For ordering purposes, a member's persisted `joined_at` advances when Matrix membership transitions from a non-joined state to `join`/`joined`, using the authoritative join event timestamp when projected. Repeated joined events and member-profile updates preserve the established join time, so an earlier invite, pending request, or prior membership generation cannot masquerade as the current room-entry time.
+
+
 The creator projection is assigned only from the authoritative `m.room.create` sender when that raw sender is already a validated full MXID. Binding an existing `room_id`, the current node identity, later room-profile event senders, and the non-authoritative legacy `content.creator` field do not infer or replace the creator. Member reads lazily resolve current create-event sender IDs through the roomserver, persist the resolved MXID, and clear stale projected creators when current create state cannot identify one; unresolved rooms use the join-order fallback.
 
 Matrix product-write policy uses the same create-sender authority for the privileged owner role. A member-policy `role` value cannot promote a non-creator to owner or demote the confirmed creator; member-policy mute state remains authoritative.

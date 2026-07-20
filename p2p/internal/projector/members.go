@@ -73,7 +73,11 @@ func (m *Module) projectMember(ctx context.Context, event *types.HeaderedEvent) 
 		muted = boolValue(content["muted"])
 	}
 	joinedAt := existing.JoinedAt
-	if joinedAt == 0 {
+	currentlyJoined := strings.EqualFold(strings.TrimSpace(membership), "join") ||
+		strings.EqualFold(strings.TrimSpace(membership), "joined")
+	wasJoined := strings.EqualFold(strings.TrimSpace(existing.Membership), "join") ||
+		strings.EqualFold(strings.TrimSpace(existing.Membership), "joined")
+	if joinedAt == 0 || currentlyJoined && !wasJoined {
 		joinedAt = m.eventTime(event).UnixMilli()
 	}
 	requestID := existing.RequestID

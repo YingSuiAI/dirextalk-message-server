@@ -205,6 +205,40 @@ func TestDatabaseStoreCompareAndSwapMemberGenerationGuardsState(t *testing.T) {
 	}
 }
 
+func TestDatabaseStoreUpsertUsesJoinTransitionTimeAndPreservesJoinedTime(t *testing.T) {
+	ctx := context.Background()
+	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)
+	defer closeDB()
+	dbOpts := config.DatabaseOptions{ConnectionString: config.DataSource(connStr)}
+	store, err := NewDatabaseStore(ctx, sqlutil.NewConnectionManager(nil, dbOpts), &dbOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	member := memberRecord{
+		RoomID: "!join-time:example.com", UserID: "@peer:example.com",
+		Membership: "invite", Role: "member", JoinedAt: 100,
+	}
+	if err := store.UpsertMember(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	member.Membership = "join"
+	member.JoinedAt = 200
+	if err := store.UpsertMember(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	member.JoinedAt = 300
+	if err := store.UpsertMember(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+
+	got, found, err := store.LookupMember(ctx, member.RoomID, member.UserID)
+	if err != nil || !found || got.JoinedAt != 200 {
+		t.Fatalf("stored join timestamp = (%#v, %v, %v), want 200", got, found, err)
+	}
+}
+
 func TestDatabaseStoreUpsertContactPersistsExplicitAvatarClearAcrossReopen(t *testing.T) {
 	ctx := context.Background()
 	connStr, closeDB := test.PrepareDBConnectionString(t, test.DBTypePostgres)

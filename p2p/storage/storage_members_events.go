@@ -98,6 +98,10 @@ func (s *DatabaseStore) UpsertMember(ctx context.Context, member memberRecord) e
 					ELSE p2p_members.request_id
 				END,
 				joined_at = CASE
+					WHEN LOWER(BTRIM(EXCLUDED.membership)) IN ('join', 'joined')
+						AND LOWER(BTRIM(p2p_members.membership)) NOT IN ('join', 'joined')
+						AND EXCLUDED.joined_at > 0
+						THEN EXCLUDED.joined_at
 					WHEN p2p_members.joined_at > 0 THEN p2p_members.joined_at
 					WHEN EXCLUDED.joined_at > 0 THEN EXCLUDED.joined_at
 					ELSE p2p_members.joined_at

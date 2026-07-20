@@ -148,7 +148,10 @@ func (s *Service) lockMemberWrite(roomID, userID string) func() {
 }
 
 func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
-	if existing.JoinedAt > 0 && !memberStartsNewRequestGeneration(existing.Membership, member.Membership) {
+	joinedNow := productMembershipJoined(member.Membership)
+	wasJoined := productMembershipJoined(existing.Membership)
+	if existing.JoinedAt > 0 && !memberStartsNewRequestGeneration(existing.Membership, member.Membership) &&
+		!(joinedNow && !wasJoined) {
 		member.JoinedAt = existing.JoinedAt
 	}
 	if member.RequesterNodeBaseURL == "" {
@@ -166,6 +169,11 @@ func mergeMemberPersistence(member *memberRecord, existing memberRecord) {
 		!memberHidden(member.Membership) {
 		member.Role = existing.Role
 	}
+}
+
+func productMembershipJoined(membership string) bool {
+	membership = strings.ToLower(strings.TrimSpace(membership))
+	return membership == "join" || membership == "joined"
 }
 
 func memberStartsNewRequestGeneration(previous, next string) bool {

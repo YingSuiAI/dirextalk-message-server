@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
@@ -1622,6 +1623,44 @@ func TestProjectSparseMemberEventPreservesProfileAndMute(t *testing.T) {
 		gotMembers[0].AvatarURL != "mxc://test/member" ||
 		!gotMembers[0].Muted {
 		t.Fatalf("expected sparse member event to preserve profile fields, got %#v", members)
+	}
+}
+
+func TestProjectMemberUsesJoinEventTimeAndPreservesItOnProfileUpdate(t *testing.T) {
+	owner := test.NewUser(t)
+	memberUser := test.NewUser(t)
+	room := test.NewRoom(t, owner)
+	service := NewService(Config{ServerName: "test"})
+	const inviteTime = int64(1000)
+	joinTime := time.UnixMilli(2000).UTC()
+	profileTime := time.UnixMilli(3000).UTC()
+
+	if err := service.saveMember(context.Background(), memberRecord{
+		RoomID: room.ID, UserID: memberUser.ID, Membership: "invite", Role: "member", JoinedAt: inviteTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	join := room.CreateAndInsert(t, memberUser, "m.room.member", map[string]any{
+		"membership": "join", "displayname": "Joined Member",
+	}, test.WithStateKey(memberUser.ID), test.WithTimestamp(joinTime))
+	if err := service.ProjectRoomEvent(context.Background(), join); err != nil {
+		t.Fatal(err)
+	}
+
+	joined, ok, err := service.lookupMember(context.Background(), room.ID, memberUser.ID)
+	if err != nil || !ok || joined.JoinedAt != joinTime.UnixMilli() {
+		t.Fatalf("join projection timestamp = (%#v, %v, %v), want %d", joined, ok, err, joinTime.UnixMilli())
+	}
+
+	profile := room.CreateAndInsert(t, memberUser, "m.room.member", map[string]any{
+		"membership": "join", "displayname": "Updated Member",
+	}, test.WithStateKey(memberUser.ID), test.WithTimestamp(profileTime))
+	if err := service.ProjectRoomEvent(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
+	updated, ok, err := service.lookupMember(context.Background(), room.ID, memberUser.ID)
+	if err != nil || !ok || updated.JoinedAt != joinTime.UnixMilli() {
+		t.Fatalf("profile projection changed join timestamp = (%#v, %v, %v), want %d", updated, ok, err, joinTime.UnixMilli())
 	}
 }
 

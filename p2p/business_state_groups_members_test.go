@@ -854,6 +854,29 @@ func TestKickedGroupMemberRequiresFreshInvite(t *testing.T) {
 
 }
 
+func TestGroupJoinReplacesInviteTimeWithConfirmedJoinTime(t *testing.T) {
+	ctx := context.Background()
+	service := NewService(Config{ServerName: "example.com"})
+	group := mustHandle[groupRecord](t, service, "groups.create", map[string]any{
+		"room_id": "!join-time:example.com", "name": "Join Time",
+	})
+	invited := memberRecord{
+		RoomID: group.RoomID, UserID: "@member:example.com",
+		Membership: "invite", Role: "member", JoinedAt: 1,
+	}
+	if err := service.store.UpsertMember(ctx, invited); err != nil {
+		t.Fatal(err)
+	}
+
+	result := mustHandle[map[string]any](t, service, "groups.join", map[string]any{
+		"room_id": group.RoomID, "user_mxid": invited.UserID,
+	})
+	joined := result["member"].(memberRecord)
+	if joined.Membership != "join" || joined.JoinedAt <= invited.JoinedAt {
+		t.Fatalf("confirmed group join retained invite timestamp: invited=%#v joined=%#v", invited, joined)
+	}
+}
+
 func TestGroupMemberLeaveActionCanRejoin(t *testing.T) {
 	service := NewService(Config{ServerName: "remote.example"})
 	bootstrapService(t, service)

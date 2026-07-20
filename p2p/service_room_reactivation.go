@@ -407,7 +407,7 @@ func (s *Service) joinAndProjectRetainedRoomGeneration(
 	}
 
 	member.Membership = "join"
-	if member.JoinedAt == 0 {
+	if !productMembershipJoined(expectedMembership) || member.JoinedAt == 0 {
 		member.JoinedAt = time.Now().UTC().UnixMilli()
 	}
 	saved, saveErr := s.saveMemberIfState(ctx, *member, expectedRequestID, expectedMembership)
