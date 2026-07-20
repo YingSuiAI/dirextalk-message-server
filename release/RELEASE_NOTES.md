@@ -4,9 +4,10 @@
 
 ## v1.0.6
 
-1. Restore authoritative room-owner detection from Matrix creation events.
-2. Order members by the exact creator and confirmed room-join time.
-3. Keep member and avatar lists stable across projection retries and restarts.
+1. Require current Matrix `join` membership for MCP room discovery and room-scoped actions.
+2. Make channel post favorites converge from Matrix reactions across all members.
+3. Restore authoritative room-owner detection from Matrix creation events.
+4. Keep member and avatar lists stable with exact-creator and confirmed-join-time ordering.
 
 ## v1.0.5
 
