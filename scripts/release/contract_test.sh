@@ -21,6 +21,32 @@ grep -F 'persist-credentials: false' "$repo_root/.github/workflows/release.yml" 
 grep -Eq '^[[:space:]]+verify:$' "$repo_root/.github/workflows/release.yml" || fail 'release workflow has no isolated verify job'
 grep -Eq '^[[:space:]]+publish:$' "$repo_root/.github/workflows/release.yml" || fail 'release workflow has no isolated publish job'
 grep -F 'needs: verify' "$repo_root/.github/workflows/release.yml" >/dev/null || fail 'release publication does not depend on isolated verification'
+python3 - "$repo_root/.github/workflows/release.yml" <<'PY' || fail 'each release job must provide the known-good PostgreSQL service'
+import pathlib, re, sys
+
+workflow = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+verify = re.search(r"(?ms)^  verify:\n(.*?)(?=^  publish:\n)", workflow)
+publish = re.search(r"(?ms)^  publish:\n(.*)\Z", workflow)
+if not verify or not publish:
+    raise SystemExit("release jobs are missing")
+
+service = '''    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: "123789"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+'''
+for name, job in (("verify", verify.group(1)), ("publish", publish.group(1))):
+    if job.count(service) != 1:
+        raise SystemExit(f"{name} job lacks the fixed PostgreSQL service")
+PY
 
 if grep -En 'release-(manifest|index)|attestation|previous_version|upgrade_from|upgrade_edges|source_test_modes|image_digest|imagetools|release download' \
   "$repo_root/scripts/release/lib.sh" "$verify" "$publish" "$repo_root/.github/workflows/release.yml"; then
