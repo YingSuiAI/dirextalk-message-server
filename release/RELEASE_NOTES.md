@@ -56,7 +56,7 @@ metadata.
 
 - Server schema version: `1`.
 - Oldest readable server schema version: `1`.
-- Client compatibility is declared by each published release manifest using
+- Client compatibility is declared by each checked-in release configuration using
   an inclusive minimum and exclusive maximum version.
 - The central server version record is the only authority for selecting an
   upgrade target; repository release metadata does not constrain the source
@@ -72,7 +72,7 @@ older backup.
 
 The source version, Docker version tag, release-notes section, Git tag, and
 GitHub Release tag must all be identical. The formal GitHub Release carries the
-release notes and no updater metadata assets.
+release notes and no assets.
 
 Run the project-local `dirextalk-message-server-release` Skill and
 `scripts/release/{prepare,verify,publish}.sh`. The scripts publish and probe the

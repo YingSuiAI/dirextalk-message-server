@@ -49,7 +49,13 @@ path.write_text(json.dumps({
     "schema_compat_version": 1,
 }, separators=(",", ":")) + "\n", encoding="utf-8")
 PY
-  printf 'version = "%s"\n' "$version" >"$fixture/repo/internal/version.go"
+  cat >"$fixture/repo/internal/version.go" <<EOF
+const (
+  SchemaVersion = 2
+  SchemaCompatVersion = 1
+)
+version = "$version"
+EOF
   printf '%s\n' 'module example.test/release-fixture' >"$fixture/repo/go.mod"
   : >"$fixture/commands.log"
 
@@ -67,18 +73,25 @@ case "$1 ${2:-}" in
   'status --porcelain') printf '%s' "${FAKE_GIT_DIRTY:-}" ;;
   'branch --show-current') printf '%s\n' "${FAKE_GIT_BRANCH:-main}" ;;
   'rev-parse HEAD') printf '%s\n' "${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}" ;;
-  'ls-remote --exit-code')
-    if [[ "$*" == *'refs/tags/'* ]]; then
-      tag="${*: -1}"
-      printf '%s\t%s\n' "${FAKE_GIT_REMOTE_TAG_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}" "$tag"
-    else
-      printf '%s\trefs/heads/main\n' "${FAKE_GIT_LS_REMOTE_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}"
+  'ls-remote --exit-code') printf '%s\trefs/heads/main\n' "${FAKE_GIT_LS_REMOTE_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}" ;;
+  'ls-remote --tags')
+    if [[ -f "$RELEASE_TEST_GIT_STATE.remote-tag" || -n "${FAKE_GIT_REMOTE_TAG_HEAD:-}" ]]; then
+      tag="${*: -2:1}"
+      printf '%s\t%s\n' "${FAKE_GIT_REMOTE_TAG_OBJECT:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" "$tag"
+      if [[ "${FAKE_GIT_REMOTE_TAG_LIGHTWEIGHT:-0}" != 1 ]]; then
+        printf '%s\t%s^{}\n' "${FAKE_GIT_REMOTE_TAG_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}" "$tag"
+      fi
     fi
     ;;
   'show -s') printf '%s\n' '2026-07-10T00:00:00Z' ;;
   'tag --list') printf '%s' "${FAKE_GIT_TAG:-}" ;;
   'rev-list -n') printf '%s\n' "${FAKE_GIT_TAG_HEAD:-${FAKE_GIT_HEAD:-1111111111111111111111111111111111111111}}" ;;
   'cat-file -t') printf '%s\n' "${FAKE_GIT_TAG_TYPE:-tag}" ;;
+  'push origin')
+    if [[ "$*" == *'refs/tags/'* ]]; then
+      : >"$RELEASE_TEST_GIT_STATE.remote-tag"
+    fi
+    ;;
   *) ;;
 esac
 EOF
@@ -114,7 +127,24 @@ fi
 if [[ "${1:-} ${2:-}" == 'release view' ]]; then
   [[ -f "$RELEASE_TEST_GH_STATE.release" ]] || exit 1
   if [[ "$*" == *'--json'* ]]; then
-    printf '%s\t%s\t%s\n' "${FAKE_GH_TAG:-${3:-}}" "${FAKE_GH_DRAFT:-false}" "${FAKE_GH_PRERELEASE:-false}"
+    FAKE_GH_REQUESTED_TAG="${3:-}" python3 - <<'PY'
+import json, os, pathlib
+
+tag = os.environ["FAKE_GH_REQUESTED_TAG"]
+notes_path = pathlib.Path(os.environ["RELEASE_OUTPUT_DIR"]) / "release-notes.md"
+body = os.environ.get("FAKE_GH_BODY")
+if body is None:
+    body = notes_path.read_text(encoding="utf-8")
+assets = [{"name": "stale.json"}] if os.environ.get("FAKE_GH_ASSET_COUNT", "0") != "0" else []
+print(json.dumps({
+    "tagName": os.environ.get("FAKE_GH_TAG", tag),
+    "name": os.environ.get("FAKE_GH_TITLE", f"Dirextalk Message Server {tag}"),
+    "body": body,
+    "isDraft": os.environ.get("FAKE_GH_DRAFT", "false") == "true",
+    "isPrerelease": os.environ.get("FAKE_GH_PRERELEASE", "false") == "true",
+    "assets": assets,
+}, separators=(",", ":")))
+PY
   fi
 elif [[ "${1:-} ${2:-}" == 'release create' ]]; then
   : >"$RELEASE_TEST_GH_STATE.release"
@@ -136,6 +166,7 @@ run_script() {
       RELEASE_OUTPUT_DIR="$fixture/out" \
       RELEASE_TEST_LOG="$fixture/commands.log" \
       RELEASE_TEST_GH_STATE="$fixture/gh-state" \
+      RELEASE_TEST_GIT_STATE="$fixture/git-state" \
       RELEASE_CONTRACT_TEST=1 \
       "$@" "$fixture/repo/$script" "$version"
   )
@@ -168,9 +199,21 @@ if run_script "$fixture" prepare.sh v1.0.0 env; then
 fi
 
 fixture="$(make_fixture version)"
-printf '%s\n' 'version = "v9.9.9"' >"$fixture/repo/internal/version.go"
+sed -i 's/version = "v1.0.0"/version = "v9.9.9"/' "$fixture/repo/internal/version.go"
 if run_script "$fixture" prepare.sh v1.0.0 env; then
   fail 'prepare accepted a mismatched source version'
+fi
+
+fixture="$(make_fixture schema-version)"
+sed -i 's/SchemaVersion = 2/SchemaVersion = 3/' "$fixture/repo/internal/version.go"
+if run_script "$fixture" prepare.sh v1.0.0 env; then
+  fail 'prepare accepted a release config with a mismatched schema version'
+fi
+
+fixture="$(make_fixture schema-compat-version)"
+sed -i 's/SchemaCompatVersion = 1/SchemaCompatVersion = 2/' "$fixture/repo/internal/version.go"
+if run_script "$fixture" prepare.sh v1.0.0 env; then
+  fail 'prepare accepted a release config with a mismatched schema compatibility version'
 fi
 
 fixture="$(make_fixture obsolete-config)"
@@ -238,6 +281,9 @@ fi
 if grep -F 'docker push dirextalk/message-server:v1.0.0' "$fixture/commands.log" >/dev/null; then
   fail 'version image moved after tag mismatch'
 fi
+if grep -F 'docker push dirextalk/message-server:latest' "$fixture/commands.log" >/dev/null; then
+  fail 'latest moved after local tag mismatch'
+fi
 
 fixture="$(make_fixture remote-tag)"
 run_script "$fixture" prepare.sh v1.0.0 env
@@ -245,8 +291,22 @@ run_script "$fixture" verify.sh v1.0.0 env
 if run_script "$fixture" publish.sh v1.0.0 env FAKE_GIT_REMOTE_TAG_HEAD=2222222222222222222222222222222222222222; then
   fail 'publish accepted a remote release tag bound to another commit'
 fi
+if grep -F 'docker push dirextalk/message-server:v1.0.0' "$fixture/commands.log" >/dev/null; then
+  fail 'version image moved for a mismatched remote release tag'
+fi
 if grep -F 'docker push dirextalk/message-server:latest' "$fixture/commands.log" >/dev/null; then
   fail 'latest moved for a mismatched remote release tag'
+fi
+
+fixture="$(make_fixture lightweight-remote-tag)"
+run_script "$fixture" prepare.sh v1.0.0 env
+run_script "$fixture" verify.sh v1.0.0 env
+if run_script "$fixture" publish.sh v1.0.0 env FAKE_GIT_REMOTE_TAG_HEAD=1111111111111111111111111111111111111111 FAKE_GIT_REMOTE_TAG_LIGHTWEIGHT=1; then
+  fail 'publish accepted a lightweight remote release tag'
+fi
+if grep -F 'docker push dirextalk/message-server:v1.0.0' "$fixture/commands.log" >/dev/null ||
+   grep -F 'docker push dirextalk/message-server:latest' "$fixture/commands.log" >/dev/null; then
+  fail 'an image tag moved for a lightweight remote release tag'
 fi
 
 fixture="$(make_fixture github-failure)"
@@ -263,8 +323,39 @@ fixture="$(make_fixture draft-release)"
 run_script "$fixture" prepare.sh v1.0.0 env
 run_script "$fixture" verify.sh v1.0.0 env
 : >"$fixture/gh-state.release"
-if run_script "$fixture" publish.sh v1.0.0 env FAKE_GH_DRAFT=true; then
+if run_script "$fixture" publish.sh v1.0.0 env FAKE_GIT_REMOTE_TAG_HEAD=1111111111111111111111111111111111111111 FAKE_GH_DRAFT=true; then
   fail 'publish accepted an existing draft GitHub Release'
+fi
+
+for stale_release_case in title notes assets; do
+  fixture="$(make_fixture "stale-release-$stale_release_case")"
+  run_script "$fixture" prepare.sh v1.0.0 env
+  run_script "$fixture" verify.sh v1.0.0 env
+  : >"$fixture/gh-state.release"
+  case "$stale_release_case" in
+    title) stale_env=(FAKE_GH_TITLE='stale title') ;;
+    notes) stale_env=(FAKE_GH_BODY='stale notes') ;;
+    assets) stale_env=(FAKE_GH_ASSET_COUNT=1) ;;
+  esac
+  if run_script "$fixture" publish.sh v1.0.0 env \
+      FAKE_GIT_REMOTE_TAG_HEAD=1111111111111111111111111111111111111111 "${stale_env[@]}"; then
+    fail "publish accepted stale GitHub Release $stale_release_case"
+  fi
+  if grep -F 'docker push dirextalk/message-server:latest' "$fixture/commands.log" >/dev/null; then
+    fail "latest moved for stale GitHub Release $stale_release_case"
+  fi
+  if grep -F 'docker push dirextalk/message-server:v1.0.0' "$fixture/commands.log" >/dev/null; then
+    fail "version image moved for stale GitHub Release $stale_release_case"
+  fi
+done
+
+fixture="$(make_fixture existing-release)"
+run_script "$fixture" prepare.sh v1.0.0 env
+run_script "$fixture" verify.sh v1.0.0 env
+: >"$fixture/gh-state.release"
+run_script "$fixture" publish.sh v1.0.0 env FAKE_GIT_REMOTE_TAG_HEAD=1111111111111111111111111111111111111111
+if grep -F 'gh release create v1.0.0' "$fixture/commands.log" >/dev/null; then
+  fail 'idempotent publication recreated an existing valid GitHub Release'
 fi
 
 fixture="$(make_fixture order)"

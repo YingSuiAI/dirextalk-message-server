@@ -32,11 +32,17 @@ attestation is generated, downloaded, uploaded, or consulted.
    embedded version.
 2. Push `dirextalk/message-server:vX.Y.Z`, pull it back, and probe it again.
 3. Create or verify the annotated Git tag and matching formal GitHub Release
-   using the checked-in release notes. The Release has no updater metadata
-   assets.
+   using the checked-in title and release notes. The Release has no assets.
 4. Tag the verified version image as `dirextalk/message-server:latest`, push it,
    pull it back, and probe its metadata and embedded version.
 
 The scripts require a clean `main` whose `HEAD` equals `origin/main`. An
 existing version tag must already resolve to the same reviewed commit; the
-scripts never move a tag that belongs to another commit.
+scripts check the remote tag before moving either image tag and never move a tag
+that belongs to another commit. An existing formal Release must exactly match
+the checked-in title and notes and contain no assets.
+
+An explicitly authorized same-version replacement preserves the old tag,
+Release, and image evidence outside the repository, deletes both the old formal
+Release and remote tag, and then runs the normal scripts from the new reviewed
+commit. The script does not require a version bump after that external cleanup.

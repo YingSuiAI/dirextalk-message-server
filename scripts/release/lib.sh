@@ -41,11 +41,12 @@ release_require_tools() {
 }
 
 release_validate_config() {
+  [[ $# -eq 2 ]] || release_die 'internal error: release config validation requires source schema versions'
   [[ -f "$RELEASE_CONFIG" ]] || release_die "missing release config release/$RELEASE_VERSION.json"
-  python3 - "$RELEASE_CONFIG" "$RELEASE_VERSION" <<'PY'
+  python3 - "$RELEASE_CONFIG" "$RELEASE_VERSION" "$1" "$2" <<'PY'
 import json, re, sys
 
-path, expected = sys.argv[1:]
+path, expected, source_schema, source_compat = sys.argv[1:]
 try:
     config = json.loads(open(path, "rb").read())
 except Exception as exc:
@@ -78,6 +79,8 @@ schema = config["schema_version"]
 compat = config["schema_compat_version"]
 if isinstance(schema, bool) or isinstance(compat, bool) or not isinstance(schema, int) or not isinstance(compat, int) or compat < 1 or schema < compat:
     raise SystemExit("schema compatibility is invalid")
+if schema != int(source_schema) or compat != int(source_compat):
+    raise SystemExit("release config schema versions do not match internal/version.go")
 PY
 }
 
@@ -86,7 +89,7 @@ release_preflight() {
   cd "$RELEASE_REPO_ROOT"
   [[ -z "$(git status --porcelain)" ]] || release_die 'working tree must be clean'
 
-  local branch head remote_line remote_head source_version
+  local branch head remote_line remote_head source_values
   branch="$(git branch --show-current)"
   [[ "$branch" == "$RELEASE_EXPECTED_BRANCH" ]] || release_die "release branch must be $RELEASE_EXPECTED_BRANCH"
   head="$(git rev-parse HEAD)"
@@ -95,15 +98,27 @@ release_preflight() {
   remote_head="${BASH_REMATCH[1]}"
   [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" == "$remote_head" ]] || release_die 'HEAD must exactly match the pushed release branch'
   grep -Eq "^##[[:space:]]+$RELEASE_VERSION([[:space:]]|$)" release/RELEASE_NOTES.md || release_die 'matching release notes section is required'
-  source_version="$(python3 - internal/version.go <<'PY'
+  source_values="$(python3 - internal/version.go <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-match = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', text)
-print(match.group(1) if match else "")
+patterns = (
+    r'(?m)^\s*version\s*=\s*"([^"]+)"',
+    r'(?m)^\s*SchemaVersion\s*=\s*([0-9]+)\s*$',
+    r'(?m)^\s*SchemaCompatVersion\s*=\s*([0-9]+)\s*$',
+)
+values = []
+for pattern in patterns:
+    match = re.search(pattern, text)
+    if not match:
+        raise SystemExit("internal/version.go does not declare the fixed release identity")
+    values.append(match.group(1))
+print("\n".join(values))
 PY
-)"
-  [[ "$source_version" == "$RELEASE_VERSION" ]] || release_die 'source default version does not match release version'
-  release_validate_config
+)" || release_die 'source release identity is invalid'
+  mapfile -t source_fields <<<"$source_values"
+  [[ "${#source_fields[@]}" == 3 ]] || release_die 'source release identity is incomplete'
+  [[ "${source_fields[0]}" == "$RELEASE_VERSION" ]] || release_die 'source default version does not match release version'
+  release_validate_config "${source_fields[1]}" "${source_fields[2]}"
 
   RELEASE_COMMIT="$head"
   RELEASE_BUILD_TIME="$(git show -s --format=%cI HEAD)"
