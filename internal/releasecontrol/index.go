@@ -146,8 +146,12 @@ func ValidateReleaseIndex(data []byte) (ReleaseIndex, error) {
 			if len(edge.FromImageDigests) != 1 || edge.FromImageDigests[0] != source.ImageDigest {
 				return ReleaseIndex{}, fmt.Errorf("upgrade_edges[%d] must bind the formal source manifest digest", position)
 			}
+		} else if edge.ToVersion == index.Releases[0].Manifest.Version && target.BaselineResetFromVersion == edge.FromVersion {
+			// A release-history reset has one exact, newly verified source. It is
+			// explicit in the first manifest, so an unindexed source cannot be
+			// mistaken for a normal upgrade edge.
 		} else if edge.FromVersion != legacyBootstrapVersion || edge.ToVersion != firstFormalVersion {
-			return ReleaseIndex{}, fmt.Errorf("upgrade_edges[%d] is not the unique supported bootstrap edge", position)
+			return ReleaseIndex{}, fmt.Errorf("upgrade_edges[%d] is not the unique supported bootstrap or declared baseline-reset edge", position)
 		}
 		key := edge.FromVersion + "\x00" + edge.ToVersion
 		if _, duplicate := seenEdges[key]; duplicate {
@@ -165,7 +169,11 @@ func ValidateReleaseIndex(data []byte) (ReleaseIndex, error) {
 		}
 	}
 	pathSources := make(map[string]struct{}, len(index.Releases)+1)
-	pathSources[legacyBootstrapVersion] = struct{}{}
+	if baseline := index.Releases[0].Manifest.BaselineResetFromVersion; baseline != "" {
+		pathSources[baseline] = struct{}{}
+	} else {
+		pathSources[legacyBootstrapVersion] = struct{}{}
+	}
 	for _, release := range index.Releases[:len(index.Releases)-1] {
 		pathSources[release.Manifest.Version] = struct{}{}
 	}

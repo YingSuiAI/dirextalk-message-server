@@ -50,11 +50,12 @@ try:
 except Exception as exc:
     raise SystemExit(f"invalid release config: {exc}")
 required = {
-    "version", "previous_version", "upgrade_from", "source_test_modes", "minimum_client_version",
+    "version", "previous_version", "baseline_reset_from_version", "upgrade_from", "source_test_modes", "minimum_client_version",
     "maximum_client_version_exclusive", "schema_version",
     "schema_compat_version", "upgrade_edges",
 }
-if set(config) != required:
+optional = {"baseline_reset_from_version"}
+if set(config) not in (required - optional, required):
     raise SystemExit("release config fields do not match the fixed contract")
 version_re = re.compile(r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 digest_re = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -62,10 +63,19 @@ if config["version"] != expected or not version_re.fullmatch(expected):
     raise SystemExit("release config version mismatch")
 if not isinstance(config["previous_version"], str) or (config["previous_version"] and not version_re.fullmatch(config["previous_version"])):
     raise SystemExit("previous_version must be empty or canonical")
-if expected == "v1.0.0" and config["previous_version"]:
-    raise SystemExit("v1.0.0 must not declare a previous formal release")
-if expected != "v1.0.0" and (not config["previous_version"] or tuple(map(int, config["previous_version"][1:].split('.'))) >= tuple(map(int, expected[1:].split('.')))):
-    raise SystemExit("previous_version must identify an earlier formal release")
+baseline = config.get("baseline_reset_from_version", "")
+if not isinstance(baseline, str) or (baseline and not version_re.fullmatch(baseline)):
+    raise SystemExit("baseline_reset_from_version must be empty or canonical")
+if config["previous_version"]:
+    if baseline:
+        raise SystemExit("normal releases must not declare a baseline reset")
+    if tuple(map(int, config["previous_version"][1:].split('.'))) >= tuple(map(int, expected[1:].split('.'))):
+        raise SystemExit("previous_version must identify an earlier formal release")
+elif expected == "v1.0.0":
+    if baseline:
+        raise SystemExit("v1.0.0 must not declare a baseline reset")
+elif not baseline or tuple(map(int, baseline[1:].split('.'))) >= tuple(map(int, expected[1:].split('.'))):
+    raise SystemExit("a reset baseline must name an earlier exact source version")
 if not isinstance(config["upgrade_from"], list) or not config["upgrade_from"] or not all(isinstance(v, str) and v.strip() == v and v for v in config["upgrade_from"]):
     raise SystemExit("upgrade_from must be a non-empty string list")
 for field in ("minimum_client_version", "maximum_client_version_exclusive"):
@@ -92,6 +102,8 @@ edge_sources = sorted({edge["from_version"] for edge in edges}, key=lambda value
 expected_constraints = ["=" + value[1:] for value in edge_sources]
 if config["upgrade_from"] != expected_constraints:
     raise SystemExit("upgrade_from must exactly match declared upgrade edge source versions")
+if not config["previous_version"] and expected != "v1.0.0" and edge_sources != [baseline]:
+    raise SystemExit("a reset baseline must declare only its exact source version")
 all_digests = sorted(digest for edge in edges for digest in edge["from_image_digests"])
 modes = config["source_test_modes"]
 if not isinstance(modes, dict) or sorted(modes) != all_digests or any(mode not in {"registry", "offline_import"} for mode in modes.values()):

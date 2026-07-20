@@ -46,7 +46,7 @@ make_fixture() {
   cp "$prepare" "$verify" "$publish" "$repo_root/scripts/release/lib.sh" "$fixture/repo/"
   printf '%s\n' '## v1.0.0' >"$fixture/repo/release/RELEASE_NOTES.md"
   cat >"$fixture/repo/release/v1.0.0.json" <<'EOF'
-{"version":"v1.0.0","previous_version":"","upgrade_from":["=0.15.2"],"source_test_modes":{"sha256:d57a0b7830f7248e29fe7c45c0848cb1167454709fd33effe07ff074415f571c":"offline_import"},"minimum_client_version":"v1.0.0","maximum_client_version_exclusive":"v2.0.0","schema_version":1,"schema_compat_version":1,"upgrade_edges":[{"from_version":"v0.15.2","from_image_digests":["sha256:d57a0b7830f7248e29fe7c45c0848cb1167454709fd33effe07ff074415f571c"],"to_version":"v1.0.0"}]}
+{"version":"v1.0.0","previous_version":"","baseline_reset_from_version":"","upgrade_from":["=0.15.2"],"source_test_modes":{"sha256:d57a0b7830f7248e29fe7c45c0848cb1167454709fd33effe07ff074415f571c":"offline_import"},"minimum_client_version":"v1.0.0","maximum_client_version_exclusive":"v2.0.0","schema_version":1,"schema_compat_version":1,"upgrade_edges":[{"from_version":"v0.15.2","from_image_digests":["sha256:d57a0b7830f7248e29fe7c45c0848cb1167454709fd33effe07ff074415f571c"],"to_version":"v1.0.0"}]}
 EOF
   printf '%s\n' 'version = "v1.0.0"' >"$fixture/repo/internal/version.go"
   printf '%s\n' 'module example.test/release-fixture' >"$fixture/repo/go.mod"
@@ -255,7 +255,7 @@ make_next_fixture() {
 Next stable release.
 EOF
   cat >"$fixture/repo/release/v1.1.0.json" <<'EOF'
-{"version":"v1.1.0","previous_version":"v1.0.0","upgrade_from":["=1.0.0"],"source_test_modes":{"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":"registry"},"minimum_client_version":"v1.0.0","maximum_client_version_exclusive":"v2.0.0","schema_version":1,"schema_compat_version":1,"upgrade_edges":[{"from_version":"v1.0.0","from_image_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"to_version":"v1.1.0"}]}
+{"version":"v1.1.0","previous_version":"v1.0.0","baseline_reset_from_version":"","upgrade_from":["=1.0.0"],"source_test_modes":{"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":"registry"},"minimum_client_version":"v1.0.0","maximum_client_version_exclusive":"v2.0.0","schema_version":1,"schema_compat_version":1,"upgrade_edges":[{"from_version":"v1.0.0","from_image_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"to_version":"v1.1.0"}]}
 EOF
   printf '%s\n' 'version = "v1.1.0"' >"$fixture/repo/internal/version.go"
   mkdir -p "$fixture/previous-release"
@@ -271,6 +271,22 @@ data = json.dumps(index, separators=(",", ":")).encode()
 (output / "release-index.json.sha256").write_text(hashlib.sha256(data).hexdigest()+"  release-index.json\n", encoding="ascii")
 PY
   : >"$fixture/gh-state.release"
+  printf '%s\n' "$fixture"
+}
+
+make_reset_baseline_fixture() {
+  local name="$1"
+  local fixture
+  fixture="$(make_fixture "$name")"
+  cat >"$fixture/repo/release/RELEASE_NOTES.md" <<'EOF'
+## v1.0.4
+
+Fresh trusted baseline.
+EOF
+  cat >"$fixture/repo/release/v1.0.4.json" <<'EOF'
+{"version":"v1.0.4","previous_version":"","baseline_reset_from_version":"v1.0.3","upgrade_from":["=1.0.3"],"source_test_modes":{"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":"registry"},"minimum_client_version":"v1.0.0","maximum_client_version_exclusive":"v2.0.0","schema_version":1,"schema_compat_version":1,"upgrade_edges":[{"from_version":"v1.0.3","from_image_digests":["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"to_version":"v1.0.4"}]}
+EOF
+  printf '%s\n' 'version = "v1.0.4"' >"$fixture/repo/internal/version.go"
   printf '%s\n' "$fixture"
 }
 
@@ -293,6 +309,11 @@ fixture="$(make_fixture output-boundary)"
 if run_script "$fixture" prepare.sh env RELEASE_CONTRACT_TEST=0; then
   fail 'prepare accepted an output directory override outside formal repo output'
 fi
+
+fixture="$(make_reset_baseline_fixture reset-baseline)"
+run_script_version "$fixture" prepare.sh v1.0.4 env
+run_script_version "$fixture" verify.sh v1.0.4 env
+run_script_version "$fixture" publish.sh v1.0.4 env
 
 fixture="$(make_next_fixture previous-tag-mismatch v0.9.0)"
 run_script_version "$fixture" prepare.sh v1.1.0 env

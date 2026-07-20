@@ -9,9 +9,12 @@ RFC3339 commit timestamp, one fixed Docker tag, and one immutable image digest.
 - `release/RELEASE_NOTES.md`: matching `## vX.Y.Z` section.
 - `release/vX.Y.Z.json`: client/schema compatibility plus tested upgrade edges.
 - `previous_version` pins the exact formal Release that supplies release-index
-  history. `source_test_modes` covers every source identity with `registry` or
-  `offline_import`; it is release-process metadata and is not copied into the
-  public index.
+  history. A deliberately reset release instead has an empty `previous_version`
+  and one `baseline_reset_from_version`; it establishes a new index and permits
+  upgrade only from that exact, retained-data-tested source image. It is never
+  inferred from version ordering. `source_test_modes` covers every source
+  identity with `registry` or `offline_import`; it is release-process metadata
+  and is not copied into the public index.
 - Every edge binds `from_version`, one or more exact
   `from_image_digests`, and `to_version`. A formal source release must bind
   exactly its indexed manifest image digest.

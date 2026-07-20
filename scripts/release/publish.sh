@@ -49,6 +49,7 @@ fi
 verify_published_image "$image_digest" "$verified_local_image_id"
 
 previous_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["previous_version"])' "$RELEASE_CONFIG")"
+baseline_reset_from_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("baseline_reset_from_version", ""))' "$RELEASE_CONFIG")"
 previous_index=''
 if [[ -n "$previous_version" ]]; then
   latest_formal_version="$(gh release list --repo YingSuiAI/dirextalk-message-server --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
@@ -61,7 +62,7 @@ if [[ -n "$previous_version" ]]; then
   previous_index="$history_dir/release-index.json"
   release_verify_checksum "$previous_index" "$history_dir/release-index.json.sha256" release-index.json
 fi
-[[ "$RELEASE_VERSION" == v1.0.0 || -s "$previous_index" ]] || release_die 'a pinned previous trusted release index is required'
+[[ "$RELEASE_VERSION" == v1.0.0 || -n "$baseline_reset_from_version" || -s "$previous_index" ]] || release_die 'a pinned previous trusted release index is required'
 
 python3 - "$RELEASE_CONFIG" "$RELEASE_OUTPUT_DIR" "$image_digest" "$previous_index" <<'PY'
 import hashlib, json, pathlib, re, sys
@@ -75,6 +76,10 @@ manifest = {
     'version': version,
     'image': f'dirextalk/message-server:{version}',
     'image_digest': image_digest,
+}
+if config.get('baseline_reset_from_version'):
+    manifest['baseline_reset_from_version'] = config['baseline_reset_from_version']
+manifest.update({
     'upgrade_from': config['upgrade_from'],
     'schema_version': config['schema_version'],
     'schema_compat_version': config['schema_compat_version'],
@@ -84,7 +89,7 @@ manifest = {
     'rollback_supported': True,
     'rollback_mode': 'restore_backup',
     'release_notes_url': f'https://github.com/YingSuiAI/dirextalk-message-server/releases/tag/{version}',
-}
+})
 def go_json(value):
     encoded = json.dumps(value, ensure_ascii=True, separators=(',', ':'))
     encoded = encoded.replace('&', r'\u0026').replace('<', r'\u003c').replace('>', r'\u003e')

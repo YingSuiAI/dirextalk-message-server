@@ -25,6 +25,7 @@ type Manifest struct {
 	Version                       string   `json:"version"`
 	Image                         string   `json:"image"`
 	ImageDigest                   string   `json:"image_digest"`
+	BaselineResetFromVersion      string   `json:"baseline_reset_from_version,omitempty"`
 	UpgradeFrom                   []string `json:"upgrade_from"`
 	SchemaVersion                 int      `json:"schema_version"`
 	SchemaCompatVersion           int      `json:"schema_compat_version"`
@@ -76,6 +77,15 @@ func (manifest Manifest) validate() error {
 	}
 	if !digestPattern.MatchString(manifest.ImageDigest) {
 		return fmt.Errorf("image_digest must be a lowercase sha256 digest")
+	}
+	if manifest.BaselineResetFromVersion != "" {
+		baseline, err := parseCanonicalVersion("baseline_reset_from_version", manifest.BaselineResetFromVersion)
+		if err != nil {
+			return err
+		}
+		if !baseline.LessThan(target) {
+			return fmt.Errorf("baseline_reset_from_version must be lower than release version %s", manifest.Version)
+		}
 	}
 	for index, value := range manifest.UpgradeFrom {
 		constraint, err := semver.NewConstraint(strings.TrimSpace(value))

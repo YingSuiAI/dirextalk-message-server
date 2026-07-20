@@ -94,6 +94,40 @@ func TestValidateReleaseIndexRequiresPreviousReleasePathToLatest(t *testing.T) {
 	}
 }
 
+func TestValidateReleaseIndexAcceptsExplicitResetBaseline(t *testing.T) {
+	manifest := strings.Replace(
+		compactTestManifest("v1.0.4", "=1.0.3", strings.Repeat("a", 64)),
+		`,"upgrade_from"`,
+		`,"baseline_reset_from_version":"v1.0.3","upgrade_from"`,
+		1,
+	)
+	index := compactIndexForTest(
+		"v1.0.4",
+		[]string{manifest},
+		`[{"from_version":"v1.0.3","from_image_digests":["sha256:`+strings.Repeat("d", 64)+`"],"to_version":"v1.0.4"}]`,
+	)
+	if _, err := ValidateReleaseIndex([]byte(index)); err != nil {
+		t.Fatalf("ValidateReleaseIndex() error = %v", err)
+	}
+}
+
+func TestValidateReleaseIndexRejectsUndeclaredResetBaseline(t *testing.T) {
+	manifest := strings.Replace(
+		compactTestManifest("v1.0.4", "=1.0.2", strings.Repeat("a", 64)),
+		`,"upgrade_from"`,
+		`,"baseline_reset_from_version":"v1.0.3","upgrade_from"`,
+		1,
+	)
+	index := compactIndexForTest(
+		"v1.0.4",
+		[]string{manifest},
+		`[{"from_version":"v1.0.2","from_image_digests":["sha256:`+strings.Repeat("d", 64)+`"],"to_version":"v1.0.4"}]`,
+	)
+	if _, err := ValidateReleaseIndex([]byte(index)); err == nil || !strings.Contains(err.Error(), "baseline-reset") {
+		t.Fatalf("error = %v, want baseline reset rejection", err)
+	}
+}
+
 func compactTestManifest(version, upgradeFrom, digest string) string {
 	manifest := Manifest{
 		ManifestVersion:               1,

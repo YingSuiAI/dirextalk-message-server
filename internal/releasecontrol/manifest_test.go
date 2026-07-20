@@ -59,6 +59,19 @@ func TestValidateManifestRejectsMalformedUpgradeRange(t *testing.T) {
 	}
 }
 
+func TestValidateManifestRejectsBaselineResetAtOrAfterTarget(t *testing.T) {
+	valid := string(testManifestJSON(
+		"v1.1.0",
+		"dirextalk/message-server:v1.1.0",
+		validDigest,
+		`["=1.0.3"]`,
+	))
+	invalid := strings.Replace(valid, `"upgrade_from":`, `"baseline_reset_from_version":"v1.1.0","upgrade_from":`, 1)
+	if _, err := ValidateManifest([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "baseline_reset_from_version") {
+		t.Fatalf("ValidateManifest() error = %v, want baseline reset version rejection", err)
+	}
+}
+
 func TestValidateManifestRequiresBackup(t *testing.T) {
 	valid := string(testManifestJSON(
 		"v1.1.0",

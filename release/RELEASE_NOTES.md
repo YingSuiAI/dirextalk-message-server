@@ -2,30 +2,17 @@
 
 ## Unreleased
 
-New-device recovery now includes a deterministic, metadata-only
-`sync.bootstrap.read_markers` snapshot. Durable read markers advance only for
-strictly newer server-resolved Matrix timeline positions; optional client
-timestamps are non-authoritative. Equal, missing, invalid, and skewed event
-timestamps, delayed requests, replay, and concurrent writes cannot regress
-unread recovery boundaries across restarts. Event resolution is bound to the
-authenticated owner and applies the existing Matrix event-visibility checks
-before exposing or persisting a boundary.
+## v1.0.4
+
+1. Establish a fresh trusted-release baseline with a verified, exact `v1.0.3` upgrade source.
+2. Add metadata-only unread recovery snapshots for new devices.
+3. Keep read-marker ordering server-authoritative across retries, restarts, and concurrent updates.
 
 ## v1.0.3
 
-This release makes group joins, contact-request decisions, and channel join
-approvals recoverable and idempotent across request cancellation, response
-loss, process restart, and concurrent server instances. Matrix membership
-remains the final joined fact; ProductCore projections and callbacks now use
-durable operation leases and generation-aware compare-and-swap persistence.
-
-The ProductCore action names and existing success payloads remain compatible.
-Recovery responses add optional top-level `operation_id`, `status`,
-`current_room_id`, and structured `error_code` fields to HTTP and WebSocket
-results. Database schema version 2 adds durable operation recovery metadata,
-including base-generation fencing for cross-instance retries;
-schema version 1 remains readable, and upgrades require the normal retained
-backup.
+1. Make group joins, contact decisions, and channel approvals recoverable after retries and restarts.
+2. Add durable operation leases to prevent duplicate concurrent actions.
+3. Add optional recovery status fields to ProductCore HTTP and WebSocket responses.
 
 ## v1.0.2
 
