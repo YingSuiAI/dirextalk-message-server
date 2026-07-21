@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.8
+
+1. Add durable Native Agent turns that can reconnect without duplicate execution.
+2. Add owner controls to list and stop durable Agent turns safely.
+3. Mark unfinished Agent turns interrupted after a server restart.
+
 ## v1.0.7
 
 1. Authorize server targets exclusively through the central version record.
