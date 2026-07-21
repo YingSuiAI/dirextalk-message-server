@@ -17,10 +17,12 @@ const (
 )
 
 type Config struct {
-	DataDir    string
-	Store      ConfigStore
-	Tools      []Tool
-	HTTPClient *http.Client
+	DataDir           string
+	Store             ConfigStore
+	Tools             []Tool
+	HTTPClient        *http.Client
+	WebSearchEndpoint string
+	AWSClientFactory  AWSClientFactory
 }
 
 type ConfigStore interface {
@@ -34,10 +36,13 @@ type Event struct {
 }
 
 type Runtime struct {
-	store   ConfigStore
-	dataDir string
-	client  *http.Client
-	tools   []Tool
+	store             ConfigStore
+	dataDir           string
+	client            *http.Client
+	tools             []Tool
+	webSearchEndpoint string
+	awsClientFactory  AWSClientFactory
+	awsApprovals      *awsApprovalStore
 }
 
 func New(config Config) *Runtime {
@@ -53,10 +58,13 @@ func New(config Config) *Runtime {
 		client = &http.Client{Timeout: nativeAgentHTTPTimeout}
 	}
 	return &Runtime{
-		store:   config.Store,
-		dataDir: filepath.Clean(dataDir),
-		client:  client,
-		tools:   append([]Tool{}, config.Tools...),
+		store:             config.Store,
+		dataDir:           filepath.Clean(dataDir),
+		client:            client,
+		tools:             append([]Tool{}, config.Tools...),
+		webSearchEndpoint: strings.TrimSpace(config.WebSearchEndpoint),
+		awsClientFactory:  config.AWSClientFactory,
+		awsApprovals:      newAWSApprovalStore(),
 	}
 }
 
@@ -78,6 +86,14 @@ func (r *Runtime) Invoke(ctx context.Context, action string, params map[string]a
 		return r.chat(ctx, params)
 	case "agent.models.list":
 		return r.modelsList(ctx, params)
+	case "agent.web_search.test":
+		return r.testWebSearch(ctx, params)
+	case "agent.aws.credentials.test":
+		return r.testAWSCredentials(ctx, params)
+	case "agent.aws.approvals.execute":
+		return r.executeAWSApproval(ctx, params)
+	case "agent.aws.approvals.cancel":
+		return r.cancelAWSApproval(params)
 	case "agent.runtime.inspect":
 		return r.runtimeInspect(ctx)
 	case "agent.runtime.install":
@@ -157,6 +173,11 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	}
 	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
 	trace := buildAgentTrace(run, produced, toolCalls, text)
+	for _, approval := range approvalsFromEinoMessages(produced) {
+		if err := emit(Event{Event: "approval_required", Data: approval}); err != nil {
+			return err
+		}
+	}
 	if err := emit(Event{Event: "trace", Data: trace}); err != nil {
 		return err
 	}
