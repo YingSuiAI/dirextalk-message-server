@@ -132,6 +132,53 @@ func TestNativeAgentDurableTurnSurvivesWebSocketDisconnectAndReattaches(t *testi
 	}
 }
 
+func TestNativeAgentDurableTurnRuntimeErrorFailsAndReplaysWithoutDone(t *testing.T) {
+	service := NewService(Config{ServerName: "example.com", NativeAgentDataDir: t.TempDir()})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	params := map[string]any{
+		"turn_id": "turn-missing-api-key", "conversation_id": "conversation-missing-api-key", "prompt": "hello",
+	}
+
+	first := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer first.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, first, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, first)
+	writeRealtimeFrame(t, first, map[string]any{
+		"type": "client.native_agent_stream", "id": "missing-api-key", "action": "agent.chat", "params": params,
+	})
+	assertDurableAcceptedFrame(t, readRealtimeFrame(t, first), "missing-api-key", "turn-missing-api-key", "conversation-missing-api-key")
+	failed := readRealtimeFrame(t, first)
+	if failed["type"] != "server.native_agent_stream.error" || failed["event"] != "failed" || failed["seq"] != float64(1) || failed["error"] != "model_profile.api_key is required" {
+		t.Fatalf("missing-api-key failure frame = %#v", failed)
+	}
+	waitServiceTurnState(t, service, "turn-missing-api-key", "failed")
+	events, err := service.store.ListAgentTurnEvents(context.Background(), service.OwnerMXID(), "turn-missing-api-key", 0)
+	if err != nil || len(events) != 1 || events[0].Event != "failed" {
+		t.Fatalf("terminal events = (%#v, %v), want one failed event", events, err)
+	}
+
+	second := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer second.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, second, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, second)
+	replayParams := cloneTestMap(params)
+	replayParams["after_seq"] = float64(0)
+	writeRealtimeFrame(t, second, map[string]any{
+		"type": "client.native_agent_stream", "id": "missing-api-key-replay", "action": "agent.chat", "params": replayParams,
+	})
+	accepted := readRealtimeFrame(t, second)
+	assertDurableAcceptedFrame(t, accepted, "missing-api-key-replay", "turn-missing-api-key", "conversation-missing-api-key")
+	if accepted["state"] != "failed" {
+		t.Fatalf("replayed failure state = %#v", accepted)
+	}
+	replayed := readRealtimeFrame(t, second)
+	if replayed["type"] != "server.native_agent_stream.error" || replayed["event"] != "failed" || replayed["seq"] != float64(1) || replayed["error"] != "model_profile.api_key is required" {
+		t.Fatalf("replayed missing-api-key failure = %#v", replayed)
+	}
+}
+
 func TestNativeAgentDurableTurnDetachContinuesAndExplicitStopCancels(t *testing.T) {
 	runner := &durableTurnRunner{started: make(chan struct{}), release: make(chan struct{})}
 	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: runner})

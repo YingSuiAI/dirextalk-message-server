@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -195,6 +196,57 @@ func secretFreeValue(value any) any {
 		result := make([]any, len(typed))
 		for i := range typed {
 			result[i] = secretFreeValue(typed[i])
+		}
+		return result
+	case string:
+		return bearerValue.ReplaceAllString(typed, "${1}[REDACTED]")
+	default:
+		return secretFreeConcreteValue(value)
+	}
+}
+
+func secretFreeConcreteValue(value any) any {
+	reflected := reflect.ValueOf(value)
+	if !reflected.IsValid() {
+		return value
+	}
+	switch reflected.Kind() {
+	case reflect.Map:
+		if reflected.Type().Key().Kind() != reflect.String {
+			return value
+		}
+		if reflected.IsNil() {
+			return nil
+		}
+		keys := reflected.MapKeys()
+		sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+		result := make(map[string]any, len(keys))
+		for _, reflectedKey := range keys {
+			key := reflectedKey.String()
+			if secretKey(key) || key == "after_seq" {
+				continue
+			}
+			item := reflected.MapIndex(reflectedKey).Interface()
+			normalizedKey := strings.ToLower(strings.TrimSpace(key))
+			if normalizedKey == "arguments" || normalizedKey == "raw_args" || normalizedKey == "output" {
+				result[key] = secretFreeJSONText(item)
+			} else {
+				result[key] = secretFreeValue(item)
+			}
+		}
+		return result
+	case reflect.Slice:
+		if reflected.IsNil() {
+			return nil
+		}
+		if reflected.Type().Elem().Kind() == reflect.Uint8 {
+			return value
+		}
+		fallthrough
+	case reflect.Array:
+		result := make([]any, reflected.Len())
+		for i := 0; i < reflected.Len(); i++ {
+			result[i] = secretFreeValue(reflected.Index(i).Interface())
 		}
 		return result
 	default:

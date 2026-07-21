@@ -45,6 +45,11 @@ func TestDatabaseAgentTurnsAreOwnerScopedTerminalAndSecretFree(t *testing.T) {
 		"text": "hello", "api_key": "event-secret", "nested": map[string]any{"access_token": "bearer-secret"},
 		"function": map[string]any{"arguments": `{"api_key":"json-secret","value":"safe"}`},
 		"output":   "Authorization: Bearer raw-bearer-secret",
+		"tool_calls": []map[string]any{{
+			"arguments": map[string]string{"api_key": "typed-api-secret", "safe": "ok"},
+			"trace":     []map[string]string{{"credential": "typed-credential-secret", "text": "Bearer typed-bearer-secret"}},
+		}},
+		"assistant_text": "Bearer leaf-bearer-secret",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +84,10 @@ func TestDatabaseAgentTurnsAreOwnerScopedTerminalAndSecretFree(t *testing.T) {
 	`, "owner-a", "turn").Scan(&storedEvents); err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"event-secret", "bearer-secret", "request-secret", "json-secret", "raw-bearer-secret"} {
+	for _, secret := range []string{
+		"event-secret", "bearer-secret", "request-secret", "json-secret", "raw-bearer-secret",
+		"typed-api-secret", "typed-credential-secret", "typed-bearer-secret", "leaf-bearer-secret",
+	} {
 		if strings.Contains(storedEvents, secret) {
 			t.Fatalf("stored turn events contain secret %q: %s", secret, storedEvents)
 		}

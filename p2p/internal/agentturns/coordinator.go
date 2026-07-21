@@ -266,6 +266,19 @@ func (c *Coordinator) runJob(job *turnJob) {
 			}
 			return nil
 		}
+		if name == "error" {
+			_, event, transitioned, err := c.store.FinishAgentTurn(
+				context.Background(), turn.OwnerID, turn.TurnID, StateFailed,
+				EventError, "failed", data, "native agent turn failed",
+			)
+			if err != nil {
+				return err
+			}
+			if transitioned {
+				c.publish(job.live, event, true)
+			}
+			return nil
+		}
 		event, err := c.store.AppendAgentTurnEvent(context.Background(), turn.OwnerID, turn.TurnID, "runtime", name, data)
 		if err != nil {
 			return err
