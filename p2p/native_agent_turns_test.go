@@ -69,6 +69,69 @@ func TestNativeAgentDurableTurnDeduplicatesAndReplays(t *testing.T) {
 	}
 }
 
+func TestNativeAgentDurableTurnSurvivesWebSocketDisconnectAndReattaches(t *testing.T) {
+	runner := &disconnectTurnRunner{
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		cancelled: make(chan struct{}),
+	}
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: runner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	first := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	writeRealtimeFrame(t, first, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, first)
+	params := map[string]any{
+		"turn_id": "turn-disconnect", "conversation_id": "conversation-disconnect", "prompt": "finish after page close",
+	}
+	writeRealtimeFrame(t, first, map[string]any{
+		"type": "client.native_agent_stream", "id": "before-disconnect", "action": "agent.chat", "params": params,
+	})
+	assertDurableAcceptedFrame(t, readRealtimeFrame(t, first), "before-disconnect", "turn-disconnect", "conversation-disconnect")
+	<-runner.started
+	if err := first.Close(websocket.StatusNormalClosure, "page closed"); err != nil {
+		t.Fatalf("close first websocket: %v", err)
+	}
+	select {
+	case <-runner.cancelled:
+		t.Fatal("websocket disconnect cancelled durable execution")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(runner.release)
+	waitServiceTurnState(t, service, "turn-disconnect", "succeeded")
+
+	second := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer second.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, second, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, second)
+	replayParams := cloneTestMap(params)
+	replayParams["after_seq"] = float64(0)
+	writeRealtimeFrame(t, second, map[string]any{
+		"type": "client.native_agent_stream", "id": "after-disconnect", "action": "agent.chat", "params": replayParams,
+	})
+	accepted := readRealtimeFrame(t, second)
+	assertDurableAcceptedFrame(t, accepted, "after-disconnect", "turn-disconnect", "conversation-disconnect")
+	if accepted["state"] != "succeeded" {
+		t.Fatalf("reattached turn state = %#v", accepted)
+	}
+	delta := readRealtimeFrame(t, second)
+	done := readRealtimeFrame(t, second)
+	if delta["type"] != "server.native_agent_stream.event" || delta["event"] != "delta" || delta["turn_id"] != "turn-disconnect" || delta["conversation_id"] != "conversation-disconnect" || delta["seq"] != float64(1) {
+		t.Fatalf("reattached delta = %#v", delta)
+	}
+	if done["type"] != "server.native_agent_stream.event" || done["event"] != "done" || done["turn_id"] != "turn-disconnect" || done["conversation_id"] != "conversation-disconnect" || done["seq"] != float64(2) {
+		t.Fatalf("reattached done = %#v", done)
+	}
+	if data, _ := done["data"].(map[string]any); data["text"] != "completed after disconnect" {
+		t.Fatalf("reattached terminal assistant reply = %#v", done)
+	}
+	if runner.executions.Load() != 1 {
+		t.Fatalf("runner executions = %d, want 1", runner.executions.Load())
+	}
+}
+
 func TestNativeAgentDurableTurnDetachContinuesAndExplicitStopCancels(t *testing.T) {
 	runner := &durableTurnRunner{started: make(chan struct{}), release: make(chan struct{})}
 	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: runner})
@@ -128,6 +191,34 @@ type durableTurnRunner struct {
 	release       chan struct{}
 	waitForCancel bool
 	startOnce     sync.Once
+}
+
+type disconnectTurnRunner struct {
+	executions atomic.Int32
+	started    chan struct{}
+	release    chan struct{}
+	cancelled  chan struct{}
+}
+
+func (r *disconnectTurnRunner) Apply(context.Context, string) error { return nil }
+
+func (r *disconnectTurnRunner) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func (r *disconnectTurnRunner) Stream(ctx context.Context, _ string, _ map[string]any, emit func(nativeagent.Event) error) error {
+	r.executions.Add(1)
+	close(r.started)
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		close(r.cancelled)
+		return ctx.Err()
+	}
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "completed"}}); err != nil {
+		return err
+	}
+	return emit(nativeagent.Event{Event: "done", Data: map[string]any{"text": "completed after disconnect"}})
 }
 
 func (r *durableTurnRunner) Apply(context.Context, string) error { return nil }
