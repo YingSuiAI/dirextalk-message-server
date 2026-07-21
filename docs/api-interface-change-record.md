@@ -1,6 +1,22 @@
 # API Interface Change Record
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
+
+## 2026-07-21 Native Agent Voice Session Scaffold
+
+Added owner-only Native Agent voice session actions: `agent.voice.session.create`,
+`agent.voice.session.interrupt`, `agent.voice.session.end`, and websocket-only
+`agent.voice.session.stream`. Flutter uses them to obtain Volc RTC join metadata
+and receive voice UI events while keeping Volc secrets out of the client. A
+server-side `/_p2p/agent/voice/webhook` bridge authenticated by
+`VOLC_VOICE_WEBHOOK_SECRET` can receive transcript events, invoke Native Agent
+with the request-scoped model profile, and publish answer/reference events back
+to the voice stream. The backend generates short-lived RTC tokens from
+`VOLC_RTC_APP_ID` and `VOLC_RTC_APP_KEY`, then starts and stops Volc VoiceChat
+tasks through the RTC OpenAPI using `VOLC_ACCESS_KEY_ID` and
+`VOLC_SECRET_ACCESS_KEY`. VoiceChat payloads use the configured
+`VOLC_VOICE_CHAT_CONFIG_JSON` template with runtime AppId, RoomId, TaskId,
+human UserId, and AI UserId replacement.
 
 ## 2026-07-20 Canonical Membership And MCP Joined-Room Authorization
 

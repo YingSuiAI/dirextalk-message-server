@@ -2,15 +2,246 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
 type recordingMCPInvoker struct {
 	action string
+}
+
+type fakeVoiceTokenSigner struct {
+	appID     string
+	appKey    string
+	roomID    string
+	userID    string
+	expiresAt time.Time
+}
+
+func (s *fakeVoiceTokenSigner) SignRTC(appID, appKey, roomID, userID string, expiresAt time.Time) (string, error) {
+	s.appID = appID
+	s.appKey = appKey
+	s.roomID = roomID
+	s.userID = userID
+	s.expiresAt = expiresAt
+	return fmt.Sprintf("rtc-token:%s:%s", roomID, userID), nil
+}
+
+type fakeVoiceChatClient struct {
+	started []voiceSession
+	stopped []voiceSession
+}
+
+func (c *fakeVoiceChatClient) StartVoiceChat(_ context.Context, session voiceSession) error {
+	c.started = append(c.started, session)
+	return nil
+}
+
+func (c *fakeVoiceChatClient) StopVoiceChat(_ context.Context, session voiceSession) error {
+	c.stopped = append(c.stopped, session)
+	return nil
+}
+
+func newTestVoiceCoordinator(cfg voiceConfig) (*voiceCoordinator, *fakeVoiceTokenSigner, *fakeVoiceChatClient) {
+	voice := newVoiceCoordinator(cfg)
+	signer := &fakeVoiceTokenSigner{}
+	client := &fakeVoiceChatClient{}
+	voice.signer = signer
+	voice.client = client
+	return voice, signer, client
+}
+
+func TestVoiceSessionCreateStreamInterruptAndEnd(t *testing.T) {
+	voice, signer, client := newTestVoiceCoordinator(voiceConfig{
+		AppID:    "volc-app",
+		AppKey:   "app-key",
+		AIUserID: "ai-user",
+	})
+	value, actionErr := voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	session := value.(map[string]any)
+	sessionID := session["session_id"].(string)
+	if session["app_id"] != "volc-app" || session["ai_user_id"] != "ai-user" {
+		t.Fatalf("unexpected voice session response: %#v", session)
+	}
+	if !volcRTCIDPattern.MatchString(session["room_id"].(string)) || !volcRTCIDPattern.MatchString(session["user_id"].(string)) {
+		t.Fatalf("generated RTC IDs must match Volc constraints: %#v", session)
+	}
+	if signer.appID != "volc-app" || signer.appKey != "app-key" || signer.roomID != session["room_id"] || signer.userID != session["user_id"] {
+		t.Fatalf("token signer not called with session identity: signer=%#v session=%#v", signer, session)
+	}
+	if session["token"] != "rtc-token:"+session["room_id"].(string)+":"+session["user_id"].(string) {
+		t.Fatalf("unexpected signed token: %#v", session)
+	}
+	if len(client.started) != 1 || client.started[0].TaskID != sessionID || client.started[0].AIUserID != "ai-user" {
+		t.Fatalf("StartVoiceChat not called with dynamic session: %#v", client.started)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan nativeagent.Event, 4)
+	done := make(chan error, 1)
+	go func() {
+		done <- voice.stream(ctx, map[string]any{"session_id": sessionID}, func(event nativeagent.Event) error {
+			events <- event
+			return nil
+		})
+	}()
+	first := nextVoiceEvent(t, events)
+	if first.Event != "listening" {
+		t.Fatalf("first event = %#v", first)
+	}
+	if _, actionErr := voice.interrupt(context.Background(), map[string]any{"session_id": sessionID}); actionErr != nil {
+		t.Fatalf("interrupt voice session: %v", actionErr)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "listening" {
+		t.Fatalf("interrupt event = %#v", event)
+	}
+	if _, actionErr := voice.end(context.Background(), map[string]any{"session_id": sessionID}); actionErr != nil {
+		t.Fatalf("end voice session: %v", actionErr)
+	}
+	if len(client.stopped) != 1 || client.stopped[0].TaskID != sessionID {
+		t.Fatalf("StopVoiceChat not called once for ended session: %#v", client.stopped)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "done" {
+		t.Fatalf("end event = %#v", event)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("voice stream returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("voice stream did not finish after session end")
+	}
+}
+
+type voiceRunnerStub struct {
+	params map[string]any
+}
+
+func (r *voiceRunnerStub) Apply(context.Context, string) error { return nil }
+
+func (r *voiceRunnerStub) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func (r *voiceRunnerStub) Stream(_ context.Context, _ string, params map[string]any, emit func(nativeagent.Event) error) error {
+	r.params = cloneMap(params)
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "回答"}}); err != nil {
+		return err
+	}
+	return emit(nativeagent.Event{Event: "done", Data: map[string]any{
+		"text": "回答",
+		"references": []map[string]any{{
+			"kind":      "room",
+			"room_id":   "!team:example.com",
+			"room_type": "group",
+			"title":     "产品群",
+		}},
+	}})
+}
+
+func TestVoiceSessionRequiresVolcConfiguration(t *testing.T) {
+	voice := newVoiceCoordinator(voiceConfig{})
+	_, actionErr := voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr == nil || actionErr.Status != 503 || actionErr.Code != "volc_rtc_not_configured" {
+		t.Fatalf("expected missing config error, got %#v", actionErr)
+	}
+	voice = newVoiceCoordinator(voiceConfig{AppID: "volc-app"})
+	_, actionErr = voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr == nil || actionErr.Status != 503 || actionErr.Code != "volc_rtc_app_key_not_configured" {
+		t.Fatalf("expected missing app key error, got %#v", actionErr)
+	}
+	voice = newVoiceCoordinator(voiceConfig{AppID: "volc-app", AppKey: "app-key"})
+	_, actionErr = voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr == nil || actionErr.Status != 503 || actionErr.Code != "volc_openapi_not_configured" {
+		t.Fatalf("expected missing OpenAPI config error, got %#v", actionErr)
+	}
+}
+
+func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
+	runner := &voiceRunnerStub{}
+	module := New(Config{Runner: runner})
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:         "volc-app",
+		AppKey:        "app-key",
+		WebhookSecret: "secret",
+	})
+	module.voice = voice
+	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
+		"source":        "native_agent",
+		"model_profile": map[string]any{"provider": "openai_compatible", "model": "mock"},
+		"api_key":       "request-scoped-key",
+	})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan nativeagent.Event, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- module.Stream(ctx, "agent.voice.session.stream", map[string]any{"session_id": sessionID}, func(event nativeagent.Event) error {
+			events <- event
+			return nil
+		})
+	}()
+	if event := nextVoiceEvent(t, events); event.Event != "listening" {
+		t.Fatalf("first voice stream event = %#v", event)
+	}
+	response, actionErr := module.HandleVoiceWebhook(context.Background(), "secret", map[string]any{
+		"session_id":       sessionID,
+		"status":           "transcribing",
+		"transcript_final": "总结产品群",
+	})
+	if actionErr != nil || response["ok"] != true {
+		t.Fatalf("voice webhook = %#v, %v", response, actionErr)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "transcribing" {
+		t.Fatalf("webhook transcript event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "thinking" {
+		t.Fatalf("thinking event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "answer" || event.Data["answer_delta"] != "回答" {
+		t.Fatalf("answer event = %#v", event)
+	}
+	doneEvent := nextVoiceEvent(t, events)
+	if doneEvent.Event != "done" || doneEvent.Data["references"] == nil {
+		t.Fatalf("done event = %#v", doneEvent)
+	}
+	if runner.params["prompt"] != "总结产品群" || runner.params["api_key"] != "request-scoped-key" {
+		t.Fatalf("native agent params not preserved: %#v", runner.params)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("voice stream returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("voice stream did not finish after done event")
+	}
+}
+
+func nextVoiceEvent(t *testing.T, events <-chan nativeagent.Event) nativeagent.Event {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for voice event")
+		return nativeagent.Event{}
+	}
 }
 
 func (i *recordingMCPInvoker) InvokeCapability(_ context.Context, action string, _ map[string]any) (any, *dirextalkmcp.Error) {

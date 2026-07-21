@@ -32,6 +32,7 @@ type Config struct {
 type Module struct {
 	runner  Runner
 	account AccountPort
+	voice   *voiceCoordinator
 }
 
 func New(cfg Config) *Module {
@@ -43,12 +44,12 @@ func New(cfg Config) *Module {
 			Tools:   Tools(cfg.MCP),
 		})}
 	}
-	return &Module{runner: runner, account: cfg.Account}
+	return &Module{runner: runner, account: cfg.Account, voice: newVoiceCoordinator(voiceConfigFromEnv())}
 }
 
 // Handlers returns the complete Agent ProductCore action surface.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+5)
+	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+9)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
 	}
@@ -57,6 +58,10 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	handlers[actionConfigGet] = m.getConfig
 	handlers[actionConfigUpdate] = m.updateConfig
 	handlers["agent.chat.stream"] = streamOnly
+	handlers["agent.voice.session.create"] = m.createVoiceSession
+	handlers["agent.voice.session.interrupt"] = m.interruptVoiceSession
+	handlers["agent.voice.session.end"] = m.endVoiceSession
+	handlers["agent.voice.session.stream"] = streamOnly
 	return handlers
 }
 
@@ -66,7 +71,14 @@ func (m *Module) Stream(ctx context.Context, action string, params map[string]an
 	if m == nil || m.runner == nil {
 		return fmt.Errorf("native agent runtime is not configured")
 	}
-	return m.runner.Stream(ctx, strings.TrimSpace(action), cloneMap(params), emit)
+	action = strings.TrimSpace(action)
+	if action == "agent.voice.session.stream" {
+		if m.voice == nil {
+			return fmt.Errorf("native agent voice service is not configured")
+		}
+		return m.voice.stream(ctx, params, emit)
+	}
+	return m.runner.Stream(ctx, action, cloneMap(params), emit)
 }
 
 func (m *Module) invoke(action string) actionbase.Handler {

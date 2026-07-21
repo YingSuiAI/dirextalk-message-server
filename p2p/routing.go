@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
@@ -24,6 +25,7 @@ func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/query", product).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/command", product).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/agent/voice/webhook", nativeAgentVoiceWebhookHandler(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/health", httpapi.HealthHandler(nil)).Methods(http.MethodGet, http.MethodOptions)
 }
 
@@ -84,6 +86,35 @@ func (p serviceHTTPMCPPort) Tools() []dirextalkmcp.Tool {
 
 func (p serviceHTTPMCPPort) Invoke(ctx context.Context, action string, params map[string]any) (any, *dirextalkmcp.Error) {
 	return p.service.dirextalkMCPService().Invoke(ctx, action, params)
+}
+
+func nativeAgentVoiceWebhookHandler(service *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		httpapi.SetCORSHeaders(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if service == nil {
+			httpapi.WriteError(w, actionbase.StatusError(http.StatusServiceUnavailable, "service is unavailable"))
+			return
+		}
+		var params map[string]any
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024*1024)).Decode(&params); err != nil {
+			httpapi.WriteError(w, actionbase.BadRequest("invalid json"))
+			return
+		}
+		token := httpapi.BearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			token = r.Header.Get("X-Dirextalk-Voice-Secret")
+		}
+		response, apiErr := service.HandleNativeAgentVoiceWebhook(r.Context(), token, params)
+		if apiErr != nil {
+			httpapi.WriteError(w, apiErr)
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusAccepted, response)
+	}
 }
 
 // These compatibility helpers remain for root adapters and package tests.

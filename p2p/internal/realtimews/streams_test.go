@@ -37,20 +37,24 @@ func (p *pluginStreamPortStub) RunStream(
 	return emit(plugins.StreamEvent{Event: "delta", Data: map[string]any{"text": "plugin"}})
 }
 
-type agentStreamPortStub struct{}
+type agentStreamPortStub struct {
+	action string
+}
 
-func (agentStreamPortStub) Stream(
+func (p *agentStreamPortStub) Stream(
 	_ context.Context,
-	_ string,
+	action string,
 	_ map[string]any,
 	emit func(nativeagent.Event) error,
 ) error {
+	p.action = action
 	return emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "agent"}})
 }
 
 func TestPluginAndAgentStreamsPreserveFramesAndSharedIDNamespace(t *testing.T) {
 	pluginPort := &pluginStreamPortStub{started: make(chan struct{})}
-	module := New(Dependencies{Plugins: pluginPort, Agent: agentStreamPortStub{}}, Config{})
+	agentPort := &agentStreamPortStub{}
+	module := New(Dependencies{Plugins: pluginPort, Agent: agentPort}, Config{})
 	connection := newConnection("session", Ticket{Role: "owner"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,6 +76,9 @@ func TestPluginAndAgentStreamsPreserveFramesAndSharedIDNamespace(t *testing.T) {
 	if agentDelta["type"] != "server.native_agent_stream.event" || agentDelta["event"] != "delta" || agentDone["event"] != "done" {
 		t.Fatalf("agent frames = %#v / %#v", agentDelta, agentDone)
 	}
+	if agentPort.action != "agent.chat.stream" {
+		t.Fatalf("agent stream action = %q", agentPort.action)
+	}
 
 	module.startPluginStream(ctx, connection, map[string]any{
 		"id": "shared", "plugin_id": "io.dirextalk.ops", "action": "hold",
@@ -90,6 +97,23 @@ func TestPluginAndAgentStreamsPreserveFramesAndSharedIDNamespace(t *testing.T) {
 	cancelled := nextOutbound(t, connection)
 	if cancelled["type"] != "server.plugin_stream.cancelled" || cancelled["ok"] != true {
 		t.Fatalf("cancelled frame = %#v", cancelled)
+	}
+}
+
+func TestNativeAgentVoiceStreamActionIsAllowed(t *testing.T) {
+	agentPort := &agentStreamPortStub{}
+	module := New(Dependencies{Agent: agentPort}, Config{})
+	connection := newConnection("session", Ticket{Role: "owner"})
+	module.startNativeAgentStream(context.Background(), connection, map[string]any{
+		"id": "voice", "action": "agent.voice.session.stream", "params": map[string]any{"session_id": "voice_1"},
+	})
+	delta := nextOutbound(t, connection)
+	done := nextOutbound(t, connection)
+	if delta["type"] != "server.native_agent_stream.event" || done["event"] != "done" {
+		t.Fatalf("voice frames = %#v / %#v", delta, done)
+	}
+	if agentPort.action != "agent.voice.session.stream" {
+		t.Fatalf("voice stream action = %q", agentPort.action)
 	}
 }
 

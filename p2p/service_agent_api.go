@@ -79,6 +79,13 @@ func (p serviceAgentAccountPort) PublishOffline(ctx context.Context) *apiError {
 	return transportWriteError(p.service.publishCurrentAgentStatusState(ctx))
 }
 
+func (s *Service) HandleNativeAgentVoiceWebhook(ctx context.Context, token string, params map[string]any) (map[string]any, *apiError) {
+	if s == nil || s.agentModule == nil {
+		return nil, statusError(502, "native agent voice service is not configured")
+	}
+	return s.agentModule.HandleVoiceWebhook(ctx, token, params)
+}
+
 // nativeAgentConfigStore adapts the account-scoped durable portal record to
 // the runtime's narrow configuration store.
 type nativeAgentConfigStore struct {

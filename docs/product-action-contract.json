@@ -123,6 +123,26 @@
       "transport": "ws_stream_only"
     },
     {
+      "name": "agent.voice.session.create",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.voice.session.interrupt",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.voice.session.end",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.voice.session.stream",
+      "auth": "owner",
+      "transport": "ws_stream_only"
+    },
+    {
       "name": "agent.context.compress",
       "auth": "owner",
       "transport": "http_and_ws_request"
