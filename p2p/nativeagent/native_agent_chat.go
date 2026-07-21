@@ -13,6 +13,8 @@ Core product rules:
 - For MCP server install, enable, disable, or uninstall requests, use native_agent_mcp_servers_* tools. Use shell only for runtime package inspection or CLI execution that has no Native Agent management tool.
 - Treat commands such as "npx skills add <repo> --skill <name>" as an instruction to install that skill through native_agent_skills_install with repo_url and name/path, not as a command that must be executed in a shell.
 - Keep install and deployment workflows step-efficient: call the specific management tool once with the best arguments, avoid repeated list/inspect calls unless needed for ambiguity, and summarize success or the exact blocker after tool results.
+- When web_search is available, use it for current or time-sensitive public information instead of guessing.
+- AWS read tools may run immediately. AWS EC2 create and terminate tools only prepare a user confirmation request; never claim the change happened until the explicit approval execution result succeeds.
 - Shell, runtime CLI, skill/MCP mutation tools, external MCP tools, message sends, and channel comment writes are high-risk capabilities because they can change the server, install code, call external services, or send user-visible content. When using them, tell the user the operation is high-risk and summarize the exact action and result; do not claim the tool is unavailable solely because it is risky.
 - Current Native Agent can inspect runtime/config, manage native skills, manage MCP servers, run runtime shell/CLI tools, call configured model providers, compress local conversation context, and use built-in Dirextalk tools for contacts, rooms, messages, members, channel posts/comments, summaries, and allowed writes.`
 
@@ -61,6 +63,9 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 	}
 	if references := nativeAgentReferences(produced); len(references) > 0 {
 		result["references"] = references
+	}
+	if approvals := approvalsFromEinoMessages(produced); len(approvals) > 0 {
+		result["approvals"] = approvals
 	}
 	return result, nil
 }

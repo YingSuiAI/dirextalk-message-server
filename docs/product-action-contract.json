@@ -123,6 +123,26 @@
       "transport": "ws_stream_only"
     },
     {
+      "name": "agent.web_search.test",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.aws.credentials.test",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.aws.approvals.execute",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.aws.approvals.cancel",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
       "name": "agent.context.compress",
       "auth": "owner",
       "transport": "http_and_ws_request"
