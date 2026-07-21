@@ -56,22 +56,54 @@ func TestSanitizeNativeConfigStripsSecretsWithoutMutatingInput(t *testing.T) {
 		"api_key":     "profile-secret",
 		"api_key_ref": "secret:profile",
 	}
+	capabilities := map[string]any{
+		"web_search": map[string]any{
+			"provider": "tavily",
+			"api_key":  "nested-tavily-secret",
+		},
+		"aws": map[string]any{
+			"region":            "us-east-1",
+			"access_key_id":     "AKIANESTED",
+			"secret_access_key": "nested-aws-secret",
+			"session_token":     "nested-session",
+		},
+	}
 	input := map[string]any{
-		"api_key":        "root-secret",
-		"api_key_ref":    "secret:root",
+		"api_key":     "root-secret",
+		"api_key_ref": "secret:root",
+		"tool_credentials": map[string]any{
+			"aws": map[string]any{"secret_access_key": "aws-secret"},
+		},
 		"model_profiles": []any{profile},
+		"capabilities":   capabilities,
 	}
 
 	sanitized := SanitizeNativeConfigMap(input)
 	if _, ok := sanitized["api_key"]; ok {
 		t.Fatalf("sanitized config exposed root secret: %#v", sanitized)
 	}
+	if _, ok := sanitized["tool_credentials"]; ok {
+		t.Fatalf("sanitized config exposed request-scoped tool credentials: %#v", sanitized)
+	}
 	gotProfile := sanitized["model_profiles"].([]any)[0].(map[string]any)
 	if _, ok := gotProfile["api_key"]; ok || gotProfile["model"] != "deepseek-chat" {
 		t.Fatalf("sanitized profile mismatch: %#v", gotProfile)
 	}
+	gotCapabilities := sanitized["capabilities"].(map[string]any)
+	if hasNestedKey(gotCapabilities, "api_key") ||
+		hasNestedKey(gotCapabilities, "access_key_id") ||
+		hasNestedKey(gotCapabilities, "secret_access_key") ||
+		hasNestedKey(gotCapabilities, "session_token") {
+		t.Fatalf("sanitized config exposed nested credentials: %#v", gotCapabilities)
+	}
+	if nested := gotCapabilities["web_search"].(map[string]any); nested["provider"] != "tavily" {
+		t.Fatalf("sanitizer removed non-secret metadata: %#v", gotCapabilities)
+	}
 	if profile["api_key"] != "profile-secret" || profile["api_key_ref"] != "secret:profile" {
 		t.Fatalf("sanitizer mutated caller input: %#v", profile)
+	}
+	if capabilities["web_search"].(map[string]any)["api_key"] != "nested-tavily-secret" {
+		t.Fatalf("sanitizer mutated nested caller input: %#v", capabilities)
 	}
 }
 

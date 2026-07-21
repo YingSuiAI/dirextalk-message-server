@@ -20,7 +20,10 @@ func (r *Runtime) enabledEinoTools(ctx context.Context, config map[string]any, p
 
 func (r *Runtime) enabledNativeEinoTools(ctx context.Context, config map[string]any, params map[string]any) ([]einotool.BaseTool, func(), error) {
 	tools := make([]einotool.BaseTool, 0)
-	for _, nativeTool := range r.enabledTools(ctx, config, params) {
+	nativeTools := append([]Tool{}, r.enabledTools(ctx, config, params)...)
+	nativeTools = append(nativeTools, r.requestScopedWebSearchTool(params)...)
+	nativeTools = append(nativeTools, r.requestScopedAWSTools(params)...)
+	for _, nativeTool := range nativeTools {
 		if strings.HasPrefix(nativeTool.Name, "mcp__") {
 			continue
 		}

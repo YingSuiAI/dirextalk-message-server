@@ -114,6 +114,10 @@ func (r runtimeRunner) Stream(ctx context.Context, action string, params map[str
 var runtimeActions = []string{
 	"agent.config.propose_patch",
 	"agent.chat",
+	"agent.web_search.test",
+	"agent.aws.credentials.test",
+	"agent.aws.approvals.execute",
+	"agent.aws.approvals.cancel",
 	"agent.context.compress",
 	"agent.models.list",
 	"agent.runtime.inspect",

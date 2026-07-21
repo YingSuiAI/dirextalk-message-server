@@ -179,29 +179,57 @@ func NormalizeConfig(cfg dirextalkdomain.AgentConfig) dirextalkdomain.AgentConfi
 // SanitizeNativeConfigMap clones the mutable levels it edits and removes
 // runtime credentials and references from durable/public configuration.
 func SanitizeNativeConfigMap(config map[string]any) map[string]any {
-	sanitized := cloneMap(config)
-	delete(sanitized, "api_key")
-	delete(sanitized, "api_key_ref")
-	if profiles, ok := sanitized["model_profiles"].([]any); ok {
-		sanitized["model_profiles"] = sanitizeModelProfiles(profiles)
+	sanitized, ok := sanitizeCredentialValue(config).(map[string]any)
+	if !ok {
+		return map[string]any{}
 	}
 	return sanitized
 }
 
-func sanitizeModelProfiles(profiles []any) []any {
-	sanitized := make([]any, 0, len(profiles))
-	for _, rawProfile := range profiles {
-		profile, ok := rawProfile.(map[string]any)
-		if !ok {
-			sanitized = append(sanitized, rawProfile)
-			continue
+func sanitizeCredentialValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		sanitized := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if credentialConfigKey(key) {
+				continue
+			}
+			sanitized[key] = sanitizeCredentialValue(child)
 		}
-		cloned := cloneMap(profile)
-		delete(cloned, "api_key")
-		delete(cloned, "api_key_ref")
-		sanitized = append(sanitized, cloned)
+		return sanitized
+	case []any:
+		sanitized := make([]any, len(typed))
+		for index, child := range typed {
+			sanitized[index] = sanitizeCredentialValue(child)
+		}
+		return sanitized
+	case []map[string]any:
+		sanitized := make([]map[string]any, len(typed))
+		for index, child := range typed {
+			sanitized[index], _ = sanitizeCredentialValue(child).(map[string]any)
+		}
+		return sanitized
+	default:
+		return value
 	}
-	return sanitized
+}
+
+func credentialConfigKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "api_key",
+		"api_key_ref",
+		"tool_credentials",
+		"web_search_credentials",
+		"aws_credentials",
+		"access_key_id",
+		"secret_access_key",
+		"session_token",
+		"credential_ref",
+		"credentials_ref":
+		return true
+	default:
+		return false
+	}
 }
 
 func configEmpty(cfg dirextalkdomain.AgentConfig) bool {
