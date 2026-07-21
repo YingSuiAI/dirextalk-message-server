@@ -53,12 +53,13 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 		}`),
 	}
 	session := voiceSession{
-		SessionID: "voice_1",
-		TaskID:    "voice_1",
-		AppID:     "123456781234567812345678",
-		RoomID:    "dirextalk_voice_room",
-		UserID:    "owner_user",
-		AIUserID:  "dirextalk_ai_user",
+		SessionID:      "voice_1",
+		TaskID:         "voice_1",
+		AppID:          "123456781234567812345678",
+		VoiceChatAppID: "123456781234567812345678",
+		RoomID:         "dirextalk_voice_room",
+		UserID:         "owner_user",
+		AIUserID:       "dirextalk_ai_user",
 	}
 	if err := client.StartVoiceChat(context.Background(), session); err != nil {
 		t.Fatalf("StartVoiceChat: %v", err)
@@ -70,7 +71,7 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 		t.Fatalf("unexpected call count: %#v", calls)
 	}
 	start := calls[0]
-	if start["_action"] != "StartVoiceChat" || start["AppId"] != session.AppID || start["RoomId"] != session.RoomID || start["TaskId"] != session.TaskID {
+	if start["_action"] != "StartVoiceChat" || start["AppId"] != session.VoiceChatAppID || start["RoomId"] != session.RoomID || start["TaskId"] != session.TaskID {
 		t.Fatalf("start payload did not use dynamic ids: %#v", start)
 	}
 	config := start["Config"].(map[string]any)
@@ -83,8 +84,51 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 		t.Fatalf("agent config did not use dynamic users: %#v", agentConfig)
 	}
 	stop := calls[1]
-	if stop["_action"] != "StopVoiceChat" || stop["AppId"] != session.AppID || stop["RoomId"] != session.RoomID || stop["TaskId"] != session.TaskID {
+	if stop["_action"] != "StopVoiceChat" || stop["AppId"] != session.VoiceChatAppID || stop["RoomId"] != session.RoomID || stop["TaskId"] != session.TaskID {
 		t.Fatalf("stop payload did not use dynamic ids: %#v", stop)
+	}
+}
+
+func TestVolcVoiceChatClientReportsNoPermissionWithHint(t *testing.T) {
+	client := &volcVoiceChatOpenAPIClient{
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(`{
+					"ResponseMetadata": {
+						"RequestId": "req-no-permission",
+						"Error": {
+							"Code": "NoPermissionForApp",
+							"Message": "no permission for app"
+						}
+					}
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		})},
+		host:            "rtc.volcengineapi.com",
+		region:          "cn-north-1",
+		accessKeyID:     "ak",
+		secretAccessKey: "sk",
+		configTemplate:  parseVoiceChatTemplate(`{"Config":{},"AgentConfig":{}}`),
+	}
+	err := client.StartVoiceChat(context.Background(), voiceSession{
+		SessionID:      "voice_1",
+		TaskID:         "voice_1",
+		AppID:          "rtc-app",
+		VoiceChatAppID: "rtc-app",
+		RoomID:         "room",
+		UserID:         "user",
+		AIUserID:       "ai",
+	})
+	if err == nil {
+		t.Fatal("expected NoPermissionForApp error")
+	}
+	text := err.Error()
+	for _, want := range []string{"NoPermissionForApp", "req-no-permission", "VOLC_VOICE_CHAT_APP_ID"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("error %q does not contain %q", text, want)
+		}
 	}
 }
 

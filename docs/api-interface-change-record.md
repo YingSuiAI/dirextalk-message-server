@@ -5,9 +5,12 @@ Last updated: 2026-07-21
 ## 2026-07-21 Native Agent Voice Session Scaffold
 
 Added owner-only Native Agent voice session actions: `agent.voice.session.create`,
-`agent.voice.session.interrupt`, `agent.voice.session.end`, and websocket-only
-`agent.voice.session.stream`. Flutter uses them to obtain Volc RTC join metadata
-and receive voice UI events while keeping Volc secrets out of the client. A
+`agent.voice.session.start`, `agent.voice.session.transcript`, `agent.voice.session.interrupt`,
+`agent.voice.session.end`, and websocket-only `agent.voice.session.stream`.
+Flutter uses them to obtain Volc RTC join metadata, submit finalized Volc RTC
+subtitle text, and receive voice UI events while keeping Volc secrets out of the
+client. The server starts Volc VoiceChat only after Flutter confirms RTC
+`joinRoom` succeeded, matching the Volc AIGC demo ordering. A
 server-side `/_p2p/agent/voice/webhook` bridge authenticated by
 `VOLC_VOICE_WEBHOOK_SECRET` can receive transcript events, invoke Native Agent
 with the request-scoped model profile, and publish answer/reference events back
@@ -16,7 +19,19 @@ to the voice stream. The backend generates short-lived RTC tokens from
 tasks through the RTC OpenAPI using `VOLC_ACCESS_KEY_ID` and
 `VOLC_SECRET_ACCESS_KEY`. VoiceChat payloads use the configured
 `VOLC_VOICE_CHAT_CONFIG_JSON` template with runtime AppId, RoomId, TaskId,
-human UserId, and AI UserId replacement.
+human UserId, and AI UserId replacement. `VOLC_RTC_APP_ID` is the SDK RTC AppId
+returned to Flutter and used to sign the human user's RTC token.
+`VOLC_VOICE_CHAT_APP_ID` may be a different realtime conversational AI Agent
+AppId and is used only for `StartVoiceChat`/`StopVoiceChat`; when omitted it
+falls back to `VOLC_RTC_APP_ID`. The server logs VoiceChat start/stop
+diagnostics including action, room, task, RTC app id, VoiceChat app id, Volc
+request id, and Volc error code/message without logging tokens or OpenAPI
+secrets. `NoPermissionForApp` indicates that the app id sent to
+`StartVoiceChat` lacks VoiceChat permission, is not an AI Agent type app, or
+does not belong to the configured AK/SK account. Fix it by setting
+`VOLC_VOICE_CHAT_APP_ID` to the AI Agent AppId from the Volc AIGC demo while
+keeping `VOLC_RTC_APP_ID`/`VOLC_RTC_APP_KEY` as the normal realtime audio/video
+SDK app credentials used by Flutter.
 
 ## 2026-07-20 Canonical Membership And MCP Joined-Room Authorization
 

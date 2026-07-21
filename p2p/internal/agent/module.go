@@ -49,7 +49,7 @@ func New(cfg Config) *Module {
 
 // Handlers returns the complete Agent ProductCore action surface.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+9)
+	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+11)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
 	}
@@ -59,6 +59,8 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	handlers[actionConfigUpdate] = m.updateConfig
 	handlers["agent.chat.stream"] = streamOnly
 	handlers["agent.voice.session.create"] = m.createVoiceSession
+	handlers["agent.voice.session.start"] = m.startVoiceSession
+	handlers["agent.voice.session.transcript"] = m.submitVoiceTranscript
 	handlers["agent.voice.session.interrupt"] = m.interruptVoiceSession
 	handlers["agent.voice.session.end"] = m.endVoiceSession
 	handlers["agent.voice.session.stream"] = streamOnly

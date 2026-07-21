@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -188,7 +190,7 @@ func (c *volcVoiceChatOpenAPIClient) StopVoiceChat(ctx context.Context, session 
 		return nil
 	}
 	return c.call(ctx, "StopVoiceChat", map[string]any{
-		"AppId":  session.AppID,
+		"AppId":  session.voiceChatAppID(),
 		"RoomId": session.RoomID,
 		"TaskId": session.TaskID,
 	})
@@ -198,6 +200,7 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 	payload := deepCloneMap(c.configTemplate)
 	replaceVoiceChatPlaceholders(payload, map[string]string{
 		"VOLC_RTC_APP_ID":        session.AppID,
+		"VOLC_VOICE_CHAT_APP_ID": session.voiceChatAppID(),
 		"VOLC_VOICE_WEBHOOK_URL": c.webhookURL,
 		"VOICE_SESSION_ID":       session.SessionID,
 		"VOICE_TASK_ID":          session.TaskID,
@@ -205,7 +208,7 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 		"VOICE_USER_ID":          session.UserID,
 		"VOICE_AI_USER_ID":       session.AIUserID,
 	})
-	payload["AppId"] = session.AppID
+	payload["AppId"] = session.voiceChatAppID()
 	payload["RoomId"] = session.RoomID
 	payload["TaskId"] = session.TaskID
 	config := mapValue(payload["Config"])
@@ -225,6 +228,10 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 	}
 	agentConfig["EnableConversationStateCallback"] = true
 	return payload
+}
+
+func (s voiceSession) voiceChatAppID() string {
+	return fallback(s.VoiceChatAppID, s.AppID)
 }
 
 func (c *volcVoiceChatOpenAPIClient) call(ctx context.Context, action string, payload map[string]any) error {
@@ -256,27 +263,99 @@ func (c *volcVoiceChatOpenAPIClient) call(ctx context.Context, action string, pa
 	if client == nil {
 		client = http.DefaultClient
 	}
+	logFields := logrus.Fields{
+		"component": "volc_voice_chat",
+		"action":    action,
+		"host":      c.host,
+		"region":    c.region,
+		"app_id":    logString(payload["AppId"]),
+		"room_id":   logString(payload["RoomId"]),
+		"task_id":   logString(payload["TaskId"]),
+	}
+	if agentConfig := mapValue(payload["AgentConfig"]); agentConfig != nil {
+		logFields["agent_user_id"] = logString(agentConfig["UserId"])
+		if targets, ok := agentConfig["TargetUserId"].([]any); ok && len(targets) > 0 {
+			logFields["target_user_id"] = logString(targets[0])
+		}
+	}
+	for key, value := range summarizeVoiceChatPayload(payload) {
+		logFields[key] = value
+	}
+	logrus.WithFields(logFields).Info("calling Volc VoiceChat OpenAPI")
 	resp, err := client.Do(req)
 	if err != nil {
+		logrus.WithError(err).WithFields(logFields).Warn("Volc VoiceChat OpenAPI request failed")
 		return fmt.Errorf("%s request failed: %w", action, err)
 	}
 	defer resp.Body.Close()
 	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logFields["http_status"] = resp.StatusCode
+		logFields["response"] = sanitizedVolcResponse(responseBody)
+		logrus.WithFields(logFields).Warn("Volc VoiceChat OpenAPI returned non-2xx")
 		return fmt.Errorf("%s failed with status %d: %s", action, resp.StatusCode, sanitizedVolcResponse(responseBody))
 	}
-	var decoded struct {
-		ResponseMetadata struct {
-			Error *struct {
-				Code    string `json:"Code"`
-				Message string `json:"Message"`
-			} `json:"Error"`
-		} `json:"ResponseMetadata"`
+	decoded, decodeOK := decodeVolcOpenAPIResponse(responseBody)
+	if decodeOK {
+		if decoded.ResponseMetadata.RequestID != "" {
+			logFields["request_id"] = decoded.ResponseMetadata.RequestID
+		}
+		if decoded.ResponseMetadata.Error != nil {
+			logFields["error_code"] = decoded.ResponseMetadata.Error.Code
+			logFields["error_message"] = decoded.ResponseMetadata.Error.Message
+			logrus.WithFields(logFields).Warn("Volc VoiceChat OpenAPI returned business error")
+			return fmt.Errorf("%s failed: %s", action, formatVolcOpenAPIError(decoded))
+		}
 	}
-	if len(bytes.TrimSpace(responseBody)) > 0 && json.Unmarshal(responseBody, &decoded) == nil && decoded.ResponseMetadata.Error != nil {
-		return fmt.Errorf("%s failed: %s", action, decoded.ResponseMetadata.Error.Code)
-	}
+	logrus.WithFields(logFields).Info("Volc VoiceChat OpenAPI call succeeded")
 	return nil
+}
+
+type volcOpenAPIResponse struct {
+	ResponseMetadata struct {
+		RequestID string `json:"RequestId"`
+		Error     *struct {
+			Code    string `json:"Code"`
+			Message string `json:"Message"`
+		} `json:"Error"`
+	} `json:"ResponseMetadata"`
+}
+
+func decodeVolcOpenAPIResponse(body []byte) (volcOpenAPIResponse, bool) {
+	var decoded volcOpenAPIResponse
+	if len(bytes.TrimSpace(body)) == 0 {
+		return decoded, false
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return decoded, false
+	}
+	return decoded, true
+}
+
+func formatVolcOpenAPIError(decoded volcOpenAPIResponse) string {
+	if decoded.ResponseMetadata.Error == nil {
+		return "unknown"
+	}
+	code := strings.TrimSpace(decoded.ResponseMetadata.Error.Code)
+	message := strings.TrimSpace(decoded.ResponseMetadata.Error.Message)
+	requestID := strings.TrimSpace(decoded.ResponseMetadata.RequestID)
+	parts := []string{}
+	if code != "" {
+		parts = append(parts, code)
+	}
+	if message != "" {
+		parts = append(parts, message)
+	}
+	if requestID != "" {
+		parts = append(parts, "RequestId="+requestID)
+	}
+	if code == "NoPermissionForApp" {
+		parts = append(parts, "check VOLC_VOICE_CHAT_APP_ID/VOLC_RTC_APP_ID and enable VoiceChat permission for that Volc app")
+	}
+	if len(parts) == 0 {
+		return "unknown"
+	}
+	return strings.Join(parts, ": ")
 }
 
 type volcOpenAPICredentials struct {
@@ -356,6 +435,35 @@ func sanitizedVolcResponse(body []byte) string {
 		return text[:512]
 	}
 	return text
+}
+
+func summarizeVoiceChatPayload(payload map[string]any) logrus.Fields {
+	fields := logrus.Fields{
+		"has_config":       mapValue(payload["Config"]) != nil,
+		"has_agent_config": mapValue(payload["AgentConfig"]) != nil,
+		"has_rtc_config":   mapValue(payload["RTCConfig"]) != nil,
+	}
+	if config := mapValue(payload["Config"]); config != nil {
+		if asrConfig := mapValue(config["ASRConfig"]); asrConfig != nil {
+			fields["asr_provider"] = logString(asrConfig["Provider"])
+			if providerParams := mapValue(asrConfig["ProviderParams"]); providerParams != nil {
+				fields["asr_mode"] = logString(providerParams["Mode"])
+				fields["asr_resource"] = logString(providerParams["ApiResourceId"])
+			}
+		}
+		if llmConfig := mapValue(config["LLMConfig"]); llmConfig != nil {
+			fields["llm_mode"] = logString(llmConfig["Mode"])
+			fields["llm_model"] = fallback(logString(llmConfig["ModelName"]), logString(llmConfig["EndPointId"]))
+		}
+		if ttsConfig := mapValue(config["TTSConfig"]); ttsConfig != nil {
+			fields["tts_provider"] = logString(ttsConfig["Provider"])
+		}
+		if subtitleConfig := mapValue(config["SubtitleConfig"]); subtitleConfig != nil {
+			fields["subtitle_mode"] = logString(subtitleConfig["SubtitleMode"])
+			fields["subtitle_disable_rts"] = logString(subtitleConfig["DisableRTSSubtitle"])
+		}
+	}
+	return fields
 }
 
 func parseVoiceChatTemplate(raw string) map[string]any {
@@ -482,5 +590,14 @@ func mapValue(value any) map[string]any {
 		return typed
 	default:
 		return nil
+	}
+}
+
+func logString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
 	}
 }

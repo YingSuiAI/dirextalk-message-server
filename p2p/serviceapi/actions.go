@@ -58,6 +58,8 @@ var actionSpecs = []ActionSpec{
 	{Name: "agent.chat", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.chat.stream", Auth: ActionAuthOwner, Transport: ActionTransportWSStreamOnly},
 	{Name: "agent.voice.session.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "agent.voice.session.start", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
+	{Name: "agent.voice.session.transcript", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.voice.session.interrupt", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.voice.session.end", Auth: ActionAuthOwner, Transport: ActionTransportHTTPAndWS},
 	{Name: "agent.voice.session.stream", Auth: ActionAuthOwner, Transport: ActionTransportWSStreamOnly},

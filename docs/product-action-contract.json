@@ -128,6 +128,16 @@
       "transport": "http_and_ws_request"
     },
     {
+      "name": "agent.voice.session.start",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.voice.session.transcript",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
       "name": "agent.voice.session.interrupt",
       "auth": "owner",
       "transport": "http_and_ws_request"

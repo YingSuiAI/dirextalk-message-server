@@ -59,9 +59,10 @@ func newTestVoiceCoordinator(cfg voiceConfig) (*voiceCoordinator, *fakeVoiceToke
 
 func TestVoiceSessionCreateStreamInterruptAndEnd(t *testing.T) {
 	voice, signer, client := newTestVoiceCoordinator(voiceConfig{
-		AppID:    "volc-app",
-		AppKey:   "app-key",
-		AIUserID: "ai-user",
+		AppID:          "rtc-app",
+		AppKey:         "app-key",
+		VoiceChatAppID: "ai-agent-app",
+		AIUserID:       "ai-user",
 	})
 	value, actionErr := voice.create(context.Background(), map[string]any{"source": "native_agent"})
 	if actionErr != nil {
@@ -69,20 +70,32 @@ func TestVoiceSessionCreateStreamInterruptAndEnd(t *testing.T) {
 	}
 	session := value.(map[string]any)
 	sessionID := session["session_id"].(string)
-	if session["app_id"] != "volc-app" || session["ai_user_id"] != "ai-user" {
+	if session["app_id"] != "rtc-app" || session["ai_user_id"] != "ai-user" {
 		t.Fatalf("unexpected voice session response: %#v", session)
 	}
 	if !volcRTCIDPattern.MatchString(session["room_id"].(string)) || !volcRTCIDPattern.MatchString(session["user_id"].(string)) {
 		t.Fatalf("generated RTC IDs must match Volc constraints: %#v", session)
 	}
-	if signer.appID != "volc-app" || signer.appKey != "app-key" || signer.roomID != session["room_id"] || signer.userID != session["user_id"] {
+	if signer.appID != "rtc-app" || signer.appKey != "app-key" || signer.roomID != session["room_id"] || signer.userID != session["user_id"] {
 		t.Fatalf("token signer not called with session identity: signer=%#v session=%#v", signer, session)
 	}
 	if session["token"] != "rtc-token:"+session["room_id"].(string)+":"+session["user_id"].(string) {
 		t.Fatalf("unexpected signed token: %#v", session)
 	}
-	if len(client.started) != 1 || client.started[0].TaskID != sessionID || client.started[0].AIUserID != "ai-user" {
+	if len(client.started) != 0 {
+		t.Fatalf("StartVoiceChat called before explicit start: %#v", client.started)
+	}
+	if _, actionErr := voice.start(context.Background(), map[string]any{"session_id": sessionID}); actionErr != nil {
+		t.Fatalf("start voice session: %v", actionErr)
+	}
+	if len(client.started) != 1 || client.started[0].TaskID != sessionID || client.started[0].AIUserID != "ai-user" || client.started[0].AppID != "rtc-app" || client.started[0].VoiceChatAppID != "ai-agent-app" {
 		t.Fatalf("StartVoiceChat not called with dynamic session: %#v", client.started)
+	}
+	if _, actionErr := voice.start(context.Background(), map[string]any{"session_id": sessionID}); actionErr != nil {
+		t.Fatalf("repeat start voice session: %v", actionErr)
+	}
+	if len(client.started) != 1 {
+		t.Fatalf("repeat start should be idempotent: %#v", client.started)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -168,6 +181,28 @@ func TestVoiceSessionRequiresVolcConfiguration(t *testing.T) {
 	}
 }
 
+func TestVoiceSessionAllowsSeparateRTCAndVoiceChatAppIDs(t *testing.T) {
+	voice, signer, client := newTestVoiceCoordinator(voiceConfig{
+		AppID:          "rtc-app",
+		AppKey:         "app-key",
+		VoiceChatAppID: "voice-chat-app",
+	})
+	value, actionErr := voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr != nil {
+		t.Fatalf("create voice session with separate app ids: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	if _, actionErr := voice.start(context.Background(), map[string]any{"session_id": sessionID}); actionErr != nil {
+		t.Fatalf("start voice session with separate app ids: %v", actionErr)
+	}
+	if signer.appID != "rtc-app" {
+		t.Fatalf("RTC token should use rtc app id, got %#v", signer)
+	}
+	if len(client.started) != 1 || client.started[0].AppID != "rtc-app" || client.started[0].VoiceChatAppID != "voice-chat-app" {
+		t.Fatalf("VoiceChat should use separate ai agent app id, got %#v", client.started)
+	}
+}
+
 func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
 	runner := &voiceRunnerStub{}
 	module := New(Config{Runner: runner})
@@ -221,6 +256,68 @@ func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
 		t.Fatalf("done event = %#v", doneEvent)
 	}
 	if runner.params["prompt"] != "总结产品群" || runner.params["api_key"] != "request-scoped-key" {
+		t.Fatalf("native agent params not preserved: %#v", runner.params)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("voice stream returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("voice stream did not finish after done event")
+	}
+}
+
+func TestVoiceTranscriptActionRunsNativeAgent(t *testing.T) {
+	runner := &voiceRunnerStub{}
+	module := New(Config{Runner: runner})
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:  "volc-app",
+		AppKey: "app-key",
+	})
+	module.voice = voice
+	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
+		"source":  "native_agent",
+		"api_key": "request-scoped-key",
+	})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan nativeagent.Event, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- module.Stream(ctx, "agent.voice.session.stream", map[string]any{"session_id": sessionID}, func(event nativeagent.Event) error {
+			events <- event
+			return nil
+		})
+	}()
+	if event := nextVoiceEvent(t, events); event.Event != "listening" {
+		t.Fatalf("first voice stream event = %#v", event)
+	}
+	response, actionErr := module.submitVoiceTranscript(context.Background(), map[string]any{
+		"session_id":       sessionID,
+		"transcript_final": "帮我查频道帖子",
+	})
+	if actionErr != nil || response.(map[string]any)["ok"] != true {
+		t.Fatalf("voice transcript action = %#v, %v", response, actionErr)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "transcribing" || event.Data["transcript_final"] != "帮我查频道帖子" {
+		t.Fatalf("transcript event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "thinking" {
+		t.Fatalf("thinking event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "answer" || event.Data["answer_delta"] != "回答" {
+		t.Fatalf("answer event = %#v", event)
+	}
+	doneEvent := nextVoiceEvent(t, events)
+	if doneEvent.Event != "done" || doneEvent.Data["references"] == nil {
+		t.Fatalf("done event = %#v", doneEvent)
+	}
+	if runner.params["prompt"] != "帮我查频道帖子" || runner.params["api_key"] != "request-scoped-key" {
 		t.Fatalf("native agent params not preserved: %#v", runner.params)
 	}
 	select {

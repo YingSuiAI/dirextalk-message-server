@@ -13,6 +13,7 @@ import (
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
+	"github.com/sirupsen/logrus"
 )
 
 const voiceSessionTTL = time.Hour
@@ -22,6 +23,7 @@ var volcRTCIDPattern = regexp.MustCompile(`^[A-Za-z0-9@._-]{1,128}$`)
 type voiceConfig struct {
 	AppID                  string
 	AppKey                 string
+	VoiceChatAppID         string
 	AIUserID               string
 	WebhookSecret          string
 	WebhookURL             string
@@ -36,6 +38,7 @@ func voiceConfigFromEnv() voiceConfig {
 	return voiceConfig{
 		AppID:                  strings.TrimSpace(os.Getenv("VOLC_RTC_APP_ID")),
 		AppKey:                 strings.TrimSpace(os.Getenv("VOLC_RTC_APP_KEY")),
+		VoiceChatAppID:         strings.TrimSpace(os.Getenv("VOLC_VOICE_CHAT_APP_ID")),
 		AIUserID:               strings.TrimSpace(os.Getenv("VOLC_RTC_AI_APP_ID")),
 		WebhookSecret:          strings.TrimSpace(os.Getenv("VOLC_VOICE_WEBHOOK_SECRET")),
 		WebhookURL:             strings.TrimSpace(os.Getenv("VOLC_VOICE_WEBHOOK_URL")),
@@ -57,16 +60,18 @@ type voiceCoordinator struct {
 }
 
 type voiceSession struct {
-	SessionID string
-	TaskID    string
-	AppID     string
-	RoomID    string
-	UserID    string
-	Token     string
-	AIUserID  string
-	ExpiresAt time.Time
-	Params    map[string]any
-	Ended     bool
+	SessionID      string
+	TaskID         string
+	AppID          string
+	VoiceChatAppID string
+	RoomID         string
+	UserID         string
+	Token          string
+	AIUserID       string
+	ExpiresAt      time.Time
+	Params         map[string]any
+	Started        bool
+	Ended          bool
 }
 
 func newVoiceCoordinator(cfg voiceConfig) *voiceCoordinator {
@@ -87,6 +92,20 @@ func (m *Module) createVoiceSession(ctx context.Context, params map[string]any) 
 		return nil, actionbase.StatusError(http.StatusBadGateway, "native agent voice service is not configured")
 	}
 	return m.voice.create(ctx, params)
+}
+
+func (m *Module) startVoiceSession(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if m == nil || m.voice == nil {
+		return nil, actionbase.StatusError(http.StatusBadGateway, "native agent voice service is not configured")
+	}
+	return m.voice.start(ctx, params)
+}
+
+func (m *Module) submitVoiceTranscript(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if m == nil || m.voice == nil {
+		return nil, actionbase.StatusError(http.StatusBadGateway, "native agent voice service is not configured")
+	}
+	return m.submitVoiceTranscriptForSession(ctx, params)
 }
 
 func (m *Module) interruptVoiceSession(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
@@ -117,6 +136,7 @@ func (v *voiceCoordinator) create(ctx context.Context, params map[string]any) (a
 	if strings.TrimSpace(v.cfg.AppKey) == "" {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, "volc_rtc_app_key_not_configured", "VOLC_RTC_APP_KEY is required")
 	}
+	voiceChatAppID := fallback(v.cfg.VoiceChatAppID, v.cfg.AppID)
 	if v.signer == nil {
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, "volc_rtc_token_signer_not_configured", "Volc RTC token signer is not configured")
 	}
@@ -136,26 +156,86 @@ func (v *voiceCoordinator) create(ctx context.Context, params map[string]any) (a
 		return nil, actionbase.CodedError(http.StatusServiceUnavailable, "volc_rtc_token_sign_failed", err.Error())
 	}
 	session := &voiceSession{
-		SessionID: sessionID,
-		TaskID:    sessionID,
-		AppID:     v.cfg.AppID,
-		RoomID:    roomID,
-		UserID:    userID,
-		Token:     token,
-		AIUserID:  aiUserID,
-		ExpiresAt: expiresAt,
-		Params:    cloneMap(params),
-	}
-	if v.client != nil {
-		if err := v.client.StartVoiceChat(ctx, *session); err != nil {
-			return nil, actionbase.CodedError(http.StatusBadGateway, "volc_voice_chat_start_failed", err.Error())
-		}
+		SessionID:      sessionID,
+		TaskID:         sessionID,
+		AppID:          v.cfg.AppID,
+		VoiceChatAppID: voiceChatAppID,
+		RoomID:         roomID,
+		UserID:         userID,
+		Token:          token,
+		AIUserID:       aiUserID,
+		ExpiresAt:      expiresAt,
+		Params:         cloneMap(params),
 	}
 	v.mu.Lock()
 	v.sessions[sessionID] = session
 	v.mu.Unlock()
 	v.emit(sessionID, nativeagent.Event{Event: "listening", Data: map[string]any{"status": "listening"}})
 	return session.response(), nil
+}
+
+func (v *voiceCoordinator) start(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	sessionID := actionbase.String(params["session_id"])
+	if sessionID == "" {
+		return nil, actionbase.BadRequest("session_id is required")
+	}
+	v.mu.Lock()
+	session, ok := v.sessions[sessionID]
+	if !ok || session.Ended {
+		v.mu.Unlock()
+		return nil, actionbase.StatusError(http.StatusNotFound, "voice session not found")
+	}
+	if session.Started {
+		v.mu.Unlock()
+		return map[string]any{"ok": true, "session_id": sessionID, "started": true, "already_started": true}, nil
+	}
+	session.Started = true
+	sessionCopy := *session
+	sessionCopy.Params = cloneMap(session.Params)
+	v.mu.Unlock()
+	if v.client != nil {
+		logrus.WithFields(logrus.Fields{
+			"component":         "native_agent_voice",
+			"action":            "StartVoiceChat",
+			"session_id":        sessionCopy.SessionID,
+			"task_id":           sessionCopy.TaskID,
+			"rtc_app_id":        sessionCopy.AppID,
+			"voice_chat_app_id": sessionCopy.VoiceChatAppID,
+			"room_id":           sessionCopy.RoomID,
+			"user_id":           sessionCopy.UserID,
+			"ai_user_id":        sessionCopy.AIUserID,
+		}).Info("starting Volc VoiceChat session")
+		if err := v.client.StartVoiceChat(ctx, sessionCopy); err != nil {
+			v.mu.Lock()
+			if current := v.sessions[sessionID]; current != nil {
+				current.Started = false
+			}
+			v.mu.Unlock()
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"component":         "native_agent_voice",
+				"action":            "StartVoiceChat",
+				"session_id":        sessionCopy.SessionID,
+				"task_id":           sessionCopy.TaskID,
+				"rtc_app_id":        sessionCopy.AppID,
+				"voice_chat_app_id": sessionCopy.VoiceChatAppID,
+				"room_id":           sessionCopy.RoomID,
+				"user_id":           sessionCopy.UserID,
+				"ai_user_id":        sessionCopy.AIUserID,
+			}).Warn("Volc VoiceChat session failed to start")
+			return nil, actionbase.CodedError(http.StatusBadGateway, "volc_voice_chat_start_failed", err.Error())
+		}
+		logrus.WithFields(logrus.Fields{
+			"component":         "native_agent_voice",
+			"action":            "StartVoiceChat",
+			"session_id":        sessionCopy.SessionID,
+			"task_id":           sessionCopy.TaskID,
+			"rtc_app_id":        sessionCopy.AppID,
+			"voice_chat_app_id": sessionCopy.VoiceChatAppID,
+			"room_id":           sessionCopy.RoomID,
+		}).Info("Volc VoiceChat session started")
+	}
+	v.emit(sessionID, nativeagent.Event{Event: "listening", Data: map[string]any{"status": "listening"}})
+	return map[string]any{"ok": true, "session_id": sessionID, "started": true}, nil
 }
 
 func (m *Module) HandleVoiceWebhook(ctx context.Context, token string, params map[string]any) (map[string]any, *actionbase.Error) {
@@ -197,6 +277,35 @@ func (m *Module) HandleVoiceWebhook(ctx context.Context, token string, params ma
 		go m.runVoiceAgent(context.Background(), session, transcript)
 	}
 	return map[string]any{"ok": true, "session_id": sessionID}, nil
+}
+
+func (m *Module) submitVoiceTranscriptForSession(ctx context.Context, params map[string]any) (map[string]any, *actionbase.Error) {
+	sessionID := actionbase.String(params["session_id"])
+	if sessionID == "" {
+		return nil, actionbase.BadRequest("session_id is required")
+	}
+	session, ok := m.voice.session(sessionID)
+	if !ok {
+		return nil, actionbase.StatusError(http.StatusNotFound, "voice session not found")
+	}
+	delta := strings.TrimSpace(actionbase.String(params["transcript_delta"]))
+	final := strings.TrimSpace(actionbase.String(params["transcript_final"]))
+	if delta == "" && final == "" {
+		return nil, actionbase.BadRequest("transcript_delta or transcript_final is required")
+	}
+	data := map[string]any{"status": "transcribing"}
+	if delta != "" {
+		data["transcript_delta"] = delta
+	}
+	if final != "" {
+		data["transcript_final"] = final
+	}
+	m.voice.emit(sessionID, nativeagent.Event{Event: "transcribing", Data: data})
+	if final != "" {
+		go m.runVoiceAgent(context.Background(), session, final)
+	}
+	_ = ctx
+	return map[string]any{"ok": true, "session_id": sessionID, "accepted": true}, nil
 }
 
 func (m *Module) runVoiceAgent(ctx context.Context, session voiceSession, transcript string) {
@@ -269,7 +378,26 @@ func (v *voiceCoordinator) end(ctx context.Context, params map[string]any) (any,
 		close(ch)
 	}
 	if ok && v.client != nil {
-		_ = v.client.StopVoiceChat(ctx, *session)
+		logrus.WithFields(logrus.Fields{
+			"component":         "native_agent_voice",
+			"action":            "StopVoiceChat",
+			"session_id":        session.SessionID,
+			"task_id":           session.TaskID,
+			"rtc_app_id":        session.AppID,
+			"voice_chat_app_id": session.VoiceChatAppID,
+			"room_id":           session.RoomID,
+		}).Info("stopping Volc VoiceChat session")
+		if err := v.client.StopVoiceChat(ctx, *session); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"component":         "native_agent_voice",
+				"action":            "StopVoiceChat",
+				"session_id":        session.SessionID,
+				"task_id":           session.TaskID,
+				"rtc_app_id":        session.AppID,
+				"voice_chat_app_id": session.VoiceChatAppID,
+				"room_id":           session.RoomID,
+			}).Warn("Volc VoiceChat session failed to stop")
+		}
 	}
 	return map[string]any{"ok": true, "session_id": sessionID, "ended": ok}, nil
 }
