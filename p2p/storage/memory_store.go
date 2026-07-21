@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentturns"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/legacygateway"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 )
@@ -17,27 +18,29 @@ type MemoryStore struct {
 	portal    *portalState
 	readMarks map[string]readMarker
 
-	conversations map[string]conversationRecord
-	channels      map[string]channel
-	inviteGrants  map[string]channelInviteGrant
-	posts         []channelPostRecord
-	comments      []channelCommentRecord
-	contacts      map[string]contactRecord
-	blocks        map[string]blockRecord
-	groups        map[string]groupRecord
-	calls         map[string]callRecord
-	favorites     map[int64]favoriteRecord
-	follows       map[string]followRecord
-	reactions     map[string]reactionRecord
-	members       map[string]memberRecord
-	events        []p2pEvent
-	eventSeq      map[int64]struct{}
-	eventDedupe   map[string]int64
-	plugins       map[string]pluginInstance
-	pluginJobs    map[string]pluginJob
-	pluginSecrets map[string]map[string]pluginSecret
-	reports       map[string]reportRecord
-	operations    map[string]operations.Record
+	conversations   map[string]conversationRecord
+	channels        map[string]channel
+	inviteGrants    map[string]channelInviteGrant
+	posts           []channelPostRecord
+	comments        []channelCommentRecord
+	contacts        map[string]contactRecord
+	blocks          map[string]blockRecord
+	groups          map[string]groupRecord
+	calls           map[string]callRecord
+	favorites       map[int64]favoriteRecord
+	follows         map[string]followRecord
+	reactions       map[string]reactionRecord
+	members         map[string]memberRecord
+	events          []p2pEvent
+	eventSeq        map[int64]struct{}
+	eventDedupe     map[string]int64
+	plugins         map[string]pluginInstance
+	pluginJobs      map[string]pluginJob
+	pluginSecrets   map[string]map[string]pluginSecret
+	reports         map[string]reportRecord
+	operations      map[string]operations.Record
+	agentTurns      map[string]agentturns.Turn
+	agentTurnEvents map[string][]agentturns.Event
 
 	legacyAgentInvocations           map[legacyAgentInvocationKey]legacygateway.InvocationRecord
 	legacyAgentInvocationEvents      map[string]legacyAgentInvocationKey
@@ -67,6 +70,8 @@ func NewMemoryStore() *MemoryStore {
 		pluginSecrets:                    make(map[string]map[string]pluginSecret),
 		reports:                          make(map[string]reportRecord),
 		operations:                       make(map[string]operations.Record),
+		agentTurns:                       make(map[string]agentturns.Turn),
+		agentTurnEvents:                  make(map[string][]agentturns.Event),
 		legacyAgentInvocations:           make(map[legacyAgentInvocationKey]legacygateway.InvocationRecord),
 		legacyAgentInvocationEvents:      make(map[string]legacyAgentInvocationKey),
 		legacyAgentInvocationIdempotency: make(map[legacyAgentIdempotencyKey]legacyAgentInvocationKey),

@@ -46,7 +46,9 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 	if err != nil {
 		return nil, err
 	}
-	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
+	if err := r.rememberEinoMessages(ctx, config, params, profile, run, produced); err != nil {
+		return nil, err
+	}
 	trace := buildAgentTrace(run, produced, toolCalls, text)
 	result := map[string]any{
 		"ok":         true,

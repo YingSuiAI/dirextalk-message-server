@@ -380,6 +380,9 @@ func TestNativeAgentRealtimeStreamCancelAndErrorFrames(t *testing.T) {
 	if cancelled["type"] != "server.native_agent_stream.cancelled" || cancelled["id"] != "native-cancel" || cancelled["ok"] != true {
 		t.Fatalf("expected native stream cancelled frame, got %#v", cancelled)
 	}
+	if _, ok := cancelled["execution_continues"]; ok {
+		t.Fatalf("legacy cancel frame must remain unchanged, got %#v", cancelled)
+	}
 
 	errorRunner := &erroringNativeAgentRunner{}
 	errorService := NewService(Config{ServerName: "example.com", NativeAgentRunner: errorRunner})

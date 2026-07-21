@@ -2,22 +2,25 @@ package realtimews
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
 
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentturns"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/serviceapi"
 )
 
 type connection struct {
-	sessionID     string
-	record        Ticket
-	outbound      chan map[string]any
-	streamMu      sync.Mutex
-	streamCancels map[string]context.CancelFunc
+	sessionID      string
+	record         Ticket
+	outbound       chan map[string]any
+	streamMu       sync.Mutex
+	streamCancels  map[string]context.CancelFunc
+	durableStreams map[string]bool
 }
 
 func newConnection(sessionID string, record Ticket) *connection {
@@ -74,6 +77,30 @@ func (c *connection) finishStream(id string) {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	delete(c.streamCancels, strings.TrimSpace(id))
+	delete(c.durableStreams, strings.TrimSpace(id))
+}
+
+func (c *connection) markDurableStream(id string) {
+	if c == nil {
+		return
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if _, ok := c.streamCancels[strings.TrimSpace(id)]; ok {
+		if c.durableStreams == nil {
+			c.durableStreams = map[string]bool{}
+		}
+		c.durableStreams[strings.TrimSpace(id)] = true
+	}
+}
+
+func (c *connection) durableStream(id string) bool {
+	if c == nil {
+		return false
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	return c.durableStreams[strings.TrimSpace(id)]
 }
 
 func (c *connection) cancelStream(id string) bool {
@@ -84,6 +111,7 @@ func (c *connection) cancelStream(id string) bool {
 	cancel, ok := c.streamCancels[strings.TrimSpace(id)]
 	if ok {
 		delete(c.streamCancels, strings.TrimSpace(id))
+		delete(c.durableStreams, strings.TrimSpace(id))
 	}
 	c.streamMu.Unlock()
 	if ok {
@@ -102,6 +130,7 @@ func (c *connection) cancelAllStreams() {
 		cancels = append(cancels, cancel)
 	}
 	c.streamCancels = map[string]context.CancelFunc{}
+	c.durableStreams = map[string]bool{}
 	c.streamMu.Unlock()
 	for _, cancel := range cancels {
 		cancel()
@@ -263,6 +292,74 @@ func (m *Module) startNativeAgentStream(ctx context.Context, client *connection,
 		client.send(nativeAgentStreamError(id, action, http.StatusConflict, "stream id is already active"))
 		return
 	}
+	if turnID := actionbase.String(params["turn_id"]); turnID != "" {
+		client.markDurableStream(id)
+		durable, ok := m.agent.(DurableAgentStreamPort)
+		if !ok {
+			client.finishStream(id)
+			cancel()
+			client.send(nativeAgentStreamError(id, action, http.StatusBadGateway, "native agent turn coordinator is not configured"))
+			return
+		}
+		go func() {
+			defer client.finishStream(id)
+			err := durable.DurableStream(streamCtx, client.record.UserID, runnerAction, params, func(event agentturns.StreamEvent) error {
+				switch event.Kind {
+				case agentturns.EventAccepted:
+					return client.sendBlocking(streamCtx, map[string]any{
+						"type": "server.native_agent_stream.accepted", "id": id,
+						"action": strings.TrimSuffix(action, ".stream"), "turn_id": event.TurnID,
+						"conversation_id": event.ConversationID, "state": string(event.Turn.State),
+					})
+				case agentturns.EventError:
+					message := actionbase.String(event.Data["error"])
+					if message == "" {
+						message = event.Event
+					}
+					status := http.StatusBadGateway
+					if event.Event == "stopped" {
+						status = http.StatusConflict
+					} else if event.Event == "interrupted" {
+						status = http.StatusServiceUnavailable
+					}
+					return client.sendBlocking(streamCtx, map[string]any{
+						"type": "server.native_agent_stream.error", "id": id,
+						"action": strings.TrimSuffix(action, ".stream"), "ok": false, "status": status,
+						"error": message, "event": event.Event, "turn_id": event.TurnID,
+						"conversation_id": event.ConversationID, "seq": event.Seq, "data": event.Data,
+					})
+				default:
+					return client.sendBlocking(streamCtx, map[string]any{
+						"type": "server.native_agent_stream.event", "id": id,
+						"action": strings.TrimSuffix(action, ".stream"), "event": event.Event,
+						"data": event.Data, "turn_id": event.TurnID,
+						"conversation_id": event.ConversationID, "seq": event.Seq,
+					})
+				}
+			})
+			if err == nil || streamCtx.Err() != nil {
+				return
+			}
+			status := http.StatusBadGateway
+			code := ""
+			if errors.Is(err, agentturns.ErrTurnIDReused) {
+				status = http.StatusConflict
+				code = "M_TURN_ID_REUSED"
+			} else if strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "after_seq") {
+				status = http.StatusBadRequest
+			}
+			frame := nativeAgentStreamError(id, action, status, err.Error())
+			if code != "" {
+				frame["code"] = code
+				frame["error_code"] = code
+			}
+			frame["turn_id"] = turnID
+			frame["conversation_id"] = durableStreamConversationID(params)
+			frame["seq"] = int64(0)
+			_ = client.sendBlocking(ctx, frame)
+		}()
+		return
+	}
 	go func() {
 		defer client.finishStream(id)
 		doneSent := false
@@ -305,21 +402,30 @@ func (m *Module) startNativeAgentStream(ctx context.Context, client *connection,
 	}()
 }
 
+func durableStreamConversationID(params map[string]any) string {
+	return nativeagent.ConversationID(params)
+}
+
 func (m *Module) cancelNativeAgentStream(client *connection, frame map[string]any) {
 	id := actionbase.String(frame["id"])
 	if id == "" {
 		client.send(nativeAgentStreamError(id, "", http.StatusBadRequest, "id is required"))
 		return
 	}
+	durable := client.durableStream(id)
 	if !client.cancelStream(id) {
 		client.send(nativeAgentStreamError(id, "", http.StatusNotFound, "stream is not active"))
 		return
 	}
-	client.send(map[string]any{
+	response := map[string]any{
 		"type": "server.native_agent_stream.cancelled",
 		"id":   id,
 		"ok":   true,
-	})
+	}
+	if durable {
+		response["execution_continues"] = true
+	}
+	client.send(response)
 }
 
 func nativeAgentStreamError(id, action string, status int, message string) map[string]any {

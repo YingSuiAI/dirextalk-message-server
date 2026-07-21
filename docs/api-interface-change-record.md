@@ -1,6 +1,18 @@
 # API Interface Change Record
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
+
+## 2026-07-21 Durable Native Agent Turns v1
+
+`server.ready` now advertises `native_agent_turns=1`. Existing `client.native_agent_stream` requests without `params.turn_id` retain their connection-scoped behavior and wire frames. A request with `params.turn_id` uses the durable owner-scoped turn lifecycle. `turn_id` and the resolved `conversation_id` are restricted to 1-256 characters from the server's identifier alphabet. The server commits the unique `(owner_id, turn_id)` reservation before sending `server.native_agent_stream.accepted`; an exact secret-free request-digest replay attaches to the existing turn, while reuse with a different action, conversation, or digest returns HTTP-equivalent status `409` with `code=M_TURN_ID_REUSED`.
+
+Durable turn states are `accepted -> running -> succeeded|failed|stopped|interrupted`. Accepted work runs from a service-owned context, not the WebSocket context. Closing the page/socket or sending `client.native_agent_stream.cancel` detaches that attachment and does not stop execution; the cancelled reply includes `execution_continues=true`. The owner-only HTTP and realtime-request action `agent.chat.turn.stop` accepts `turn_id`, is idempotent, and is the only durable execution cancellation. `agent.chat.turns.list` accepts optional `conversation_id` and `limit` and returns the owner's turns in newest-first order.
+
+Turns for the same owner and conversation execute serially in durable acceptance order, and an exact replay never executes twice. PostgreSQL is authoritative for state and replay events. A server restart changes any unsafe `accepted` or `running` row to terminal `interrupted` and never retries its possibly side-effecting runtime work. Terminal state plus its final `done`, `failed`, `stopped`, or `interrupted` record is committed before it is emitted.
+
+A durable attachment may include `params.after_seq`. The server first emits `server.native_agent_stream.accepted`, then replays stored records with `seq > after_seq`, and then follows live records. Durable `server.native_agent_stream.event` and `server.native_agent_stream.error` frames include `turn_id`, `conversation_id`, and monotonic per-turn `seq`. Event persistence recursively removes API keys, access/bearer tokens, authorization headers, passwords, secrets, and private keys. Full request params and request-scoped model profiles are never stored; PostgreSQL stores only their secret-free SHA-256 digest. Prompts remain governed by the existing authorized Native Agent conversation-memory contract rather than a second turn-input store.
+
+Native Agent conversation-memory persistence is now part of successful completion: if saving the authorized model context fails, `agent.chat` returns an error and a stream does not emit successful `done`. Runtime memory remains model context only and is not the durable turn source.
 
 ## 2026-07-20 Canonical Membership And MCP Joined-Room Authorization
 

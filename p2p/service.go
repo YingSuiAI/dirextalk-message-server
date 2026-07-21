@@ -15,6 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	agentmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agent"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentturns"
 	blocksmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/blocks"
 	callsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/calls"
 	channelsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/channels"
@@ -144,6 +145,7 @@ type AccountDeprovisioner interface {
 }
 
 type Store interface {
+	agentturns.Store
 	operationsmodule.Store
 	legacygatewaymodule.Store
 	portalStore
@@ -216,6 +218,9 @@ func NewServiceWithStoreAndTransport(ctx context.Context, cfg Config, store Stor
 	}
 	shouldPersist := !ok || !state.Initialized || strings.TrimSpace(state.Password) == "" || migratedAgentConfig
 	service := newService(cfg, store, transport, state, ok)
+	if err := service.agentModule.ReadyError(); err != nil {
+		return nil, err
+	}
 	if err := service.pluginsModule.CheckStore(ctx); err != nil {
 		return nil, err
 	}
@@ -814,6 +819,8 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		Store:   nativeAgentConfigStore{service: service},
 		MCP:     service.mcpCapabilities,
 		Account: serviceAgentAccountPort{service: service},
+		Turns:   service.store,
+		OwnerID: service.OwnerMXID,
 	})
 	service.actions = service.actionHandlers()
 	service.realtimeModule = realtimewsmodule.New(realtimewsmodule.Dependencies{

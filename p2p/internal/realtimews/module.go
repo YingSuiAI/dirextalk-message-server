@@ -15,6 +15,7 @@ import (
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/realtime"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentturns"
 	eventsmodule "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/events"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/httpapi"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/plugins"
@@ -67,6 +68,10 @@ type PluginStreamPort interface {
 // AgentStreamPort invokes Native Agent streaming actions.
 type AgentStreamPort interface {
 	Stream(context.Context, string, map[string]any, func(nativeagent.Event) error) error
+}
+
+type DurableAgentStreamPort interface {
+	DurableStream(context.Context, string, string, map[string]any, func(agentturns.StreamEvent) error) error
 }
 
 type Dependencies struct {
@@ -170,6 +175,7 @@ func (m *Module) Handler() http.HandlerFunc {
 			"type":                  "server.ready",
 			"role":                  record.Role,
 			"heartbeat_interval_ms": int64(m.heartbeat / time.Millisecond),
+			"native_agent_turns":    1,
 		}); err != nil {
 			return
 		}

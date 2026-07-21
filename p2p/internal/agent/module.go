@@ -3,12 +3,15 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/agentturns"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
 )
 
@@ -26,12 +29,17 @@ type Config struct {
 	Store   nativeagent.ConfigStore
 	MCP     *dirextalkmcp.Service
 	Account AccountPort
+	Turns   agentturns.Store
+	OwnerID func() string
 }
 
 // Module owns runtime-backed ProductCore actions and streaming invocation.
 type Module struct {
 	runner  Runner
 	account AccountPort
+	turns   *agentturns.Coordinator
+	turnErr error
+	ownerID func() string
 }
 
 func New(cfg Config) *Module {
@@ -43,12 +51,13 @@ func New(cfg Config) *Module {
 			Tools:   Tools(cfg.MCP),
 		})}
 	}
-	return &Module{runner: runner, account: cfg.Account}
+	turns, turnErr := agentturns.NewCoordinator(context.Background(), cfg.Turns)
+	return &Module{runner: runner, account: cfg.Account, turns: turns, turnErr: turnErr, ownerID: cfg.OwnerID}
 }
 
 // Handlers returns the complete Agent ProductCore action surface.
 func (m *Module) Handlers() map[string]actionbase.Handler {
-	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+5)
+	handlers := make(map[string]actionbase.Handler, len(runtimeActions)+7)
 	for _, action := range runtimeActions {
 		handlers[action] = m.invoke(action)
 	}
@@ -57,7 +66,16 @@ func (m *Module) Handlers() map[string]actionbase.Handler {
 	handlers[actionConfigGet] = m.getConfig
 	handlers[actionConfigUpdate] = m.updateConfig
 	handlers["agent.chat.stream"] = streamOnly
+	handlers["agent.chat.turn.stop"] = m.stopTurn
+	handlers["agent.chat.turns.list"] = m.listTurns
 	return handlers
+}
+
+func (m *Module) ReadyError() error {
+	if m == nil {
+		return fmt.Errorf("native agent module is unavailable")
+	}
+	return m.turnErr
 }
 
 // Stream invokes a runtime streaming action after the websocket adapter has
@@ -67,6 +85,90 @@ func (m *Module) Stream(ctx context.Context, action string, params map[string]an
 		return fmt.Errorf("native agent runtime is not configured")
 	}
 	return m.runner.Stream(ctx, strings.TrimSpace(action), cloneMap(params), emit)
+}
+
+func (m *Module) DurableStream(ctx context.Context, ownerID, action string, params map[string]any, emit func(agentturns.StreamEvent) error) error {
+	if m == nil || m.runner == nil || m.turns == nil {
+		return fmt.Errorf("native agent turn coordinator is not configured")
+	}
+	turnID := actionbase.String(params["turn_id"])
+	conversationID := nativeagent.ConversationID(params)
+	digest, err := agentturns.RequestDigest(action, params)
+	if err != nil {
+		return err
+	}
+	request := agentturns.Request{
+		OwnerID: strings.TrimSpace(ownerID), TurnID: turnID, ConversationID: conversationID,
+		Action: strings.TrimSpace(action), Digest: digest, AfterSeq: actionbase.Int64(params["after_seq"]),
+	}
+	runParams := cloneMap(params)
+	delete(runParams, "after_seq")
+	return m.turns.Stream(ctx, request, func(runCtx context.Context, runtimeEmit func(agentturns.RuntimeEvent) error) error {
+		return m.runner.Stream(runCtx, request.Action, runParams, func(event nativeagent.Event) error {
+			return runtimeEmit(agentturns.RuntimeEvent{Event: event.Event, Data: event.Data})
+		})
+	}, emit)
+}
+
+func (m *Module) stopTurn(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if m == nil || m.turns == nil {
+		return nil, actionbase.StatusError(http.StatusBadGateway, "native agent turn coordinator is not configured")
+	}
+	turnID := actionbase.String(params["turn_id"])
+	if turnID == "" {
+		return nil, actionbase.BadRequest("turn_id is required")
+	}
+	if !agentturns.ValidID(turnID) {
+		return nil, actionbase.BadRequest("turn_id is invalid")
+	}
+	turn, changed, err := m.turns.Stop(ctx, m.currentOwnerID(), turnID)
+	if err != nil {
+		if errors.Is(err, agentturns.ErrTurnNotFound) {
+			return nil, actionbase.CodedError(http.StatusNotFound, "M_TURN_NOT_FOUND", "M_TURN_NOT_FOUND")
+		}
+		return nil, actionbase.InternalError(err)
+	}
+	result := turnResponse(turn)
+	result["changed"] = changed
+	return result, nil
+}
+
+func (m *Module) listTurns(ctx context.Context, params map[string]any) (any, *actionbase.Error) {
+	if m == nil || m.turns == nil {
+		return nil, actionbase.StatusError(http.StatusBadGateway, "native agent turn coordinator is not configured")
+	}
+	conversationID := ""
+	if actionbase.String(params["conversation_id"]) != "" {
+		conversationID = nativeagent.ConversationID(params)
+	}
+	turns, err := m.turns.List(ctx, m.currentOwnerID(), conversationID, int(actionbase.Int64(params["limit"])))
+	if err != nil {
+		return nil, actionbase.InternalError(err)
+	}
+	items := make([]map[string]any, 0, len(turns))
+	for _, turn := range turns {
+		items = append(items, turnResponse(turn))
+	}
+	return map[string]any{"turns": items}, nil
+}
+
+func (m *Module) currentOwnerID() string {
+	if m != nil && m.ownerID != nil {
+		return strings.TrimSpace(m.ownerID())
+	}
+	return "owner"
+}
+
+func turnResponse(turn agentturns.Turn) map[string]any {
+	result := map[string]any{
+		"turn_id": turn.TurnID, "conversation_id": turn.ConversationID, "action": turn.Action,
+		"state": string(turn.State), "created_at": turn.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"updated_at": turn.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	if turn.Error != "" {
+		result["error"] = turn.Error
+	}
+	return result
 }
 
 func (m *Module) invoke(action string) actionbase.Handler {

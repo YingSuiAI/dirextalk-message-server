@@ -1,0 +1,198 @@
+package p2p
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/YingSuiAI/dirextalk-message-server/p2p/nativeagent"
+	"github.com/coder/websocket"
+)
+
+func TestNativeAgentDurableTurnDeduplicatesAndReplays(t *testing.T) {
+	runner := &durableTurnRunner{}
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: runner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	ready := readRealtimeFrame(t, conn)
+	if ready["native_agent_turns"] != float64(1) {
+		t.Fatalf("ready capability = %#v", ready)
+	}
+	params := map[string]any{
+		"turn_id": "turn-replay", "conversation_id": "conversation-replay", "prompt": "hello",
+		"model_profile": map[string]any{"provider": "openai", "model": "test", "api_key": "must-not-persist"},
+	}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type": "client.native_agent_stream", "id": "durable-1", "action": "agent.chat", "params": params,
+	})
+	accepted := readRealtimeFrame(t, conn)
+	assertDurableAcceptedFrame(t, accepted, "durable-1", "turn-replay", "conversation-replay")
+	delta := readRealtimeFrame(t, conn)
+	done := readRealtimeFrame(t, conn)
+	assertDurableEventFrame(t, delta, "delta", float64(1))
+	assertDurableEventFrame(t, done, "done", float64(2))
+
+	replayParams := cloneTestMap(params)
+	replayParams["after_seq"] = float64(1)
+	replayParams["model_profile"] = map[string]any{"provider": "openai", "model": "test", "api_key": "replacement-secret"}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type": "client.native_agent_stream", "id": "durable-2", "action": "agent.chat", "params": replayParams,
+	})
+	accepted = readRealtimeFrame(t, conn)
+	assertDurableAcceptedFrame(t, accepted, "durable-2", "turn-replay", "conversation-replay")
+	if accepted["state"] != "succeeded" {
+		t.Fatalf("replay state = %#v", accepted)
+	}
+	done = readRealtimeFrame(t, conn)
+	assertDurableEventFrame(t, done, "done", float64(2))
+	if runner.executions.Load() != 1 {
+		t.Fatalf("runner executions = %d, want 1", runner.executions.Load())
+	}
+
+	mismatch := cloneTestMap(params)
+	mismatch["prompt"] = "different"
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type": "client.native_agent_stream", "id": "durable-mismatch", "action": "agent.chat", "params": mismatch,
+	})
+	conflict := readRealtimeFrame(t, conn)
+	if conflict["type"] != "server.native_agent_stream.error" || conflict["status"] != float64(http.StatusConflict) || conflict["code"] != "M_TURN_ID_REUSED" {
+		t.Fatalf("turn mismatch = %#v", conflict)
+	}
+}
+
+func TestNativeAgentDurableTurnDetachContinuesAndExplicitStopCancels(t *testing.T) {
+	runner := &durableTurnRunner{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewService(Config{ServerName: "example.com", NativeAgentRunner: runner})
+	router := newP2PTestRouter(service)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	conn := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, conn)
+	params := map[string]any{"turn_id": "turn-detach", "conversation_id": "conversation", "prompt": "hold"}
+	writeRealtimeFrame(t, conn, map[string]any{
+		"type": "client.native_agent_stream", "id": "detach", "action": "agent.chat", "params": params,
+	})
+	assertDurableAcceptedFrame(t, readRealtimeFrame(t, conn), "detach", "turn-detach", "conversation")
+	<-runner.started
+	writeRealtimeFrame(t, conn, map[string]any{"type": "client.native_agent_stream.cancel", "id": "detach"})
+	cancelled := readRealtimeFrame(t, conn)
+	if cancelled["type"] != "server.native_agent_stream.cancelled" || cancelled["execution_continues"] != true {
+		t.Fatalf("durable detach = %#v", cancelled)
+	}
+	close(runner.release)
+	waitServiceTurnState(t, service, "turn-detach", "succeeded")
+
+	stopRunner := &durableTurnRunner{started: make(chan struct{}), waitForCancel: true}
+	stopService := NewService(Config{ServerName: "example.com", NativeAgentRunner: stopRunner})
+	stopRouter := newP2PTestRouter(stopService)
+	stopServer := httptest.NewServer(stopRouter)
+	defer stopServer.Close()
+	stopConn := dialRealtimeWS(t, stopServer.URL, mustCreateRealtimeWSTicket(t, stopRouter, stopService.AccessToken()))
+	defer stopConn.Close(websocket.StatusNormalClosure, "")
+	writeRealtimeFrame(t, stopConn, map[string]any{"type": "client.hello"})
+	_ = readRealtimeFrame(t, stopConn)
+	stopParams := map[string]any{"turn_id": "turn-stop", "conversation_id": "conversation", "prompt": "stop"}
+	writeRealtimeFrame(t, stopConn, map[string]any{
+		"type": "client.native_agent_stream", "id": "stop", "action": "agent.chat", "params": stopParams,
+	})
+	assertDurableAcceptedFrame(t, readRealtimeFrame(t, stopConn), "stop", "turn-stop", "conversation")
+	<-stopRunner.started
+	result, apiErr := stopService.Handle(context.Background(), "agent.chat.turn.stop", map[string]any{"turn_id": "turn-stop"})
+	if apiErr != nil || result.(map[string]any)["state"] != "stopped" || result.(map[string]any)["changed"] != true {
+		t.Fatalf("stop result = (%#v, %#v)", result, apiErr)
+	}
+	stopped := readRealtimeFrame(t, stopConn)
+	if stopped["type"] != "server.native_agent_stream.error" || stopped["event"] != "stopped" || stopped["seq"] != float64(1) {
+		t.Fatalf("stopped event = %#v", stopped)
+	}
+	result, apiErr = stopService.Handle(context.Background(), "agent.chat.turn.stop", map[string]any{"turn_id": "turn-stop"})
+	if apiErr != nil || result.(map[string]any)["changed"] != false {
+		t.Fatalf("idempotent stop result = (%#v, %#v)", result, apiErr)
+	}
+}
+
+type durableTurnRunner struct {
+	executions    atomic.Int32
+	started       chan struct{}
+	release       chan struct{}
+	waitForCancel bool
+	startOnce     sync.Once
+}
+
+func (r *durableTurnRunner) Apply(context.Context, string) error { return nil }
+
+func (r *durableTurnRunner) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func (r *durableTurnRunner) Stream(ctx context.Context, _ string, _ map[string]any, emit func(nativeagent.Event) error) error {
+	r.executions.Add(1)
+	if r.started != nil {
+		r.startOnce.Do(func() { close(r.started) })
+	}
+	if r.waitForCancel {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "hel"}}); err != nil {
+		return err
+	}
+	return emit(nativeagent.Event{Event: "done", Data: map[string]any{"text": "hello"}})
+}
+
+func assertDurableAcceptedFrame(t *testing.T, frame map[string]any, id, turnID, conversationID string) {
+	t.Helper()
+	if frame["type"] != "server.native_agent_stream.accepted" || frame["id"] != id || frame["turn_id"] != turnID || frame["conversation_id"] != conversationID {
+		t.Fatalf("accepted frame = %#v", frame)
+	}
+}
+
+func assertDurableEventFrame(t *testing.T, frame map[string]any, event string, seq float64) {
+	t.Helper()
+	if frame["type"] != "server.native_agent_stream.event" || frame["event"] != event || frame["seq"] != seq || frame["turn_id"] != "turn-replay" || frame["conversation_id"] != "conversation-replay" {
+		t.Fatalf("durable event frame = %#v", frame)
+	}
+}
+
+func waitServiceTurnState(t *testing.T, service *Service, turnID, state string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		result, apiErr := service.Handle(context.Background(), "agent.chat.turns.list", map[string]any{})
+		if apiErr == nil {
+			for _, item := range result.(map[string]any)["turns"].([]map[string]any) {
+				if item["turn_id"] == turnID && item["state"] == state {
+					return
+				}
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("turn %s did not reach %s", turnID, state)
+}
+
+func cloneTestMap(values map[string]any) map[string]any {
+	result := make(map[string]any, len(values))
+	for key, value := range values {
+		result[key] = value
+	}
+	return result
+}

@@ -778,6 +778,41 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 		},
 	})
 	m.AddMigrations(sqlutil.Migration{
+		Version: "p2p: durable native agent turns v77",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_native_agent_turns (
+					owner_id TEXT NOT NULL CHECK (owner_id <> ''),
+					turn_id TEXT NOT NULL CHECK (turn_id <> ''),
+					conversation_id TEXT NOT NULL CHECK (conversation_id <> ''),
+					action TEXT NOT NULL CHECK (action <> ''),
+					request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32),
+					state TEXT NOT NULL CHECK (state IN ('accepted', 'running', 'succeeded', 'failed', 'stopped', 'interrupted')),
+					error_message TEXT NOT NULL DEFAULT '',
+					created_at TIMESTAMPTZ NOT NULL,
+					updated_at TIMESTAMPTZ NOT NULL,
+					PRIMARY KEY (owner_id, turn_id)
+				)`,
+				`CREATE INDEX IF NOT EXISTS p2p_native_agent_turns_owner_conversation_idx
+					ON p2p_native_agent_turns(owner_id, conversation_id, created_at, turn_id)`,
+				`CREATE INDEX IF NOT EXISTS p2p_native_agent_turns_active_idx
+					ON p2p_native_agent_turns(state, updated_at) WHERE state IN ('accepted', 'running')`,
+				`CREATE TABLE IF NOT EXISTS p2p_native_agent_turn_events (
+					owner_id TEXT NOT NULL,
+					turn_id TEXT NOT NULL,
+					conversation_id TEXT NOT NULL CHECK (conversation_id <> ''),
+					seq BIGINT NOT NULL CHECK (seq > 0),
+					kind TEXT NOT NULL CHECK (kind IN ('runtime', 'error')),
+					event_name TEXT NOT NULL CHECK (event_name <> ''),
+					data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+					created_at TIMESTAMPTZ NOT NULL,
+					PRIMARY KEY (owner_id, turn_id, seq),
+					FOREIGN KEY (owner_id, turn_id) REFERENCES p2p_native_agent_turns(owner_id, turn_id) ON DELETE CASCADE
+				)`,
+			})
+		},
+	})
+	m.AddMigrations(sqlutil.Migration{
 		Version: "p2p: canonical Matrix member membership v76",
 		Up: func(ctx context.Context, txn *sql.Tx) error {
 			exists, err := productTableExists(ctx, txn, "p2p_members")

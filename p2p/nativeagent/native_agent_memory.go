@@ -58,9 +58,9 @@ func (r *Runtime) prepareEinoRun(ctx context.Context, config map[string]any, par
 	return run, nil
 }
 
-func (r *Runtime) rememberEinoMessages(ctx context.Context, config map[string]any, params map[string]any, profile nativeModelProfile, run nativeAgentRunContext, produced []*schema.Message) {
+func (r *Runtime) rememberEinoMessages(ctx context.Context, config map[string]any, params map[string]any, profile nativeModelProfile, run nativeAgentRunContext, produced []*schema.Message) error {
 	if run.memoryDisabled || run.conversationID == "" {
-		return
+		return nil
 	}
 	memory := run.memory
 	if memory.ConversationID == "" {
@@ -84,7 +84,7 @@ func (r *Runtime) rememberEinoMessages(ctx context.Context, config map[string]an
 	} else {
 		memory = compactNativeAgentMemory(memory, window)
 	}
-	_ = r.saveMemory(ctx, memory)
+	return r.saveMemory(ctx, memory)
 }
 
 func memoryMessagesFromRequest(params map[string]any, requestMessages []*schema.Message) []*schema.Message {
@@ -105,4 +105,11 @@ func nativeAgentConversationKey(params map[string]any) string {
 		}
 	}
 	return "default"
+}
+
+// ConversationID returns the canonical runtime memory key for a chat request.
+// Durable turn serialization must use this same value so aliases cannot write
+// one memory context concurrently through different request spellings.
+func ConversationID(params map[string]any) string {
+	return nativeAgentConversationKey(params)
 }

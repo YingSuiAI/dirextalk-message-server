@@ -123,6 +123,16 @@
       "transport": "ws_stream_only"
     },
     {
+      "name": "agent.chat.turn.stop",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
+      "name": "agent.chat.turns.list",
+      "auth": "owner",
+      "transport": "http_and_ws_request"
+    },
+    {
       "name": "agent.context.compress",
       "auth": "owner",
       "transport": "http_and_ws_request"

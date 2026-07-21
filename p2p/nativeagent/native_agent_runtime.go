@@ -155,7 +155,9 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if err != nil {
 		return err
 	}
-	r.rememberEinoMessages(ctx, config, params, profile, run, produced)
+	if err := r.rememberEinoMessages(ctx, config, params, profile, run, produced); err != nil {
+		return err
+	}
 	trace := buildAgentTrace(run, produced, toolCalls, text)
 	if err := emit(Event{Event: "trace", Data: trace}); err != nil {
 		return err

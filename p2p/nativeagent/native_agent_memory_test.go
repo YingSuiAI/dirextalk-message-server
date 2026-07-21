@@ -5,12 +5,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/schema"
 )
+
+func TestRememberEinoMessagesReportsPersistenceFailure(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocked, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := New(Config{DataDir: blocked})
+	run := nativeAgentRunContext{conversationID: "conversation", memory: nativeAgentMemory{ConversationID: "conversation"}}
+	err := runtime.rememberEinoMessages(context.Background(), map[string]any{}, map[string]any{}, nativeModelProfile{}, run, nil)
+	if err == nil {
+		t.Fatal("memory persistence failure was silently ignored")
+	}
+}
 
 func TestContextCompressSummarizesOlderMemoryTurns(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
