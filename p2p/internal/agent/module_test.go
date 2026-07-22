@@ -139,6 +139,7 @@ func TestVoiceSessionCreateStreamInterruptAndEnd(t *testing.T) {
 
 type voiceRunnerStub struct {
 	params map[string]any
+	count  int
 }
 
 func (r *voiceRunnerStub) Apply(context.Context, string) error { return nil }
@@ -148,6 +149,7 @@ func (r *voiceRunnerStub) Invoke(context.Context, string, map[string]any) (map[s
 }
 
 func (r *voiceRunnerStub) Stream(_ context.Context, _ string, params map[string]any, emit func(nativeagent.Event) error) error {
+	r.count++
 	r.params = cloneMap(params)
 	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "回答"}}); err != nil {
 		return err
@@ -213,9 +215,12 @@ func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
 	})
 	module.voice = voice
 	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
-		"source":        "native_agent",
-		"model_profile": map[string]any{"provider": "openai_compatible", "model": "mock"},
-		"api_key":       "request-scoped-key",
+		"source":          "native_agent",
+		"conversation_id": "voice-conversation",
+		"room_id":         "!product:example.com",
+		"room_type":       "group",
+		"model_profile":   map[string]any{"provider": "openai_compatible", "model": "mock"},
+		"api_key":         "request-scoped-key",
 	})
 	if actionErr != nil {
 		t.Fatalf("create voice session: %v", actionErr)
@@ -255,7 +260,11 @@ func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
 	if doneEvent.Event != "done" || doneEvent.Data["references"] == nil {
 		t.Fatalf("done event = %#v", doneEvent)
 	}
-	if runner.params["prompt"] != "总结产品群" || runner.params["api_key"] != "request-scoped-key" {
+	if runner.params["prompt"] != "总结产品群" ||
+		runner.params["api_key"] != "request-scoped-key" ||
+		runner.params["conversation_id"] != "voice-conversation" ||
+		runner.params["room_id"] != "!product:example.com" ||
+		runner.params["room_type"] != "group" {
 		t.Fatalf("native agent params not preserved: %#v", runner.params)
 	}
 	select {
@@ -277,8 +286,11 @@ func TestVoiceTranscriptActionRunsNativeAgent(t *testing.T) {
 	})
 	module.voice = voice
 	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
-		"source":  "native_agent",
-		"api_key": "request-scoped-key",
+		"source":          "native_agent",
+		"conversation_id": "voice-conversation",
+		"room_id":         "!channel:example.com",
+		"room_type":       "channel",
+		"api_key":         "request-scoped-key",
 	})
 	if actionErr != nil {
 		t.Fatalf("create voice session: %v", actionErr)
@@ -317,7 +329,11 @@ func TestVoiceTranscriptActionRunsNativeAgent(t *testing.T) {
 	if doneEvent.Event != "done" || doneEvent.Data["references"] == nil {
 		t.Fatalf("done event = %#v", doneEvent)
 	}
-	if runner.params["prompt"] != "帮我查频道帖子" || runner.params["api_key"] != "request-scoped-key" {
+	if runner.params["prompt"] != "帮我查频道帖子" ||
+		runner.params["api_key"] != "request-scoped-key" ||
+		runner.params["conversation_id"] != "voice-conversation" ||
+		runner.params["room_id"] != "!channel:example.com" ||
+		runner.params["room_type"] != "channel" {
 		t.Fatalf("native agent params not preserved: %#v", runner.params)
 	}
 	select {
@@ -327,6 +343,27 @@ func TestVoiceTranscriptActionRunsNativeAgent(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("voice stream did not finish after done event")
+	}
+}
+
+func TestVoiceSessionDeduplicatesFinalTranscript(t *testing.T) {
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:  "volc-app",
+		AppKey: "app-key",
+	})
+	value, actionErr := voice.create(context.Background(), map[string]any{"source": "native_agent"})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	if _, accepted := voice.acceptTranscript(sessionID, "重复问题"); !accepted {
+		t.Fatal("first transcript should be accepted")
+	}
+	if _, accepted := voice.acceptTranscript(sessionID, "重复问题"); accepted {
+		t.Fatal("duplicate transcript should be ignored")
+	}
+	if _, accepted := voice.acceptTranscript(sessionID, "新的问题"); !accepted {
+		t.Fatal("new transcript should be accepted")
 	}
 }
 

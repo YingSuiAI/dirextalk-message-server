@@ -74,6 +74,7 @@ type voiceSession struct {
 	Params         map[string]any
 	Started        bool
 	Ended          bool
+	LastTranscript string
 }
 
 func newVoiceCoordinator(cfg voiceConfig) *voiceCoordinator {
@@ -254,7 +255,7 @@ func (m *Module) HandleVoiceWebhook(ctx context.Context, token string, params ma
 	if sessionID == "" {
 		return nil, actionbase.BadRequest("session_id is required")
 	}
-	session, ok := m.voice.session(sessionID)
+	_, ok := m.voice.session(sessionID)
 	if !ok {
 		return nil, actionbase.StatusError(http.StatusNotFound, "voice session not found")
 	}
@@ -276,7 +277,9 @@ func (m *Module) HandleVoiceWebhook(ctx context.Context, token string, params ma
 	}
 	transcript := strings.TrimSpace(actionbase.String(params["transcript_final"]))
 	if transcript != "" {
-		go m.runVoiceAgent(context.Background(), session, transcript)
+		if session, accepted := m.voice.acceptTranscript(sessionID, transcript); accepted {
+			go m.runVoiceAgent(context.Background(), session, transcript)
+		}
 	}
 	return map[string]any{"ok": true, "session_id": sessionID}, nil
 }
@@ -286,7 +289,7 @@ func (m *Module) submitVoiceTranscriptForSession(ctx context.Context, params map
 	if sessionID == "" {
 		return nil, actionbase.BadRequest("session_id is required")
 	}
-	session, ok := m.voice.session(sessionID)
+	_, ok := m.voice.session(sessionID)
 	if !ok {
 		return nil, actionbase.StatusError(http.StatusNotFound, "voice session not found")
 	}
@@ -304,7 +307,9 @@ func (m *Module) submitVoiceTranscriptForSession(ctx context.Context, params map
 	}
 	m.voice.emit(sessionID, nativeagent.Event{Event: "transcribing", Data: data})
 	if final != "" {
-		go m.runVoiceAgent(context.Background(), session, final)
+		if session, accepted := m.voice.acceptTranscript(sessionID, final); accepted {
+			go m.runVoiceAgent(context.Background(), session, final)
+		}
 	}
 	_ = ctx
 	return map[string]any{"ok": true, "session_id": sessionID, "accepted": true}, nil
@@ -318,9 +323,6 @@ func (m *Module) runVoiceAgent(ctx context.Context, session voiceSession, transc
 	params := cloneMap(session.Params)
 	params["prompt"] = transcript
 	delete(params, "source")
-	delete(params, "conversation_id")
-	delete(params, "room_id")
-	delete(params, "room_type")
 	err := m.runner.Stream(ctx, "agent.chat.stream", params, func(event nativeagent.Event) error {
 		switch event.Event {
 		case "delta":
@@ -467,6 +469,26 @@ func (v *voiceCoordinator) session(sessionID string) (voiceSession, bool) {
 	if !ok || session.Ended {
 		return voiceSession{}, false
 	}
+	copy := *session
+	copy.Params = cloneMap(session.Params)
+	return copy, true
+}
+
+func (v *voiceCoordinator) acceptTranscript(sessionID, transcript string) (voiceSession, bool) {
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		return voiceSession{}, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	session, ok := v.sessions[sessionID]
+	if !ok || session.Ended {
+		return voiceSession{}, false
+	}
+	if session.LastTranscript == transcript {
+		return voiceSession{}, false
+	}
+	session.LastTranscript = transcript
 	copy := *session
 	copy.Params = cloneMap(session.Params)
 	return copy, true
