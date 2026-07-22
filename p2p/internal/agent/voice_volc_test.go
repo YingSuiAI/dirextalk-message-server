@@ -135,6 +135,24 @@ func TestVolcVoiceChatClientReportsNoPermissionWithHint(t *testing.T) {
 	}
 }
 
+func TestDefaultVoiceChatTemplateUsesNoiseTolerantVAD(t *testing.T) {
+	template := defaultVoiceChatTemplate()
+	config := template["Config"].(map[string]any)
+	asrConfig := config["ASRConfig"].(map[string]any)
+	vadConfig := asrConfig["VADConfig"].(map[string]any)
+	interruptConfig := asrConfig["InterruptConfig"].(map[string]any)
+	if vadConfig["SilenceTime"] != 900 {
+		t.Fatalf("SilenceTime = %#v, want 900", vadConfig["SilenceTime"])
+	}
+	if interruptConfig["InterruptSpeechDuration"] != 700 {
+		t.Fatalf("InterruptSpeechDuration = %#v, want 700", interruptConfig["InterruptSpeechDuration"])
+	}
+	fields := summarizeVoiceChatPayload(template)
+	if fields["vad_silence_time"] != "900" || fields["interrupt_speech_duration"] != "700" {
+		t.Fatalf("summary should include VAD/interrupt values, got %#v", fields)
+	}
+}
+
 func TestVolcRTCTokenSignerProducesScopedToken(t *testing.T) {
 	signer := volcRTCTokenSigner{}
 	expiresAt := time.Now().Add(time.Hour).UTC()

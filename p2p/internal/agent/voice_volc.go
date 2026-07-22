@@ -453,6 +453,12 @@ func summarizeVoiceChatPayload(payload map[string]any) logrus.Fields {
 				fields["asr_mode"] = logString(providerParams["Mode"])
 				fields["asr_resource"] = logString(providerParams["ApiResourceId"])
 			}
+			if vadConfig := mapValue(asrConfig["VADConfig"]); vadConfig != nil {
+				fields["vad_silence_time"] = logString(vadConfig["SilenceTime"])
+			}
+			if interruptConfig := mapValue(asrConfig["InterruptConfig"]); interruptConfig != nil {
+				fields["interrupt_speech_duration"] = logString(interruptConfig["InterruptSpeechDuration"])
+			}
 		}
 		if llmConfig := mapValue(config["LLMConfig"]); llmConfig != nil {
 			fields["llm_mode"] = logString(llmConfig["Mode"])
@@ -537,11 +543,11 @@ func defaultVoiceChatTemplate() map[string]any {
 					"VolcanoASRParameters": "{\"request\":{\"enable_nonstream\":true}}",
 				},
 				"VADConfig": map[string]any{
-					"SilenceTime": 600,
+					"SilenceTime": 900,
 				},
 				"InterruptConfig": map[string]any{
 					"InterruptKeywords":       []any{},
-					"InterruptSpeechDuration": 0,
+					"InterruptSpeechDuration": 700,
 				},
 			},
 			"LLMConfig": map[string]any{
