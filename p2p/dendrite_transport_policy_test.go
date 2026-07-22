@@ -52,6 +52,45 @@ func TestDendriteTransportSendMessageAppliesProductPolicy(t *testing.T) {
 	}
 }
 
+func TestDendriteTransportSendMessageRejectsBlockedDirectMessageBeforeWrite(t *testing.T) {
+	owner := dendritetest.NewUser(t)
+	member := dendritetest.NewUser(t)
+	room := dendritetest.NewRoom(t, owner)
+	room.CreateAndInsert(t, member, spec.MRoomMember, map[string]any{"membership": spec.Join}, dendritetest.WithStateKey(member.ID))
+	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
+		"room_type": DirextalkRoomTypeDirect,
+	}, dendritetest.WithStateKey(""))
+
+	rsAPI := &policyTransportRoomserver{
+		roomID: room.ID,
+		state:  room.CurrentState(),
+	}
+	transport := NewDendriteTransport(spec.ServerName("test"), gomatrixserverlib.KeyID("ed25519:test"), ed25519.NewKeyFromSeed(make([]byte, 32)), rsAPI)
+	transport.SetBlockedDirectMessageChecker(func(_ context.Context, roomID, senderMXID string) (bool, error) {
+		if roomID != room.ID || senderMXID != member.ID {
+			t.Fatalf("block checker received room=%q sender=%q", roomID, senderMXID)
+		}
+		return true, nil
+	})
+
+	_, err := transport.SendMessage(context.Background(), SendMessageRequest{
+		SenderMXID: member.ID,
+		RoomID:     room.ID,
+		EventType:  "m.room.message",
+		Content:    map[string]any{"msgtype": "m.text", "body": "blocked"},
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "sender is blocked in this dirextalk direct room") {
+		t.Fatalf("expected blocked direct message error, got %v", err)
+	}
+	if rsAPI.signingIdentityCalled {
+		t.Fatalf("expected blocked direct message to reject before signing")
+	}
+	if rsAPI.inputRoomEventsCalled {
+		t.Fatalf("expected blocked direct message to reject before roomserver write")
+	}
+}
+
 func TestDendriteTransportRedactEventAppliesProductPolicy(t *testing.T) {
 	owner := dendritetest.NewUser(t)
 	member := dendritetest.NewUser(t)
@@ -727,6 +766,7 @@ type policyTransportRoomserver struct {
 	state                 []*types.HeaderedEvent
 	events                map[string]*types.HeaderedEvent
 	signingIdentityCalled bool
+	inputRoomEventsCalled bool
 	inviteCalled          bool
 	joinCalled            bool
 	allowJoin             bool
@@ -751,6 +791,10 @@ type policyTransportRoomserver struct {
 	senderUsers           map[spec.SenderID]*spec.UserID
 	senderQueryErr        error
 	senderQueries         []spec.SenderID
+}
+
+func (r *policyTransportRoomserver) InputRoomEvents(_ context.Context, _ *roomserverAPI.InputRoomEventsRequest, _ *roomserverAPI.InputRoomEventsResponse) {
+	r.inputRoomEventsCalled = true
 }
 
 func (r *policyTransportRoomserver) QueryLatestEventsAndState(_ context.Context, _ *roomserverAPI.QueryLatestEventsAndStateRequest, res *roomserverAPI.QueryLatestEventsAndStateResponse) error {

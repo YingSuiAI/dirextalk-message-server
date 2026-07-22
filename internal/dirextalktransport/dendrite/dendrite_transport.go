@@ -19,10 +19,11 @@ import (
 )
 
 type DendriteTransport struct {
-	serverName spec.ServerName
-	keyID      gomatrixserverlib.KeyID
-	privateKey ed25519.PrivateKey
-	rsAPI      roomserverAPI.ClientRoomserverAPI
+	serverName                  spec.ServerName
+	keyID                       gomatrixserverlib.KeyID
+	privateKey                  ed25519.PrivateKey
+	rsAPI                       roomserverAPI.ClientRoomserverAPI
+	blockedDirectMessageChecker func(context.Context, string, string) (bool, error)
 }
 
 const idempotentCreateOperationContentKey = "io.dirextalk.create_operation"
@@ -50,6 +51,12 @@ func NewDendriteTransport(serverName spec.ServerName, keyID gomatrixserverlib.Ke
 		privateKey: privateKey,
 		rsAPI:      rsAPI,
 	}
+}
+
+// SetBlockedDirectMessageChecker configures the ProductCore block lookup used
+// when sending messages to Dirextalk direct rooms.
+func (t *DendriteTransport) SetBlockedDirectMessageChecker(checker func(context.Context, string, string) (bool, error)) {
+	t.blockedDirectMessageChecker = checker
 }
 
 func (t *DendriteTransport) productPolicyQuerier() productPolicyRoomserver {

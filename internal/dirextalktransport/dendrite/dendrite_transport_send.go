@@ -46,10 +46,11 @@ func (t *DendriteTransport) SendMessage(ctx context.Context, req SendMessageRequ
 		}
 	}
 	if err = productpolicy.ValidateClientEvent(ctx, t.productPolicyQuerier(), productpolicy.ClientEventRequest{
-		RoomID:     req.RoomID,
-		SenderMXID: req.SenderMXID,
-		EventType:  eventType,
-		Content:    content,
+		RoomID:       req.RoomID,
+		SenderMXID:   req.SenderMXID,
+		EventType:    eventType,
+		Content:      content,
+		BlockChecker: t.blockedDirectMessageChecker,
 	}); err != nil {
 		return SendMessageResult{}, err
 	}

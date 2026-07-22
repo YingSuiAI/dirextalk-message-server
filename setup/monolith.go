@@ -104,6 +104,7 @@ func (m *Monolith) AddAllPublicRoutes(
 	if err != nil {
 		logrus.WithError(err).Fatal("P2P integrated AS persistent state is required")
 	}
+	p2pTransport.SetBlockedDirectMessageChecker(p2pService.BlockedDirectMessage)
 	cfg.ClientAPI.DirextalkBlockChecker = p2pService.BlockedDirectMessage
 	cfg.FederationAPI.DirextalkBlockChecker = func(ctx context.Context, roomID string, senderID spec.SenderID) (bool, error) {
 		isDirect, err := productpolicy.IsDirextalkDirectRoom(ctx, m.RoomserverAPI, roomID)
