@@ -124,11 +124,12 @@ func SendEvent(
 		return *resErr
 	}
 	if err = productpolicy.ValidateClientEvent(req.Context(), rsAPI, productpolicy.ClientEventRequest{
-		RoomID:     roomID,
-		SenderMXID: device.UserID,
-		EventType:  eventType,
-		StateKey:   stateKey,
-		Content:    r,
+		RoomID:       roomID,
+		SenderMXID:   device.UserID,
+		EventType:    eventType,
+		StateKey:     stateKey,
+		Content:      r,
+		BlockChecker: cfg.DirextalkBlockChecker,
 	}); err != nil {
 		return productPolicyJSONResponse(req.Context(), err)
 	}

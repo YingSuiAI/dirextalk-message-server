@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -8,6 +9,8 @@ import (
 type ClientAPI struct {
 	Matrix  *Global  `yaml:"-"`
 	Derived *Derived `yaml:"-"` // TODO: Nuke Derived from orbit
+
+	DirextalkBlockChecker func(context.Context, string, string) (bool, error) `yaml:"-"`
 
 	// If set disables new users from registering (except via shared
 	// secrets)

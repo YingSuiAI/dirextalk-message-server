@@ -248,7 +248,7 @@ HTTP Push Gateway delivery is suppressed for all channel room events. This is Pu
 
 ## 2026-07-02 Owner Blocks
 
-Added protected owner actions `blocks.add`, `blocks.list`, and `blocks.remove` for the user contact blacklist. `blocks.add` accepts `target_type: "contact"` with `peer_mxid`/`mxid`; group, channel, and room targets are not part of the current product contract. Each block stores a `display_name` and `avatar_url` display snapshot; when omitted, the server fills it from existing contact metadata or falls back to the target ID. `blocks.list` returns a `contacts` array for the user settings blacklist. `blocks.remove` cancels a contact block using the same identifiers.
+Added protected owner actions `blocks.add`, `blocks.list`, and `blocks.remove` for the user contact blacklist. `blocks.add` accepts `target_type: "contact"` with `peer_mxid`/`mxid`; group, channel, and room targets are not part of the current product contract. Each block stores a `display_name` and `avatar_url` display snapshot; when omitted, the server fills it from existing contact metadata or falls back to the target ID. `blocks.list` returns a `contacts` array for the user settings blacklist. `blocks.remove` cancels a contact block using the same identifiers. A stored contact block filters new messages in the matching direct room without changing Matrix membership or deleting history; removing the block restores normal sending.
 
 When an owner tries to send a friend request to an already blocked contact, the action fails before Matrix writes with:
 

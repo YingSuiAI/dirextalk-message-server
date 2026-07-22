@@ -56,6 +56,11 @@ type TxnReq struct {
 	roomsMu                *MutexByRoom
 	producer               *producers.SyncAPIProducer
 	inboundPresenceEnabled bool
+	blockChecker           func(context.Context, string, spec.SenderID) (bool, error)
+}
+
+func (t *TxnReq) SetDirectMessageBlockChecker(checker func(context.Context, string, spec.SenderID) (bool, error)) {
+	t.blockChecker = checker
 }
 
 func NewTxnReq(
@@ -169,6 +174,19 @@ func (t *TxnReq) ProcessTransaction(ctx context.Context) (*fclient.RespSend, *ut
 				Error: err.Error(),
 			}
 			continue
+		}
+		if event.Type() == "m.room.message" && t.blockChecker != nil {
+			blocked, blockErr := t.blockChecker(ctx, event.RoomID().String(), event.SenderID())
+			if blockErr != nil {
+				util.GetLogger(ctx).WithError(blockErr).Warnf("Transaction: direct message rejected by block policy for %q", event.EventID())
+				results[event.EventID()] = fclient.PDUResult{Error: "event rejected by server policy"}
+				continue
+			}
+			if blocked {
+				util.GetLogger(ctx).Infof("Transaction: direct message rejected by block policy for %q", event.EventID())
+				results[event.EventID()] = fclient.PDUResult{Error: "event rejected by server policy"}
+				continue
+			}
 		}
 
 		// pass the event to the roomserver which will do auth checks

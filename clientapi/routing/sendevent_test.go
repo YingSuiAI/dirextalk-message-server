@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	rsapi "github.com/YingSuiAI/dirextalk-message-server/roomserver/api"
 	"github.com/YingSuiAI/dirextalk-message-server/roomserver/types"
 	"github.com/YingSuiAI/dirextalk-message-server/setup/config"
@@ -48,6 +49,15 @@ func (s *sendEventTestRoomserverAPI) QueryRoomVersionForRoom(ctx context.Context
 func (s *sendEventTestRoomserverAPI) QueryCurrentState(ctx context.Context, req *rsapi.QueryCurrentStateRequest, res *rsapi.QueryCurrentStateResponse) error {
 	res.StateEvents = map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{}
 	for _, stateKeyTuple := range req.StateTuples {
+		if req.AllowWildcards && stateKeyTuple.StateKey == "*" {
+			for _, stateEv := range s.roomState {
+				if stateEv.Type() == stateKeyTuple.EventType && stateEv.StateKey() != nil {
+					tuple := gomatrixserverlib.StateKeyTuple{EventType: stateKeyTuple.EventType, StateKey: *stateEv.StateKey()}
+					res.StateEvents[tuple] = stateEv
+				}
+			}
+			continue
+		}
 		for _, stateEv := range s.roomState {
 			if stateEv.Type() == stateKeyTuple.EventType && stateEv.StateKey() != nil && *stateEv.StateKey() == stateKeyTuple.StateKey {
 				res.StateEvents[stateKeyTuple] = stateEv
@@ -289,6 +299,37 @@ func TestSendEventAppliesDirextalkProductPolicy(t *testing.T) {
 	}
 	if len(rsAPI.savedInputRoomEvents) != 0 {
 		t.Fatalf("expected policy rejection to stop roomserver write, got %d events", len(rsAPI.savedInputRoomEvents))
+	}
+}
+
+func TestSendEventRejectsBlockedDirectMessageBeforeRoomserverWrite(t *testing.T) {
+	roomVersion := gomatrixserverlib.RoomVersionV10
+	roomIDStr := "!direct:domain"
+	ownerUserID := "@owner:domain"
+	senderUserID := "@peer:domain"
+	roomState, err := createEvents([]string{
+		fmt.Sprintf(`{"type":"m.room.create","state_key":"","room_id":"%v","sender":"%v","content":{"creator":"%v","room_version":"%v","type":"%v"}}`, roomIDStr, ownerUserID, ownerUserID, roomVersion, productpolicy.DirextalkRoomTypeDirect),
+		fmt.Sprintf(`{"type":"m.room.member","state_key":"%v","room_id":"%v","sender":"%v","content":{"membership":"join"}}`, ownerUserID, roomIDStr, ownerUserID),
+		fmt.Sprintf(`{"type":"m.room.member","state_key":"%v","room_id":"%v","sender":"%v","content":{"membership":"join"}}`, senderUserID, roomIDStr, senderUserID),
+		fmt.Sprintf(`{"type":"%v","state_key":"","room_id":"%v","sender":"%v","content":{"room_type":"%v","requester_mxid":"%v","target_mxid":"%v"}}`, productpolicy.DirextalkRoomProfileEventType, roomIDStr, ownerUserID, productpolicy.DirextalkRoomTypeDirect, ownerUserID, senderUserID),
+	}, roomVersion)
+	if err != nil {
+		t.Fatalf("failed to prepare direct room state: %s", err)
+	}
+	rsAPI := &sendEventTestRoomserverAPI{t: t, roomIDStr: roomIDStr, roomVersion: roomVersion, roomState: roomState}
+	req, err := http.NewRequest("POST", "https://domain", io.NopCloser(strings.NewReader(`{"msgtype":"m.text","body":"blocked"}`)))
+	if err != nil {
+		t.Fatalf("failed to make request: %s", err)
+	}
+	cfg := &config.ClientAPI{DirextalkBlockChecker: func(_ context.Context, roomID, peerMXID string) (bool, error) {
+		return roomID == roomIDStr && peerMXID == senderUserID, nil
+	}}
+	resp := SendEvent(req, &uapi.Device{UserID: senderUserID}, roomIDStr, "m.room.message", nil, nil, cfg, rsAPI, nil)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected blocked direct send to return 403, got %v with %#v", resp.Code, resp.JSON)
+	}
+	if len(rsAPI.savedInputRoomEvents) != 0 {
+		t.Fatalf("expected blocked send to stop roomserver write, got %d events", len(rsAPI.savedInputRoomEvents))
 	}
 }
 

@@ -1,12 +1,15 @@
 package config
 
 import (
+	"context"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
 )
 
 type FederationAPI struct {
 	Matrix *Global `yaml:"-"`
+
+	DirextalkBlockChecker func(context.Context, string, spec.SenderID) (bool, error) `yaml:"-"`
 
 	// The database stores information used by the federation destination queues to
 	// send transactions to remote servers.

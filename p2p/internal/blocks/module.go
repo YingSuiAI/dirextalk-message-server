@@ -178,3 +178,24 @@ func (m *Module) Exists(ctx context.Context, targetType string, identifiers ...s
 	}
 	return false, nil
 }
+
+// ExistsInRoom reports whether the exact contact and direct-room pair is blocked.
+func (m *Module) ExistsInRoom(ctx context.Context, targetType, peerMXID, roomID string) (bool, error) {
+	targetType = dirextalkdomain.NormalizeBlockTargetType(targetType)
+	peerMXID = strings.TrimSpace(peerMXID)
+	roomID = strings.TrimSpace(roomID)
+	if targetType == "" || peerMXID == "" || roomID == "" {
+		return false, nil
+	}
+	blocks, err := m.store.ListBlocks(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, block := range blocks {
+		if block.TargetType == targetType && strings.TrimSpace(block.RoomID) == roomID &&
+			(targetType != "contact" || strings.TrimSpace(block.PeerMXID) == peerMXID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

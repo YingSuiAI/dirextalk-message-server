@@ -20,6 +20,7 @@ import (
 	federationAPI "github.com/YingSuiAI/dirextalk-message-server/federationapi/api"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/caching"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/httputil"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/releasecontrol"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/sqlutil"
 	"github.com/YingSuiAI/dirextalk-message-server/internal/transactions"
@@ -37,6 +38,7 @@ import (
 	userapi "github.com/YingSuiAI/dirextalk-message-server/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/sirupsen/logrus"
 )
 
@@ -101,6 +103,25 @@ func (m *Monolith) AddAllPublicRoutes(
 	p2pService, err := newPersistentP2PService(processCtx.Context(), p2pConfig, cm, p2pDatabaseOptions(cfg), p2pTransport)
 	if err != nil {
 		logrus.WithError(err).Fatal("P2P integrated AS persistent state is required")
+	}
+	cfg.ClientAPI.DirextalkBlockChecker = p2pService.BlockedDirectMessage
+	cfg.FederationAPI.DirextalkBlockChecker = func(ctx context.Context, roomID string, senderID spec.SenderID) (bool, error) {
+		isDirect, err := productpolicy.IsDirextalkDirectRoom(ctx, m.RoomserverAPI, roomID)
+		if err != nil || !isDirect {
+			return false, err
+		}
+		validRoomID, err := spec.NewRoomID(roomID)
+		if err != nil {
+			return false, err
+		}
+		senderMXID, err := m.RoomserverAPI.QueryUserIDForSender(ctx, *validRoomID, senderID)
+		if err != nil || senderMXID == nil {
+			if err != nil {
+				return false, err
+			}
+			return false, fmt.Errorf("sender identity unavailable")
+		}
+		return p2pService.BlockedDirectMessage(ctx, roomID, senderMXID.String())
 	}
 	p2pService.SetMatrixSessionIssuer(p2p.NewDendriteMatrixSessionIssuer(m.UserAPI, cfg.Global.ServerName))
 	p2pService.SetAccountDeactivator(p2p.NewDendriteAccountDeactivator(m.UserAPI, cfg.Global.ServerName))

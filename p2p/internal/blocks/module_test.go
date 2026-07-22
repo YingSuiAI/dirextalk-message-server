@@ -230,3 +230,18 @@ func TestBlockStoreFailuresAndExistsMatching(t *testing.T) {
 		t.Fatalf("delete failure = (%#v, %#v)", result, apiErr)
 	}
 }
+
+func TestExistsInRoomRequiresExactPeerAndRoomPair(t *testing.T) {
+	store := newTestStore()
+	module := New(store, Config{})
+	store.blocks["contact|alice"] = dirextalkdomain.BlockRecord{
+		TargetType: "contact", TargetID: "@alice:remote.example",
+		PeerMXID: "@alice:remote.example", RoomID: "!direct-a:example.com",
+	}
+	if blocked, err := module.ExistsInRoom(context.Background(), "contact", "@alice:remote.example", "!direct-a:example.com"); err != nil || !blocked {
+		t.Fatalf("exact block lookup = (%t, %v), want true", blocked, err)
+	}
+	if blocked, err := module.ExistsInRoom(context.Background(), "contact", "@alice:remote.example", "!direct-b:example.com"); err != nil || blocked {
+		t.Fatalf("different room block lookup = (%t, %v), want false", blocked, err)
+	}
+}

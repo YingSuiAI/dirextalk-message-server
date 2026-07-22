@@ -220,6 +220,7 @@ Blocks：
 - `blocks.list` 只返回 `contacts` 列表，供用户设置页展示；客户端可在好友设置页调用 `blocks.add`，在黑名单列表中调用 `blocks.remove` 取消拉黑。
 - 对已拉黑联系人发起好友申请或邀请已拉黑用户加入群聊/频道时，服务端在 Matrix 写入前返回 `403 already blocked`，客户端应提示“已经拉黑”。
 - 被拉黑联系人对应的 inbound Matrix direct invite 不会投影成 pending 好友申请。
+- 拉黑只过滤新的 direct 消息，不改变 Matrix 成员关系，也不删除既有历史；取消拉黑后恢复正常消息发送。
 
 Groups：
 

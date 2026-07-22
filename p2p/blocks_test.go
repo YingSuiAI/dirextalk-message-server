@@ -21,6 +21,21 @@ func TestBlockedContactsRejectApplications(t *testing.T) {
 	})
 }
 
+func TestBlocksAddDoesNotMutateDirectRoomMembership(t *testing.T) {
+	transport := &recordingTransport{}
+	service := NewServiceWithTransport(Config{ServerName: "example.com"}, transport)
+	bootstrapService(t, service)
+
+	mustHandle[map[string]any](t, service, "blocks.add", map[string]any{
+		"target_type": "contact",
+		"peer_mxid":   "@alice:remote.example",
+		"room_id":     "!direct:example.com",
+	})
+	if len(transport.leaves) != 0 || len(transport.kicks) != 0 {
+		t.Fatalf("block changed membership: leaves=%v kicks=%v", transport.leaves, transport.kicks)
+	}
+}
+
 func TestBlockedContactInviteProjectionIsIgnored(t *testing.T) {
 	service := NewService(Config{ServerName: "example.com"})
 	bootstrapService(t, service)

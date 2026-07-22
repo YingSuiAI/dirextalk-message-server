@@ -8,9 +8,11 @@ package internal
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -634,6 +636,16 @@ type testRoomserverAPI struct {
 	queryLatestEventsAndState func(*rsAPI.QueryLatestEventsAndStateRequest) rsAPI.QueryLatestEventsAndStateResponse
 }
 
+type unresolvedPseudoRoomserverAPI struct{ testRoomserverAPI }
+
+func (r *unresolvedPseudoRoomserverAPI) QueryRoomVersionForRoom(context.Context, string) (gomatrixserverlib.RoomVersion, error) {
+	return gomatrixserverlib.RoomVersionPseudoIDs, nil
+}
+
+func (r *unresolvedPseudoRoomserverAPI) QueryUserIDForSender(context.Context, spec.RoomID, spec.SenderID) (*spec.UserID, error) {
+	return nil, nil
+}
+
 func (t *testRoomserverAPI) QueryUserIDForSender(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
 	return spec.NewUserID(string(senderID), true)
 }
@@ -785,6 +797,114 @@ func TestBasicTransaction(t *testing.T) {
 	txn := mustCreateTransaction(rsAPI, pdus)
 	mustProcessTransaction(t, txn, nil)
 	assertInputRoomEvents(t, rsAPI.inputRoomEvents, []*rstypes.HeaderedEvent{testEvents[len(testEvents)-1]})
+}
+
+func TestBlockedFederatedDirectMessageReturnsPDUErrorBeforeInput(t *testing.T) {
+	rsAPI := &testRoomserverAPI{}
+	txn := mustCreateTransaction(rsAPI, []json.RawMessage{testData[len(testData)-1]})
+	txn.SetDirectMessageBlockChecker(func(_ context.Context, roomID string, senderID spec.SenderID) (bool, error) {
+		return roomID == "!roomid:kaer.morhen" && string(senderID) == "@userid:kaer.morhen", nil
+	})
+
+	res, jsonErr := txn.ProcessTransaction(context.Background())
+	if jsonErr != nil {
+		t.Fatalf("ProcessTransaction returned JSON error: %v", jsonErr)
+	}
+	result := res.PDUs[testEvents[len(testEvents)-1].EventID()]
+	if len(res.PDUs) != 1 || result.Error != "event rejected by server policy" {
+		t.Fatalf("expected blocked PDU error, got %#v", res.PDUs)
+	}
+	if len(rsAPI.inputRoomEvents) != 0 {
+		t.Fatalf("blocked PDU reached InputRoomEvents: %d", len(rsAPI.inputRoomEvents))
+	}
+}
+
+func TestBlockedFederatedDirectMessageCheckerErrorIsGenericBeforeInput(t *testing.T) {
+	rsAPI := &testRoomserverAPI{}
+	txn := mustCreateTransaction(rsAPI, []json.RawMessage{testData[len(testData)-1]})
+	txn.SetDirectMessageBlockChecker(func(context.Context, string, spec.SenderID) (bool, error) {
+		return false, fmt.Errorf("private block store secret")
+	})
+
+	res, jsonErr := txn.ProcessTransaction(context.Background())
+	if jsonErr != nil {
+		t.Fatalf("ProcessTransaction returned JSON error: %v", jsonErr)
+	}
+	result := res.PDUs[testEvents[len(testEvents)-1].EventID()]
+	if result.Error != "event rejected by server policy" || strings.Contains(result.Error, "secret") || strings.Contains(result.Error, "blocked") {
+		t.Fatalf("checker error leaked through PDU result: %#v", result)
+	}
+	if len(rsAPI.inputRoomEvents) != 0 {
+		t.Fatalf("checker error reached InputRoomEvents: %d", len(rsAPI.inputRoomEvents))
+	}
+}
+
+func TestUnresolvedFederatedPseudoSenderIsRejectedBeforeInput(t *testing.T) {
+	pseudoKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	pseudoSender := spec.SenderIDFromPseudoIDKey(pseudoKey)
+	proto := gomatrixserverlib.ProtoEvent{SenderID: string(pseudoSender), RoomID: "!pseudo:kaer.morhen", Type: "m.room.message"}
+	if err := proto.SetContent(map[string]any{"msgtype": "m.text", "body": "blocked"}); err != nil {
+		t.Fatal(err)
+	}
+	verImpl, err := gomatrixserverlib.GetRoomVersion(gomatrixserverlib.RoomVersionPseudoIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := verImpl.NewEventBuilderFromProtoEvent(&proto)
+	event, err := builder.Build(time.Now(), spec.ServerName(pseudoSender), "ed25519:1", pseudoKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = verImpl.NewEventFromUntrustedJSON(event.JSON()); err != nil {
+		t.Fatalf("built pseudo event must parse: %v", err)
+	}
+	rsAPI := &unresolvedPseudoRoomserverAPI{}
+	txn := mustCreateTransaction(rsAPI, []json.RawMessage{event.JSON()})
+	txn.SetDirectMessageBlockChecker(func(context.Context, string, spec.SenderID) (bool, error) {
+		return false, fmt.Errorf("sender identity unavailable")
+	})
+
+	res, jsonErr := txn.ProcessTransaction(context.Background())
+	if jsonErr != nil {
+		t.Fatalf("ProcessTransaction returned JSON error: %v", jsonErr)
+	}
+	if len(res.PDUs) != 1 {
+		t.Fatalf("expected one PDU result, got %#v", res.PDUs)
+	}
+	for _, result := range res.PDUs {
+		if result.Error != "event rejected by server policy" {
+			t.Fatalf("unresolved pseudo sender error = %q", result.Error)
+		}
+	}
+	if len(rsAPI.inputRoomEvents) != 0 {
+		t.Fatalf("unresolved pseudo sender reached InputRoomEvents: %d", len(rsAPI.inputRoomEvents))
+	}
+}
+
+func TestUnresolvedFederatedPseudoSenderPassesWhenRoomIsNotProductDirect(t *testing.T) {
+	pseudoKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	pseudoSender := spec.SenderIDFromPseudoIDKey(pseudoKey)
+	proto := gomatrixserverlib.ProtoEvent{SenderID: string(pseudoSender), RoomID: "!ordinary-pseudo:kaer.morhen", Type: "m.room.message"}
+	if err := proto.SetContent(map[string]any{"msgtype": "m.text", "body": "ordinary"}); err != nil {
+		t.Fatal(err)
+	}
+	verImpl, err := gomatrixserverlib.GetRoomVersion(gomatrixserverlib.RoomVersionPseudoIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := verImpl.NewEventBuilderFromProtoEvent(&proto).Build(time.Now(), spec.ServerName(pseudoSender), "ed25519:1", pseudoKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsAPI := &unresolvedPseudoRoomserverAPI{}
+	txn := mustCreateTransaction(rsAPI, []json.RawMessage{event.JSON()})
+	txn.SetDirectMessageBlockChecker(func(context.Context, string, spec.SenderID) (bool, error) { return false, nil })
+	if _, jsonErr := txn.ProcessTransaction(context.Background()); jsonErr != nil {
+		t.Fatalf("ProcessTransaction returned JSON error: %v", jsonErr)
+	}
+	if len(rsAPI.inputRoomEvents) != 1 {
+		t.Fatalf("ordinary unresolved pseudo sender was filtered: %d input events", len(rsAPI.inputRoomEvents))
+	}
 }
 
 // The purpose of this test is to check that if the event received fails auth checks the event is still sent to the roomserver

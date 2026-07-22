@@ -121,6 +121,7 @@ func Send(
 		request.Origin(),
 		txnID,
 		cfg.Matrix.ServerName)
+	t.SetDirectMessageBlockChecker(cfg.DirextalkBlockChecker)
 
 	util.GetLogger(httpReq.Context()).Debugf("Received transaction %q from %q containing %d PDUs, %d EDUs", txnID, request.Origin(), len(t.PDUs), len(t.EDUs))
 

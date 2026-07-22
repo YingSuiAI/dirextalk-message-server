@@ -537,6 +537,41 @@ func TestValidateClientEventAllowsDirectRoomWithJoinedPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected direct room send with joined peer to pass, got %v", err)
 	}
+
+	blockedReq := ClientEventRequest{
+		RoomID: roomID, SenderMXID: senderID, EventType: "m.room.message",
+		Content: map[string]any{"msgtype": "m.text", "body": "blocked"},
+		BlockChecker: func(_ context.Context, blockedRoomID, blockedSenderID string) (bool, error) {
+			return blockedRoomID == roomID && blockedSenderID == senderID, nil
+		},
+	}
+	if err = ValidateClientEvent(context.Background(), querier, blockedReq); err == nil {
+		t.Fatalf("expected exact blocked direct sender to be rejected")
+	}
+	blockedReq.BlockChecker = func(_ context.Context, blockedRoomID, _ string) (bool, error) {
+		return blockedRoomID == "!different-direct:example.com", nil
+	}
+	if err = ValidateClientEvent(context.Background(), querier, blockedReq); err != nil {
+		t.Fatalf("room mismatch lookup should allow the direct sender: %v", err)
+	}
+}
+
+func TestProductRoomTypeScopesDirectRooms(t *testing.T) {
+	roomID := "!direct:example.com"
+	ordinaryID := "!ordinary:example.com"
+	querier := stateQuerier{state: map[gomatrixserverlib.StateKeyTuple]*types.HeaderedEvent{
+		{EventType: spec.MRoomCreate, StateKey: ""}: stateEvent(t, roomID, "@owner:example.com", spec.MRoomCreate, "", map[string]any{
+			"creator": "@owner:example.com", "type": DirextalkRoomTypeDirect,
+		}),
+	}}
+	roomType, err := ProductRoomType(context.Background(), querier, roomID)
+	if err != nil || roomType != DirextalkRoomTypeDirect {
+		t.Fatalf("direct room type = %q, %v", roomType, err)
+	}
+	roomType, err = ProductRoomType(context.Background(), stateQuerier{}, ordinaryID)
+	if err != nil || roomType != "" {
+		t.Fatalf("ordinary room type = %q, %v", roomType, err)
+	}
 }
 
 func TestValidateClientMembershipAllowsDirectPeerReinviteOnly(t *testing.T) {

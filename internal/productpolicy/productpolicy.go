@@ -60,11 +60,71 @@ type invitePendingQuerier interface {
 }
 
 type ClientEventRequest struct {
-	RoomID     string
-	SenderMXID string
-	EventType  string
-	StateKey   *string
-	Content    map[string]any
+	RoomID       string
+	SenderMXID   string
+	EventType    string
+	StateKey     *string
+	Content      map[string]any
+	BlockChecker func(context.Context, string, string) (bool, error)
+}
+
+// ValidateBlockedDirectMessage checks only the product direct-room and exact
+// contact block pair, leaving ordinary Matrix rooms and other product rooms
+// untouched.
+func ValidateBlockedDirectMessage(ctx context.Context, querier CurrentStateQuerier, req ClientEventRequest) (bool, error) {
+	if querier == nil || req.BlockChecker == nil {
+		return false, nil
+	}
+	room, err := resolveRoom(ctx, querier, req.RoomID, req.SenderMXID)
+	if err != nil {
+		return false, err
+	}
+	if !room.Product || room.RoomType != DirextalkRoomTypeDirect {
+		return false, nil
+	}
+	return req.BlockChecker(ctx, strings.TrimSpace(req.RoomID), strings.TrimSpace(req.SenderMXID))
+}
+
+// IsDirextalkDirectRoom scopes federation message filtering without requiring
+// a sender MXID (which may be unavailable for pseudo-ID events).
+func IsDirextalkDirectRoom(ctx context.Context, querier CurrentStateQuerier, roomID string) (bool, error) {
+	roomType, err := ProductRoomType(ctx, querier, roomID)
+	return roomType == DirextalkRoomTypeDirect, err
+}
+
+func ProductRoomType(ctx context.Context, querier CurrentStateQuerier, roomID string) (string, error) {
+	if querier == nil {
+		return "", nil
+	}
+	var res api.QueryCurrentStateResponse
+	if err := querier.QueryCurrentState(ctx, &api.QueryCurrentStateRequest{
+		RoomID: roomID,
+		StateTuples: []gomatrixserverlib.StateKeyTuple{
+			{EventType: spec.MRoomCreate, StateKey: ""},
+			{EventType: DirextalkRoomProfileEventType, StateKey: ""},
+		},
+	}, &res); err != nil {
+		if roomDoesNotExistError(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	createContent, err := eventContent(res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomCreate, StateKey: ""}])
+	if err != nil {
+		return "", err
+	}
+	if isDirextalkRoomType(stringValue(createContent["type"])) {
+		return stringValue(createContent["type"]), nil
+	}
+	profileContent, err := eventContent(res.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: DirextalkRoomProfileEventType, StateKey: ""}])
+	if err != nil {
+		return "", err
+	}
+	roomType := stringValue(profileContent["room_type"])
+	if isDirextalkRoomType(roomType) {
+		return roomType, nil
+	}
+	return "", nil
 }
 
 type ClientRedactionRequest struct {
@@ -119,6 +179,15 @@ func ValidateClientEvent(ctx context.Context, querier CurrentStateQuerier, req C
 	}
 	if room.RoomType == DirextalkRoomTypeDirect && !room.DirectPeerJoined {
 		return Forbidden("direct room peer is not joined to the dirextalk room")
+	}
+	if room.RoomType == DirextalkRoomTypeDirect && eventType == "m.room.message" && req.BlockChecker != nil {
+		blocked, blockErr := ValidateBlockedDirectMessage(ctx, querier, req)
+		if blockErr != nil {
+			return blockErr
+		}
+		if blocked {
+			return Forbidden("sender is blocked in this dirextalk direct room")
+		}
 	}
 	if room.RoomType == DirextalkRoomTypeChannel && !room.SenderPrivileged() {
 		switch {
