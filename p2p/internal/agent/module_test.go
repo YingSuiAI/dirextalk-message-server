@@ -144,8 +144,11 @@ func TestVoiceSessionCreateStreamInterruptAndEnd(t *testing.T) {
 }
 
 type voiceRunnerStub struct {
-	params map[string]any
-	count  int
+	params      map[string]any
+	count       int
+	doneText    string
+	deltaText   string
+	seenPrompts []string
 }
 
 func (r *voiceRunnerStub) Apply(context.Context, string) error { return nil }
@@ -156,12 +159,49 @@ func (r *voiceRunnerStub) Invoke(context.Context, string, map[string]any) (map[s
 
 func (r *voiceRunnerStub) Stream(_ context.Context, _ string, params map[string]any, emit func(nativeagent.Event) error) error {
 	r.count++
+	r.seenPrompts = append(r.seenPrompts, actionbase.String(params["prompt"]))
 	r.params = cloneMap(params)
-	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "回答"}}); err != nil {
+	deltaText := r.deltaText
+	if deltaText == "" {
+		deltaText = "回答"
+	}
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": deltaText}}); err != nil {
+		return err
+	}
+	doneText := r.doneText
+	if doneText == "" {
+		doneText = "回答"
+	}
+	return emit(nativeagent.Event{Event: "done", Data: map[string]any{
+		"text": doneText,
+		"references": []map[string]any{{
+			"kind":      "room",
+			"room_id":   "!team:example.com",
+			"room_type": "group",
+			"title":     "产品群",
+		}},
+	}})
+}
+
+type voiceRunnerDeltaOnlyDoneStub struct {
+	params map[string]any
+}
+
+func (r *voiceRunnerDeltaOnlyDoneStub) Apply(context.Context, string) error { return nil }
+
+func (r *voiceRunnerDeltaOnlyDoneStub) Invoke(context.Context, string, map[string]any) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func (r *voiceRunnerDeltaOnlyDoneStub) Stream(_ context.Context, _ string, params map[string]any, emit func(nativeagent.Event) error) error {
+	r.params = cloneMap(params)
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "第一段"}}); err != nil {
+		return err
+	}
+	if err := emit(nativeagent.Event{Event: "delta", Data: map[string]any{"text": "第二段"}}); err != nil {
 		return err
 	}
 	return emit(nativeagent.Event{Event: "done", Data: map[string]any{
-		"text": "回答",
 		"references": []map[string]any{{
 			"kind":      "room",
 			"room_id":   "!team:example.com",
@@ -353,6 +393,69 @@ func TestVoiceCustomLLMRunsNativeAgentAndStreamsTTSChunks(t *testing.T) {
 		runner.params["api_key"] != "request-scoped-key" ||
 		runner.params["conversation_id"] != "voice-conversation" {
 		t.Fatalf("native agent params not preserved: %#v", runner.params)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("voice stream returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("voice stream did not finish after done event")
+	}
+}
+
+func TestVoiceCustomLLMUsesAccumulatedDeltaAsSummaryWhenDoneTextMissing(t *testing.T) {
+	runner := &voiceRunnerDeltaOnlyDoneStub{}
+	module := New(Config{Runner: runner})
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:         "volc-app",
+		AppKey:        "app-key",
+		WebhookSecret: "secret",
+		CustomLLMURL:  "https://example.com/_p2p/agent/voice/volc/custom-llm",
+	})
+	module.voice = voice
+	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
+		"source":  "native_agent",
+		"api_key": "request-scoped-key",
+	})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan nativeagent.Event, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- module.Stream(ctx, "agent.voice.session.stream", map[string]any{"session_id": sessionID}, func(event nativeagent.Event) error {
+			events <- event
+			return nil
+		})
+	}()
+	if event := nextVoiceEvent(t, events); event.Event != "listening" {
+		t.Fatalf("first voice stream event = %#v", event)
+	}
+	var ttsChunks []string
+	response, actionErr := module.HandleVoiceCustomLLM(context.Background(), "secret", sessionID, map[string]any{
+		"transcript": "总结产品群",
+	}, func(text string) error {
+		ttsChunks = append(ttsChunks, text)
+		return nil
+	})
+	if actionErr != nil || response["text"] != "第一段第二段" {
+		t.Fatalf("custom llm response = %#v, %v", response, actionErr)
+	}
+	if len(ttsChunks) != 2 || ttsChunks[0] != "第一段" || ttsChunks[1] != "第二段" {
+		t.Fatalf("tts chunks = %#v", ttsChunks)
+	}
+	for _, want := range []string{"transcribing", "thinking", "answer", "answer"} {
+		if event := nextVoiceEvent(t, events); event.Event != want {
+			t.Fatalf("event = %#v, want %s", event, want)
+		}
+	}
+	doneEvent := nextVoiceEvent(t, events)
+	if doneEvent.Event != "done" || doneEvent.Data["summary"] != "第一段第二段" {
+		t.Fatalf("done event should include accumulated summary: %#v", doneEvent)
 	}
 	select {
 	case err := <-done:

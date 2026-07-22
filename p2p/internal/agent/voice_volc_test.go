@@ -161,6 +161,21 @@ func TestDefaultVoiceChatTemplateUsesNoiseTolerantVAD(t *testing.T) {
 	if fields["vad_silence_time"] != "900" || fields["interrupt_speech_duration"] != "700" {
 		t.Fatalf("summary should include VAD/interrupt values, got %#v", fields)
 	}
+	ttsConfig := config["TTSConfig"].(map[string]any)
+	providerParams := ttsConfig["ProviderParams"].(map[string]any)
+	var ttsParams map[string]any
+	if err := json.Unmarshal([]byte(providerParams["VolcanoTTSParameters"].(string)), &ttsParams); err != nil {
+		t.Fatalf("decode VolcanoTTSParameters: %v", err)
+	}
+	reqParams := ttsParams["req_params"].(map[string]any)
+	audioParams := reqParams["audio_params"].(map[string]any)
+	if audioParams["speech_rate"] != float64(18) || audioParams["loudness_rate"] != float64(2) {
+		t.Fatalf("unexpected tts audio params: %#v", audioParams)
+	}
+	postProcess := reqParams["additions"].(map[string]any)["post_process"].(map[string]any)
+	if postProcess["pitch"] != float64(1) {
+		t.Fatalf("unexpected tts post process: %#v", postProcess)
+	}
 }
 
 func TestVolcVoiceChatClientConfiguresCustomLLMCallback(t *testing.T) {
@@ -209,6 +224,68 @@ func TestVolcVoiceChatClientConfiguresCustomLLMCallback(t *testing.T) {
 	}
 	if config["CallbackUrl"] != "https://www.wenson.art/_p2p/agent/voice/webhook" {
 		t.Fatalf("webhook callback url not configured: %#v", config)
+	}
+	ttsConfig := config["TTSConfig"].(map[string]any)
+	providerParams := ttsConfig["ProviderParams"].(map[string]any)
+	var ttsParams map[string]any
+	if err := json.Unmarshal([]byte(providerParams["VolcanoTTSParameters"].(string)), &ttsParams); err != nil {
+		t.Fatalf("decode tts params: %v", err)
+	}
+	audioParams := ttsParams["req_params"].(map[string]any)["audio_params"].(map[string]any)
+	if audioParams["speech_rate"] != float64(18) || audioParams["loudness_rate"] != float64(2) {
+		t.Fatalf("custom llm payload should tune tts params: %#v", audioParams)
+	}
+}
+
+func TestVolcVoiceChatClientTunesDemoTTSRatios(t *testing.T) {
+	var start map[string]any
+	client := &volcVoiceChatOpenAPIClient{
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Query().Get("Action") == "StartVoiceChat" {
+				if err := json.NewDecoder(req.Body).Decode(&start); err != nil {
+					t.Fatalf("decode request body: %v", err)
+				}
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"ResponseMetadata":{"RequestId":"req"}}`)),
+				Header:     make(http.Header),
+			}, nil
+		})},
+		host:            "rtc.volcengineapi.com",
+		region:          "cn-north-1",
+		accessKeyID:     "ak",
+		secretAccessKey: "sk",
+		webhookURL:      "https://www.wenson.art/_p2p/agent/voice/webhook",
+		customLLMURL:    "https://www.wenson.art/_p2p/agent/voice/volc/custom-llm",
+		webhookSecret:   "secret",
+		configTemplate: parseVoiceChatTemplate(`{
+			"Config":{
+				"ASRConfig":{"Provider":"volcano"},
+				"TTSConfig":{
+					"Provider":"volcano",
+					"ProviderParams":{
+						"audio":{"speed_ratio":1,"pitch_ratio":1,"volume_ratio":1}
+					}
+				}
+			},
+			"AgentConfig":{}
+		}`),
+	}
+	if err := client.StartVoiceChat(context.Background(), voiceSession{
+		SessionID:      "voice_1",
+		TaskID:         "voice_1",
+		AppID:          "123456781234567812345678",
+		VoiceChatAppID: "123456781234567812345678",
+		RoomID:         "dirextalk_voice_room",
+		UserID:         "owner_user",
+		AIUserID:       "dirextalk_ai_user",
+	}); err != nil {
+		t.Fatalf("StartVoiceChat: %v", err)
+	}
+	audio := start["Config"].(map[string]any)["TTSConfig"].(map[string]any)["ProviderParams"].(map[string]any)["audio"].(map[string]any)
+	if audio["speed_ratio"] != 1.12 || audio["pitch_ratio"] != 1.02 || audio["volume_ratio"] != 1.05 {
+		t.Fatalf("demo tts ratios not tuned: %#v", audio)
 	}
 }
 

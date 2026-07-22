@@ -415,6 +415,7 @@ type voiceAgentRunResult struct {
 
 func (m *Module) runVoiceAgentForTTS(ctx context.Context, session voiceSession, transcript string, ttsEmit VoiceCustomLLMChunkEmitter) voiceAgentRunResult {
 	result := voiceAgentRunResult{}
+	var answerBuilder strings.Builder
 	if m == nil || m.runner == nil || m.voice == nil {
 		result.Err = fmt.Errorf("native agent runtime is not configured")
 		return result
@@ -431,6 +432,7 @@ func (m *Module) runVoiceAgentForTTS(ctx context.Context, session voiceSession, 
 			if text == "" {
 				return nil
 			}
+			answerBuilder.WriteString(text)
 			if ttsEmit != nil {
 				if err := ttsEmit(text); err != nil {
 					return err
@@ -445,9 +447,12 @@ func (m *Module) runVoiceAgentForTTS(ctx context.Context, session voiceSession, 
 			m.voice.emit(session.SessionID, nativeagent.Event{Event: "answer", Data: map[string]any{"status": "speaking", "answer_delta": text}})
 		case "done":
 			data := map[string]any{"status": "done"}
-			if text := actionbase.String(event.Data["text"]); text != "" {
-				data["summary"] = text
-				result.Text = text
+			result.Text = strings.TrimSpace(actionbase.String(event.Data["text"]))
+			if result.Text == "" {
+				result.Text = strings.TrimSpace(answerBuilder.String())
+			}
+			if result.Text != "" {
+				data["summary"] = result.Text
 			}
 			if refs, ok := event.Data["references"]; ok {
 				data["references"] = refs
@@ -458,7 +463,7 @@ func (m *Module) runVoiceAgentForTTS(ctx context.Context, session voiceSession, 
 				"component":        "native_agent_voice",
 				"session_id":       session.SessionID,
 				"event":            "done",
-				"summary_length":   len([]rune(actionbase.String(event.Data["text"]))),
+				"summary_length":   len([]rune(result.Text)),
 				"references_count": result.ReferencesCount,
 				"tool_calls_count": result.ToolCallsCount,
 			}).Info("native_agent_done")

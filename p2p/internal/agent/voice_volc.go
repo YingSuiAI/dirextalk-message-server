@@ -231,6 +231,7 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 		customLLMURLForSession(c.customLLMURL, session.SessionID),
 		c.webhookSecret,
 	)
+	tuneVoiceChatTTS(config)
 	agentConfig := mapValue(payload["AgentConfig"])
 	if agentConfig == nil {
 		agentConfig = map[string]any{}
@@ -561,6 +562,60 @@ func customLLMConfig(url, apiKey string) map[string]any {
 	}
 }
 
+func tuneVoiceChatTTS(config map[string]any) {
+	ttsConfig := mapValue(config["TTSConfig"])
+	if ttsConfig == nil {
+		return
+	}
+	providerParams := mapValue(ttsConfig["ProviderParams"])
+	if providerParams == nil {
+		return
+	}
+	if raw := strings.TrimSpace(logString(providerParams["VolcanoTTSParameters"])); raw != "" {
+		providerParams["VolcanoTTSParameters"] = tuneVolcanoTTSParameters(raw)
+	}
+	if audio := mapValue(providerParams["audio"]); audio != nil {
+		audio["speed_ratio"] = 1.12
+		audio["pitch_ratio"] = 1.02
+		audio["volume_ratio"] = 1.05
+	}
+}
+
+func tuneVolcanoTTSParameters(raw string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil || payload == nil {
+		return raw
+	}
+	reqParams := mapValue(payload["req_params"])
+	if reqParams == nil {
+		reqParams = map[string]any{}
+		payload["req_params"] = reqParams
+	}
+	audioParams := mapValue(reqParams["audio_params"])
+	if audioParams == nil {
+		audioParams = map[string]any{}
+		reqParams["audio_params"] = audioParams
+	}
+	audioParams["speech_rate"] = 18
+	audioParams["loudness_rate"] = 2
+	additions := mapValue(reqParams["additions"])
+	if additions == nil {
+		additions = map[string]any{}
+		reqParams["additions"] = additions
+	}
+	postProcess := mapValue(additions["post_process"])
+	if postProcess == nil {
+		postProcess = map[string]any{}
+		additions["post_process"] = postProcess
+	}
+	postProcess["pitch"] = 1
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
+}
+
 func deepCloneMap(values map[string]any) map[string]any {
 	if values == nil {
 		return map[string]any{}
@@ -637,7 +692,7 @@ func defaultVoiceChatTemplate() map[string]any {
 					"Credential": map[string]any{
 						"ResourceId": "seed-tts-1.0",
 					},
-					"VolcanoTTSParameters": "{\"req_params\":{\"speaker\":\"zh_female_yuanqinvyou_moon_bigtts\",\"audio_params\":{\"speech_rate\":0,\"loudness_rate\":0},\"additions\":{\"post_process\":{\"pitch\":0}}}}",
+					"VolcanoTTSParameters": "{\"req_params\":{\"speaker\":\"zh_female_yuanqinvyou_moon_bigtts\",\"audio_params\":{\"speech_rate\":18,\"loudness_rate\":2},\"additions\":{\"post_process\":{\"pitch\":1}}}}",
 				},
 			},
 			"InterruptMode": 0,
