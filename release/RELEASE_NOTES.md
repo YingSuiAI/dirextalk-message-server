@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.0.9
+
+1. Reject direct messages involving blocked users across Matrix client and federation paths.
+2. Enforce the same blocked direct-message rejection through ProductCore actions.
+
 ## v1.0.8
 
 1. Add durable Native Agent turns that can reconnect without duplicate execution.
