@@ -49,6 +49,12 @@ func (c *fakeVoiceChatClient) StopVoiceChat(_ context.Context, session voiceSess
 }
 
 func newTestVoiceCoordinator(cfg voiceConfig) (*voiceCoordinator, *fakeVoiceTokenSigner, *fakeVoiceChatClient) {
+	if cfg.WebhookSecret == "" {
+		cfg.WebhookSecret = "secret"
+	}
+	if cfg.WebhookURL == "" && cfg.CustomLLMURL == "" {
+		cfg.WebhookURL = "https://example.com/_p2p/agent/voice/webhook"
+	}
 	voice := newVoiceCoordinator(cfg)
 	signer := &fakeVoiceTokenSigner{}
 	client := &fakeVoiceChatClient{}
@@ -277,6 +283,104 @@ func TestVoiceWebhookRunsNativeAgentAndPublishesReferences(t *testing.T) {
 	}
 }
 
+func TestVoiceCustomLLMRunsNativeAgentAndStreamsTTSChunks(t *testing.T) {
+	runner := &voiceRunnerStub{}
+	module := New(Config{Runner: runner})
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:         "volc-app",
+		AppKey:        "app-key",
+		WebhookSecret: "secret",
+		CustomLLMURL:  "https://example.com/_p2p/agent/voice/volc/custom-llm",
+	})
+	module.voice = voice
+	value, actionErr := module.createVoiceSession(context.Background(), map[string]any{
+		"source":          "native_agent",
+		"conversation_id": "voice-conversation",
+		"room_id":         "!product:example.com",
+		"room_type":       "group",
+		"api_key":         "request-scoped-key",
+	})
+	if actionErr != nil {
+		t.Fatalf("create voice session: %v", actionErr)
+	}
+	sessionID := value.(map[string]any)["session_id"].(string)
+	if value.(map[string]any)["client_transcript_submit_enabled"] != false {
+		t.Fatalf("CustomLLM sessions should disable client transcript submit: %#v", value)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan nativeagent.Event, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- module.Stream(ctx, "agent.voice.session.stream", map[string]any{"session_id": sessionID}, func(event nativeagent.Event) error {
+			events <- event
+			return nil
+		})
+	}()
+	if event := nextVoiceEvent(t, events); event.Event != "listening" {
+		t.Fatalf("first voice stream event = %#v", event)
+	}
+	var ttsChunks []string
+	response, actionErr := module.HandleVoiceCustomLLM(context.Background(), "secret", sessionID, map[string]any{
+		"messages": []any{
+			map[string]any{"role": "system", "content": "ignored"},
+			map[string]any{"role": "user", "content": "总结产品群"},
+		},
+	}, func(text string) error {
+		ttsChunks = append(ttsChunks, text)
+		return nil
+	})
+	if actionErr != nil || response["ok"] != true || response["text"] != "回答" {
+		t.Fatalf("custom llm response = %#v, %v", response, actionErr)
+	}
+	if len(ttsChunks) != 1 || ttsChunks[0] != "回答" {
+		t.Fatalf("tts chunks = %#v", ttsChunks)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "transcribing" || event.Data["transcript_final"] != "总结产品群" {
+		t.Fatalf("transcribing event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "thinking" {
+		t.Fatalf("thinking event = %#v", event)
+	}
+	if event := nextVoiceEvent(t, events); event.Event != "answer" || event.Data["answer_delta"] != "回答" {
+		t.Fatalf("answer event = %#v", event)
+	}
+	doneEvent := nextVoiceEvent(t, events)
+	if doneEvent.Event != "done" || doneEvent.Data["references"] == nil {
+		t.Fatalf("done event = %#v", doneEvent)
+	}
+	if runner.params["prompt"] != "总结产品群" ||
+		runner.params["api_key"] != "request-scoped-key" ||
+		runner.params["conversation_id"] != "voice-conversation" {
+		t.Fatalf("native agent params not preserved: %#v", runner.params)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("voice stream returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("voice stream did not finish after done event")
+	}
+}
+
+func TestVoiceCustomLLMRejectsBadSecret(t *testing.T) {
+	module := New(Config{Runner: &voiceRunnerStub{}})
+	voice, _, _ := newTestVoiceCoordinator(voiceConfig{
+		AppID:         "volc-app",
+		AppKey:        "app-key",
+		WebhookSecret: "secret",
+		CustomLLMURL:  "https://example.com/_p2p/agent/voice/volc/custom-llm",
+	})
+	module.voice = voice
+	_, actionErr := module.HandleVoiceCustomLLM(context.Background(), "wrong", "voice_1", map[string]any{
+		"transcript": "总结产品群",
+	}, nil)
+	if actionErr == nil || actionErr.Status != 401 {
+		t.Fatalf("expected unauthorized custom llm callback, got %#v", actionErr)
+	}
+}
+
 func TestVoiceTranscriptActionRunsNativeAgent(t *testing.T) {
 	runner := &voiceRunnerStub{}
 	module := New(Config{Runner: runner})
@@ -356,13 +460,13 @@ func TestVoiceSessionDeduplicatesFinalTranscript(t *testing.T) {
 		t.Fatalf("create voice session: %v", actionErr)
 	}
 	sessionID := value.(map[string]any)["session_id"].(string)
-	if _, accepted := voice.acceptTranscript(sessionID, "重复问题"); !accepted {
+	if _, accepted, _ := voice.acceptTranscript(sessionID, "重复问题"); !accepted {
 		t.Fatal("first transcript should be accepted")
 	}
-	if _, accepted := voice.acceptTranscript(sessionID, "重复问题"); accepted {
+	if _, accepted, reason := voice.acceptTranscript(sessionID, "重复问题"); accepted || reason != "duplicate" {
 		t.Fatal("duplicate transcript should be ignored")
 	}
-	if _, accepted := voice.acceptTranscript(sessionID, "新的问题"); !accepted {
+	if _, accepted, _ := voice.acceptTranscript(sessionID, "新的问题"); !accepted {
 		t.Fatal("new transcript should be accepted")
 	}
 }

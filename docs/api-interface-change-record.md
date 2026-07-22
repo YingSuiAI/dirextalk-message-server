@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-21
 
+## 2026-07-22 Native Agent Voice CustomLLM Single-Brain Routing
+
+Native Agent voice sessions now use Volc VoiceChat only for RTC, ASR, subtitles,
+and TTS. The default VoiceChat template sets `LLMConfig.Mode=CustomLLM` and
+points Volc to `/_p2p/agent/voice/volc/custom-llm`, authenticated by
+`VOLC_VOICE_WEBHOOK_SECRET`. Volc ASR text is treated as untrusted user input and
+is routed through the existing Native Agent `agent.chat.stream` path with the
+request-scoped model profile and API key captured at voice session creation.
+The Native Agent answer and references continue to stream to Flutter through
+`agent.voice.session.stream`; the same Native Agent answer text is returned to
+Volc's CustomLLM SSE response for TTS playback in the RTC room. The server no
+longer configures ArkV3, Doubao model names, or Volc-side `SystemMessages` as a
+final answer source in the default VoiceChat payload, and it overwrites any
+legacy `LLMConfig` from `VOLC_VOICE_CHAT_CONFIG_JSON` before calling
+`StartVoiceChat`.
+
+The voice session create response adds
+`client_transcript_submit_enabled=false` for CustomLLM sessions. Flutter should
+still render Volc user subtitles locally but must not submit those final
+subtitles through `agent.voice.session.transcript`, preventing duplicate Native
+Agent turns from racing the CustomLLM callback. Non-CustomLLM templates keep the
+field true for compatibility with the earlier client-submitted transcript path.
+
 ## 2026-07-21 Native Agent Voice Session Scaffold
 
 Added owner-only Native Agent voice session actions: `agent.voice.session.create`,

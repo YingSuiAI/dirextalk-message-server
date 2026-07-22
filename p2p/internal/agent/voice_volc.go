@@ -161,6 +161,8 @@ type volcVoiceChatOpenAPIClient struct {
 	accessKeyID     string
 	secretAccessKey string
 	webhookURL      string
+	customLLMURL    string
+	webhookSecret   string
 	configTemplate  map[string]any
 }
 
@@ -176,6 +178,8 @@ func newVolcVoiceChatOpenAPIClient(cfg voiceConfig) *volcVoiceChatOpenAPIClient 
 		accessKeyID:     strings.TrimSpace(cfg.OpenAPIAccessKeyID),
 		secretAccessKey: strings.TrimSpace(cfg.OpenAPISecretAccessKey),
 		webhookURL:      strings.TrimSpace(cfg.WebhookURL),
+		customLLMURL:    resolveCustomLLMURL(cfg.CustomLLMURL, cfg.WebhookURL),
+		webhookSecret:   strings.TrimSpace(cfg.WebhookSecret),
 		configTemplate:  parseVoiceChatTemplate(cfg.VoiceChatConfigJSON),
 	}
 }
@@ -204,11 +208,16 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 		"VOLC_RTC_APP_ID":        session.AppID,
 		"VOLC_VOICE_CHAT_APP_ID": session.voiceChatAppID(),
 		"VOLC_VOICE_WEBHOOK_URL": c.webhookURL,
-		"VOICE_SESSION_ID":       session.SessionID,
-		"VOICE_TASK_ID":          session.TaskID,
-		"VOICE_ROOM_ID":          session.RoomID,
-		"VOICE_USER_ID":          session.UserID,
-		"VOICE_AI_USER_ID":       session.AIUserID,
+		"VOLC_VOICE_CUSTOM_LLM_URL": customLLMURLForSession(
+			c.customLLMURL,
+			session.SessionID,
+		),
+		"VOLC_VOICE_WEBHOOK_SECRET": c.webhookSecret,
+		"VOICE_SESSION_ID":          session.SessionID,
+		"VOICE_TASK_ID":             session.TaskID,
+		"VOICE_ROOM_ID":             session.RoomID,
+		"VOICE_USER_ID":             session.UserID,
+		"VOICE_AI_USER_ID":          session.AIUserID,
 	})
 	payload["AppId"] = session.voiceChatAppID()
 	payload["RoomId"] = session.RoomID
@@ -218,6 +227,10 @@ func (c *volcVoiceChatOpenAPIClient) voiceChatPayload(session voiceSession) map[
 		config = map[string]any{}
 		payload["Config"] = config
 	}
+	config["LLMConfig"] = customLLMConfig(
+		customLLMURLForSession(c.customLLMURL, session.SessionID),
+		c.webhookSecret,
+	)
 	agentConfig := mapValue(payload["AgentConfig"])
 	if agentConfig == nil {
 		agentConfig = map[string]any{}
@@ -463,6 +476,7 @@ func summarizeVoiceChatPayload(payload map[string]any) logrus.Fields {
 		if llmConfig := mapValue(config["LLMConfig"]); llmConfig != nil {
 			fields["llm_mode"] = logString(llmConfig["Mode"])
 			fields["llm_model"] = fallback(logString(llmConfig["ModelName"]), logString(llmConfig["EndPointId"]))
+			fields["llm_custom_url_configured"] = logString(llmConfig["Url"]) != ""
 		}
 		if ttsConfig := mapValue(config["TTSConfig"]); ttsConfig != nil {
 			fields["tts_provider"] = logString(ttsConfig["Provider"])
@@ -484,6 +498,67 @@ func parseVoiceChatTemplate(raw string) map[string]any {
 		return defaultVoiceChatTemplate()
 	}
 	return template
+}
+
+func voiceChatConfigUsesCustomLLM(raw string) bool {
+	template := parseVoiceChatTemplate(raw)
+	config := mapValue(template["Config"])
+	if config == nil {
+		return false
+	}
+	llmConfig := mapValue(config["LLMConfig"])
+	if llmConfig == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(logString(llmConfig["Mode"])), "CustomLLM")
+}
+
+func resolveCustomLLMURL(customLLMURL, webhookURL string) string {
+	customLLMURL = strings.TrimSpace(customLLMURL)
+	if customLLMURL != "" {
+		return customLLMURL
+	}
+	webhookURL = strings.TrimSpace(webhookURL)
+	if webhookURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(webhookURL)
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if strings.HasSuffix(path, "/agent/voice/webhook") {
+		parsed.Path = strings.TrimSuffix(path, "/webhook") + "/volc/custom-llm"
+	} else {
+		parsed.Path = path + "/volc/custom-llm"
+	}
+	parsed.RawQuery = ""
+	return parsed.String()
+}
+
+func customLLMURLForSession(raw, sessionID string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "${VOICE_SESSION_ID}") || strings.Contains(raw, "{{VOICE_SESSION_ID}}") {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	query := parsed.Query()
+	if query.Get("session_id") == "" {
+		query.Set("session_id", sessionID)
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func customLLMConfig(url, apiKey string) map[string]any {
+	return map[string]any{
+		"Mode":   "CustomLLM",
+		"Url":    strings.TrimSpace(url),
+		"APIKey": strings.TrimSpace(apiKey),
+	}
 }
 
 func deepCloneMap(values map[string]any) map[string]any {
@@ -534,6 +609,7 @@ func replaceVoiceChatString(value string, replacements map[string]string) string
 func defaultVoiceChatTemplate() map[string]any {
 	return map[string]any{
 		"Config": map[string]any{
+			"CallbackUrl": "${VOLC_VOICE_WEBHOOK_URL}",
 			"ASRConfig": map[string]any{
 				"Provider": "volcano",
 				"ProviderParams": map[string]any{
@@ -551,17 +627,9 @@ func defaultVoiceChatTemplate() map[string]any {
 				},
 			},
 			"LLMConfig": map[string]any{
-				"Mode":          "ArkV3",
-				"ModelName":     "doubao-seed-character-251128",
-				"ThinkingType":  "disabled",
-				"VisionConfig":  map[string]any{},
-				"HistoryLength": 10,
-				"Temperature":   0.1,
-				"TopP":          0.3,
-				"MaxTokens":     1024,
-				"SystemMessages": []any{
-					"你是 Dirextalk 语音助手。回答要简洁、准确、友好；涉及群聊、频道或帖子时，优先提示用户查看 Dirextalk 给出的引用卡片。",
-				},
+				"Mode":   "CustomLLM",
+				"Url":    "${VOLC_VOICE_CUSTOM_LLM_URL}",
+				"APIKey": "${VOLC_VOICE_WEBHOOK_SECRET}",
 			},
 			"TTSConfig": map[string]any{
 				"Provider": "volcano_bidirection",
@@ -583,7 +651,7 @@ func defaultVoiceChatTemplate() map[string]any {
 			"MusicAgentConfig":      map[string]any{},
 		},
 		"AgentConfig": map[string]any{
-			"WelcomeMessage":                  "我是你的 AI 助手，有什么需要我为您效劳的吗？",
+			"WelcomeMessage":                  "Hello，我叫Ying，Dirextalk内置Agent，有什么需要帮忙的吗？",
 			"EnableConversationStateCallback": true,
 			"VoicePrint": map[string]any{
 				"MetaList":       nil,
@@ -606,6 +674,8 @@ func logString(value any) string {
 	switch typed := value.(type) {
 	case string:
 		return typed
+	case nil:
+		return ""
 	default:
 		return fmt.Sprint(typed)
 	}

@@ -86,6 +86,20 @@ func (s *Service) HandleNativeAgentVoiceWebhook(ctx context.Context, token strin
 	return s.agentModule.HandleVoiceWebhook(ctx, token, params)
 }
 
+func (s *Service) HandleNativeAgentVoiceCustomLLM(ctx context.Context, token, sessionID string, params map[string]any, emit agentmodule.VoiceCustomLLMChunkEmitter) (map[string]any, *apiError) {
+	if s == nil || s.agentModule == nil {
+		return nil, statusError(502, "native agent voice service is not configured")
+	}
+	return s.agentModule.HandleVoiceCustomLLM(ctx, token, sessionID, params, emit)
+}
+
+func (s *Service) AuthorizeNativeAgentVoiceWebhook(token string) *apiError {
+	if s == nil || s.agentModule == nil {
+		return statusError(502, "native agent voice service is not configured")
+	}
+	return s.agentModule.AuthorizeVoiceWebhook(token)
+}
+
 // nativeAgentConfigStore adapts the account-scoped durable portal record to
 // the runtime's narrow configuration store.
 type nativeAgentConfigStore struct {

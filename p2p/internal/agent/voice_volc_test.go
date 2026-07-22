@@ -47,11 +47,13 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 		accessKeyID:     "ak",
 		secretAccessKey: "sk",
 		webhookURL:      "https://www.wenson.art/_p2p/agent/voice/webhook",
+		customLLMURL:    "https://www.wenson.art/_p2p/agent/voice/volc/custom-llm",
+		webhookSecret:   "secret",
 		configTemplate: parseVoiceChatTemplate(`{
 			"AppId":"template-app",
 			"RoomId":"template-room",
 			"TaskId":"template-task",
-			"Config":{"CallbackUrl":"${VOLC_VOICE_WEBHOOK_URL}","ASRConfig":{"Provider":"volcano"}},
+			"Config":{"CallbackUrl":"${VOLC_VOICE_WEBHOOK_URL}","ASRConfig":{"Provider":"volcano"},"LLMConfig":{"Mode":"ArkV3","ModelName":"doubao"}},
 			"AgentConfig":{"TargetUserId":["template-user"],"UserId":"template-ai","WelcomeMessage":"hello"}
 		}`),
 	}
@@ -80,6 +82,10 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 	config := start["Config"].(map[string]any)
 	if config["CallbackUrl"] != "https://www.wenson.art/_p2p/agent/voice/webhook" {
 		t.Fatalf("webhook placeholder was not replaced: %#v", config)
+	}
+	llmConfig := config["LLMConfig"].(map[string]any)
+	if llmConfig["Mode"] != "CustomLLM" || llmConfig["ModelName"] != nil || !strings.Contains(llmConfig["Url"].(string), "session_id=voice_1") {
+		t.Fatalf("legacy LLM config should be overridden: %#v", llmConfig)
 	}
 	agentConfig := start["AgentConfig"].(map[string]any)
 	targets := agentConfig["TargetUserId"].([]any)
@@ -141,15 +147,68 @@ func TestDefaultVoiceChatTemplateUsesNoiseTolerantVAD(t *testing.T) {
 	asrConfig := config["ASRConfig"].(map[string]any)
 	vadConfig := asrConfig["VADConfig"].(map[string]any)
 	interruptConfig := asrConfig["InterruptConfig"].(map[string]any)
+	llmConfig := config["LLMConfig"].(map[string]any)
 	if vadConfig["SilenceTime"] != 900 {
 		t.Fatalf("SilenceTime = %#v, want 900", vadConfig["SilenceTime"])
 	}
 	if interruptConfig["InterruptSpeechDuration"] != 700 {
 		t.Fatalf("InterruptSpeechDuration = %#v, want 700", interruptConfig["InterruptSpeechDuration"])
 	}
+	if llmConfig["Mode"] != "CustomLLM" || llmConfig["ModelName"] != nil || llmConfig["SystemMessages"] != nil {
+		t.Fatalf("LLMConfig must route to Dirextalk CustomLLM only: %#v", llmConfig)
+	}
 	fields := summarizeVoiceChatPayload(template)
 	if fields["vad_silence_time"] != "900" || fields["interrupt_speech_duration"] != "700" {
 		t.Fatalf("summary should include VAD/interrupt values, got %#v", fields)
+	}
+}
+
+func TestVolcVoiceChatClientConfiguresCustomLLMCallback(t *testing.T) {
+	var start map[string]any
+	client := &volcVoiceChatOpenAPIClient{
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Query().Get("Action") == "StartVoiceChat" {
+				if err := json.NewDecoder(req.Body).Decode(&start); err != nil {
+					t.Fatalf("decode request body: %v", err)
+				}
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"ResponseMetadata":{"RequestId":"req"}}`)),
+				Header:     make(http.Header),
+			}, nil
+		})},
+		host:            "rtc.volcengineapi.com",
+		region:          "cn-north-1",
+		accessKeyID:     "ak",
+		secretAccessKey: "sk",
+		webhookURL:      "https://www.wenson.art/_p2p/agent/voice/webhook",
+		customLLMURL:    "https://www.wenson.art/_p2p/agent/voice/volc/custom-llm",
+		webhookSecret:   "secret",
+		configTemplate:  defaultVoiceChatTemplate(),
+	}
+	session := voiceSession{
+		SessionID:      "voice_1",
+		TaskID:         "voice_1",
+		AppID:          "123456781234567812345678",
+		VoiceChatAppID: "123456781234567812345678",
+		RoomID:         "dirextalk_voice_room",
+		UserID:         "owner_user",
+		AIUserID:       "dirextalk_ai_user",
+	}
+	if err := client.StartVoiceChat(context.Background(), session); err != nil {
+		t.Fatalf("StartVoiceChat: %v", err)
+	}
+	config := start["Config"].(map[string]any)
+	llmConfig := config["LLMConfig"].(map[string]any)
+	if llmConfig["Mode"] != "CustomLLM" || llmConfig["APIKey"] != "secret" {
+		t.Fatalf("unexpected custom llm config: %#v", llmConfig)
+	}
+	if got := llmConfig["Url"].(string); !strings.Contains(got, "/_p2p/agent/voice/volc/custom-llm") || !strings.Contains(got, "session_id=voice_1") {
+		t.Fatalf("custom llm url missing session id: %q", got)
+	}
+	if config["CallbackUrl"] != "https://www.wenson.art/_p2p/agent/voice/webhook" {
+		t.Fatalf("webhook callback url not configured: %#v", config)
 	}
 }
 

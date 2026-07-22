@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkmcp"
@@ -26,6 +27,7 @@ func Register(router *mux.Router, service *Service) {
 	router.HandleFunc("/command", product).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/ws", realtimeWSHandler(service)).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/agent/voice/webhook", nativeAgentVoiceWebhookHandler(service)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/agent/voice/volc/custom-llm", nativeAgentVoiceCustomLLMHandler(service)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/health", httpapi.HealthHandler(nil)).Methods(http.MethodGet, http.MethodOptions)
 }
 
@@ -115,6 +117,93 @@ func nativeAgentVoiceWebhookHandler(service *Service) http.HandlerFunc {
 		}
 		httpapi.WriteJSON(w, http.StatusAccepted, response)
 	}
+}
+
+func nativeAgentVoiceCustomLLMHandler(service *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		httpapi.SetCORSHeaders(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if service == nil {
+			httpapi.WriteError(w, actionbase.StatusError(http.StatusServiceUnavailable, "service is unavailable"))
+			return
+		}
+		var params map[string]any
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024*1024)).Decode(&params); err != nil {
+			httpapi.WriteError(w, actionbase.BadRequest("invalid json"))
+			return
+		}
+		token := httpapi.BearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			token = r.Header.Get("X-Dirextalk-Voice-Secret")
+		}
+		if apiErr := service.AuthorizeNativeAgentVoiceWebhook(token); apiErr != nil {
+			httpapi.WriteError(w, apiErr)
+			return
+		}
+		sessionID := r.URL.Query().Get("session_id")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			httpapi.WriteError(w, actionbase.StatusError(http.StatusInternalServerError, "streaming is unavailable"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		streamID := "dirextalk-voice-" + sessionID
+		sentContent := false
+		emit := func(text string) error {
+			if text == "" {
+				return nil
+			}
+			sentContent = true
+			return writeOpenAIChatCompletionChunk(w, flusher, streamID, text, "")
+		}
+		response, apiErr := service.HandleNativeAgentVoiceCustomLLM(r.Context(), token, sessionID, params, emit)
+		if apiErr != nil {
+			_ = writeOpenAIChatCompletionChunk(w, flusher, streamID, apiErr.Error, "stop")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+			return
+		}
+		if text, _ := response["text"].(string); text != "" && !sentContent {
+			// Some Native Agent providers only emit final text. Ensure TTS still receives it.
+			_ = writeOpenAIChatCompletionChunk(w, flusher, streamID, text, "")
+		}
+		_ = writeOpenAIChatCompletionChunk(w, flusher, streamID, "", "stop")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}
+}
+
+func writeOpenAIChatCompletionChunk(w http.ResponseWriter, flusher http.Flusher, streamID, text, finishReason string) error {
+	choice := map[string]any{
+		"index": 0,
+		"delta": map[string]any{},
+	}
+	if text != "" {
+		choice["delta"] = map[string]any{"content": text}
+	}
+	if finishReason != "" {
+		choice["finish_reason"] = finishReason
+	}
+	payload := map[string]any{
+		"id":      streamID,
+		"object":  "chat.completion.chunk",
+		"choices": []any{choice},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
 }
 
 // These compatibility helpers remain for root adapters and package tests.
