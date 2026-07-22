@@ -25,7 +25,7 @@ const (
 	volcRTCOpenAPIHost    = "rtc.volcengineapi.com"
 	volcRTCOpenAPIRegion  = "cn-north-1"
 	volcRTCOpenAPIService = "rtc"
-	volcVoiceChatVersion  = "2025-06-01"
+	volcVoiceChatVersion  = "2024-12-01"
 )
 
 type voiceTokenSigner interface {
@@ -157,6 +157,7 @@ type volcVoiceChatOpenAPIClient struct {
 	httpClient      *http.Client
 	host            string
 	region          string
+	version         string
 	accessKeyID     string
 	secretAccessKey string
 	webhookURL      string
@@ -171,6 +172,7 @@ func newVolcVoiceChatOpenAPIClient(cfg voiceConfig) *volcVoiceChatOpenAPIClient 
 		httpClient:      http.DefaultClient,
 		host:            fallback(cfg.OpenAPIHost, volcRTCOpenAPIHost),
 		region:          fallback(cfg.OpenAPIRegion, volcRTCOpenAPIRegion),
+		version:         fallback(cfg.OpenAPIVersion, volcVoiceChatVersion),
 		accessKeyID:     strings.TrimSpace(cfg.OpenAPIAccessKeyID),
 		secretAccessKey: strings.TrimSpace(cfg.OpenAPISecretAccessKey),
 		webhookURL:      strings.TrimSpace(cfg.WebhookURL),
@@ -245,7 +247,7 @@ func (c *volcVoiceChatOpenAPIClient) call(ctx context.Context, action string, pa
 		Path:   "/",
 		RawQuery: url.Values{
 			"Action":  []string{action},
-			"Version": []string{volcVoiceChatVersion},
+			"Version": []string{fallback(c.version, volcVoiceChatVersion)},
 		}.Encode(),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
@@ -268,6 +270,7 @@ func (c *volcVoiceChatOpenAPIClient) call(ctx context.Context, action string, pa
 		"action":    action,
 		"host":      c.host,
 		"region":    c.region,
+		"version":   fallback(c.version, volcVoiceChatVersion),
 		"app_id":    logString(payload["AppId"]),
 		"room_id":   logString(payload["RoomId"]),
 		"task_id":   logString(payload["TaskId"]),

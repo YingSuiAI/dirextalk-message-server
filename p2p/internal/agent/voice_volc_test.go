@@ -27,7 +27,7 @@ func TestVolcVoiceChatClientReplacesDynamicSessionFields(t *testing.T) {
 			if req.Header.Get("Authorization") == "" || req.Header.Get("X-Date") == "" || req.Header.Get("X-Content-Sha256") == "" {
 				t.Fatalf("request was not signed: headers=%#v", req.Header)
 			}
-			if req.URL.Query().Get("Version") != volcVoiceChatVersion {
+			if req.URL.Query().Get("Version") != "2024-12-01" {
 				t.Fatalf("unexpected version query: %s", req.URL.RawQuery)
 			}
 			var body map[string]any

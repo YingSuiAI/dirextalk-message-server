@@ -31,6 +31,7 @@ type voiceConfig struct {
 	OpenAPISecretAccessKey string
 	OpenAPIHost            string
 	OpenAPIRegion          string
+	OpenAPIVersion         string
 	VoiceChatConfigJSON    string
 }
 
@@ -46,6 +47,7 @@ func voiceConfigFromEnv() voiceConfig {
 		OpenAPISecretAccessKey: strings.TrimSpace(os.Getenv("VOLC_SECRET_ACCESS_KEY")),
 		OpenAPIHost:            strings.TrimSpace(os.Getenv("VOLC_RTC_OPENAPI_HOST")),
 		OpenAPIRegion:          strings.TrimSpace(os.Getenv("VOLC_RTC_OPENAPI_REGION")),
+		OpenAPIVersion:         strings.TrimSpace(os.Getenv("VOLC_VOICE_CHAT_OPENAPI_VERSION")),
 		VoiceChatConfigJSON:    strings.TrimSpace(os.Getenv("VOLC_VOICE_CHAT_CONFIG_JSON")),
 	}
 }
