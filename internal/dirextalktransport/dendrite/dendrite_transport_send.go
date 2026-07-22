@@ -45,12 +45,16 @@ func (t *DendriteTransport) SendMessage(ctx context.Context, req SendMessageRequ
 			content["msgtype"] = matrixMessageType(req.MessageType, false)
 		}
 	}
+	var blockChecker func(context.Context, string, string) (bool, error)
+	if t.blockedDirectMessageChecker != nil {
+		blockChecker = t.checkBlockedDirectMessage
+	}
 	if err = productpolicy.ValidateClientEvent(ctx, t.productPolicyQuerier(), productpolicy.ClientEventRequest{
 		RoomID:       req.RoomID,
 		SenderMXID:   req.SenderMXID,
 		EventType:    eventType,
 		Content:      content,
-		BlockChecker: t.blockedDirectMessageChecker,
+		BlockChecker: blockChecker,
 	}); err != nil {
 		return SendMessageResult{}, err
 	}
@@ -97,6 +101,19 @@ func (t *DendriteTransport) SendMessage(ctx context.Context, req SendMessageRequ
 		return SendMessageResult{}, err
 	}
 	return SendMessageResult{EventID: event.EventID(), OriginServerTS: int64(event.OriginServerTS())}, nil
+}
+
+func (t *DendriteTransport) checkBlockedDirectMessage(ctx context.Context, roomID, senderMXID string) (bool, error) {
+	members, err := t.ListRoomMembers(ctx, roomID)
+	if err != nil {
+		return false, err
+	}
+	for _, member := range members {
+		if member.Membership == string(spec.Join) && member.UserID != senderMXID {
+			return t.blockedDirectMessageChecker(ctx, roomID, member.UserID)
+		}
+	}
+	return false, nil
 }
 
 func (t *DendriteTransport) SendStateEvent(ctx context.Context, req SendStateEventRequest) error {

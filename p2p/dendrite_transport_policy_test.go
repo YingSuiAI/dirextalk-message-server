@@ -58,7 +58,9 @@ func TestDendriteTransportSendMessageRejectsBlockedDirectMessageBeforeWrite(t *t
 	room := dendritetest.NewRoom(t, owner)
 	room.CreateAndInsert(t, member, spec.MRoomMember, map[string]any{"membership": spec.Join}, dendritetest.WithStateKey(member.ID))
 	room.CreateAndInsert(t, owner, DirextalkRoomProfileEventType, map[string]any{
-		"room_type": DirextalkRoomTypeDirect,
+		"room_type":      DirextalkRoomTypeDirect,
+		"requester_mxid": owner.ID,
+		"target_mxid":    member.ID,
 	}, dendritetest.WithStateKey(""))
 
 	rsAPI := &policyTransportRoomserver{
@@ -74,7 +76,7 @@ func TestDendriteTransportSendMessageRejectsBlockedDirectMessageBeforeWrite(t *t
 	})
 
 	_, err := transport.SendMessage(context.Background(), SendMessageRequest{
-		SenderMXID: member.ID,
+		SenderMXID: owner.ID,
 		RoomID:     room.ID,
 		EventType:  "m.room.message",
 		Content:    map[string]any{"msgtype": "m.text", "body": "blocked"},
