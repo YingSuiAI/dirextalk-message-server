@@ -56,9 +56,9 @@ func (volcRTCTokenSigner) SignRTC(appID, appKey, roomID, userID string, expiresA
 	if token.AppKey == "" {
 		return "", fmt.Errorf("VOLC_RTC_APP_KEY is required")
 	}
-	token.addPrivilege(4, 0)
-	for _, privilege := range []uint16{0, 1, 2, 3} {
-		token.addPrivilege(privilege, 0)
+	privilegeExpiresAt := token.ExpireAt
+	for _, privilege := range []uint16{0, 1, 2, 3, 4, 5} {
+		token.addPrivilege(privilege, privilegeExpiresAt)
 	}
 	return token.serialize()
 }
