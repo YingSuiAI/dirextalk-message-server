@@ -60,11 +60,11 @@ func modelProviderDefaults() []map[string]any {
 }
 
 func (r *Runtime) fetchAnthropicModels(ctx context.Context, baseURL, apiKey string) ([]map[string]any, error) {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = anthropicV1BaseURL(baseURL)
 	if baseURL == "" {
 		return nil, fmt.Errorf("base_url is required to fetch anthropic models")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,11 @@ func (r *Runtime) fetchOpenAICompatibleModels(ctx context.Context, provider, bas
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if provider == "gemini" {
+		req.Header.Set("x-goog-api-key", apiKey)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s models: %w", provider, err)
@@ -136,6 +140,9 @@ func openAICompatibleModelsBaseURL(provider, baseURL string) string {
 	}
 	if provider == "deepseek" {
 		return baseURL
+	}
+	if provider == "gemini" {
+		return strings.TrimSuffix(baseURL, "/openai")
 	}
 	return normalizedOpenAIBaseURL(nativeModelProfile{Provider: provider, BaseURL: baseURL})
 }

@@ -84,11 +84,11 @@ func defaultBaseURLForProvider(provider string) string {
 	case "openai":
 		return "https://api.openai.com/v1"
 	case "anthropic":
-		return "https://api.anthropic.com"
+		return "https://api.anthropic.com/v1"
 	case "deepseek":
-		return "https://api.deepseek.com"
+		return "https://api.deepseek.com/v1"
 	case "gemini":
-		return "https://generativelanguage.googleapis.com/v1beta/openai"
+		return "https://generativelanguage.googleapis.com/v1beta"
 	case "xai":
 		return "https://api.x.ai/v1"
 	case "openrouter":

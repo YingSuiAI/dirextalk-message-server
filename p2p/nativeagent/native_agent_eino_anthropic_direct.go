@@ -86,7 +86,7 @@ func (m *anthropicDirectChatModel) newRequest(ctx context.Context, payload map[s
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(m.profile.BaseURL, "/") + "/v1/messages"
+	url := anthropicV1BaseURL(m.profile.BaseURL) + "/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -95,4 +95,15 @@ func (m *anthropicDirectChatModel) newRequest(ctx context.Context, payload map[s
 	req.Header.Set("x-api-key", m.profile.APIKey)
 	req.Header.Set("anthropic-version", anthropicVersion)
 	return req, nil
+}
+
+func anthropicV1BaseURL(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return ""
+	}
+	if strings.HasSuffix(baseURL, "/v1") {
+		return baseURL
+	}
+	return baseURL + "/v1"
 }

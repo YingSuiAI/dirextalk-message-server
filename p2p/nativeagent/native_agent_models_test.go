@@ -103,7 +103,7 @@ func TestModelsListFetchesAnthropicProvider(t *testing.T) {
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
 	result, err := runtime.Invoke(context.Background(), "agent.models.list", map[string]any{
 		"provider": "anthropic",
-		"base_url": server.URL,
+		"base_url": server.URL + "/v1",
 		"api_key":  "test-key",
 	})
 	if err != nil {
@@ -118,27 +118,27 @@ func TestModelsListFetchesAnthropicProvider(t *testing.T) {
 	}
 }
 
-func TestModelsListFetchesGeminiOpenAICompatibleProvider(t *testing.T) {
-	var gotPath, gotAuth string
+func TestModelsListFetchesGeminiNativeProvider(t *testing.T) {
+	var gotPath, gotAPIKey string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("x-goog-api-key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"gemini-3.6-flash","name":"Gemini 3.6 Flash"}]}`))
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-3.6-flash","displayName":"Gemini 3.6 Flash"}]}`))
 	}))
 	defer server.Close()
 
 	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
 	result, err := runtime.Invoke(context.Background(), "agent.models.list", map[string]any{
 		"provider": "gemini",
-		"base_url": server.URL + "/v1beta/openai",
+		"base_url": server.URL + "/v1beta",
 		"api_key":  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("agent.models.list: %v", err)
 	}
-	if gotPath != "/v1beta/openai/models" || gotAuth != "Bearer test-key" {
-		t.Fatalf("unexpected Gemini request path=%q authorization=%q", gotPath, gotAuth)
+	if gotPath != "/v1beta/models" || gotAPIKey != "test-key" {
+		t.Fatalf("unexpected Gemini request path=%q api_key=%q", gotPath, gotAPIKey)
 	}
 	models := result["models"].([]map[string]any)
 	if len(models) != 1 || models[0]["id"] != "gemini-3.6-flash" || models[0]["name"] != "Gemini 3.6 Flash" {

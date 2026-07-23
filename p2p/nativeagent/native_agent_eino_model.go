@@ -22,6 +22,12 @@ func normalizedOpenAIBaseURL(profile nativeModelProfile) string {
 	if base == "" {
 		return base
 	}
+	if profile.Provider == "gemini" {
+		if strings.HasSuffix(base, "/openai") {
+			return base
+		}
+		return base + "/openai"
+	}
 	parsed, err := url.Parse(base)
 	if err != nil || parsed.Path != "" || profile.Provider == "openai" {
 		return base

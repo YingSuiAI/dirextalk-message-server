@@ -445,15 +445,36 @@ func TestDeepSeekProviderUsesChatCompletionsEndpoint(t *testing.T) {
 		"model_profile": map[string]any{
 			"provider": "deepseek",
 			"model":    "mock-deepseek",
-			"base_url": server.URL,
+			"base_url": server.URL + "/v1",
 			"api_key":  "test-key",
 		},
 	})
 	if err != nil {
 		t.Fatalf("deepseek provider: %v", err)
 	}
-	if gotPath != "/chat/completions" || result["text"] != "deepseek ok" {
+	if gotPath != "/v1/chat/completions" || result["text"] != "deepseek ok" {
 		t.Fatalf("expected deepseek chat completions, path=%q result=%#v", gotPath, result)
+	}
+}
+
+func TestGeminiProviderDerivesOpenAIAdapterPathFromNativeBaseURL(t *testing.T) {
+	for _, test := range []struct {
+		baseURL string
+		want    string
+	}{
+		{
+			baseURL: "https://generativelanguage.googleapis.com/v1beta",
+			want:    "https://generativelanguage.googleapis.com/v1beta/openai",
+		},
+		{
+			baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+			want:    "https://generativelanguage.googleapis.com/v1beta/openai",
+		},
+	} {
+		profile := nativeModelProfile{Provider: "gemini", BaseURL: test.baseURL}
+		if got := normalizedOpenAIBaseURL(profile); got != test.want {
+			t.Fatalf("normalized Gemini base URL = %q, want %q", got, test.want)
+		}
 	}
 }
 
@@ -661,7 +682,7 @@ func TestAnthropicProviderUsesMessagesEndpoint(t *testing.T) {
 		"model_profile": map[string]any{
 			"provider": "anthropic",
 			"model":    "mock-claude",
-			"base_url": server.URL,
+			"base_url": server.URL + "/v1",
 			"api_key":  "test-key",
 		},
 	})
