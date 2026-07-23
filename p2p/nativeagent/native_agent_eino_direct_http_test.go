@@ -65,6 +65,55 @@ func TestDirectModelStreamsDecodeProviderEvents(t *testing.T) {
 	}
 }
 
+func TestDirectModelPayloadsOmitUnsetOptionalTuning(t *testing.T) {
+	runtime := New(Config{})
+	profile := runtime.resolveModelProfile(map[string]any{
+		"model_profile": map[string]any{
+			"provider":          "openai_compatible",
+			"model":             "test-model",
+			"base_url":          "https://models.example",
+			"api_key":           "test-key",
+			"temperature":       "",
+			"top_p":             nil,
+			"max_output_tokens": "",
+			"context_window":    "",
+		},
+	})
+	if profile.Temperature != nil || profile.TopP != nil || profile.MaxOutputTokens != 0 || profile.ContextWindow != 0 {
+		t.Fatalf("empty tuning values must remain unset: %#v", profile)
+	}
+
+	openAI := newOpenAICompatibleDirectChatModel(runtime, profile).(*openAICompatibleDirectChatModel)
+	payload, err := openAI.requestPayload(nil, false)
+	if err != nil {
+		t.Fatalf("OpenAI-compatible request payload: %v", err)
+	}
+	for _, key := range []string{"temperature", "top_p", "max_tokens", "context_length", "context_window"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("unset %s must be omitted from OpenAI-compatible request: %#v", key, payload)
+		}
+	}
+
+	anthropic := newAnthropicDirectChatModel(runtime, nativeModelProfile{
+		Provider: "anthropic",
+		Model:    "test-model",
+		BaseURL:  "https://api.anthropic.com",
+		APIKey:   "test-key",
+	}).(*anthropicDirectChatModel)
+	payload, err = anthropic.requestPayload(nil, false)
+	if err != nil {
+		t.Fatalf("Anthropic request payload: %v", err)
+	}
+	for _, key := range []string{"temperature", "top_p", "context_length", "context_window"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("unset %s must be omitted from Anthropic request: %#v", key, payload)
+		}
+	}
+	if payload["max_tokens"] != anthropicRequiredMaxTokens {
+		t.Fatalf("Anthropic requires a positive max_tokens value: %#v", payload)
+	}
+}
+
 func directModelTestCases(baseURL string) []struct {
 	name     string
 	model    model.ToolCallingChatModel

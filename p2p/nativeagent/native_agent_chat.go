@@ -21,17 +21,9 @@ func (r *Runtime) chat(ctx context.Context, params map[string]any) (map[string]a
 	if err != nil {
 		return nil, err
 	}
-	profile := r.resolveModelProfile(config, params)
-	if profile.APIKey == "" {
-		return map[string]any{
-			"ok":          false,
-			"native":      true,
-			"framework":   "eino",
-			"provider":    profile.Provider,
-			"model":       profile.Model,
-			"error":       "model_profile.api_key is required",
-			"model_ready": false,
-		}, nil
+	profile := r.resolveModelProfile(params)
+	if err := validateModelProfile(profile); err != nil {
+		return nil, err
 	}
 	run, err := r.prepareEinoRun(ctx, config, params, profile)
 	if err != nil {

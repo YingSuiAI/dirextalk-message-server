@@ -17,14 +17,29 @@ func (r *Runtime) modelsList(ctx context.Context, params map[string]any) (map[st
 	if provider == "" {
 		return result, nil
 	}
-	if !supportsOpenAICompatibleModelList(provider) {
+	if !supportsNativeModelProvider(provider) {
 		return nil, fmt.Errorf("model list is not supported for provider %q", provider)
+	}
+	baseURL := trimString(params["base_url"])
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required to fetch %s models; configure the model API address", provider)
 	}
 	apiKey := trimString(params["api_key"])
 	if apiKey == "" {
 		return nil, fmt.Errorf("api_key is required to fetch %s models", provider)
 	}
-	models, err := r.fetchOpenAICompatibleModels(ctx, provider, trimString(params["base_url"]), apiKey)
+	var (
+		models []map[string]any
+		err    error
+	)
+	switch provider {
+	case "anthropic":
+		models, err = r.fetchAnthropicModels(ctx, baseURL, apiKey)
+	case "openai", "deepseek", "gemini", "xai", "openai_compatible", "openrouter":
+		models, err = r.fetchOpenAICompatibleModels(ctx, provider, baseURL, apiKey)
+	default:
+		return nil, fmt.Errorf("model list is not supported for provider %q", provider)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -35,21 +50,46 @@ func (r *Runtime) modelsList(ctx context.Context, params map[string]any) (map[st
 func modelProviderDefaults() []map[string]any {
 	return []map[string]any{
 		{"provider": "openai", "default_base_url": defaultBaseURLForProvider("openai"), "requires_api_key": true, "dynamic_models": true},
-		{"provider": "anthropic", "default_base_url": defaultBaseURLForProvider("anthropic"), "requires_api_key": true, "dynamic_models": false},
+		{"provider": "anthropic", "default_base_url": defaultBaseURLForProvider("anthropic"), "requires_api_key": true, "dynamic_models": true},
 		{"provider": "deepseek", "default_base_url": defaultBaseURLForProvider("deepseek"), "requires_api_key": true, "dynamic_models": true},
+		{"provider": "gemini", "default_base_url": defaultBaseURLForProvider("gemini"), "requires_api_key": true, "dynamic_models": true},
+		{"provider": "xai", "default_base_url": defaultBaseURLForProvider("xai"), "requires_api_key": true, "dynamic_models": true},
 		{"provider": "openai_compatible", "default_base_url": defaultBaseURLForProvider("openai_compatible"), "requires_api_key": true, "dynamic_models": true},
 		{"provider": "openrouter", "default_base_url": defaultBaseURLForProvider("openrouter"), "requires_api_key": true, "dynamic_models": true},
-		{"provider": "litellm", "default_base_url": defaultBaseURLForProvider("litellm"), "requires_api_key": true, "dynamic_models": true},
 	}
 }
 
-func supportsOpenAICompatibleModelList(provider string) bool {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openai", "deepseek", "openai_compatible", "openrouter", "litellm":
-		return true
-	default:
-		return false
+func (r *Runtime) fetchAnthropicModels(ctx context.Context, baseURL, apiKey string) ([]map[string]any, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required to fetch anthropic models")
 	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", anthropicVersion)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch anthropic models: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("fetch anthropic models failed: %s", resp.Status)
+	}
+	var payload struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode anthropic models: %w", err)
+	}
+	models := normalizeModelList("anthropic", payload.Data)
+	if len(models) == 0 {
+		return nil, fmt.Errorf("fetch anthropic models returned no models")
+	}
+	return models, nil
 }
 
 func (r *Runtime) fetchOpenAICompatibleModels(ctx context.Context, provider, baseURL, apiKey string) ([]map[string]any, error) {
@@ -92,9 +132,6 @@ func (r *Runtime) fetchOpenAICompatibleModels(ctx context.Context, provider, bas
 func openAICompatibleModelsBaseURL(provider, baseURL string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		baseURL = defaultBaseURLForProvider(provider)
-	}
-	if baseURL == "" {
 		return ""
 	}
 	if provider == "deepseek" {
@@ -111,6 +148,9 @@ func normalizeModelList(provider string, rawModels []map[string]any) []map[strin
 		if id == "" {
 			id = trimString(raw["model"])
 		}
+		if provider == "gemini" {
+			id = strings.TrimPrefix(id, "models/")
+		}
 		if id == "" {
 			continue
 		}
@@ -119,12 +159,18 @@ func normalizeModelList(provider string, rawModels []map[string]any) []map[strin
 		}
 		seen[id] = struct{}{}
 		model := map[string]any{
-			"id":       id,
-			"name":     fallbackString(trimString(raw["name"]), id),
+			"id": id,
+			"name": fallbackString(
+				fallbackString(trimString(raw["display_name"]), trimString(raw["displayName"])),
+				fallbackString(trimString(raw["name"]), id),
+			),
 			"provider": provider,
 		}
-		for _, key := range []string{"context_length", "context_window", "max_output_tokens", "temperature", "top_p", "top_k", "reasoning_mode", "reasoning_modes", "reasoning_effort_options"} {
-			if value, ok := raw[key]; ok {
+		for key, value := range raw {
+			switch key {
+			case "object", "created", "created_at", "owned_by", "type",
+				"context_length", "max_input_tokens", "max_output_tokens",
+				"max_tokens", "input_token_limit", "output_token_limit":
 				model[key] = value
 			}
 		}

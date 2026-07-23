@@ -94,9 +94,6 @@ func (m *openAICompatibleDirectChatModel) newRequest(ctx context.Context, payloa
 func (m *openAICompatibleDirectChatModel) chatCompletionsURL() string {
 	if m.profile.Provider == "deepseek" {
 		base := strings.TrimRight(m.profile.BaseURL, "/")
-		if base == "" {
-			base = defaultBaseURLForProvider(m.profile.Provider)
-		}
 		return base + "/chat/completions"
 	}
 	base := normalizedOpenAIBaseURL(m.profile)

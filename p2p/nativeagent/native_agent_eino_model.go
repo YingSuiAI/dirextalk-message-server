@@ -20,9 +20,6 @@ func (r *Runtime) newEinoChatModel(_ context.Context, profile nativeModelProfile
 func normalizedOpenAIBaseURL(profile nativeModelProfile) string {
 	base := strings.TrimRight(profile.BaseURL, "/")
 	if base == "" {
-		base = defaultBaseURLForProvider(profile.Provider)
-	}
-	if base == "" {
 		return base
 	}
 	parsed, err := url.Parse(base)

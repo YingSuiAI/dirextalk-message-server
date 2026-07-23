@@ -139,6 +139,11 @@ func TestNativeAgentDurableTurnRuntimeErrorFailsAndReplaysWithoutDone(t *testing
 	defer server.Close()
 	params := map[string]any{
 		"turn_id": "turn-missing-api-key", "conversation_id": "conversation-missing-api-key", "prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "test-model",
+			"base_url": "https://models.example/v1",
+		},
 	}
 
 	first := dialRealtimeWS(t, server.URL, mustCreateRealtimeWSTicket(t, router, service.AccessToken()))

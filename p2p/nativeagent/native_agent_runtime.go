@@ -135,12 +135,17 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	if err != nil {
 		return err
 	}
-	profile := r.resolveModelProfile(config, params)
-	if profile.APIKey == "" {
-		if err := emit(Event{Event: "error", Data: map[string]any{"error": "model_profile.api_key is required"}}); err != nil {
-			return err
+	profile := r.resolveModelProfile(params)
+	if err := validateModelProfile(profile); err != nil {
+		if emitErr := emit(Event{Event: "error", Data: map[string]any{"error": err.Error()}}); emitErr != nil {
+			return emitErr
 		}
-		return emit(Event{Event: "done", Data: map[string]any{"ok": false, "native": true, "framework": "eino", "model_ready": false}})
+		return emit(Event{Event: "done", Data: map[string]any{
+			"ok":          false,
+			"native":      true,
+			"framework":   "eino",
+			"model_ready": false,
+		}})
 	}
 	run, err := r.prepareEinoRun(ctx, config, params, profile)
 	if err != nil {

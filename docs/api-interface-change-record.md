@@ -1,6 +1,14 @@
 # API Interface Change Record
 
-Last updated: 2026-07-21
+Last updated: 2026-07-23
+
+## 2026-07-23 Native Agent Anthropic, Gemini, And xAI Model Lists
+
+`agent.models.list` now fetches Anthropic's real `GET /v1/models` endpoint with the request-scoped `x-api-key` and `anthropic-version` headers. `gemini` and `xai` are now supported Native Agent providers and use their respective OpenAI-compatible endpoints, `https://generativelanguage.googleapis.com/v1beta/openai` and `https://api.x.ai/v1`, for model listing and chat. Provider API keys remain request-scoped and are neither persisted nor returned.
+
+Model-backed `agent.chat`, Native Agent streaming, and model compression no longer fill missing provider, model ID, or API address from server defaults or legacy config. Their request-scoped `model_profile` must include non-empty `provider`, `model`, `base_url`, and `api_key`; missing values fail the request with a field-specific error. Provider-specific model-list fetches likewise require the client to send `base_url`.
+
+Native Agent provider selection now uses an explicit allowlist. `litellm` has been removed from provider metadata and model-list routing, while `litellm`, `vertex`, and other unknown provider identifiers are rejected by model-backed requests. Custom OpenAI-compatible services use the existing `openai_compatible` provider.
 
 ## 2026-07-21 Durable Native Agent Turns v1
 

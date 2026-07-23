@@ -11,7 +11,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-const anthropicVersion = "2023-06-01"
+const (
+	anthropicVersion           = "2023-06-01"
+	anthropicRequiredMaxTokens = 2048
+)
 
 type anthropicDirectChatModel struct {
 	r       *Runtime
@@ -54,7 +57,7 @@ func (m *anthropicDirectChatModel) requestPayload(input []*schema.Message, strea
 	payload := map[string]any{
 		"model":      m.profile.Model,
 		"messages":   messages,
-		"max_tokens": fallbackInt(m.profile.MaxOutputTokens, 2048),
+		"max_tokens": fallbackInt(m.profile.MaxOutputTokens, anthropicRequiredMaxTokens),
 	}
 	if stream {
 		payload["stream"] = true

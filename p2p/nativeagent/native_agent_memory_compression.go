@@ -21,8 +21,11 @@ func (r *Runtime) compressMemory(ctx context.Context, params map[string]any) (ma
 	if window <= 0 {
 		window = nativeAgentDefaultMemoryWindow
 	}
-	profile := r.resolveModelProfile(map[string]any{}, params)
-	if profile.APIKey != "" {
+	profile := r.resolveModelProfile(params)
+	if hasModelProfile(params) {
+		if err := validateModelProfile(profile); err != nil {
+			return nil, err
+		}
 		memory, err = r.compactNativeAgentMemoryWithModel(ctx, memory, window, profile)
 		if err != nil {
 			return nil, err
