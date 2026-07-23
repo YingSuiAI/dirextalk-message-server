@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.1.0
+
+1. Require Native Agent model and provider profiles to be scoped to each request.
+2. Normalize versioned Provider API endpoints and raise the Anthropic output-token limit.
+
 ## v1.0.9
 
 1. Reject direct messages involving blocked users across Matrix client and federation paths.
