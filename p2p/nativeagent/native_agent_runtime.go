@@ -133,7 +133,7 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	}
 	config, _, err := r.agentConfig(ctx)
 	if err != nil {
-		return err
+		return emitNativeAgentStreamFailure(emit, err)
 	}
 	profile := r.resolveModelProfile(params)
 	if err := validateModelProfile(profile); err != nil {
@@ -149,19 +149,19 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 	}
 	run, err := r.prepareEinoRun(ctx, config, params, profile)
 	if err != nil {
-		return err
+		return emitNativeAgentStreamFailure(emit, err, profile.APIKey)
 	}
 	tools, cleanup, err := r.enabledEinoTools(ctx, config, params)
 	if err != nil {
-		return err
+		return emitNativeAgentStreamFailure(emit, err, profile.APIKey)
 	}
 	defer cleanup()
 	text, reasoning, toolCalls, produced, err := r.streamEinoAgent(ctx, profile, run.inputMessages, run.session, tools, emit, run.maxSteps)
 	if err != nil {
-		return err
+		return emitNativeAgentStreamFailure(emit, err, profile.APIKey)
 	}
 	if err := r.rememberEinoMessages(ctx, config, params, profile, run, produced); err != nil {
-		return err
+		return emitNativeAgentStreamFailure(emit, err, profile.APIKey)
 	}
 	trace := buildAgentTrace(run, produced, toolCalls, text)
 	if err := emit(Event{Event: "trace", Data: trace}); err != nil {
@@ -185,6 +185,20 @@ func (r *Runtime) Stream(ctx context.Context, action string, params map[string]a
 		done["reasoning_content"] = reasoning
 	}
 	return emit(Event{Event: "done", Data: done})
+}
+
+func emitNativeAgentStreamFailure(emit func(Event) error, err error, secrets ...string) error {
+	message := strings.TrimSpace(err.Error())
+	for _, secret := range secrets {
+		secret = strings.TrimSpace(secret)
+		if secret != "" {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	if message == "" {
+		message = "native agent turn failed"
+	}
+	return emit(Event{Event: "error", Data: map[string]any{"error": message}})
 }
 
 func (r *Runtime) ensureDataDirs() error {

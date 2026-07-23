@@ -4,9 +4,11 @@ Last updated: 2026-07-23
 
 ## 2026-07-23 Native Agent Anthropic, Gemini, And xAI Model Lists
 
-`agent.models.list` now fetches Anthropic's real `GET /v1/models` endpoint with the request-scoped `x-api-key` and `anthropic-version` headers. `gemini` and `xai` are now supported Native Agent providers. Gemini exposes `https://generativelanguage.googleapis.com/v1beta` as its client-visible provider base; the server uses its native `/models` route and derives the `/openai` compatibility subpath only for chat. xAI uses `https://api.x.ai/v1`. Provider API keys remain request-scoped on the server and are never returned.
+`agent.models.list` now fetches Anthropic's real `GET /v1/models` endpoint with the request-scoped `x-api-key` and `anthropic-version` headers. `gemini` and `xai` are now supported Native Agent providers. Gemini exposes `https://generativelanguage.googleapis.com/v1beta` as its client-visible provider base and uses its native `/models`, `generateContent`, and `streamGenerateContent` routes with `x-goog-api-key`; custom Gemini-native gateways use the same contract and a root URL is normalized to `/v1beta`. xAI uses `https://api.x.ai/v1`. Provider API keys remain request-scoped on the server and are never returned.
 
 Model-backed `agent.chat`, Native Agent streaming, and model compression no longer fill missing provider, model ID, or API address from server defaults or legacy config. Their request-scoped `model_profile` must include non-empty `provider`, `model`, `base_url`, and `api_key`; missing values fail the request with a field-specific error. Provider-specific model-list fetches likewise require the client to send `base_url`.
+
+Native Agent stream failures now preserve a safe provider/runtime error for the client while redacting the request API key. This replaces the generic `native agent turn failed` result for errors that occur after a durable turn has already been accepted.
 
 Native Agent provider selection now uses an explicit allowlist. `litellm` has been removed from provider metadata and model-list routing, while `litellm`, `vertex`, and other unknown provider identifiers are rejected by model-backed requests. Custom OpenAI-compatible services use the existing `openai_compatible` provider.
 

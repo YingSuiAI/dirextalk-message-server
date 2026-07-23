@@ -146,6 +146,34 @@ func TestModelsListFetchesGeminiNativeProvider(t *testing.T) {
 	}
 }
 
+func TestModelsListFetchesGeminiNativeProviderFromCustomHost(t *testing.T) {
+	var gotPath, gotGoogleKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotGoogleKey = r.Header.Get("x-goog-api-key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-custom","displayName":"Gemini Custom"}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	result, err := runtime.Invoke(context.Background(), "agent.models.list", map[string]any{
+		"provider": "gemini",
+		"base_url": server.URL,
+		"api_key":  "test-key",
+	})
+	if err != nil {
+		t.Fatalf("agent.models.list: %v", err)
+	}
+	if gotPath != "/v1beta/models" || gotGoogleKey != "test-key" {
+		t.Fatalf("unexpected custom Gemini request path=%q google_key=%q", gotPath, gotGoogleKey)
+	}
+	models := result["models"].([]map[string]any)
+	if len(models) != 1 || models[0]["id"] != "gemini-custom" {
+		t.Fatalf("unexpected custom Gemini models: %#v", models)
+	}
+}
+
 func TestGeminiModelProfileDoesNotDefaultRequiredFields(t *testing.T) {
 	profile := New(Config{}).resolveModelProfile(map[string]any{
 		"model_profile": map[string]any{"provider": "gemini"},

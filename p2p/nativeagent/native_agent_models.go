@@ -35,7 +35,9 @@ func (r *Runtime) modelsList(ctx context.Context, params map[string]any) (map[st
 	switch provider {
 	case "anthropic":
 		models, err = r.fetchAnthropicModels(ctx, baseURL, apiKey)
-	case "openai", "deepseek", "gemini", "xai", "openai_compatible", "openrouter":
+	case "gemini":
+		models, err = r.fetchGeminiModels(ctx, baseURL, apiKey)
+	case "openai", "deepseek", "xai", "openai_compatible", "openrouter":
 		models, err = r.fetchOpenAICompatibleModels(ctx, provider, baseURL, apiKey)
 	default:
 		return nil, fmt.Errorf("model list is not supported for provider %q", provider)
@@ -92,6 +94,38 @@ func (r *Runtime) fetchAnthropicModels(ctx context.Context, baseURL, apiKey stri
 	return models, nil
 }
 
+func (r *Runtime) fetchGeminiModels(ctx context.Context, baseURL, apiKey string) ([]map[string]any, error) {
+	baseURL = geminiV1BetaBaseURL(baseURL)
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required to fetch gemini models")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch gemini models: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("fetch gemini models failed: %s", resp.Status)
+	}
+	var payload struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode gemini models: %w", err)
+	}
+	models := normalizeModelList("gemini", payload.Models)
+	if len(models) == 0 {
+		return nil, fmt.Errorf("fetch gemini models returned no models")
+	}
+	return models, nil
+}
+
 func (r *Runtime) fetchOpenAICompatibleModels(ctx context.Context, provider, baseURL, apiKey string) ([]map[string]any, error) {
 	url := strings.TrimRight(openAICompatibleModelsBaseURL(provider, baseURL), "/")
 	if url == "" {
@@ -102,11 +136,7 @@ func (r *Runtime) fetchOpenAICompatibleModels(ctx context.Context, provider, bas
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if provider == "gemini" {
-		req.Header.Set("x-goog-api-key", apiKey)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s models: %w", provider, err)
@@ -140,9 +170,6 @@ func openAICompatibleModelsBaseURL(provider, baseURL string) string {
 	}
 	if provider == "deepseek" {
 		return baseURL
-	}
-	if provider == "gemini" {
-		return strings.TrimSuffix(baseURL, "/openai")
 	}
 	return normalizedOpenAIBaseURL(nativeModelProfile{Provider: provider, BaseURL: baseURL})
 }

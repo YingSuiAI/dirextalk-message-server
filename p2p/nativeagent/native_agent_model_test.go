@@ -457,24 +457,87 @@ func TestDeepSeekProviderUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 }
 
-func TestGeminiProviderDerivesOpenAIAdapterPathFromNativeBaseURL(t *testing.T) {
+func TestGeminiProviderUsesNativeV1BetaBaseURL(t *testing.T) {
 	for _, test := range []struct {
 		baseURL string
 		want    string
 	}{
 		{
 			baseURL: "https://generativelanguage.googleapis.com/v1beta",
-			want:    "https://generativelanguage.googleapis.com/v1beta/openai",
+			want:    "https://generativelanguage.googleapis.com/v1beta",
 		},
 		{
-			baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-			want:    "https://generativelanguage.googleapis.com/v1beta/openai",
+			baseURL: "https://gateway.example",
+			want:    "https://gateway.example/v1beta",
 		},
 	} {
-		profile := nativeModelProfile{Provider: "gemini", BaseURL: test.baseURL}
-		if got := normalizedOpenAIBaseURL(profile); got != test.want {
-			t.Fatalf("normalized Gemini base URL = %q, want %q", got, test.want)
+		if got := geminiV1BetaBaseURL(test.baseURL); got != test.want {
+			t.Fatalf("Gemini base URL = %q, want %q", got, test.want)
 		}
+	}
+}
+
+func TestGeminiProviderUsesNativeGenerateContent(t *testing.T) {
+	var gotPath, gotAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIKey = r.Header.Get("x-goog-api-key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"gemini native ok"}]}}]}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	result, err := runtime.Invoke(context.Background(), "agent.chat", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "gemini",
+			"model":    "gemini-test",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("gemini native provider: %v", err)
+	}
+	if gotPath != "/v1beta/models/gemini-test:generateContent" ||
+		gotAPIKey != "test-key" ||
+		result["text"] != "gemini native ok" {
+		t.Fatalf("unexpected Gemini native request path=%q api_key=%q result=%#v", gotPath, gotAPIKey, result)
+	}
+}
+
+func TestStreamEmitsSafeProviderFailureDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "gateway rejected test-key", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	runtime := New(Config{DataDir: filepath.Join(t.TempDir(), "agent")})
+	var events []Event
+	err := runtime.Stream(context.Background(), "agent.chat.stream", map[string]any{
+		"prompt": "hello",
+		"model_profile": map[string]any{
+			"provider": "openai_compatible",
+			"model":    "test-model",
+			"base_url": server.URL,
+			"api_key":  "test-key",
+		},
+	}, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+	if len(events) != 1 || events[0].Event != "error" {
+		t.Fatalf("expected one error event, got %#v", events)
+	}
+	message := trimString(events[0].Data["error"])
+	if !strings.Contains(message, "model provider returned 502") ||
+		!strings.Contains(message, "[redacted]") ||
+		strings.Contains(message, "test-key") {
+		t.Fatalf("unexpected safe provider error: %q", message)
 	}
 }
 

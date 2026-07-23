@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/components/model"
@@ -37,6 +38,8 @@ func TestDirectModelStreamsDecodeProviderEvents(t *testing.T) {
 		_, _ = w.Write([]byte("data: not-json\n"))
 		if r.URL.Path == "/v1/messages" {
 			_, _ = w.Write([]byte("data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"anthropic\"}}\n"))
+		} else if strings.Contains(r.URL.Path, ":streamGenerateContent") {
+			_, _ = w.Write([]byte("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"gemini\"}]}}]}\n"))
 		} else {
 			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"openai\"}}]}\n"))
 		}
@@ -136,6 +139,16 @@ func directModelTestCases(baseURL string) []struct {
 			wantText: "openai",
 		},
 		{
+			name: "xai",
+			model: newOpenAICompatibleDirectChatModel(runtime, nativeModelProfile{
+				Provider: "xai",
+				Model:    "grok-test",
+				BaseURL:  baseURL,
+				APIKey:   "test-key",
+			}),
+			wantText: "openai",
+		},
+		{
 			name: "anthropic",
 			model: newAnthropicDirectChatModel(runtime, nativeModelProfile{
 				Provider: "anthropic",
@@ -144,6 +157,16 @@ func directModelTestCases(baseURL string) []struct {
 				APIKey:   "test-key",
 			}),
 			wantText: "anthropic",
+		},
+		{
+			name: "gemini",
+			model: newGeminiDirectChatModel(runtime, nativeModelProfile{
+				Provider: "gemini",
+				Model:    "gemini-test",
+				BaseURL:  baseURL,
+				APIKey:   "test-key",
+			}),
+			wantText: "gemini",
 		},
 	}
 }
