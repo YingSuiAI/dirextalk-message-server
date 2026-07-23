@@ -13,7 +13,7 @@ import (
 
 const (
 	anthropicVersion           = "2023-06-01"
-	anthropicRequiredMaxTokens = 2048
+	anthropicRequiredMaxTokens = 65536
 )
 
 type anthropicDirectChatModel struct {
