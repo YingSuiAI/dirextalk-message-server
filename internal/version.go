@@ -12,7 +12,7 @@ const (
 
 // These values are overridden for release builds with -ldflags -X.
 var (
-	version   = "v1.1.0"
+	version   = "v1.1.1"
 	commit    string
 	buildTime string
 )

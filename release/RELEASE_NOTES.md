@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.1.1
+
+1. Add Native Gemini model listing, chat, and streaming support for Gemini-native endpoints.
+2. Return safe, redacted Provider and runtime errors to Native Agent clients.
+
 ## v1.1.0
 
 1. Require Native Agent model and provider profiles to be scoped to each request.
