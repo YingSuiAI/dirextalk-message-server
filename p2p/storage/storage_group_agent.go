@@ -35,6 +35,26 @@ func (s *DatabaseStore) GetGroupAgentBinding(ctx context.Context, roomID string)
 	return b, err == nil, err
 }
 
+// ListEnabledGroupAgentBindings returns this owner's enabled groups in a stable
+// order so the Agent's summary sweep is restart-safe.
+func (s *DatabaseStore) ListEnabledGroupAgentBindings(ctx context.Context, owner string, generation int64, limit int) ([]dirextalkdomain.GroupAgentBinding, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+groupAgentBindingColumns+` FROM p2p_group_agent_bindings
+	 WHERE enabled AND owner_mxid=$1 AND account_generation=$2 ORDER BY room_id LIMIT $3`, owner, generation, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]dirextalkdomain.GroupAgentBinding, 0)
+	for rows.Next() {
+		b, scanErr := scanGroupAgentBinding(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 func (s *DatabaseStore) MutateGroupAgentBinding(ctx context.Context, roomID string, mutate func(*dirextalkdomain.GroupAgentBinding) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

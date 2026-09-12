@@ -53,6 +53,10 @@ type GroupAgentRequest struct {
 // PostgreSQL holds that row lock until the callback and durable update finish.
 type GroupAgentStore interface {
 	GetGroupAgentBinding(context.Context, string) (GroupAgentBinding, bool, error)
+	// ListEnabledGroupAgentBindings powers the Agent's own rolling group
+	// summary sweep: it returns only bindings that are enabled for this owner
+	// and account generation.
+	ListEnabledGroupAgentBindings(context.Context, string, int64, int) ([]GroupAgentBinding, error)
 	MutateGroupAgentBinding(context.Context, string, func(*GroupAgentBinding) error) error
 	EnqueueGroupAgentRequest(context.Context, GroupAgentRequest) (bool, error)
 	ListGroupAgentRequests(context.Context, string, int64, int, string) ([]GroupAgentRequest, error)

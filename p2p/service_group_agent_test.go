@@ -436,3 +436,92 @@ func TestGroupAgentPostgresPreparedReplySurvivesRestart(t *testing.T) {
 		t.Fatalf("hidden ledger=%s %v", ledgerState, err)
 	}
 }
+
+// The owner reads everything since the Agent was enabled; any other member
+// keeps the Matrix visibility floor of their own join.
+func TestGroupAgentHistoryHonoursOwnerAndMemberVisibility(t *testing.T) {
+	s, m, roomID := groupAgentFixture(t)
+	reader := &fakeMCPMessageReader{}
+	s.SetMatrixMessageReader(reader)
+	b := mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": roomID, "enabled": true, "expected_revision": 0})
+	owner := s.OwnerMXID()
+	member := "@member:remote.test"
+	m.room.JoinedAt = map[string]int64{owner: b.EnabledAt, member: b.EnabledAt + 5_000}
+
+	enqueue := func(sender string) dirextalkdomain.GroupAgentRequest {
+		t.Helper()
+		r := dirextalkdomain.GroupAgentRequest{RequestID: uuid.NewString(), RoomID: roomID, EventID: "$source-" + uuid.NewString(),
+			SenderMXID: sender, OwnerMXID: owner, AgentMXID: b.AgentMXID, BindingRevision: b.Revision,
+			AccountGeneration: 7, OriginServerTS: time.Now().UnixMilli()}
+		m.sources[r.EventID] = dirextalktransport.GroupAgentMessage{RoomID: roomID, EventID: r.EventID, SenderMXID: sender,
+			Body: "@Ying what did we decide?", OriginServerTS: r.OriginServerTS, Mentions: []string{b.AgentMXID}}
+		inserted, err := s.store.EnqueueGroupAgentRequest(context.Background(), r)
+		if err != nil || !inserted {
+			t.Fatalf("enqueue: %t %v", inserted, err)
+		}
+		return r
+	}
+	history := func(r dirextalkdomain.GroupAgentRequest) map[string]any {
+		t.Helper()
+		reader.calls = 0
+		result := groupAgentCall(t, s, "history", map[string]any{"request_id": r.RequestID, "binding_revision": b.Revision, "limit": 5})
+		if reader.calls != 1 {
+			t.Fatalf("history reads = %d", reader.calls)
+		}
+		return result
+	}
+
+	ownerRead := history(enqueue(owner))
+	if reader.lastPage.FromTS != b.EnabledAt {
+		t.Fatalf("owner floor = %d, want %d", reader.lastPage.FromTS, b.EnabledAt)
+	}
+	if ownerRead["has_more"] != false {
+		t.Fatalf("empty owner read has_more=%v", ownerRead["has_more"])
+	}
+	memberRead := history(enqueue(member))
+	if reader.lastPage.FromTS != b.EnabledAt+5_000 {
+		t.Fatalf("member floor = %d, want %d", reader.lastPage.FromTS, b.EnabledAt+5_000)
+	}
+	if _, ok := memberRead["messages"]; !ok {
+		t.Fatalf("member read lost its messages: %#v", memberRead)
+	}
+}
+
+// The Agent's own summary sweep lists only its enabled groups and reads them
+// without a member ticket, and only for the current binding revision.
+func TestGroupAgentBindingsAndTranscriptAreOwnerScoped(t *testing.T) {
+	s, m, roomID := groupAgentFixture(t)
+	reader := &fakeMCPMessageReader{messages: []mcpMessageSummary{{EventID: "$m", Sender: "@owner:example.test", SenderMXID: "@owner:example.test", Msg: "hello group", OriginServerTS: time.Now().UnixMilli()}}}
+	s.SetMatrixMessageReader(reader)
+	b := mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": roomID, "enabled": true, "expected_revision": 0})
+
+	listed := groupAgentCall(t, s, "bindings", map[string]any{})
+	bindings, ok := listed["bindings"].([]dirextalkdomain.GroupAgentBinding)
+	if !ok || len(bindings) != 1 || bindings[0].RoomID != roomID || !bindings[0].Enabled {
+		t.Fatalf("bindings = %#v", listed["bindings"])
+	}
+	if listed["owner_mxid"] != s.OwnerMXID() {
+		t.Fatalf("bindings owner = %#v", listed["owner_mxid"])
+	}
+
+	transcript := groupAgentCall(t, s, "transcript", map[string]any{"room_id": roomID, "binding_revision": b.Revision, "limit": 10})
+	messages, ok := transcript["messages"].([]dirextalktransport.GroupAgentMessage)
+	if !ok || len(messages) != 1 || messages[0].Body != "hello group" {
+		t.Fatalf("transcript = %#v", transcript["messages"])
+	}
+
+	for _, params := range []map[string]any{
+		{"room_id": roomID, "binding_revision": b.Revision + 1, "limit": 10},
+		{"room_id": "!other:example.test", "binding_revision": b.Revision, "limit": 10},
+	} {
+		raw, _ := json.Marshal(params)
+		if _, err := s.InvokeGroupAgentCapability(context.Background(), "transcript", raw); !errors.Is(err, dirextalkdomain.ErrGroupAgentConflict) {
+			t.Fatalf("transcript %#v err = %v", params, err)
+		}
+	}
+	m.room.Joined[b.AgentMXID] = false
+	raw, _ := json.Marshal(map[string]any{"room_id": roomID, "binding_revision": b.Revision, "limit": 10})
+	if _, err := s.InvokeGroupAgentCapability(context.Background(), "transcript", raw); !errors.Is(err, dirextalkdomain.ErrGroupAgentConflict) {
+		t.Fatalf("disabled Agent transcript err = %v", err)
+	}
+}

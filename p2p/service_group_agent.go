@@ -329,6 +329,124 @@ func isHumanGroupActor(mxid string) bool {
 	return err == nil && local != "ying" && local != "agent" && local != "system"
 }
 
+const (
+	// groupAgentHistoryMaxLimit bounds one read page; the reader pages further
+	// with the returned cursor.
+	groupAgentHistoryMaxLimit = 200
+	// groupAgentBindingPageSize bounds how many shared groups the Agent's own
+	// summarizer sweeps in one pass.
+	groupAgentBindingPageSize = 50
+	// groupAgentTranscriptMaxPages bounds one transcript sweep.
+	groupAgentTranscriptMaxPages = 4
+)
+
+// readGroupAgentTranscript is the Agent's own room read for its rolling group
+// summary. It is not a model-selectable tool: the binding row must be enabled
+// for this owner and account generation, and the read never crosses rooms.
+func (s *Service) readGroupAgentTranscript(ctx context.Context, store dirextalkdomain.GroupAgentStore, p groupAgentCapabilityParams) (any, error) {
+	roomID := strings.TrimSpace(p.RoomID)
+	if roomID == "" || !strings.HasPrefix(roomID, "!") || p.BindingRevision <= 0 || p.RequestID != "" ||
+		p.Body != "" || p.Status != "" || p.Kind != "" || p.AfterRequestID != "" {
+		return nil, errors.New("invalid transcript parameters")
+	}
+	if p.Limit == 0 {
+		p.Limit = 100
+	}
+	if p.Limit < 1 || p.Limit > groupAgentHistoryMaxLimit {
+		return nil, errors.New("invalid transcript limit")
+	}
+	b, found, err := store.GetGroupAgentBinding(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if !found || !b.Enabled || b.OwnerMXID != s.OwnerMXID() || b.AccountGeneration != s.accountGeneration || b.Revision != p.BindingRevision {
+		return nil, dirextalkdomain.ErrGroupAgentConflict
+	}
+	room, err := s.groupAgentRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if !room.IsGroup || room.Dissolved || !room.Joined[b.OwnerMXID] || !room.Joined[b.AgentMXID] {
+		return nil, dirextalkdomain.ErrGroupAgentConflict
+	}
+	fromTS := b.EnabledAt
+	if p.AfterTS > fromTS {
+		fromTS = p.AfterTS
+	}
+	return s.readGroupAgentRoomMessages(ctx, roomID, fromTS, p.Limit, p.Cursor)
+}
+
+// readGroupAgentRoomMessages returns one bounded page of ordinary group
+// messages with author attribution and a cursor for the previous page.
+func (s *Service) readGroupAgentRoomMessages(ctx context.Context, roomID string, fromTS int64, limit int, cursor string) (map[string]any, error) {
+	if s.matrixMessages == nil {
+		return nil, errors.New("Matrix history reader unavailable")
+	}
+	snapshot := time.Now().UnixMilli()
+	page := dirextalkmcp.Page{FromTS: fromTS, SnapshotTS: snapshot, Limit: limit}
+	if strings.TrimSpace(cursor) != "" {
+		decoded, apiErr := dirextalkmcp.DecodeCursor(cursor)
+		if apiErr != nil {
+			return nil, errors.New("invalid transcript cursor")
+		}
+		if decoded.Action != groupAgentHistoryCursorAction || decoded.TargetID != roomID || decoded.SnapshotTimeMS <= 0 ||
+			decoded.LastTimeMS <= 0 || strings.TrimSpace(decoded.LastID) == "" {
+			return nil, errors.New("transcript cursor does not match this room")
+		}
+		page.SnapshotTS = decoded.SnapshotTimeMS
+		page.CursorTS = decoded.LastTimeMS
+		page.CursorID = decoded.LastID
+	}
+	pageResult, err := s.matrixMessages.ListOrdinaryMessages(ctx, roomID, page)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]dirextalktransport.GroupAgentMessage, 0, len(pageResult.Messages))
+	for _, m := range pageResult.Messages {
+		sender := m.SenderMXID
+		if sender == "" {
+			sender = m.Sender
+		}
+		if _, e := spec.NewUserID(sender, true); e != nil {
+			continue
+		}
+		if m.OriginServerTS < fromTS || m.EventID == "" || len(m.Msg) > 16000 {
+			continue
+		}
+		messages = append(messages, dirextalktransport.GroupAgentMessage{EventID: m.EventID, SenderMXID: sender,
+			SenderDisplayName: dirextalktransport.SanitizeGroupAgentDisplayName(m.SenderDisplayName),
+			Body:              m.Msg, OriginServerTS: m.OriginServerTS})
+	}
+	payload := map[string]any{"messages": messages}
+	lastTS, lastID := int64(0), ""
+	for _, message := range messages {
+		if message.OriginServerTS > 0 && message.OriginServerTS < lastTS || lastTS == 0 {
+			lastTS, lastID = message.OriginServerTS, message.EventID
+		}
+	}
+	if apiErr := dirextalkmcp.AttachPagination(payload, groupAgentHistoryCursorAction, roomID, page, pageResult.HasMore, lastTS, lastID); apiErr != nil {
+		return nil, errors.New("transcript pagination unavailable")
+	}
+	return payload, nil
+}
+
+const groupAgentHistoryCursorAction = "group_agent.history"
+
+// groupAgentCapabilityParams is the canonical private request envelope. Unknown
+// fields are rejected, so every operation declares exactly what it needs.
+type groupAgentCapabilityParams struct {
+	RequestID       string `json:"request_id"`
+	RoomID          string `json:"room_id"`
+	BindingRevision int64  `json:"binding_revision"`
+	Limit           int    `json:"limit"`
+	Body            string `json:"body"`
+	Status          string `json:"status"`
+	Kind            string `json:"kind"`
+	AfterRequestID  string `json:"after_request_id"`
+	Cursor          string `json:"cursor"`
+	AfterTS         int64  `json:"after_ts"`
+}
+
 func (s *Service) projectGroupAgentEvent(ctx context.Context, event *types.HeaderedEvent) error {
 	if event == nil {
 		return nil
@@ -408,22 +526,14 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 	if err != nil {
 		return nil, err
 	}
-	var p struct {
-		RequestID       string `json:"request_id"`
-		BindingRevision int64  `json:"binding_revision"`
-		Limit           int    `json:"limit"`
-		Body            string `json:"body"`
-		Status          string `json:"status"`
-		Kind            string `json:"kind"`
-		AfterRequestID  string `json:"after_request_id"`
-	}
+	var p groupAgentCapabilityParams
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&p); err != nil {
 		return nil, fmt.Errorf("invalid group Agent request: %w", err)
 	}
 	if operation == "pull" {
-		if p.RequestID != "" || p.BindingRevision != 0 || p.Body != "" || p.Status != "" || p.Kind != "" {
+		if p.RequestID != "" || p.RoomID != "" || p.BindingRevision != 0 || p.Body != "" || p.Status != "" || p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 {
 			return nil, dirextalkdomain.ErrGroupAgentConflict
 		}
 		if p.Limit == 0 {
@@ -470,6 +580,19 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 		}
 		return map[string]any{"requests": out, "has_more": hasMore, "next_after_request_id": next}, nil
+	}
+	if operation == "bindings" {
+		if p.RequestID != "" || p.RoomID != "" || p.BindingRevision != 0 || p.Body != "" || p.Status != "" || p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 || p.AfterRequestID != "" {
+			return nil, errors.New("bindings accepts no parameters")
+		}
+		bindings, e := store.ListEnabledGroupAgentBindings(ctx, s.OwnerMXID(), s.accountGeneration, groupAgentBindingPageSize)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"owner_mxid": s.OwnerMXID(), "bindings": bindings}, nil
+	}
+	if operation == "transcript" {
+		return s.readGroupAgentTranscript(ctx, store, p)
 	}
 	id, parseErr := uuid.Parse(p.RequestID)
 	if parseErr != nil || id.String() != p.RequestID || p.BindingRevision <= 0 || p.AfterRequestID != "" {
@@ -518,7 +641,8 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			if p.Limit == 0 {
 				p.Limit = 20
 			}
-			if p.Limit < 1 || p.Limit > 50 || p.Body != "" || p.Status != "" || p.Kind != "" {
+			if p.Limit < 1 || p.Limit > groupAgentHistoryMaxLimit || p.Body != "" || p.Status != "" || p.Kind != "" ||
+				p.RoomID != "" || p.AfterTS != 0 {
 				return errors.New("invalid history parameters")
 			}
 			if s.matrixMessages == nil {
@@ -528,33 +652,22 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			if e != nil {
 				return e
 			}
+			// An owner reads the whole group since the Agent was enabled; every
+			// other member keeps the Matrix visibility floor of their own join.
 			fromTS := b.EnabledAt
-			if room.JoinedAt[r.SenderMXID] > fromTS {
+			if r.SenderMXID != b.OwnerMXID && room.JoinedAt[r.SenderMXID] > fromTS {
 				fromTS = room.JoinedAt[r.SenderMXID]
 			}
-			page, e := s.matrixMessages.ListOrdinaryMessages(ctx, r.RoomID, dirextalkmcp.Page{FromTS: fromTS, SnapshotTS: time.Now().UnixMilli(), Limit: p.Limit})
+			payload, e := s.readGroupAgentRoomMessages(ctx, r.RoomID, fromTS, p.Limit, p.Cursor)
 			if e != nil {
 				return e
-			}
-			messages := make([]dirextalktransport.GroupAgentMessage, 0, len(page.Messages))
-			for _, m := range page.Messages {
-				sender := m.SenderMXID
-				if sender == "" {
-					sender = m.Sender
-				}
-				if _, e := spec.NewUserID(sender, true); e != nil {
-					continue
-				}
-				if m.OriginServerTS >= fromTS && m.EventID != "" && len(m.Msg) <= 16000 {
-					messages = append(messages, dirextalktransport.GroupAgentMessage{EventID: m.EventID, SenderMXID: sender, SenderDisplayName: dirextalktransport.SanitizeGroupAgentDisplayName(m.SenderDisplayName), Body: m.Msg, OriginServerTS: m.OriginServerTS})
-				}
 			}
 			if _, stillValid, e := s.validateGroupAgentRequest(ctx, b, *r, p.BindingRevision); e != nil {
 				return e
 			} else if !stillValid {
 				return dirextalkdomain.ErrGroupAgentConflict
 			}
-			result = map[string]any{"messages": messages}
+			result = payload
 		case "complete":
 			if p.Status != "failed" && p.Status != "cancelled" {
 				return errors.New("complete status must be failed or cancelled")

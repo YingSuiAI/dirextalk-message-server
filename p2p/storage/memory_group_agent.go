@@ -14,6 +14,28 @@ func (s *MemoryStore) GetGroupAgentBinding(_ context.Context, roomID string) (di
 	return b, ok, nil
 }
 
+func (s *MemoryStore) ListEnabledGroupAgentBindings(_ context.Context, owner string, generation int64, limit int) ([]dirextalkdomain.GroupAgentBinding, error) {
+	s.groupAgentMu.Lock()
+	defer s.groupAgentMu.Unlock()
+	rooms := make([]string, 0, len(s.groupAgentBindings))
+	for roomID := range s.groupAgentBindings {
+		rooms = append(rooms, roomID)
+	}
+	sort.Strings(rooms)
+	out := make([]dirextalkdomain.GroupAgentBinding, 0, len(rooms))
+	for _, roomID := range rooms {
+		b := s.groupAgentBindings[roomID]
+		if !b.Enabled || b.OwnerMXID != owner || b.AccountGeneration != generation {
+			continue
+		}
+		out = append(out, b)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (s *MemoryStore) MutateGroupAgentBinding(_ context.Context, roomID string, mutate func(*dirextalkdomain.GroupAgentBinding) error) error {
 	s.groupAgentMu.Lock()
 	defer s.groupAgentMu.Unlock()
