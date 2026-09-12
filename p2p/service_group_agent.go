@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
+	"github.com/sirupsen/logrus"
 )
 
 func (s *Service) groupAgentStore() (dirextalkdomain.GroupAgentStore, error) {
@@ -234,23 +235,44 @@ func (s *Service) ensureGroupYingJoined(ctx context.Context, roomID, owner strin
 	if err != nil {
 		return err
 	}
-	if room.Joined[agent] {
-		return nil
-	}
-	if err = s.transport.InviteUser(ctx, InviteUserRequest{RoomID: roomID, InviterMXID: owner, InviteeMXID: agent, Reason: "Owner enabled group Ying", GroupAgentControl: true}); err != nil {
-		return err
-	}
-	if _, err = s.transport.JoinRoom(ctx, JoinRoomRequest{RoomIDOrAlias: roomID, UserMXID: agent, DisplayName: "Ying"}); err != nil {
-		return err
-	}
-	room, err = s.groupAgentRoom(ctx, roomID)
-	if err != nil {
-		return err
-	}
+	displayName := groupYingRoomDisplayName(room.OwnerDisplayName)
 	if !room.Joined[agent] {
-		return errors.New("Native Ying Matrix join is not yet authoritative")
+		if err = s.transport.InviteUser(ctx, InviteUserRequest{RoomID: roomID, InviterMXID: owner, InviteeMXID: agent, Reason: "Owner enabled group Ying", GroupAgentControl: true}); err != nil {
+			return err
+		}
+		if _, err = s.transport.JoinRoom(ctx, JoinRoomRequest{RoomIDOrAlias: roomID, UserMXID: agent, DisplayName: displayName}); err != nil {
+			return err
+		}
+		room, err = s.groupAgentRoom(ctx, roomID)
+		if err != nil {
+			return err
+		}
+		if !room.Joined[agent] {
+			return errors.New("Native Ying Matrix join is not yet authoritative")
+		}
+	}
+	// Every client renders room members, so the label itself has to be the
+	// owner's Ying. A failure here only leaves a stale label, never a broken
+	// switch, so it must not roll the binding back.
+	if err = s.transport.UpdateMemberProfile(ctx, UpdateMemberProfileRequest{
+		RoomID:      roomID,
+		UserMXID:    agent,
+		DisplayName: displayName,
+		Timestamp:   time.Now().UTC(),
+	}); err != nil {
+		logrus.WithError(err).Warn("group Agent member label refresh failed")
 	}
 	return nil
+}
+
+// groupYingRoomDisplayName is the per-room membership name of the shared group
+// Agent. The service account is only ever shared by its owner, so the name is
+// always the owner's Ying.
+func groupYingRoomDisplayName(ownerDisplayName string) string {
+	if name := strings.TrimSpace(ownerDisplayName); name != "" {
+		return name + "'s Ying"
+	}
+	return "Ying"
 }
 
 func (s *Service) publishGroupAgentState(ctx context.Context, b dirextalkdomain.GroupAgentBinding) error {

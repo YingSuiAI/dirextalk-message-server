@@ -12,9 +12,14 @@ type GroupAgentRoom struct {
 	IsGroup   bool
 	Dissolved bool
 	OwnerMXID string
-	Joined    map[string]bool
-	JoinedAt  map[string]int64
-	Binding   *dirextalkdomain.GroupAgentBinding
+	// OwnerDisplayName is the owner's current in-room profile name. The shared
+	// group Agent is labelled with it so every client (including builds that
+	// only know room members) shows the owner's Ying instead of a bare service
+	// account name.
+	OwnerDisplayName string
+	Joined           map[string]bool
+	JoinedAt         map[string]int64
+	Binding          *dirextalkdomain.GroupAgentBinding
 }
 
 type GroupAgentMessage struct {

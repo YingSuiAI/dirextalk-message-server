@@ -39,6 +39,7 @@ func (t *DendriteTransport) ReadGroupAgentRoom(ctx context.Context, roomID strin
 	}
 	creator := ""
 	users := map[string]int64{}
+	displayNames := map[string]string{}
 	hasLevels := false
 	var defaultLevel int64
 	for tuple, event := range state.StateEvents {
@@ -69,6 +70,9 @@ func (t *DendriteTransport) ReadGroupAgentRoom(ctx context.Context, roomID strin
 			if userID != "" {
 				out.Joined[userID] = trimString(content["membership"]) == "join"
 				out.JoinedAt[userID] = int64(event.OriginServerTS())
+				if name := trimString(content["displayname"]); name != "" {
+					displayNames[userID] = name
+				}
 			}
 		case spec.MRoomPowerLevels:
 			hasLevels = true
@@ -124,6 +128,7 @@ func (t *DendriteTransport) ReadGroupAgentRoom(ctx context.Context, roomID strin
 	if ambiguous {
 		out.OwnerMXID = ""
 	}
+	out.OwnerDisplayName = displayNames[out.OwnerMXID]
 	return out, nil
 }
 
@@ -144,7 +149,9 @@ func (t *DendriteTransport) ReadGroupAgentMessage(ctx context.Context, roomID, e
 			Mentions    struct {
 				UserIDs []string `json:"user_ids"`
 			} `json:"m.mentions"`
-			GroupAgent json.RawMessage `json:"io.dirextalk.group_agent"`
+			LegacyMentions     []legacyGroupAgentMention `json:"mentions"`
+			LegacyMentionsJSON string                    `json:"mentions_json"`
+			GroupAgent         json.RawMessage           `json:"io.dirextalk.group_agent"`
 		}
 		if err := json.Unmarshal(event.Content(), &c); err != nil {
 			return out, err
@@ -163,7 +170,53 @@ func (t *DendriteTransport) ReadGroupAgentMessage(ctx context.Context, roomID, e
 		if sender == "" {
 			return out, fmt.Errorf("group Agent source sender is unresolved")
 		}
-		return dirextalktransport.GroupAgentMessage{RoomID: roomID, EventID: eventID, SenderMXID: sender, Body: c.Body, OriginServerTS: int64(event.OriginServerTS()), Mentions: c.Mentions.UserIDs, Generated: len(c.GroupAgent) > 0 || strings.HasPrefix(c.ProductType, "group_agent_")}, nil
+		mentions := groupAgentMentionUserIDs(c.Mentions.UserIDs, c.LegacyMentions, c.LegacyMentionsJSON)
+		return dirextalktransport.GroupAgentMessage{RoomID: roomID, EventID: eventID, SenderMXID: sender, Body: c.Body, OriginServerTS: int64(event.OriginServerTS()), Mentions: mentions, Generated: len(c.GroupAgent) > 0 || strings.HasPrefix(c.ProductType, "group_agent_")}, nil
 	}
 	return out, fmt.Errorf("group Agent source event unavailable")
+}
+
+type legacyGroupAgentMention struct {
+	UserID string `json:"user_id"`
+}
+
+const (
+	legacyGroupAgentMentionLimit = 64
+	legacyGroupAgentMentionBytes = 8 << 10
+)
+
+// groupAgentMentionUserIDs returns the mention identities that address the
+// group Agent. Matrix `m.mentions` is the standard field and stays
+// authoritative. Clients older than that field publish only the product
+// `mentions` array (or its `mentions_json` string) for a mention the user
+// explicitly picked, so those are accepted as a fallback. Every identity is
+// validated against the authoritative binding by the caller, and a mention is
+// only a trigger: it never grants a member any permission.
+func groupAgentMentionUserIDs(mentions []string, legacy []legacyGroupAgentMention, legacyJSON string) []string {
+	if len(mentions) > 0 {
+		return mentions
+	}
+	if len(legacy) > 0 {
+		return legacyMentionUserIDs(legacy)
+	}
+	if raw := strings.TrimSpace(legacyJSON); raw != "" && len(raw) <= legacyGroupAgentMentionBytes {
+		var parsed []legacyGroupAgentMention
+		if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+			return legacyMentionUserIDs(parsed)
+		}
+	}
+	return nil
+}
+
+func legacyMentionUserIDs(legacy []legacyGroupAgentMention) []string {
+	out := make([]string, 0, len(legacy))
+	for i, mention := range legacy {
+		if i >= legacyGroupAgentMentionLimit {
+			break
+		}
+		if userID := strings.TrimSpace(mention.UserID); userID != "" {
+			out = append(out, userID)
+		}
+	}
+	return out
 }

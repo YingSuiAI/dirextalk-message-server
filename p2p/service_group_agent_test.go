@@ -175,6 +175,43 @@ func groupAgentEnqueue(t *testing.T, s *Service, m *groupAgentMatrixFixture, roo
 	return r
 }
 
+func TestGroupYingRoomDisplayNameFollowsTheOwner(t *testing.T) {
+	if got := groupYingRoomDisplayName("Ott"); got != "Ott's Ying" {
+		t.Fatalf("owner label = %q", got)
+	}
+	if got := groupYingRoomDisplayName("  "); got != "Ying" {
+		t.Fatalf("empty owner label = %q", got)
+	}
+}
+
+// The shared group Agent is the owner's Ying to every client, including builds
+// that can only render room membership. A label refresh must never be able to
+// block the owner's switch.
+func TestGroupAgentRoomMemberCarriesTheOwnerLabel(t *testing.T) {
+	s, m, room := groupAgentFixture(t)
+	m.room.OwnerDisplayName = "Ott"
+	b := mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": true, "expected_revision": 0})
+	if !b.Enabled || b.Revision != 1 {
+		t.Fatalf("enable=%#v", b)
+	}
+	if len(m.profileRequests) == 0 {
+		t.Fatal("group Agent member label was never published")
+	}
+	label := m.profileRequests[len(m.profileRequests)-1]
+	if label.UserMXID != b.AgentMXID || label.RoomID != room || label.DisplayName != "Ott's Ying" {
+		t.Fatalf("group Agent label = %#v", label)
+	}
+	b = mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": false, "expected_revision": b.Revision})
+	if b.Enabled || b.Revision != 2 {
+		t.Fatalf("disable=%#v", b)
+	}
+	m.profileErrors = map[string]error{room: errors.New("profile endpoint unavailable")}
+	b = mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": true, "expected_revision": b.Revision})
+	if !b.Enabled || b.Revision != 3 {
+		t.Fatalf("enable with stale label=%#v", b)
+	}
+}
+
 func TestGroupAgentOwnerOnlyDefaultOffAndRevisionCAS(t *testing.T) {
 	s, m, room := groupAgentFixture(t)
 	b := mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.get", map[string]any{"room_id": room})
