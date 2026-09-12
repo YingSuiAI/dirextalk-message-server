@@ -3,6 +3,7 @@ package dendrite
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -77,6 +78,15 @@ func (t *DendriteTransport) SendPreparedMessage(ctx context.Context, prepared Pr
 	}
 	if resolvedSender == nil || resolvedSender.String() != fullUserID.String() {
 		return SendMessageResult{}, fmt.Errorf("prepared Matrix event sender mismatch")
+	}
+	var content map[string]any
+	if err = json.Unmarshal(event.Content(), &content); err != nil {
+		return SendMessageResult{}, err
+	}
+	if _, groupReply := content["io.dirextalk.group_agent"]; groupReply {
+		if err = productpolicy.ValidateClientEvent(ctx, t.productPolicyQuerier(), productpolicy.ClientEventRequest{RoomID: prepared.RoomID, SenderMXID: prepared.SenderMXID, EventType: prepared.EventType, Content: content}); err != nil {
+			return SendMessageResult{}, err
+		}
 	}
 	if err = roomserverAPI.SendEvents(
 		ctx,

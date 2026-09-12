@@ -33,7 +33,7 @@ func TestFreshProductBaselineIsSingleVersionAndReopenIdempotent(t *testing.T) {
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatalf("second baseline run: %v", err)
 	}
-	wantMigrations := []string{"p2p: channel post title v3", "p2p: drop retired completion result message v2", "p2p: fresh ProductCore baseline v1"}
+	wantMigrations := []string{"p2p: channel post title v3", "p2p: drop retired completion result message v2", "p2p: fresh ProductCore baseline v1", "p2p: owner group Ying grants and request outbox v4"}
 	assertP2PMigrationSet(t, store.DB(), wantMigrations)
 
 	for _, table := range []string{
@@ -43,6 +43,7 @@ func TestFreshProductBaselineIsSingleVersionAndReopenIdempotent(t *testing.T) {
 		"p2p_plugins", "p2p_plugin_jobs", "p2p_plugin_secrets", "p2p_reports", "p2p_blocks",
 		"p2p_capability_operations", "p2p_capability_operation_events", "p2p_capability_matrix_prepared_events",
 		"p2p_agent_execution_completion_receipts",
+		"p2p_group_agent_bindings", "p2p_group_agent_requests",
 	} {
 		assertRelationPresent(t, store.DB(), table)
 	}

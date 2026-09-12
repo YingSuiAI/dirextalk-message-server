@@ -55,6 +55,7 @@ type Config struct {
 	// are local deployment facts and are never accepted from request JSON.
 	ServiceOwnerID                 string
 	RecordAgentExecutionCompletion func(context.Context, dirextalkdomain.AgentExecutionCompletionReceipt) (replayed bool, err error)
+	InvokeGroupAgentCapability     func(context.Context, string, []byte) (any, error)
 
 	// GrantPublicKey verifies the opaque Ed25519 grant-v1 supplied by Agent
 	// calls. Product is the message-server-owned capability boundary, so it

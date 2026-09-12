@@ -172,6 +172,7 @@ type AccountDeprovisioner interface {
 }
 
 type Store interface {
+	dirextalkdomain.GroupAgentStore
 	operationsmodule.Store
 	portalStore
 	readMarkerStore
@@ -695,10 +696,12 @@ func newService(cfg Config, store Store, transport Transport, state portalState,
 		SaveOwnerMember: func(ctx context.Context, roomID string) error {
 			return service.saveOwnerMember(ctx, roomID, "")
 		},
-		PublishState:  service.publishGroupState,
-		SetMemberMute: service.setGroupMemberMute,
-		RequireOwner:  service.requireOwnerMember,
-		OwnerMXID:     service.memberOwnerMXID,
+		PublishState:       service.publishGroupState,
+		SetMemberMute:      service.setGroupMemberMute,
+		RequireOwner:       service.requireOwnerMember,
+		OwnerMXID:          service.memberOwnerMXID,
+		CreateAgentBinding: service.createGroupAgentBinding,
+		BeforeDissolve:     service.invalidateGroupAgent,
 	})
 	service.reportsModule = reportsmodule.New(
 		service.store,

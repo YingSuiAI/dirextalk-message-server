@@ -32,6 +32,7 @@ func (s *Service) actionHandlers() map[string]actionHandler {
 		{name: "social", handlers: s.socialModule.Handlers()},
 		{name: "calls", handlers: s.callsModule.Handlers()},
 		{name: "groups", handlers: s.groupsModule.Handlers()},
+		{name: "group-agent", handlers: map[string]actionHandler{"groups.agent.get": s.groupAgentGet, "groups.agent.update": s.groupAgentUpdate}},
 		{name: "channels", handlers: s.channelsModule.Handlers()},
 		{name: "channel-content", handlers: s.channelContentModule.Handlers()},
 		s.collectActionHandlerModule("channel-adapters", s.registerChannelActions),

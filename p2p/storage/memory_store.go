@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"reflect"
 	"sync"
 
@@ -11,7 +12,10 @@ import (
 // It is intended for tests and the legacy no-database service path only. Server
 // startup must continue to require the durable PostgreSQL store.
 type MemoryStore struct {
-	mu sync.RWMutex
+	mu                 sync.RWMutex
+	groupAgentMu       sync.Mutex
+	groupAgentBindings map[string]dirextalkdomain.GroupAgentBinding
+	groupAgentRequests map[string]dirextalkdomain.GroupAgentRequest
 
 	portal    *portalState
 	readMarks map[string]readMarker
@@ -47,6 +51,8 @@ type MemoryStore struct {
 // no configuration hook so it cannot silently replace durable production state.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
+		groupAgentBindings:   make(map[string]dirextalkdomain.GroupAgentBinding),
+		groupAgentRequests:   make(map[string]dirextalkdomain.GroupAgentRequest),
 		readMarks:            make(map[string]readMarker),
 		conversations:        make(map[string]conversationRecord),
 		channels:             make(map[string]channel),

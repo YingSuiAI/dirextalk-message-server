@@ -574,7 +574,173 @@
     {
       "name": "groups.create",
       "auth": "owner",
-      "transport": "http_only"
+      "transport": "http_only",
+      "schema": {
+        "request": {
+          "agent_enabled": {
+            "type": "boolean",
+            "presence": {
+              "omitted": "disabled",
+              "present": "enable the current group owner's Native Ying only when true"
+            }
+          }
+        },
+        "response": {
+          "agent_binding": {
+            "type": "object",
+            "properties": {
+              "agent_mxid": {
+                "type": "string",
+                "required": true
+              },
+              "avatar_url": {
+                "type": "string",
+                "required": true
+              },
+              "display_name": {
+                "type": "string",
+                "required": true
+              },
+              "enabled": {
+                "type": "boolean",
+                "required": true
+              },
+              "member_policy": {
+                "type": "string",
+                "required": true
+              },
+              "owner_mxid": {
+                "type": "string",
+                "required": true
+              },
+              "revision": {
+                "type": "integer",
+                "required": true
+              },
+              "room_id": {
+                "type": "string",
+                "required": true
+              },
+              "status": {
+                "type": "string",
+                "required": true
+              }
+            }
+          },
+          "agent_binding_error": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "groups.agent.get",
+      "auth": "owner",
+      "transport": "http_only",
+      "schema": {
+        "request": {
+          "room_id": {
+            "type": "string",
+            "required": true
+          }
+        },
+        "response": {
+          "agent_mxid": {
+            "type": "string",
+            "required": true
+          },
+          "avatar_url": {
+            "type": "string",
+            "required": true
+          },
+          "display_name": {
+            "type": "string",
+            "required": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "required": true
+          },
+          "member_policy": {
+            "type": "string",
+            "required": true
+          },
+          "owner_mxid": {
+            "type": "string",
+            "required": true
+          },
+          "revision": {
+            "type": "integer",
+            "required": true
+          },
+          "room_id": {
+            "type": "string",
+            "required": true
+          },
+          "status": {
+            "type": "string",
+            "required": true
+          }
+        }
+      }
+    },
+    {
+      "name": "groups.agent.update",
+      "auth": "owner",
+      "transport": "http_only",
+      "schema": {
+        "request": {
+          "enabled": {
+            "type": "boolean",
+            "required": true
+          },
+          "expected_revision": {
+            "type": "integer"
+          },
+          "room_id": {
+            "type": "string",
+            "required": true
+          }
+        },
+        "response": {
+          "agent_mxid": {
+            "type": "string",
+            "required": true
+          },
+          "avatar_url": {
+            "type": "string",
+            "required": true
+          },
+          "display_name": {
+            "type": "string",
+            "required": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "required": true
+          },
+          "member_policy": {
+            "type": "string",
+            "required": true
+          },
+          "owner_mxid": {
+            "type": "string",
+            "required": true
+          },
+          "revision": {
+            "type": "integer",
+            "required": true
+          },
+          "room_id": {
+            "type": "string",
+            "required": true
+          },
+          "status": {
+            "type": "string",
+            "required": true
+          }
+        }
+      }
     },
     {
       "name": "groups.update",

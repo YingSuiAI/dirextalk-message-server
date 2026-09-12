@@ -13,7 +13,20 @@ func (s *Service) ProjectOutputEvent(ctx context.Context, output roomserverAPI.O
 	if s.accountIsDeprovisioned() {
 		return nil
 	}
-	return s.projectorModule.ProjectOutputEvent(ctx, output)
+	if err := s.projectorModule.ProjectOutputEvent(ctx, output); err != nil {
+		return err
+	}
+	if output.Type == roomserverAPI.OutputTypeRedactedEvent && output.RedactedEvent != nil {
+		store, err := s.groupAgentStore()
+		if err != nil {
+			return err
+		}
+		return store.CancelGroupAgentRequests(ctx, "", "", output.RedactedEvent.RedactedEventID)
+	}
+	if output.Type == roomserverAPI.OutputTypeNewRoomEvent && output.NewRoomEvent != nil {
+		return s.projectGroupAgentEvent(ctx, output.NewRoomEvent.Event)
+	}
+	return nil
 }
 
 func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEvent) error {
@@ -22,5 +35,8 @@ func (s *Service) ProjectRoomEvent(ctx context.Context, event *types.HeaderedEve
 	if s.accountIsDeprovisioned() {
 		return nil
 	}
-	return s.projectorModule.ProjectRoomEvent(ctx, event)
+	if err := s.projectorModule.ProjectRoomEvent(ctx, event); err != nil {
+		return err
+	}
+	return s.projectGroupAgentEvent(ctx, event)
 }

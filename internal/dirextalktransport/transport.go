@@ -177,6 +177,9 @@ type PreparedMatrixMutationReceiptStore interface {
 }
 
 type InviteUserRequest struct {
+	// GroupAgentControl is set only by the server's owner-authorized Native
+	// Ying workflow. Public group invitations must not provision Ying users.
+	GroupAgentControl   bool
 	RoomID              string
 	InviterMXID         string
 	InviteeMXID         string

@@ -446,6 +446,9 @@ func Register(
 	if resErr := httputil.UnmarshalJSON(reqBody, &r); resErr != nil {
 		return *resErr
 	}
+	if strings.EqualFold(strings.TrimSpace(r.Username), "ying") {
+		return util.JSONResponse{Code: http.StatusForbidden, JSON: spec.Forbidden("This username is reserved for Native Ying")}
+	}
 	if req.URL.Query().Get("kind") == "guest" {
 		return handleGuestRegistration(req, r, cfg, userAPI)
 	}

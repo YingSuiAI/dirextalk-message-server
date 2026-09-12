@@ -7,6 +7,7 @@ import (
 
 const (
 	DirextalkRoomTypeChannel       = productpolicy.DirextalkRoomTypeChannel
+	DirextalkRoomTypeGroup         = productpolicy.DirextalkRoomTypeGroup
 	DirextalkRoomProfileEventType  = productpolicy.DirextalkRoomProfileEventType
 	DirextalkJoinRequestEventType  = productpolicy.DirextalkJoinRequestEventType
 	DirextalkMemberPolicyEventType = productpolicy.DirextalkMemberPolicyEventType

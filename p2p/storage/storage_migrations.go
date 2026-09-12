@@ -920,6 +920,26 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return err
 		},
 	})
+	forward.AddMigrations(sqlutil.Migration{
+		Version: "p2p: owner group Ying grants and request outbox v4",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_bindings (
+				 room_id TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE,
+				 owner_mxid TEXT NOT NULL DEFAULT '', agent_mxid TEXT NOT NULL DEFAULT '',
+				 revision BIGINT NOT NULL DEFAULT 0 CHECK(revision>=0),
+				 account_generation BIGINT NOT NULL DEFAULT 0, enabled_at BIGINT NOT NULL DEFAULT 0)`,
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_requests (
+				 request_id UUID PRIMARY KEY, room_id TEXT NOT NULL REFERENCES p2p_group_agent_bindings(room_id),
+				 event_id TEXT NOT NULL, sender_mxid TEXT NOT NULL, owner_mxid TEXT NOT NULL, agent_mxid TEXT NOT NULL,
+				 binding_revision BIGINT NOT NULL CHECK(binding_revision>0), account_generation BIGINT NOT NULL CHECK(account_generation>0),
+				 origin_server_ts BIGINT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','published','cancelled','failed')),
+				 reply_event_id TEXT NOT NULL DEFAULT '', reply_digest TEXT NOT NULL DEFAULT '',
+				 UNIQUE(room_id,event_id))`,
+				`CREATE INDEX IF NOT EXISTS p2p_group_agent_requests_pending_idx ON p2p_group_agent_requests(owner_mxid,account_generation,request_id) WHERE status='pending'`,
+			})
+		},
+	})
 	return forward.Up(ctx)
 }
 
