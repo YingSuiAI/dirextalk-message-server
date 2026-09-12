@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -193,6 +195,45 @@ func TestGroupAgentOwnerOnlyDefaultOffAndRevisionCAS(t *testing.T) {
 	b = mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.get", map[string]any{"room_id": room})
 	if b.Enabled || b.Revision != 2 {
 		t.Fatalf("transfer did not revoke=%#v", b)
+	}
+}
+
+// The Product HTTP/WS envelope decodes numbers with json.Number, so a fixture
+// that passes a Go int never exercises the real parameter path. Drive the
+// owner toggle through the actual HTTP handler.
+func TestGroupAgentUpdateOverHTTPAcceptsDecodedRevision(t *testing.T) {
+	s, m, room := groupAgentFixture(t)
+	router := newP2PTestRouter(s)
+	post := func(params map[string]any) (int, map[string]any) {
+		t.Helper()
+		req := jsonRequest(t, "/_p2p/command", map[string]any{"action": "groups.agent.update", "params": params})
+		req.Header.Set("Authorization", "Bearer "+s.AccessToken())
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		var payload map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+		return rec.Code, payload
+	}
+
+	code, payload := post(map[string]any{"room_id": room, "enabled": true, "expected_revision": 0})
+	if code != http.StatusOK || payload["enabled"] != true || payload["revision"].(float64) != 1 {
+		t.Fatalf("enable over HTTP -> %d %#v", code, payload)
+	}
+	if !m.room.Joined["@ying:example.test"] {
+		t.Fatal("HTTP enable did not join Ying to the room")
+	}
+	if code, payload := post(map[string]any{"room_id": room, "enabled": false, "expected_revision": 0}); code == http.StatusOK {
+		t.Fatalf("stale revision over HTTP was accepted: %#v", payload)
+	}
+	for _, revision := range []any{json.Number("-1"), json.Number("2.5"), "seven"} {
+		if code, payload := post(map[string]any{"room_id": room, "enabled": true, "expected_revision": revision}); code == http.StatusOK {
+			t.Fatalf("expected_revision %#v over HTTP was accepted: %#v", revision, payload)
+		}
+	}
+
+	readback := mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.get", map[string]any{"room_id": room})
+	if !readback.Enabled || readback.Revision != 1 {
+		t.Fatalf("rejected updates changed the binding: %#v", readback)
 	}
 }
 

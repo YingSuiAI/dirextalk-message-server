@@ -124,7 +124,7 @@ func (s *Service) groupAgentUpdate(ctx context.Context, params map[string]any) (
 	if raw, exists := params["expected_revision"]; exists {
 		var valid bool
 		expected, valid = groupAgentInteger(raw)
-		if !valid || expected < 0 {
+		if !valid {
 			return nil, badRequest("expected_revision must be a non-negative integer")
 		}
 	}
@@ -195,10 +195,15 @@ func (s *Service) groupAgentUpdate(ctx context.Context, params map[string]any) (
 
 func groupAgentInteger(raw any) (int64, bool) {
 	switch n := raw.(type) {
+	case json.Number:
+		// The Product HTTP/WS envelope decodes with UseNumber, so this is the
+		// production form for every numeric action parameter.
+		value, err := n.Int64()
+		return value, err == nil && value >= 0
 	case int:
-		return int64(n), true
+		return int64(n), n >= 0
 	case int64:
-		return n, true
+		return n, n >= 0
 	case float64:
 		if n >= 0 && n < math.MaxInt64 && math.Trunc(n) == n {
 			return int64(n), true
