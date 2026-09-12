@@ -170,10 +170,36 @@ func (t *DendriteTransport) ReadGroupAgentMessage(ctx context.Context, roomID, e
 		if sender == "" {
 			return out, fmt.Errorf("group Agent source sender is unresolved")
 		}
+		displayName := t.groupAgentSenderDisplayName(ctx, roomID, sender)
 		mentions := groupAgentMentionUserIDs(c.Mentions.UserIDs, c.LegacyMentions, c.LegacyMentionsJSON)
-		return dirextalktransport.GroupAgentMessage{RoomID: roomID, EventID: eventID, SenderMXID: sender, Body: c.Body, OriginServerTS: int64(event.OriginServerTS()), Mentions: mentions, Generated: len(c.GroupAgent) > 0 || strings.HasPrefix(c.ProductType, "group_agent_")}, nil
+		return dirextalktransport.GroupAgentMessage{RoomID: roomID, EventID: eventID, SenderMXID: sender, SenderDisplayName: displayName, Body: c.Body, OriginServerTS: int64(event.OriginServerTS()), Mentions: mentions, Generated: len(c.GroupAgent) > 0 || strings.HasPrefix(c.ProductType, "group_agent_")}, nil
 	}
 	return out, fmt.Errorf("group Agent source event unavailable")
+}
+
+// groupAgentSenderDisplayName reads the sender's current in-room profile name so
+// the shared group conversation can attribute every message. A missing or
+// unusable name returns "" and the caller falls back to the authenticated MXID.
+func (t *DendriteTransport) groupAgentSenderDisplayName(ctx context.Context, roomID, senderMXID string) string {
+	if t == nil || t.rsAPI == nil || strings.TrimSpace(senderMXID) == "" {
+		return ""
+	}
+	var state roomserverAPI.QueryCurrentStateResponse
+	if err := t.rsAPI.QueryCurrentState(ctx, &roomserverAPI.QueryCurrentStateRequest{RoomID: roomID, StateTuples: []gomatrixserverlib.StateKeyTuple{{EventType: spec.MRoomMember, StateKey: senderMXID}}}, &state); err != nil {
+		return ""
+	}
+	member := state.StateEvents[gomatrixserverlib.StateKeyTuple{EventType: spec.MRoomMember, StateKey: senderMXID}]
+	if member == nil {
+		return ""
+	}
+	var content struct {
+		DisplayName string `json:"displayname"`
+		Membership  string `json:"membership"`
+	}
+	if json.Unmarshal(member.Content(), &content) != nil || content.Membership != "join" {
+		return ""
+	}
+	return dirextalktransport.SanitizeGroupAgentDisplayName(content.DisplayName)
 }
 
 type legacyGroupAgentMention struct {

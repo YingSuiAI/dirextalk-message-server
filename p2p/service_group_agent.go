@@ -465,6 +465,7 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 			if valid {
 				r.Body = message.Body
+				r.SenderDisplayName = message.SenderDisplayName
 				out = append(out, r)
 			}
 		}
@@ -545,7 +546,7 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 					continue
 				}
 				if m.OriginServerTS >= fromTS && m.EventID != "" && len(m.Msg) <= 16000 {
-					messages = append(messages, dirextalktransport.GroupAgentMessage{EventID: m.EventID, SenderMXID: sender, Body: m.Msg, OriginServerTS: m.OriginServerTS})
+					messages = append(messages, dirextalktransport.GroupAgentMessage{EventID: m.EventID, SenderMXID: sender, SenderDisplayName: dirextalktransport.SanitizeGroupAgentDisplayName(m.SenderDisplayName), Body: m.Msg, OriginServerTS: m.OriginServerTS})
 				}
 			}
 			if _, stillValid, e := s.validateGroupAgentRequest(ctx, b, *r, p.BindingRevision); e != nil {

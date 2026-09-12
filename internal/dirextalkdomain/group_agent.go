@@ -40,6 +40,9 @@ type GroupAgentRequest struct {
 	AccountGeneration int64  `json:"account_generation"`
 	OriginServerTS    int64  `json:"origin_server_ts"`
 	Body              string `json:"body,omitempty"`
+	// SenderDisplayName is hydrated with the body at delivery time, sanitized,
+	// and used only to attribute the message inside the group conversation.
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
 	Status            string `json:"-"`
 	ReplyEventID      string `json:"-"`
 	ReplyDigest       string `json:"-"`
