@@ -942,7 +942,7 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 	})
 	// A scheduled group task has no member message behind it, so its request
 	// carries its own body instead of resolving one from the room transcript.
-	m.AddMigrations(sqlutil.Migration{
+	forward.AddMigrations(sqlutil.Migration{
 		Version: "p2p: group Agent scheduled request body v5",
 		Up: func(ctx context.Context, txn *sql.Tx) error {
 			return execMigrationStatements(ctx, txn, []string{
