@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -430,6 +431,77 @@ func (s *Service) readGroupAgentRoomMessages(ctx context.Context, roomID string,
 
 const groupAgentHistoryCursorAction = "group_agent.history"
 
+const (
+	// groupAgentMembersDefaultLimit and groupAgentMembersMaxLimit bound the
+	// roster the Agent may read for one group.
+	groupAgentMembersDefaultLimit = 50
+	groupAgentMembersMaxLimit     = 200
+)
+
+type groupAgentRosterResponse struct {
+	Members []map[string]any
+	Total   int
+	HasMore bool
+}
+
+// groupAgentRoster projects the current joined room members into the only shape
+// the group Agent may see: authenticated MXID, sanitized in-room name and role.
+// History visibility and join times are irrelevant for a live roster, and the
+// owner's private contacts, rooms and credentials are never included.
+func groupAgentRoster(room dirextalktransport.GroupAgentRoom, b dirextalkdomain.GroupAgentBinding, limit int) groupAgentRosterResponse {
+	type entry struct {
+		member dirextalktransport.GroupAgentMember
+		role   string
+	}
+	entries := make([]entry, 0, len(room.Members))
+	for _, member := range room.Members {
+		if !room.Joined[member.MXID] || !strings.HasPrefix(member.MXID, "@") {
+			continue
+		}
+		role := "member"
+		if member.MXID == b.OwnerMXID {
+			role = "owner"
+		} else if member.MXID == b.AgentMXID {
+			role = "agent"
+		}
+		entries = append(entries, entry{member: member, role: role})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		rank := func(role string) int {
+			switch role {
+			case "owner":
+				return 0
+			case "agent":
+				return 2
+			default:
+				return 1
+			}
+		}
+		if rank(entries[i].role) != rank(entries[j].role) {
+			return rank(entries[i].role) < rank(entries[j].role)
+		}
+		nameI := dirextalktransport.SanitizeGroupAgentDisplayName(entries[i].member.DisplayName)
+		nameJ := dirextalktransport.SanitizeGroupAgentDisplayName(entries[j].member.DisplayName)
+		if nameI != nameJ {
+			return nameI < nameJ
+		}
+		return entries[i].member.MXID < entries[j].member.MXID
+	})
+	response := groupAgentRosterResponse{Total: len(entries)}
+	if len(entries) > limit {
+		response.HasMore = true
+		entries = entries[:limit]
+	}
+	for _, item := range entries {
+		response.Members = append(response.Members, map[string]any{
+			"mxid":         item.member.MXID,
+			"display_name": dirextalktransport.SanitizeGroupAgentDisplayName(item.member.DisplayName),
+			"role":         item.role,
+		})
+	}
+	return response
+}
+
 // groupAgentCapabilityParams is the canonical private request envelope. Unknown
 // fields are rejected, so every operation declares exactly what it needs.
 type groupAgentCapabilityParams struct {
@@ -635,6 +707,25 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 				return errors.New("validate accepts only request identity")
 			}
 			result = map[string]any{"allowed": true}
+		case "members":
+			if p.Limit == 0 {
+				p.Limit = groupAgentMembersDefaultLimit
+			}
+			if p.Limit < 1 || p.Limit > groupAgentMembersMaxLimit || p.Body != "" || p.Status != "" || p.Kind != "" ||
+				p.RoomID != "" || p.AfterTS != 0 || p.Cursor != "" {
+				return errors.New("invalid member list parameters")
+			}
+			room, e := s.groupAgentRoom(ctx, r.RoomID)
+			if e != nil {
+				return e
+			}
+			members := groupAgentRoster(room, b, p.Limit)
+			if _, stillValid, e := s.validateGroupAgentRequest(ctx, b, *r, p.BindingRevision); e != nil {
+				return e
+			} else if !stillValid {
+				return dirextalkdomain.ErrGroupAgentConflict
+			}
+			result = map[string]any{"members": members.Members, "total": members.Total, "has_more": members.HasMore}
 		case "history":
 			if p.Limit == 0 {
 				p.Limit = 20
@@ -730,7 +821,7 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 		}
 		return nil
 	}
-	if operation == "validate" || operation == "history" {
+	if operation == "validate" || operation == "history" || operation == "members" {
 		r, found, e := store.GetGroupAgentRequest(ctx, p.RequestID)
 		if e != nil {
 			return nil, e

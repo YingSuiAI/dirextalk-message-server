@@ -46,6 +46,14 @@ func SanitizeGroupAgentDisplayName(raw string) string {
 
 // GroupAgentRoom is one current Matrix state snapshot, never a ProductStore
 // role projection. Ownership must be unique; ambiguous ownership fails closed.
+// GroupAgentMember is one currently joined member of the group, as the Agent
+// may see it: the authenticated MXID plus the sanitized in-room display name.
+// It never carries avatars, contacts, phone numbers or any other private data.
+type GroupAgentMember struct {
+	MXID        string `json:"mxid"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
 type GroupAgentRoom struct {
 	RoomID    string
 	IsGroup   bool
@@ -56,9 +64,12 @@ type GroupAgentRoom struct {
 	// only know room members) shows the owner's Ying instead of a bare service
 	// account name.
 	OwnerDisplayName string
-	Joined           map[string]bool
-	JoinedAt         map[string]int64
-	Binding          *dirextalkdomain.GroupAgentBinding
+	// Members is the current joined roster in reader order; the service bounds
+	// and orders it before it reaches a model.
+	Members  []GroupAgentMember
+	Joined   map[string]bool
+	JoinedAt map[string]int64
+	Binding  *dirextalkdomain.GroupAgentBinding
 }
 
 type GroupAgentMessage struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
@@ -129,7 +130,21 @@ func (t *DendriteTransport) ReadGroupAgentRoom(ctx context.Context, roomID strin
 		out.OwnerMXID = ""
 	}
 	out.OwnerDisplayName = displayNames[out.OwnerMXID]
+	out.Members = groupAgentJoinedMembers(out.Joined, displayNames)
 	return out, nil
+}
+
+// groupAgentJoinedMembers lists the current joined roster in a stable order.
+func groupAgentJoinedMembers(joined map[string]bool, displayNames map[string]string) []dirextalktransport.GroupAgentMember {
+	members := make([]dirextalktransport.GroupAgentMember, 0, len(joined))
+	for userID, isJoined := range joined {
+		if !isJoined || strings.TrimSpace(userID) == "" {
+			continue
+		}
+		members = append(members, dirextalktransport.GroupAgentMember{MXID: userID, DisplayName: displayNames[userID]})
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].MXID < members[j].MXID })
+	return members
 }
 
 func (t *DendriteTransport) ReadGroupAgentMessage(ctx context.Context, roomID, eventID string) (dirextalktransport.GroupAgentMessage, error) {

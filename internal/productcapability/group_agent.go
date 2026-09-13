@@ -43,7 +43,7 @@ func (s *Server) queryGroupAgent(ctx context.Context, req *capv1.QueryRequest) *
 		return &capv1.QueryResponse{Error: err}
 	}
 	switch req.OperationId {
-	case "pull", "validate", "history", "bindings", "transcript":
+	case "pull", "validate", "history", "members", "bindings", "transcript":
 	default:
 		return &capv1.QueryResponse{Error: capabilityError(capv1.ErrorCode_ERROR_CODE_NOT_FOUND, "private group Agent query is unavailable")}
 	}
