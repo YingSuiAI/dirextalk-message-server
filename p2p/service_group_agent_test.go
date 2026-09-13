@@ -175,12 +175,11 @@ func groupAgentEnqueue(t *testing.T, s *Service, m *groupAgentMatrixFixture, roo
 	return r
 }
 
-func TestGroupYingRoomDisplayNameFollowsTheOwner(t *testing.T) {
-	if got := groupYingRoomDisplayName("Ott"); got != "Ott's Ying" {
-		t.Fatalf("owner label = %q", got)
-	}
-	if got := groupYingRoomDisplayName("  "); got != "Ying" {
-		t.Fatalf("empty owner label = %q", got)
+func TestGroupYingRoomDisplayNameIsSharedNotOwnerScoped(t *testing.T) {
+	for _, owner := range []string{"Ott", "  ", "李娜"} {
+		if got := groupYingRoomDisplayName(owner); got != "Ying" {
+			t.Fatalf("group Ying label for %q = %q", owner, got)
+		}
 	}
 }
 
@@ -198,7 +197,7 @@ func TestGroupAgentRoomMemberCarriesTheOwnerLabel(t *testing.T) {
 		t.Fatal("group Agent member label was never published")
 	}
 	label := m.profileRequests[len(m.profileRequests)-1]
-	if label.UserMXID != b.AgentMXID || label.RoomID != room || label.DisplayName != "Ott's Ying" {
+	if label.UserMXID != b.AgentMXID || label.RoomID != room || label.DisplayName != "Ying" {
 		t.Fatalf("group Agent label = %#v", label)
 	}
 	b = mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": false, "expected_revision": b.Revision})

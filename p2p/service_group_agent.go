@@ -266,12 +266,10 @@ func (s *Service) ensureGroupYingJoined(ctx context.Context, roomID, owner strin
 }
 
 // groupYingRoomDisplayName is the per-room membership name of the shared group
-// Agent. The service account is only ever shared by its owner, so the name is
-// always the owner's Ying.
+// Agent. Every member can @ it, so it is never presented as the owner's private
+// Agent: the room only ever shows "Ying".
 func groupYingRoomDisplayName(ownerDisplayName string) string {
-	if name := strings.TrimSpace(ownerDisplayName); name != "" {
-		return name + "'s Ying"
-	}
+	_ = ownerDisplayName
 	return "Ying"
 }
 
