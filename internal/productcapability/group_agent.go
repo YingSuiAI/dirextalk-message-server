@@ -72,7 +72,7 @@ func (s *Server) startGroupAgent(ctx context.Context, req *capv1.StartOperationR
 	if capv1.ValidateOperationID(req.OperationId) != nil || req.CallContext.RootOperationId != req.OperationId || req.ExpectedRevision != 0 {
 		return fail(capabilityError(capv1.ErrorCode_ERROR_CODE_INVALID_ARGUMENT, "invalid private group Agent operation identity"))
 	}
-	if req.Operation != "publish" && req.Operation != "complete" {
+	if req.Operation != "publish" && req.Operation != "complete" && req.Operation != "enqueue" {
 		return fail(capabilityError(capv1.ErrorCode_ERROR_CODE_NOT_FOUND, "private group Agent mutation is unavailable"))
 	}
 	digest := sha256.Sum256(req.RequestJson)
@@ -95,5 +95,27 @@ func groupAgentCapabilityError(err error) *capv1.CapabilityError {
 	if errors.Is(err, dirextalkdomain.ErrGroupAgentConflict) {
 		return capabilityError(capv1.ErrorCode_ERROR_CODE_CONFLICT, "group Agent binding or request conflict")
 	}
-	return capabilityError(capv1.ErrorCode_ERROR_CODE_UPSTREAM_FAILED, "group Agent operation failed")
+	// The Agent is the only caller of this private channel, and it needs the
+	// refusal reason to fail a scheduled occurrence honestly instead of
+	// reporting an unexplained model error. Keep one bounded, sanitized line.
+	return capabilityError(capv1.ErrorCode_ERROR_CODE_UPSTREAM_FAILED, boundedGroupAgentReason(err))
+}
+
+func boundedGroupAgentReason(err error) string {
+	if err == nil {
+		return "group Agent operation failed"
+	}
+	reason := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(err.Error()))
+	if reason == "" {
+		return "group Agent operation failed"
+	}
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
+	return reason
 }
