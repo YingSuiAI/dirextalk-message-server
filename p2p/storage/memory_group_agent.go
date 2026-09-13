@@ -58,6 +58,41 @@ func (s *MemoryStore) MutateGroupAgentBinding(_ context.Context, roomID string, 
 	return nil
 }
 
+func groupAgentScheduleKey(roomID, scheduleID string) string { return roomID + "|" + scheduleID }
+
+func (s *MemoryStore) UpsertGroupAgentSchedule(_ context.Context, schedule dirextalkdomain.GroupAgentSchedule) error {
+	s.groupAgentMu.Lock()
+	defer s.groupAgentMu.Unlock()
+	if s.groupAgentSchedules == nil {
+		s.groupAgentSchedules = map[string]dirextalkdomain.GroupAgentSchedule{}
+	}
+	s.groupAgentSchedules[groupAgentScheduleKey(schedule.RoomID, schedule.ScheduleID)] = schedule
+	return nil
+}
+
+func (s *MemoryStore) RemoveGroupAgentSchedule(_ context.Context, roomID, scheduleID string) error {
+	s.groupAgentMu.Lock()
+	defer s.groupAgentMu.Unlock()
+	delete(s.groupAgentSchedules, groupAgentScheduleKey(roomID, scheduleID))
+	return nil
+}
+
+func (s *MemoryStore) ListGroupAgentSchedules(_ context.Context, roomID string, limit int) ([]dirextalkdomain.GroupAgentSchedule, error) {
+	s.groupAgentMu.Lock()
+	defer s.groupAgentMu.Unlock()
+	out := make([]dirextalkdomain.GroupAgentSchedule, 0)
+	for _, schedule := range s.groupAgentSchedules {
+		if schedule.RoomID == roomID {
+			out = append(out, schedule)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ScheduleID < out[j].ScheduleID })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (s *MemoryStore) EnqueueGroupAgentRequest(_ context.Context, r dirextalkdomain.GroupAgentRequest) (bool, error) {
 	s.groupAgentMu.Lock()
 	defer s.groupAgentMu.Unlock()

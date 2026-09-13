@@ -12,10 +12,11 @@ import (
 // It is intended for tests and the legacy no-database service path only. Server
 // startup must continue to require the durable PostgreSQL store.
 type MemoryStore struct {
-	mu                 sync.RWMutex
-	groupAgentMu       sync.Mutex
-	groupAgentBindings map[string]dirextalkdomain.GroupAgentBinding
-	groupAgentRequests map[string]dirextalkdomain.GroupAgentRequest
+	mu                  sync.RWMutex
+	groupAgentMu        sync.Mutex
+	groupAgentBindings  map[string]dirextalkdomain.GroupAgentBinding
+	groupAgentRequests  map[string]dirextalkdomain.GroupAgentRequest
+	groupAgentSchedules map[string]dirextalkdomain.GroupAgentSchedule
 
 	portal    *portalState
 	readMarks map[string]readMarker

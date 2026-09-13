@@ -32,6 +32,46 @@ func scanGroupAgentRequest(row groupAgentScanner) (r dirextalkdomain.GroupAgentR
 	return
 }
 
+const groupAgentScheduleColumns = `room_id,schedule_id,name,capability,cron,run_at,timezone,next_run_at,created_by,binding_revision,updated_at`
+
+func scanGroupAgentSchedule(row groupAgentScanner) (s dirextalkdomain.GroupAgentSchedule, err error) {
+	err = row.Scan(&s.RoomID, &s.ScheduleID, &s.Name, &s.Capability, &s.Cron, &s.RunAt, &s.Timezone, &s.NextRunAt, &s.CreatedBy, &s.BindingRevision, &s.UpdatedAt)
+	return
+}
+
+func (s *DatabaseStore) UpsertGroupAgentSchedule(ctx context.Context, schedule dirextalkdomain.GroupAgentSchedule) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO p2p_group_agent_schedules (`+groupAgentScheduleColumns+`)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	 ON CONFLICT(room_id,schedule_id) DO UPDATE SET name=EXCLUDED.name, capability=EXCLUDED.capability,
+	 cron=EXCLUDED.cron, run_at=EXCLUDED.run_at, timezone=EXCLUDED.timezone, next_run_at=EXCLUDED.next_run_at,
+	 created_by=EXCLUDED.created_by, binding_revision=EXCLUDED.binding_revision, updated_at=EXCLUDED.updated_at`,
+		schedule.RoomID, schedule.ScheduleID, schedule.Name, schedule.Capability, schedule.Cron, schedule.RunAt,
+		schedule.Timezone, schedule.NextRunAt, schedule.CreatedBy, schedule.BindingRevision, schedule.UpdatedAt)
+	return err
+}
+
+func (s *DatabaseStore) RemoveGroupAgentSchedule(ctx context.Context, roomID, scheduleID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM p2p_group_agent_schedules WHERE room_id=$1 AND schedule_id=$2`, roomID, scheduleID)
+	return err
+}
+
+func (s *DatabaseStore) ListGroupAgentSchedules(ctx context.Context, roomID string, limit int) ([]dirextalkdomain.GroupAgentSchedule, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+groupAgentScheduleColumns+` FROM p2p_group_agent_schedules WHERE room_id=$1 ORDER BY schedule_id LIMIT $2`, roomID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]dirextalkdomain.GroupAgentSchedule, 0)
+	for rows.Next() {
+		schedule, scanErr := scanGroupAgentSchedule(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, schedule)
+	}
+	return out, rows.Err()
+}
+
 func (s *DatabaseStore) GetGroupAgentBinding(ctx context.Context, roomID string) (dirextalkdomain.GroupAgentBinding, bool, error) {
 	b, err := scanGroupAgentBinding(s.db.QueryRowContext(ctx, `SELECT `+groupAgentBindingColumns+` FROM p2p_group_agent_bindings WHERE room_id=$1`, roomID))
 	if errors.Is(err, sql.ErrNoRows) {

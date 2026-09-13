@@ -72,7 +72,8 @@ func (s *Server) startGroupAgent(ctx context.Context, req *capv1.StartOperationR
 	if capv1.ValidateOperationID(req.OperationId) != nil || req.CallContext.RootOperationId != req.OperationId || req.ExpectedRevision != 0 {
 		return fail(capabilityError(capv1.ErrorCode_ERROR_CODE_INVALID_ARGUMENT, "invalid private group Agent operation identity"))
 	}
-	if req.Operation != "publish" && req.Operation != "complete" && req.Operation != "enqueue" {
+	if req.Operation != "publish" && req.Operation != "complete" && req.Operation != "enqueue" &&
+		req.Operation != "record_schedule" && req.Operation != "remove_schedule" {
 		return fail(capabilityError(capv1.ErrorCode_ERROR_CODE_NOT_FOUND, "private group Agent mutation is unavailable"))
 	}
 	digest := sha256.Sum256(req.RequestJson)

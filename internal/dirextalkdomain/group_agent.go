@@ -3,6 +3,7 @@ package dirextalkdomain
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 const GroupAgentStateEventType = "io.dirextalk.group_agent"
@@ -56,6 +57,11 @@ type GroupAgentRequest struct {
 // PostgreSQL holds that row lock until the callback and durable update finish.
 type GroupAgentStore interface {
 	GetGroupAgentBinding(context.Context, string) (GroupAgentBinding, bool, error)
+	// Group Agent schedules are mirrored from the owner's Agent so every member
+	// can read them from Product; a member's client never reaches that Agent.
+	UpsertGroupAgentSchedule(context.Context, GroupAgentSchedule) error
+	RemoveGroupAgentSchedule(context.Context, string, string) error
+	ListGroupAgentSchedules(context.Context, string, int) ([]GroupAgentSchedule, error)
 	// ListEnabledGroupAgentBindings powers the Agent's own rolling group
 	// summary sweep: it returns only bindings that are enabled for this owner
 	// and account generation.
@@ -67,4 +73,20 @@ type GroupAgentStore interface {
 	CancelGroupAgentRequests(context.Context, string, string, string) error
 	AdmitGroupAgentPublication(context.Context, string, GroupAgentRequest, []byte) error
 	MutateGroupAgentRequest(context.Context, string, func(GroupAgentBinding, *GroupAgentRequest) error) error
+}
+
+// GroupAgentSchedule is one durable schedule the group Agent owns, mirrored for
+// the room. It carries no credential and no member ticket.
+type GroupAgentSchedule struct {
+	RoomID          string     `json:"room_id"`
+	ScheduleID      string     `json:"schedule_id"`
+	Name            string     `json:"name"`
+	Capability      string     `json:"capability"`
+	Cron            string     `json:"cron,omitempty"`
+	RunAt           *time.Time `json:"run_at,omitempty"`
+	Timezone        string     `json:"timezone,omitempty"`
+	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
+	CreatedBy       string     `json:"created_by,omitempty"`
+	BindingRevision int64      `json:"binding_revision"`
+	UpdatedAt       int64      `json:"updated_at"`
 }

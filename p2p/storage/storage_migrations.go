@@ -951,6 +951,24 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			})
 		},
 	})
+	// Every member may read the group Agent's schedules, but a member's client
+	// cannot reach the owner's Agent, so Product keeps the mirror the group
+	// Agent publishes when it creates or removes one.
+	forward.AddMigrations(sqlutil.Migration{
+		Version: "p2p: group Agent schedule mirror v6",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_schedules (
+				 room_id TEXT NOT NULL REFERENCES p2p_group_agent_bindings(room_id),
+				 schedule_id UUID NOT NULL, name TEXT NOT NULL DEFAULT '', capability TEXT NOT NULL DEFAULT '',
+				 cron TEXT NOT NULL DEFAULT '', run_at TIMESTAMPTZ, timezone TEXT NOT NULL DEFAULT '',
+				 next_run_at TIMESTAMPTZ, created_by TEXT NOT NULL DEFAULT '',
+				 binding_revision BIGINT NOT NULL CHECK(binding_revision>0),
+				 updated_at BIGINT NOT NULL, PRIMARY KEY(room_id, schedule_id))`,
+				`CREATE INDEX IF NOT EXISTS p2p_group_agent_schedules_room_idx ON p2p_group_agent_schedules(room_id, schedule_id)`,
+			})
+		},
+	})
 	return forward.Up(ctx)
 }
 

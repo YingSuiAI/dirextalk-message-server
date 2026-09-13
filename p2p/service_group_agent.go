@@ -68,6 +68,41 @@ func defaultGroupAgentBinding(roomID, owner string) dirextalkdomain.GroupAgentBi
 	return dirextalkdomain.GroupAgentBinding{RoomID: roomID, OwnerMXID: owner, AgentMXID: groupYingMXID(owner), DisplayName: "Ying", MemberPolicy: "all_joined", Status: "disabled"}
 }
 
+// groupAgentSchedules lists the group Agent's mirrored schedules for one joined
+// member. Every member may read them; none of the callers may write.
+func (s *Service) groupAgentSchedules(ctx context.Context, params map[string]any) (any, *apiError) {
+	roomID := trimString(params["room_id"])
+	if _, err := spec.NewRoomID(roomID); err != nil {
+		return nil, badRequest("valid room_id is required")
+	}
+	room, err := s.groupAgentRoom(ctx, roomID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !room.IsGroup || room.Dissolved || !room.Joined[s.OwnerMXID()] {
+		return nil, statusError(403, "joined group membership is required")
+	}
+	store, err := s.groupAgentStore()
+	if err != nil {
+		return nil, internalError(err)
+	}
+	b, found, err := store.GetGroupAgentBinding(ctx, roomID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if !found || !b.Enabled {
+		return map[string]any{"schedules": []dirextalkdomain.GroupAgentSchedule{}, "binding_revision": 0}, nil
+	}
+	schedules, err := store.ListGroupAgentSchedules(ctx, roomID, groupAgentSchedulesMax)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return map[string]any{"schedules": schedules, "binding_revision": b.Revision}, nil
+}
+
+// groupAgentSchedulesMax bounds one member read page.
+const groupAgentSchedulesMax = 100
+
 func (s *Service) groupAgentGet(ctx context.Context, params map[string]any) (any, *apiError) {
 	roomID := trimString(params["room_id"])
 	if _, err := spec.NewRoomID(roomID); err != nil {
@@ -511,6 +546,14 @@ type groupAgentCapabilityParams struct {
 	Limit           int    `json:"limit"`
 	Body            string `json:"body"`
 	ActorMXID       string `json:"actor_mxid"`
+	ScheduleID      string `json:"schedule_id"`
+	Name            string `json:"name"`
+	Capability      string `json:"capability"`
+	Cron            string `json:"cron"`
+	RunAt           string `json:"run_at"`
+	Timezone        string `json:"timezone"`
+	NextRunAt       string `json:"next_run_at"`
+	CreatedBy       string `json:"created_by"`
 	Status          string `json:"status"`
 	Kind            string `json:"kind"`
 	AfterRequestID  string `json:"after_request_id"`
@@ -655,6 +698,56 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 		}
 		return map[string]any{"requests": out, "has_more": hasMore, "next_after_request_id": next}, nil
+	}
+	if operation == "record_schedule" || operation == "remove_schedule" {
+		// The Agent mirrors its durable group schedules so every member can read
+		// them from Product; a member's client never reaches the owner's Agent.
+		if p.RoomID == "" || p.ScheduleID == "" || p.Body != "" || p.ActorMXID != "" || p.Status != "" ||
+			p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 || p.AfterRequestID != "" || p.RequestID != "" || p.Limit != 0 {
+			return nil, errors.New("invalid group Agent schedule mirror")
+		}
+		scheduleID, e := uuid.Parse(p.ScheduleID)
+		if e != nil || scheduleID.String() != p.ScheduleID {
+			return nil, errors.New("schedule_id must be a canonical UUID")
+		}
+		b, found, e := store.GetGroupAgentBinding(ctx, p.RoomID)
+		if e != nil {
+			return nil, e
+		}
+		if !found || !b.Enabled || b.OwnerMXID != s.OwnerMXID() || b.AccountGeneration != s.accountGeneration {
+			return nil, dirextalkdomain.ErrGroupAgentConflict
+		}
+		if operation == "remove_schedule" {
+			if e = store.RemoveGroupAgentSchedule(ctx, p.RoomID, p.ScheduleID); e != nil {
+				return nil, e
+			}
+			return map[string]any{"status": "removed"}, nil
+		}
+		displayName := strings.TrimSpace(p.Name)
+		if displayName == "" || len(displayName) > 512 || p.CreatedBy != "" && !isHumanGroupActor(p.CreatedBy) {
+			return nil, errors.New("invalid group Agent schedule mirror")
+		}
+		schedule := dirextalkdomain.GroupAgentSchedule{RoomID: p.RoomID, ScheduleID: p.ScheduleID,
+			Name: displayName, Capability: p.Capability, Cron: p.Cron, Timezone: p.Timezone,
+			CreatedBy: p.CreatedBy, BindingRevision: b.Revision, UpdatedAt: time.Now().UnixMilli()}
+		for _, pair := range []struct {
+			raw    string
+			target **time.Time
+		}{{p.RunAt, &schedule.RunAt}, {p.NextRunAt, &schedule.NextRunAt}} {
+			if strings.TrimSpace(pair.raw) == "" {
+				continue
+			}
+			parsed, parseErr := time.Parse(time.RFC3339, pair.raw)
+			if parseErr != nil {
+				return nil, errors.New("invalid group Agent schedule mirror")
+			}
+			utc := parsed.UTC()
+			*pair.target = &utc
+		}
+		if e = store.UpsertGroupAgentSchedule(ctx, schedule); e != nil {
+			return nil, e
+		}
+		return map[string]any{"status": "recorded"}, nil
 	}
 	if operation == "enqueue" {
 		// The Agent asks Product to raise one due group schedule as an ordinary
