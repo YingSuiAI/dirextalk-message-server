@@ -510,12 +510,17 @@ type groupAgentCapabilityParams struct {
 	BindingRevision int64  `json:"binding_revision"`
 	Limit           int    `json:"limit"`
 	Body            string `json:"body"`
+	ActorMXID       string `json:"actor_mxid"`
 	Status          string `json:"status"`
 	Kind            string `json:"kind"`
 	AfterRequestID  string `json:"after_request_id"`
 	Cursor          string `json:"cursor"`
 	AfterTS         int64  `json:"after_ts"`
 }
+
+// A scheduled group request carries its own body, bounded like a member's
+// message so a due task can never publish an unbounded prompt.
+const groupAgentScheduledBodyMax = 16000
 
 func (s *Service) projectGroupAgentEvent(ctx context.Context, event *types.HeaderedEvent) error {
 	if event == nil {
@@ -650,6 +655,47 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 		}
 		return map[string]any{"requests": out, "has_more": hasMore, "next_after_request_id": next}, nil
+	}
+	if operation == "enqueue" {
+		// The Agent asks Product to raise one due group schedule as an ordinary
+		// request in its own room. Product owns the request row, and the normal
+		// group delivery then runs it with the group's own scope and posts the
+		// answer, so a scheduled result can never reach another room.
+		if p.RequestID == "" || p.RoomID == "" || p.Body == "" || p.ActorMXID == "" || len(p.Body) > groupAgentScheduledBodyMax ||
+			p.BindingRevision != 0 || p.Status != "" || p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 ||
+			p.AfterRequestID != "" || p.Limit != 0 {
+			return nil, errors.New("invalid scheduled group Agent request")
+		}
+		requestID, e := uuid.Parse(p.RequestID)
+		if e != nil || requestID.String() != p.RequestID {
+			return nil, errors.New("request_id must be a canonical UUID")
+		}
+		b, found, e := store.GetGroupAgentBinding(ctx, p.RoomID)
+		if e != nil {
+			return nil, e
+		}
+		if !found || !b.Enabled || b.OwnerMXID != s.OwnerMXID() || b.AccountGeneration != s.accountGeneration {
+			return nil, dirextalkdomain.ErrGroupAgentConflict
+		}
+		room, e := s.groupAgentRoom(ctx, p.RoomID)
+		if e != nil {
+			return nil, e
+		}
+		if !room.IsGroup || room.Dissolved || room.OwnerMXID != b.OwnerMXID || !room.Joined[b.OwnerMXID] ||
+			!room.Joined[b.AgentMXID] || !room.Joined[p.ActorMXID] || !isHumanGroupActor(p.ActorMXID) ||
+			!groupAgentMatrixBindingMatches(room, b) {
+			return nil, dirextalkdomain.ErrGroupAgentConflict
+		}
+		inserted, e := store.EnqueueGroupAgentRequest(ctx, dirextalkdomain.GroupAgentRequest{
+			RequestID: p.RequestID, RoomID: p.RoomID, EventID: "$scheduled-" + p.RequestID,
+			SenderMXID: p.ActorMXID, OwnerMXID: b.OwnerMXID, AgentMXID: b.AgentMXID,
+			BindingRevision: b.Revision, AccountGeneration: b.AccountGeneration, OriginServerTS: time.Now().UnixMilli(),
+			Body: p.Body, ScheduledBy: p.ActorMXID,
+		})
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"status": "enqueued", "replayed": !inserted}, nil
 	}
 	if operation == "bindings" {
 		if p.RequestID != "" || p.RoomID != "" || p.BindingRevision != 0 || p.Body != "" || p.Status != "" || p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 || p.AfterRequestID != "" {
@@ -857,6 +903,16 @@ func (s *Service) validateGroupAgentRequest(ctx context.Context, b dirextalkdoma
 	}
 	if !groupAgentMatrixBindingMatches(room, b) {
 		return message, false, nil
+	}
+	// A due group schedule has no member message behind it: Product stored the
+	// body with the request, and the room, binding, membership and actor facts
+	// above are still the authorization for running it.
+	if r.ScheduledBy != "" {
+		if strings.TrimSpace(r.Body) == "" || len(r.Body) > groupAgentScheduledBodyMax {
+			return message, false, nil
+		}
+		return dirextalktransport.GroupAgentMessage{RoomID: r.RoomID, EventID: r.EventID, SenderMXID: r.SenderMXID,
+			Body: r.Body, OriginServerTS: r.OriginServerTS, Mentions: []string{b.AgentMXID}}, true, nil
 	}
 	reader, ok := s.transport.(dirextalktransport.GroupAgentReadPort)
 	if !ok {

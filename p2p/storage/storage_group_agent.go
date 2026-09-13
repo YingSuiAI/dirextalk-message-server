@@ -5,12 +5,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 )
 
 const groupAgentBindingColumns = `room_id,enabled,owner_mxid,agent_mxid,revision,account_generation,enabled_at`
-const groupAgentRequestColumns = `request_id,room_id,event_id,sender_mxid,owner_mxid,agent_mxid,binding_revision,account_generation,origin_server_ts,status,reply_event_id,reply_digest`
+const groupAgentRequestColumns = `request_id,room_id,event_id,sender_mxid,owner_mxid,agent_mxid,binding_revision,account_generation,origin_server_ts,status,reply_event_id,reply_digest,body,scheduled_by`
+
+// groupAgentRequestQueueMax bounds one room's pending requests so a runaway
+// producer cannot grow the outbox without limit.
+const groupAgentRequestQueueMax = 256
 
 type groupAgentScanner interface{ Scan(...any) error }
 
@@ -23,7 +28,7 @@ func scanGroupAgentBinding(row groupAgentScanner) (b dirextalkdomain.GroupAgentB
 	return
 }
 func scanGroupAgentRequest(row groupAgentScanner) (r dirextalkdomain.GroupAgentRequest, err error) {
-	err = row.Scan(&r.RequestID, &r.RoomID, &r.EventID, &r.SenderMXID, &r.OwnerMXID, &r.AgentMXID, &r.BindingRevision, &r.AccountGeneration, &r.OriginServerTS, &r.Status, &r.ReplyEventID, &r.ReplyDigest)
+	err = row.Scan(&r.RequestID, &r.RoomID, &r.EventID, &r.SenderMXID, &r.OwnerMXID, &r.AgentMXID, &r.BindingRevision, &r.AccountGeneration, &r.OriginServerTS, &r.Status, &r.ReplyEventID, &r.ReplyDigest, &r.Body, &r.ScheduledBy)
 	return
 }
 
@@ -107,10 +112,18 @@ func (s *DatabaseStore) EnqueueGroupAgentRequest(ctx context.Context, r dirextal
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM p2p_group_agent_requests WHERE room_id=$1 AND status='pending'`, r.RoomID).Scan(&count); err != nil {
 		return false, err
 	}
-	if count >= 256 {
+	if count >= groupAgentRequestQueueMax {
 		return false, dirextalkdomain.ErrGroupAgentQueueFull
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO p2p_group_agent_requests (`+groupAgentRequestColumns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','','') ON CONFLICT DO NOTHING`, r.RequestID, r.RoomID, r.EventID, r.SenderMXID, r.OwnerMXID, r.AgentMXID, r.BindingRevision, r.AccountGeneration, r.OriginServerTS)
+	// A member request's body always comes from the room transcript, so the
+	// enqueue caller may never supply one. A due schedule has no member message
+	// behind it and is the single case where Product stores the body itself.
+	if r.ScheduledBy == "" {
+		r.Body = ""
+	} else if strings.TrimSpace(r.Body) == "" {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO p2p_group_agent_requests (`+groupAgentRequestColumns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending','','',$10,$11) ON CONFLICT DO NOTHING`, r.RequestID, r.RoomID, r.EventID, r.SenderMXID, r.OwnerMXID, r.AgentMXID, r.BindingRevision, r.AccountGeneration, r.OriginServerTS, r.Body, r.ScheduledBy)
 	if err != nil {
 		return false, err
 	}

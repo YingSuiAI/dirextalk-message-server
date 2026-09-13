@@ -40,6 +40,9 @@ type GroupAgentRequest struct {
 	AccountGeneration int64  `json:"account_generation"`
 	OriginServerTS    int64  `json:"origin_server_ts"`
 	Body              string `json:"body,omitempty"`
+	// ScheduledBy marks a request a due group schedule produced. Its body is
+	// stored with the request because no member message stands behind it.
+	ScheduledBy string `json:"scheduled_by,omitempty"`
 	// SenderDisplayName is hydrated with the body at delivery time, sanitized,
 	// and used only to attribute the message inside the group conversation.
 	SenderDisplayName string `json:"sender_display_name,omitempty"`

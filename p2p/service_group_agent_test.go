@@ -175,6 +175,62 @@ func groupAgentEnqueue(t *testing.T, s *Service, m *groupAgentMatrixFixture, roo
 	return r
 }
 
+// A due group schedule has no member message behind it, so Product stores the
+// body with the request. Everything else stays the normal path: the same
+// binding, membership, delivery and publication, which is what keeps a
+// scheduled result inside its own room.
+func TestGroupAgentScheduledRequestCarriesItsOwnBody(t *testing.T) {
+	s, _, room := groupAgentFixture(t)
+	mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": true})
+	requestID := uuid.NewString()
+	body := "[定时任务·每日群聊总结] 总结本群今天的讨论"
+	enqueued := groupAgentCall(t, s, "enqueue", map[string]any{
+		"request_id": requestID, "room_id": room, "actor_mxid": "@member:remote.test", "body": body,
+	})
+	if enqueued["status"] != "enqueued" || enqueued["replayed"] != false {
+		t.Fatalf("enqueue = %#v", enqueued)
+	}
+	page := groupAgentCall(t, s, "pull", map[string]any{"limit": 10})
+	requests, ok := page["requests"].([]dirextalkdomain.GroupAgentRequest)
+	if !ok || len(requests) != 1 {
+		t.Fatalf("pull = %#v", page["requests"])
+	}
+	if requests[0].RequestID != requestID || requests[0].Body != body ||
+		requests[0].SenderMXID != "@member:remote.test" || requests[0].ScheduledBy != "@member:remote.test" {
+		t.Fatalf("scheduled request = %#v", requests[0])
+	}
+	// One due occurrence is one request, however often the Agent retries.
+	replay := groupAgentCall(t, s, "enqueue", map[string]any{
+		"request_id": requestID, "room_id": room, "actor_mxid": "@member:remote.test", "body": body,
+	})
+	if replay["replayed"] != true {
+		t.Fatalf("replayed enqueue = %#v", replay)
+	}
+}
+
+func TestGroupAgentScheduledRequestRefusesUnsharedOrForeignRooms(t *testing.T) {
+	s, _, room := groupAgentFixture(t)
+	raw, _ := json.Marshal(map[string]any{
+		"request_id": uuid.NewString(), "room_id": room, "actor_mxid": "@member:remote.test", "body": "scheduled",
+	})
+	if _, err := s.InvokeGroupAgentCapability(context.Background(), "enqueue", raw); err == nil {
+		t.Fatal("a room whose owner never shared Ying accepted a scheduled request")
+	}
+	mustHandle[dirextalkdomain.GroupAgentBinding](t, s, "groups.agent.update", map[string]any{"room_id": room, "enabled": true})
+	unjoined, _ := json.Marshal(map[string]any{
+		"request_id": uuid.NewString(), "room_id": room, "actor_mxid": "@stranger:remote.test", "body": "scheduled",
+	})
+	if _, err := s.InvokeGroupAgentCapability(context.Background(), "enqueue", unjoined); err == nil {
+		t.Fatal("a non-member actor raised a scheduled request")
+	}
+	scheduledByAgent, _ := json.Marshal(map[string]any{
+		"request_id": uuid.NewString(), "room_id": room, "actor_mxid": "@ying:example.test", "body": "scheduled",
+	})
+	if _, err := s.InvokeGroupAgentCapability(context.Background(), "enqueue", scheduledByAgent); err == nil {
+		t.Fatal("the group Agent itself raised a scheduled request")
+	}
+}
+
 func TestGroupYingRoomDisplayNameIsSharedNotOwnerScoped(t *testing.T) {
 	for _, owner := range []string{"Ott", "  ", "李娜"} {
 		if got := groupYingRoomDisplayName(owner); got != "Ying" {

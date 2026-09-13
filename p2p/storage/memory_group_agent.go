@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 )
@@ -73,10 +74,17 @@ func (s *MemoryStore) EnqueueGroupAgentRequest(_ context.Context, r dirextalkdom
 			count++
 		}
 	}
-	if count >= 256 {
+	if count >= groupAgentRequestQueueMax {
 		return false, dirextalkdomain.ErrGroupAgentQueueFull
 	}
-	r.Body = ""
+	// A member request's body always comes from the room transcript, so the
+	// enqueue caller may never supply one. A due schedule has no member message
+	// behind it and is the single case where Product stores the body itself.
+	if r.ScheduledBy == "" {
+		r.Body = ""
+	} else if strings.TrimSpace(r.Body) == "" {
+		return false, nil
+	}
 	r.Status = "pending"
 	s.groupAgentRequests[r.RequestID] = r
 	return true, nil
