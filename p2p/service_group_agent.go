@@ -317,6 +317,27 @@ const GroupAgentSchedulesStateEventType = "io.dirextalk.group_agent_schedules"
 // groupAgentSchedulesStateMax bounds the published list.
 const groupAgentSchedulesStateMax = 40
 
+// GroupAgentMemoryStateEventType carries the group's own rolling digest in the
+// room, so every member's node holds the same memory of that group.
+const GroupAgentMemoryStateEventType = "io.dirextalk.group_agent_memory"
+
+// groupAgentMemoryStateMax bounds the published digest.
+const groupAgentMemoryStateMax = 8 << 10
+
+func (s *Service) publishGroupAgentMemory(ctx context.Context, roomID, summary string, coveredThroughTS int64, messageCount int) error {
+	if s.transport == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(summary)
+	if trimmed == "" || len(trimmed) > groupAgentMemoryStateMax {
+		return nil
+	}
+	content := map[string]any{"version": 1, "summary": trimmed, "covered_through_ts": coveredThroughTS,
+		"message_count": messageCount, "updated_at": time.Now().UnixMilli()}
+	return s.transport.SendStateEvent(ctx, SendStateEventRequest{RoomID: roomID, SenderMXID: s.OwnerMXID(),
+		Event: RoomStateEvent{Type: GroupAgentMemoryStateEventType, StateKey: "", Content: content}})
+}
+
 func (s *Service) publishGroupAgentSchedules(ctx context.Context, roomID string) error {
 	if s.transport == nil {
 		return nil
@@ -577,25 +598,28 @@ func groupAgentRoster(room dirextalktransport.GroupAgentRoom, b dirextalkdomain.
 // groupAgentCapabilityParams is the canonical private request envelope. Unknown
 // fields are rejected, so every operation declares exactly what it needs.
 type groupAgentCapabilityParams struct {
-	RequestID       string `json:"request_id"`
-	RoomID          string `json:"room_id"`
-	BindingRevision int64  `json:"binding_revision"`
-	Limit           int    `json:"limit"`
-	Body            string `json:"body"`
-	ActorMXID       string `json:"actor_mxid"`
-	ScheduleID      string `json:"schedule_id"`
-	Name            string `json:"name"`
-	Capability      string `json:"capability"`
-	Cron            string `json:"cron"`
-	RunAt           string `json:"run_at"`
-	Timezone        string `json:"timezone"`
-	NextRunAt       string `json:"next_run_at"`
-	CreatedBy       string `json:"created_by"`
-	Status          string `json:"status"`
-	Kind            string `json:"kind"`
-	AfterRequestID  string `json:"after_request_id"`
-	Cursor          string `json:"cursor"`
-	AfterTS         int64  `json:"after_ts"`
+	RequestID        string `json:"request_id"`
+	RoomID           string `json:"room_id"`
+	BindingRevision  int64  `json:"binding_revision"`
+	Limit            int    `json:"limit"`
+	Body             string `json:"body"`
+	ActorMXID        string `json:"actor_mxid"`
+	Summary          string `json:"summary"`
+	CoveredThroughTS int64  `json:"covered_through_ts"`
+	MessageCount     int    `json:"message_count"`
+	ScheduleID       string `json:"schedule_id"`
+	Name             string `json:"name"`
+	Capability       string `json:"capability"`
+	Cron             string `json:"cron"`
+	RunAt            string `json:"run_at"`
+	Timezone         string `json:"timezone"`
+	NextRunAt        string `json:"next_run_at"`
+	CreatedBy        string `json:"created_by"`
+	Status           string `json:"status"`
+	Kind             string `json:"kind"`
+	AfterRequestID   string `json:"after_request_id"`
+	Cursor           string `json:"cursor"`
+	AfterTS          int64  `json:"after_ts"`
 }
 
 // A scheduled group request carries its own body, bounded like a member's
@@ -735,6 +759,28 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 		}
 		return map[string]any{"requests": out, "has_more": hasMore, "next_after_request_id": next}, nil
+	}
+	if operation == "record_memory" {
+		// The group's own rolling digest, published into the room so every
+		// member's node holds the same memory of that group. It never carries
+		// the owner's private Knowledge or another conversation.
+		if p.RoomID == "" || strings.TrimSpace(p.Summary) == "" || len(p.Summary) > groupAgentMemoryStateMax ||
+			p.CoveredThroughTS < 0 || p.MessageCount < 0 || p.RequestID != "" || p.Body != "" ||
+			p.ActorMXID != "" || p.Status != "" || p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 ||
+			p.AfterRequestID != "" || p.Limit != 0 || p.ScheduleID != "" {
+			return nil, errors.New("invalid group Agent memory mirror")
+		}
+		b, found, e := store.GetGroupAgentBinding(ctx, p.RoomID)
+		if e != nil {
+			return nil, e
+		}
+		if !found || !b.Enabled || b.OwnerMXID != s.OwnerMXID() || b.AccountGeneration != s.accountGeneration {
+			return nil, dirextalkdomain.ErrGroupAgentConflict
+		}
+		if e = s.publishGroupAgentMemory(ctx, p.RoomID, p.Summary, p.CoveredThroughTS, p.MessageCount); e != nil {
+			return nil, e
+		}
+		return map[string]any{"status": "recorded"}, nil
 	}
 	if operation == "record_schedule" || operation == "remove_schedule" {
 		// The Agent mirrors its durable group schedules so every member can read
