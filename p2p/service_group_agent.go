@@ -317,6 +317,30 @@ const GroupAgentSchedulesStateEventType = "io.dirextalk.group_agent_schedules"
 // groupAgentSchedulesStateMax bounds the published list.
 const groupAgentSchedulesStateMax = 40
 
+// GroupAgentAssetsStateEventType carries the group's servers and delivered
+// artifacts in the room, so every member reads the same view of what this group
+// Agent built and produced.
+const GroupAgentAssetsStateEventType = "io.dirextalk.group_agent_assets"
+
+// groupAgentAssetsStateMax bounds the published list.
+const groupAgentAssetsStateMax = 40
+
+func (s *Service) publishGroupAgentAssets(ctx context.Context, roomID string, servers, artifacts []map[string]any) error {
+	if s.transport == nil {
+		return nil
+	}
+	if len(servers) > groupAgentAssetsStateMax {
+		servers = servers[:groupAgentAssetsStateMax]
+	}
+	if len(artifacts) > groupAgentAssetsStateMax {
+		artifacts = artifacts[:groupAgentAssetsStateMax]
+	}
+	content := map[string]any{"version": 1, "servers": servers, "artifacts": artifacts,
+		"updated_at": time.Now().UnixMilli()}
+	return s.transport.SendStateEvent(ctx, SendStateEventRequest{RoomID: roomID, SenderMXID: s.OwnerMXID(),
+		Event: RoomStateEvent{Type: GroupAgentAssetsStateEventType, StateKey: "", Content: content}})
+}
+
 // GroupAgentMemoryStateEventType carries the group's own rolling digest in the
 // room, so every member's node holds the same memory of that group.
 const GroupAgentMemoryStateEventType = "io.dirextalk.group_agent_memory"
@@ -598,28 +622,30 @@ func groupAgentRoster(room dirextalktransport.GroupAgentRoom, b dirextalkdomain.
 // groupAgentCapabilityParams is the canonical private request envelope. Unknown
 // fields are rejected, so every operation declares exactly what it needs.
 type groupAgentCapabilityParams struct {
-	RequestID        string `json:"request_id"`
-	RoomID           string `json:"room_id"`
-	BindingRevision  int64  `json:"binding_revision"`
-	Limit            int    `json:"limit"`
-	Body             string `json:"body"`
-	ActorMXID        string `json:"actor_mxid"`
-	Summary          string `json:"summary"`
-	CoveredThroughTS int64  `json:"covered_through_ts"`
-	MessageCount     int    `json:"message_count"`
-	ScheduleID       string `json:"schedule_id"`
-	Name             string `json:"name"`
-	Capability       string `json:"capability"`
-	Cron             string `json:"cron"`
-	RunAt            string `json:"run_at"`
-	Timezone         string `json:"timezone"`
-	NextRunAt        string `json:"next_run_at"`
-	CreatedBy        string `json:"created_by"`
-	Status           string `json:"status"`
-	Kind             string `json:"kind"`
-	AfterRequestID   string `json:"after_request_id"`
-	Cursor           string `json:"cursor"`
-	AfterTS          int64  `json:"after_ts"`
+	RequestID        string           `json:"request_id"`
+	RoomID           string           `json:"room_id"`
+	BindingRevision  int64            `json:"binding_revision"`
+	Limit            int              `json:"limit"`
+	Body             string           `json:"body"`
+	ActorMXID        string           `json:"actor_mxid"`
+	Summary          string           `json:"summary"`
+	CoveredThroughTS int64            `json:"covered_through_ts"`
+	MessageCount     int              `json:"message_count"`
+	Servers          []map[string]any `json:"servers"`
+	Artifacts        []map[string]any `json:"artifacts"`
+	ScheduleID       string           `json:"schedule_id"`
+	Name             string           `json:"name"`
+	Capability       string           `json:"capability"`
+	Cron             string           `json:"cron"`
+	RunAt            string           `json:"run_at"`
+	Timezone         string           `json:"timezone"`
+	NextRunAt        string           `json:"next_run_at"`
+	CreatedBy        string           `json:"created_by"`
+	Status           string           `json:"status"`
+	Kind             string           `json:"kind"`
+	AfterRequestID   string           `json:"after_request_id"`
+	Cursor           string           `json:"cursor"`
+	AfterTS          int64            `json:"after_ts"`
 }
 
 // A scheduled group request carries its own body, bounded like a member's
@@ -759,6 +785,26 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			}
 		}
 		return map[string]any{"requests": out, "has_more": hasMore, "next_after_request_id": next}, nil
+	}
+	// The group's servers and delivered artifacts, published into the room so
+	// every member reads the same view of what this group Agent built.
+	if operation == "record_assets" {
+		if p.RoomID == "" || p.RequestID != "" || p.Body != "" || p.ActorMXID != "" || p.Status != "" ||
+			p.Kind != "" || p.Cursor != "" || p.AfterTS != 0 || p.AfterRequestID != "" || p.Limit != 0 ||
+			p.ScheduleID != "" || p.Summary != "" || p.CoveredThroughTS != 0 || p.MessageCount != 0 {
+			return nil, errors.New("invalid group Agent assets mirror")
+		}
+		b, found, e := store.GetGroupAgentBinding(ctx, p.RoomID)
+		if e != nil {
+			return nil, e
+		}
+		if !found || !b.Enabled || b.OwnerMXID != s.OwnerMXID() || b.AccountGeneration != s.accountGeneration {
+			return nil, dirextalkdomain.ErrGroupAgentConflict
+		}
+		if e = s.publishGroupAgentAssets(ctx, p.RoomID, p.Servers, p.Artifacts); e != nil {
+			return nil, e
+		}
+		return map[string]any{"status": "recorded"}, nil
 	}
 	if operation == "record_memory" {
 		// The group's own rolling digest, published into the room so every
