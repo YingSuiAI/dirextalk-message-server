@@ -309,6 +309,43 @@ func groupYingRoomDisplayName(ownerDisplayName string) string {
 	return "Ying"
 }
 
+// GroupAgentSchedulesStateEventType carries the group Agent's schedule list in
+// the room itself. Matrix federates room state to every member's node, so a
+// member on another node reads the same list without any cross-node call.
+const GroupAgentSchedulesStateEventType = "io.dirextalk.group_agent_schedules"
+
+// groupAgentSchedulesStateMax bounds the published list.
+const groupAgentSchedulesStateMax = 40
+
+func (s *Service) publishGroupAgentSchedules(ctx context.Context, roomID string) error {
+	if s.transport == nil {
+		return nil
+	}
+	store, err := s.groupAgentStore()
+	if err != nil {
+		return err
+	}
+	schedules, err := store.ListGroupAgentSchedules(ctx, roomID, groupAgentSchedulesStateMax)
+	if err != nil {
+		return err
+	}
+	items := make([]map[string]any, 0, len(schedules))
+	for _, schedule := range schedules {
+		item := map[string]any{"schedule_id": schedule.ScheduleID, "name": schedule.Name, "capability": schedule.Capability,
+			"cron": schedule.Cron, "timezone": schedule.Timezone, "created_by": schedule.CreatedBy}
+		if schedule.RunAt != nil {
+			item["run_at"] = schedule.RunAt.UTC().Format(time.RFC3339)
+		}
+		if schedule.NextRunAt != nil {
+			item["next_run_at"] = schedule.NextRunAt.UTC().Format(time.RFC3339)
+		}
+		items = append(items, item)
+	}
+	content := map[string]any{"version": 1, "schedules": items, "updated_at": time.Now().UnixMilli()}
+	return s.transport.SendStateEvent(ctx, SendStateEventRequest{RoomID: roomID, SenderMXID: s.OwnerMXID(),
+		Event: RoomStateEvent{Type: GroupAgentSchedulesStateEventType, StateKey: "", Content: content}})
+}
+
 func (s *Service) publishGroupAgentState(ctx context.Context, b dirextalkdomain.GroupAgentBinding) error {
 	if s.transport == nil {
 		return nil
@@ -721,6 +758,9 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			if e = store.RemoveGroupAgentSchedule(ctx, p.RoomID, p.ScheduleID); e != nil {
 				return nil, e
 			}
+			if e = s.publishGroupAgentSchedules(ctx, p.RoomID); e != nil {
+				return nil, e
+			}
 			return map[string]any{"status": "removed"}, nil
 		}
 		displayName := strings.TrimSpace(p.Name)
@@ -745,6 +785,11 @@ func (s *Service) InvokeGroupAgentCapability(ctx context.Context, operation stri
 			*pair.target = &utc
 		}
 		if e = store.UpsertGroupAgentSchedule(ctx, schedule); e != nil {
+			return nil, e
+		}
+		// Publish the list into the room so every member's node has it, whatever
+		// node the member is on.
+		if e = s.publishGroupAgentSchedules(ctx, p.RoomID); e != nil {
 			return nil, e
 		}
 		return map[string]any{"status": "recorded"}, nil
