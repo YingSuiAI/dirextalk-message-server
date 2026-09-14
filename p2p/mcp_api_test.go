@@ -342,10 +342,12 @@ type fakeMCPMessageReader struct {
 	messages []mcpMessageSummary
 	err      error
 	calls    int
+	lastPage mcpMessagePage
 }
 
 func (r *fakeMCPMessageReader) ListOrdinaryMessages(ctx context.Context, roomID string, page mcpMessagePage) (mcpMessagePageResult, error) {
 	r.calls++
+	r.lastPage = page
 	if r.err != nil {
 		return mcpMessagePageResult{}, r.err
 	}

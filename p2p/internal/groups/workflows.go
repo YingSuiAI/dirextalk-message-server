@@ -10,6 +10,11 @@ import (
 )
 
 func (m *Module) Create(ctx context.Context, raw map[string]any) (any, *actionbase.Error) {
+	if value, present := raw["agent_enabled"]; present {
+		if _, ok := value.(bool); !ok {
+			return nil, actionbase.BadRequest("agent_enabled must be a boolean")
+		}
+	}
 	params := actionbase.Params(raw)
 	roomID := params.String("room_id")
 	needsStatePublish := roomID != ""
@@ -53,6 +58,13 @@ func (m *Module) Create(ctx context.Context, raw map[string]any) (any, *actionba
 	result, err := m.WithOperation(ctx, group, actionCreate, "ok")
 	if err != nil {
 		return nil, actionbase.InternalError(err)
+	}
+	if m.config.CreateAgentBinding != nil {
+		binding, apiErr := m.config.CreateAgentBinding(ctx, roomID, params.Bool("agent_enabled"))
+		if apiErr != nil {
+			result.AgentBindingError = "group_agent_enable_incomplete"
+		}
+		result.AgentBinding = binding
 	}
 	return result, nil
 }
@@ -167,6 +179,11 @@ func (m *Module) Dissolve(ctx context.Context, raw map[string]any) (any, *action
 	}
 	if actionErr := m.config.RequireOwner(ctx, group.RoomID); actionErr != nil {
 		return nil, actionErr
+	}
+	if m.config.BeforeDissolve != nil {
+		if err := m.config.BeforeDissolve(ctx, roomID); err != nil {
+			return nil, actionbase.InternalError(err)
+		}
 	}
 	if err := m.publishState(ctx, group, true); err != nil {
 		return nil, actionbase.InternalError(err)

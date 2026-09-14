@@ -31,10 +31,11 @@ func (t *DendriteTransport) InviteUser(ctx context.Context, req InviteUserReques
 		return err
 	}
 	if err = productpolicy.ValidateClientMembership(ctx, t.productPolicyQuerier(), productpolicy.ClientMembershipRequest{
-		RoomID:     req.RoomID,
-		SenderMXID: req.InviterMXID,
-		TargetMXID: req.InviteeMXID,
-		Membership: string(spec.Invite),
+		RoomID:            req.RoomID,
+		SenderMXID:        req.InviterMXID,
+		TargetMXID:        req.InviteeMXID,
+		Membership:        string(spec.Invite),
+		GroupAgentControl: req.GroupAgentControl,
 	}); err != nil {
 		return err
 	}

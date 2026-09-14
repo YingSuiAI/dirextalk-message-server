@@ -91,7 +91,12 @@ var actionSpecs = []ActionSpec{
 	{Name: "calls.active", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "calls.list", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 
-	{Name: "groups.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
+	{Name: "groups.create", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly, Schema: groupAgentCreateSchema()},
+	{Name: "groups.agent.get", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly, Schema: groupAgentSchema(false)},
+	{Name: "groups.agent.update", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly, Schema: groupAgentSchema(true)},
+	// Every joined member may read the group Agent's mirrored schedules; the
+	// schema is the plain room selector the group Agent surface already uses.
+	{Name: "groups.agent.schedules", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly, Schema: groupAgentSchema(false)},
 	{Name: "groups.update", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "groups.invite", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},
 	{Name: "groups.join", Auth: ActionAuthOwner, Transport: ActionTransportHTTPOnly},

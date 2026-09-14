@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
+	"github.com/YingSuiAI/dirextalk-message-server/internal/productpolicy"
 	actionbase "github.com/YingSuiAI/dirextalk-message-server/p2p/internal/action"
 )
 
@@ -33,6 +34,13 @@ func (m *Module) Invite(ctx context.Context, scope string, raw map[string]any) (
 	users := inviteMemberIDs(actionbase.Params(raw))
 	if len(users) == 0 {
 		return nil, actionbase.BadRequest("user_id is required")
+	}
+	if scope == "group" {
+		for _, userID := range users {
+			if productpolicy.IsNativeYingMXID(userID) {
+				return nil, actionbase.StatusError(http.StatusForbidden, "Native Ying can only be enabled by the group owner")
+			}
+		}
 	}
 	if scope == "channel" && roomID == "" && channelID != "" {
 		if m.config.LookupChannel == nil {

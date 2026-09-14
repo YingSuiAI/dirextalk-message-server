@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/YingSuiAI/dirextalk-message-server/internal/dirextalkdomain"
 	"github.com/YingSuiAI/dirextalk-message-server/p2p/internal/operations"
 )
 
@@ -9,10 +10,14 @@ import (
 // state is intentionally retained to preserve that path's existing behavior.
 // This optional capability is not part of the durable Store contract.
 func (s *MemoryStore) ResetAccountState() {
+	s.groupAgentMu.Lock()
+	defer s.groupAgentMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.portal = nil
+	s.groupAgentBindings = make(map[string]dirextalkdomain.GroupAgentBinding)
+	s.groupAgentRequests = make(map[string]dirextalkdomain.GroupAgentRequest)
 	s.readMarks = make(map[string]readMarker)
 	s.conversations = make(map[string]conversationRecord)
 	s.channels = make(map[string]channel)

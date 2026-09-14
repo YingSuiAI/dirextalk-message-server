@@ -22,15 +22,17 @@ const (
 // View is the public ProductCore group response. Operation and Conversation
 // are response-only presentation fields and are never written to Store.
 type View struct {
-	RoomID       string                            `json:"room_id"`
-	Name         string                            `json:"name"`
-	Topic        string                            `json:"topic"`
-	AvatarURL    string                            `json:"avatar_url"`
-	MemberCount  int64                             `json:"member_count"`
-	InvitePolicy string                            `json:"invite_policy"`
-	Muted        bool                              `json:"muted"`
-	Operation    map[string]any                    `json:"operation,omitempty"`
-	Conversation *dirextalkdomain.ConversationView `json:"conversation,omitempty"`
+	RoomID            string                             `json:"room_id"`
+	Name              string                             `json:"name"`
+	Topic             string                             `json:"topic"`
+	AvatarURL         string                             `json:"avatar_url"`
+	MemberCount       int64                              `json:"member_count"`
+	InvitePolicy      string                             `json:"invite_policy"`
+	Muted             bool                               `json:"muted"`
+	Operation         map[string]any                     `json:"operation,omitempty"`
+	Conversation      *dirextalkdomain.ConversationView  `json:"conversation,omitempty"`
+	AgentBinding      *dirextalkdomain.GroupAgentBinding `json:"agent_binding,omitempty"`
+	AgentBindingError string                             `json:"agent_binding_error,omitempty"`
 }
 
 // Store is the durable group repository used by Module.
@@ -52,12 +54,14 @@ type ConversationPort interface {
 // Config contains the narrow Matrix, membership, and identity boundaries used
 // by group workflows. Durable group and conversation state remain module-owned.
 type Config struct {
-	CreateRoom      func(context.Context, View) (string, *actionbase.Error)
-	SaveOwnerMember func(context.Context, string) error
-	PublishState    func(context.Context, View, bool) error
-	SetMemberMute   func(context.Context, string, bool) *actionbase.Error
-	RequireOwner    func(context.Context, string) *actionbase.Error
-	OwnerMXID       func() string
+	CreateRoom         func(context.Context, View) (string, *actionbase.Error)
+	SaveOwnerMember    func(context.Context, string) error
+	PublishState       func(context.Context, View, bool) error
+	SetMemberMute      func(context.Context, string, bool) *actionbase.Error
+	RequireOwner       func(context.Context, string) *actionbase.Error
+	OwnerMXID          func() string
+	CreateAgentBinding func(context.Context, string, bool) (*dirextalkdomain.GroupAgentBinding, *actionbase.Error)
+	BeforeDissolve     func(context.Context, string) error
 }
 
 type Module struct {

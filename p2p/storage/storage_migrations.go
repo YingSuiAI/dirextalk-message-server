@@ -920,6 +920,55 @@ func (s *DatabaseStore) migrate(ctx context.Context) error {
 			return err
 		},
 	})
+	forward.AddMigrations(sqlutil.Migration{
+		Version: "p2p: owner group Ying grants and request outbox v4",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_bindings (
+				 room_id TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE,
+				 owner_mxid TEXT NOT NULL DEFAULT '', agent_mxid TEXT NOT NULL DEFAULT '',
+				 revision BIGINT NOT NULL DEFAULT 0 CHECK(revision>=0),
+				 account_generation BIGINT NOT NULL DEFAULT 0, enabled_at BIGINT NOT NULL DEFAULT 0)`,
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_requests (
+				 request_id UUID PRIMARY KEY, room_id TEXT NOT NULL REFERENCES p2p_group_agent_bindings(room_id),
+				 event_id TEXT NOT NULL, sender_mxid TEXT NOT NULL, owner_mxid TEXT NOT NULL, agent_mxid TEXT NOT NULL,
+				 binding_revision BIGINT NOT NULL CHECK(binding_revision>0), account_generation BIGINT NOT NULL CHECK(account_generation>0),
+				 origin_server_ts BIGINT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','published','cancelled','failed')),
+				 reply_event_id TEXT NOT NULL DEFAULT '', reply_digest TEXT NOT NULL DEFAULT '',
+				 UNIQUE(room_id,event_id))`,
+				`CREATE INDEX IF NOT EXISTS p2p_group_agent_requests_pending_idx ON p2p_group_agent_requests(owner_mxid,account_generation,request_id) WHERE status='pending'`,
+			})
+		},
+	})
+	// A scheduled group task has no member message behind it, so its request
+	// carries its own body instead of resolving one from the room transcript.
+	forward.AddMigrations(sqlutil.Migration{
+		Version: "p2p: group Agent scheduled request body v5",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`ALTER TABLE p2p_group_agent_requests ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT ''`,
+				`ALTER TABLE p2p_group_agent_requests ADD COLUMN IF NOT EXISTS scheduled_by TEXT NOT NULL DEFAULT ''`,
+			})
+		},
+	})
+	// Every member may read the group Agent's schedules, but a member's client
+	// cannot reach the owner's Agent, so Product keeps the mirror the group
+	// Agent publishes when it creates or removes one.
+	forward.AddMigrations(sqlutil.Migration{
+		Version: "p2p: group Agent schedule mirror v6",
+		Up: func(ctx context.Context, txn *sql.Tx) error {
+			return execMigrationStatements(ctx, txn, []string{
+				`CREATE TABLE IF NOT EXISTS p2p_group_agent_schedules (
+				 room_id TEXT NOT NULL REFERENCES p2p_group_agent_bindings(room_id),
+				 schedule_id UUID NOT NULL, name TEXT NOT NULL DEFAULT '', capability TEXT NOT NULL DEFAULT '',
+				 cron TEXT NOT NULL DEFAULT '', run_at TIMESTAMPTZ, timezone TEXT NOT NULL DEFAULT '',
+				 next_run_at TIMESTAMPTZ, created_by TEXT NOT NULL DEFAULT '',
+				 binding_revision BIGINT NOT NULL CHECK(binding_revision>0),
+				 updated_at BIGINT NOT NULL, PRIMARY KEY(room_id, schedule_id))`,
+				`CREATE INDEX IF NOT EXISTS p2p_group_agent_schedules_room_idx ON p2p_group_agent_schedules(room_id, schedule_id)`,
+			})
+		},
+	})
 	return forward.Up(ctx)
 }
 

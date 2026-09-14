@@ -135,10 +135,11 @@ type ClientRedactionRequest struct {
 }
 
 type ClientMembershipRequest struct {
-	RoomID     string
-	SenderMXID string
-	TargetMXID string
-	Membership string
+	GroupAgentControl bool
+	RoomID            string
+	SenderMXID        string
+	TargetMXID        string
+	Membership        string
 }
 
 type PolicyError struct {
@@ -177,6 +178,11 @@ func ValidateClientEvent(ctx context.Context, querier CurrentStateQuerier, req C
 	}
 	if room.SenderMuted {
 		return Forbidden("sender is muted in the dirextalk room")
+	}
+	if room.RoomType == DirextalkRoomTypeGroup && eventType == "m.room.message" {
+		if err := validateGroupAgentMessage(ctx, querier, req); err != nil {
+			return err
+		}
 	}
 	if room.RoomType == DirextalkRoomTypeDirect && !room.DirectPeerJoined {
 		return Forbidden("direct room peer is not joined to the dirextalk room")
@@ -255,6 +261,9 @@ func ValidateClientMembership(ctx context.Context, querier CurrentStateQuerier, 
 		return nil
 	}
 	membership := strings.ToLower(strings.TrimSpace(req.Membership))
+	if room.RoomType == DirextalkRoomTypeGroup && membership == string(spec.Invite) && IsNativeYingMXID(req.TargetMXID) && !req.GroupAgentControl {
+		return Forbidden("Native Ying can only be enabled by the group owner")
+	}
 	if membership == string(spec.Join) && strings.TrimSpace(req.SenderMXID) == strings.TrimSpace(req.TargetMXID) {
 		if room.Dissolved {
 			return Forbidden("dirextalk room is dissolved")

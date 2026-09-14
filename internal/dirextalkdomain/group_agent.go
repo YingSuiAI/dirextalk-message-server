@@ -1,0 +1,92 @@
+package dirextalkdomain
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+const GroupAgentStateEventType = "io.dirextalk.group_agent"
+
+var ErrGroupAgentConflict = errors.New("group agent binding or request conflict")
+var ErrGroupAgentQueueFull = errors.New("group Agent request queue is full; retry after pending requests settle")
+
+// GroupAgentBinding is the authoritative, revocable grant for one group's
+// owner's Native Ying. Matrix state publishes this grant; it does not grant
+// owner tools, credentials, memory or access to other rooms.
+type GroupAgentBinding struct {
+	RoomID            string `json:"room_id"`
+	Enabled           bool   `json:"enabled"`
+	OwnerMXID         string `json:"owner_mxid"`
+	AgentMXID         string `json:"agent_mxid"`
+	DisplayName       string `json:"display_name"`
+	AvatarURL         string `json:"avatar_url"`
+	Revision          int64  `json:"revision"`
+	MemberPolicy      string `json:"member_policy"`
+	Status            string `json:"status"`
+	AccountGeneration int64  `json:"-"`
+	EnabledAt         int64  `json:"-"`
+}
+
+// GroupAgentRequest stores only trusted event references, never room history
+// or model text. Body is hydrated from Matrix only at delivery time.
+type GroupAgentRequest struct {
+	RequestID         string `json:"request_id"`
+	RoomID            string `json:"room_id"`
+	EventID           string `json:"event_id"`
+	SenderMXID        string `json:"sender_mxid"`
+	OwnerMXID         string `json:"owner_mxid"`
+	AgentMXID         string `json:"agent_mxid"`
+	BindingRevision   int64  `json:"binding_revision"`
+	AccountGeneration int64  `json:"account_generation"`
+	OriginServerTS    int64  `json:"origin_server_ts"`
+	Body              string `json:"body,omitempty"`
+	// ScheduledBy marks a request a due group schedule produced. Its body is
+	// stored with the request because no member message stands behind it.
+	ScheduledBy string `json:"scheduled_by,omitempty"`
+	// SenderDisplayName is hydrated with the body at delivery time, sanitized,
+	// and used only to attribute the message inside the group conversation.
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	Status            string `json:"-"`
+	ReplyEventID      string `json:"-"`
+	ReplyDigest       string `json:"-"`
+}
+
+// GroupAgentStore keeps grant updates and reply submission serialized by the
+// binding row. Callbacks must not reenter this interface for the same room.
+// PostgreSQL holds that row lock until the callback and durable update finish.
+type GroupAgentStore interface {
+	GetGroupAgentBinding(context.Context, string) (GroupAgentBinding, bool, error)
+	// Group Agent schedules are mirrored from the owner's Agent so every member
+	// can read them from Product; a member's client never reaches that Agent.
+	UpsertGroupAgentSchedule(context.Context, GroupAgentSchedule) error
+	RemoveGroupAgentSchedule(context.Context, string, string) error
+	ListGroupAgentSchedules(context.Context, string, int) ([]GroupAgentSchedule, error)
+	// ListEnabledGroupAgentBindings powers the Agent's own rolling group
+	// summary sweep: it returns only bindings that are enabled for this owner
+	// and account generation.
+	ListEnabledGroupAgentBindings(context.Context, string, int64, int) ([]GroupAgentBinding, error)
+	MutateGroupAgentBinding(context.Context, string, func(*GroupAgentBinding) error) error
+	EnqueueGroupAgentRequest(context.Context, GroupAgentRequest) (bool, error)
+	ListGroupAgentRequests(context.Context, string, int64, int, string) ([]GroupAgentRequest, error)
+	GetGroupAgentRequest(context.Context, string) (GroupAgentRequest, bool, error)
+	CancelGroupAgentRequests(context.Context, string, string, string) error
+	AdmitGroupAgentPublication(context.Context, string, GroupAgentRequest, []byte) error
+	MutateGroupAgentRequest(context.Context, string, func(GroupAgentBinding, *GroupAgentRequest) error) error
+}
+
+// GroupAgentSchedule is one durable schedule the group Agent owns, mirrored for
+// the room. It carries no credential and no member ticket.
+type GroupAgentSchedule struct {
+	RoomID          string     `json:"room_id"`
+	ScheduleID      string     `json:"schedule_id"`
+	Name            string     `json:"name"`
+	Capability      string     `json:"capability"`
+	Cron            string     `json:"cron,omitempty"`
+	RunAt           *time.Time `json:"run_at,omitempty"`
+	Timezone        string     `json:"timezone,omitempty"`
+	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
+	CreatedBy       string     `json:"created_by,omitempty"`
+	BindingRevision int64      `json:"binding_revision"`
+	UpdatedAt       int64      `json:"updated_at"`
+}

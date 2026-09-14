@@ -170,6 +170,9 @@ func (s *Server) Query(ctx context.Context, req *capv1.QueryRequest) (*capv1.Que
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
+	if req.GetCapabilityId() == groupAgentCapability {
+		return s.queryGroupAgent(ctx, req), nil
+	}
 	provider, operation, err := s.resolveProvider(req.CapabilityId, req.OperationId, capv1.OperationType_OPERATION_TYPE_READ)
 	if err != nil {
 		return &capv1.QueryResponse{Error: err}, nil
@@ -208,6 +211,9 @@ func (s *Server) StartOperation(ctx context.Context, req *capv1.StartOperationRe
 	}
 	if req.GetCapabilityId() == agentExecutionCompletionCapability {
 		return s.recordAgentExecutionCompletion(ctx, req), nil
+	}
+	if req.GetCapabilityId() == groupAgentCapability {
+		return s.startGroupAgent(ctx, req), nil
 	}
 	provider, operation, err := s.resolveProvider(req.CapabilityId, req.Operation, capv1.OperationType_OPERATION_TYPE_MUTATION)
 	if err != nil {
