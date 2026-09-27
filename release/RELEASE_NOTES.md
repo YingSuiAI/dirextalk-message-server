@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.1.72
+
+1. Let a group owner share their Native Ying with the group so joined members can address the same Agent through the group room.
+2. Mirror group Agent schedules, rolling memory, services, and artifacts into Matrix room state for members on different nodes. Deliver due scheduled requests to the owner's Agent through the private mutation channel.
+3. Scope group history to its owner, include the sender display name in group requests, and accept legacy Agent mentions and HTTP-decoded revisions.
+
 ## v1.1.71
 
 1. Allow Profile activity cleanup for a dissolved channel: users can delete their own retained comments and remove existing likes or favorites without reactivating or creating reactions.
